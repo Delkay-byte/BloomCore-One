@@ -1,22 +1,47 @@
-# Render Deployment Blueprint — BIK Prestige Enterprise
+# Render Deployment Blueprint — BIK Prestige Enterprise (Neon rehost)
 # https://render.com/docs/blueprint-spec
 #
-# PostgreSQL database must be created manually on Render first.
-# Then set DATABASE_URL in the web service environment variables.
+# Scope: this blueprint describes ONLY the parallel Neon-backed service
+# (`bik-prestige-enterprise-neon`). The pre-existing service
+# `bik-prestige-enterprise` is intentionally NOT described or managed here so
+# that blueprint syncs can never modify, suspend or redeploy it.
+#
+# Database schema is NEVER created or altered by a build. Provisioning the
+# schema is a separate, explicitly run operator step — see
+# docs/NEON-RENDER-DEPLOYMENT.md.
 
 services:
-  # Next.js Web Application
   - type: web
-    name: bik-prestige
+    name: bik-prestige-enterprise-neon
     runtime: node
     plan: free
-    buildCommand: npm install --include=dev && npx prisma generate --schema=prisma/schema-pg.prisma && npx prisma db push --schema=prisma/schema-pg.prisma && node scripts/ensure-columns.js && npm run build
+    region: oregon
+    branch: rehost/neon-render
+    buildCommand: npm ci && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
       - key: APP_ENV
         value: PILOT
+      # Secrets are set in the Render dashboard (sync: false = never stored in Git).
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
       - key: JWT_SECRET
-        generateValue: true
+        sync: false
+      - key: NEXTAUTH_URL
+        sync: false
+      - key: SESSION_IDLE_TIMEOUT_SECONDS
+        value: "300"
+      - key: SESSION_BACKGROUND_TIMEOUT_SECONDS
+        value: "60"
+      - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
+        value: "900"
+      - key: OFFLINE_COLLECTIONS_ENABLED
+        value: "false"
+      - key: OFFLINE_MOMO_ENABLED
+        value: "false"

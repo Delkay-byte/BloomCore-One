@@ -6,6 +6,11 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Neon: runtime queries use the POOLED hostname (DATABASE_URL).
+  // Schema administration (migrate / db push / introspect) uses the
+  // UNPOOLED direct hostname (DIRECT_URL). DIRECT_URL is only required by
+  // commands that change or inspect the schema, never by application runtime.
+  directUrl = env("DIRECT_URL")
 }
 
 // =====================
