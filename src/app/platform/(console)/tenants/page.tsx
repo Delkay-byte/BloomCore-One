@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Building2, Filter, RotateCcw, Search, UserPlus } from "lucide-react";
 import { requirePlatformPage } from "@/lib/platform-auth";
 import {
   listTenants,
@@ -7,6 +8,7 @@ import {
   type TenantStatusFilter,
 } from "@/lib/actions/platform.actions";
 import { formatDateTime } from "@/lib/utils";
+import { EmptyState, NoResults, PageHeader, Pagination } from "@/components/ui/DataDisplay";
 import { moduleBadge, onboardingLabel, TENANT_ONBOARDING, TENANT_STATUSES, tenantStatusBadge } from "../../tenant-ui";
 
 export const dynamic = "force-dynamic";
@@ -68,142 +70,144 @@ export default async function PlatformTenantsPage({
     return `/platform/tenants?${params.toString()}`;
   }
 
+  const hasFilters = Boolean(sp.q) || moduleFilter !== "all" || status !== "all" || onboarding !== "all";
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Businesses</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {result.total} enrolled {result.total === 1 ? "business" : "businesses"}
-          </p>
-        </div>
-        <Link href="/platform/tenants/new" className="btn btn-primary whitespace-nowrap">
-          ➕ Enroll Business
-        </Link>
-      </div>
+      <PageHeader
+        title="Businesses"
+        description={`${result.total} enrolled ${result.total === 1 ? "business" : "businesses"} on the platform.`}
+        actions={
+          <Link href="/platform/tenants/new" className="btn btn-primary">
+            <UserPlus size={16} aria-hidden /> Enroll Business
+          </Link>
+        }
+      />
 
       {/* Filters — plain GET form, fully server-side */}
-      <form method="GET" action="/platform/tenants" className="card bg-white grid sm:grid-cols-4 gap-3 items-end">
-        <div>
-          <label className="form-label" htmlFor="q">Search</label>
-          <input
-            type="text"
-            id="q"
-            name="q"
-            defaultValue={sp.q ?? ""}
-            placeholder="Business name or code"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          />
+      <form method="GET" action="/platform/tenants" className="card bg-white">
+        <div className="grid sm:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className="form-label" htmlFor="q">Search</label>
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+              <input
+                type="text"
+                id="q"
+                name="q"
+                defaultValue={sp.q ?? ""}
+                placeholder="Business name or code"
+                className="!pl-9"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="form-label" htmlFor="module">Modules</label>
+            <select id="module" name="module" defaultValue={moduleFilter}>
+              {MODULE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="form-label" htmlFor="status">Status</label>
+            <select id="status" name="status" defaultValue={status}>
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="form-label" htmlFor="onboarding">Onboarding</label>
+            <select id="onboarding" name="onboarding" defaultValue={onboarding}>
+              {ONBOARDING_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div>
-          <label className="form-label" htmlFor="module">Modules</label>
-          <select id="module" name="module" defaultValue={moduleFilter} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-            {MODULE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="form-label" htmlFor="status">Status</label>
-          <select id="status" name="status" defaultValue={status} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="form-label" htmlFor="onboarding">Onboarding</label>
-          <select id="onboarding" name="onboarding" defaultValue={onboarding} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-            {ONBOARDING_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="sm:col-span-4 flex gap-2">
-          <button type="submit" className="btn btn-primary text-sm px-4 py-2">Apply filters</button>
-          <Link href="/platform/tenants" className="btn text-sm px-4 py-2 border border-gray-300 text-gray-600 hover:bg-gray-50">
-            Reset
+        <div className="flex gap-2 mt-4">
+          <button type="submit" className="btn btn-primary btn-sm">
+            <Filter size={14} aria-hidden /> Apply filters
+          </button>
+          <Link href="/platform/tenants" className="btn btn-secondary btn-sm">
+            <RotateCcw size={14} aria-hidden /> Reset
           </Link>
         </div>
       </form>
 
       {result.tenants.length === 0 ? (
-        <div className="card bg-white text-center py-12">
-          <p className="text-gray-500 text-sm">
-            No businesses match these filters.
-          </p>
-          <Link href="/platform/tenants/new" className="text-sm text-slate-700 underline mt-2 inline-block">
-            Enroll a new business →
-          </Link>
+        <div className="card bg-white">
+          {hasFilters ? (
+            <NoResults hint="No businesses match these filters. Try widening or clearing them." />
+          ) : (
+            <EmptyState
+              icon={<Building2 />}
+              title="No businesses enrolled yet"
+              hint="Enroll the first MoMo business, Susu agency or combined business."
+              action={
+                <Link href="/platform/tenants/new" className="btn btn-primary btn-sm">
+                  <UserPlus size={14} aria-hidden /> Enroll Business
+                </Link>
+              }
+            />
+          )}
         </div>
       ) : (
-        <div className="card bg-white overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-gray-400 border-b border-gray-100">
-                <th className="py-3 px-4">Business</th>
-                <th className="py-3 px-4">Modules</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Onboarding</th>
-                <th className="py-3 px-4">Primary admin</th>
-                <th className="py-3 px-4">Created</th>
-                <th className="py-3 px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {result.tenants.map((t) => (
-                <tr key={t.id} className="hover:bg-gray-50">
-                  <td className="py-3 px-4">
-                    <Link href={`/platform/tenants/${t.id}`} className="font-medium text-gray-900 hover:text-slate-700">
-                      {t.name}
-                    </Link>
-                    <p className="text-xs text-gray-500 font-mono">{t.code}</p>
-                  </td>
-                  <td className="py-3 px-4">{moduleBadge(t.momoEnabled, t.susuEnabled)}</td>
-                  <td className="py-3 px-4">{tenantStatusBadge(t.status)}</td>
-                  <td className="py-3 px-4 text-gray-600">{onboardingLabel(t.onboardingStatus)}</td>
-                  <td className="py-3 px-4">
-                    {t.primaryAdmin ? (
-                      <>
-                        <p className="text-gray-900">{t.primaryAdmin.fullName}</p>
-                        <p className="text-xs text-gray-500">{t.primaryAdmin.email}</p>
-                      </>
-                    ) : (
-                      <span className="text-amber-600 text-xs">Not provisioned</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{formatDateTime(t.createdAt)}</td>
-                  <td className="py-3 px-4">
-                    <Link
-                      href={`/platform/tenants/${t.id}`}
-                      className="text-sm text-slate-700 hover:text-slate-900 font-medium whitespace-nowrap"
-                    >
-                      Manage →
-                    </Link>
-                  </td>
+        <div className="card bg-white !p-0 overflow-hidden">
+          <div className="table-container">
+            <table>
+              <caption className="sr-only">Enrolled businesses</caption>
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th scope="col" className="py-3 px-4">Business</th>
+                  <th scope="col" className="py-3 px-4">Modules</th>
+                  <th scope="col" className="py-3 px-4">Status</th>
+                  <th scope="col" className="py-3 px-4">Onboarding</th>
+                  <th scope="col" className="py-3 px-4">Primary admin</th>
+                  <th scope="col" className="py-3 px-4">Created</th>
+                  <th scope="col" className="py-3 px-4"><span className="sr-only">Actions</span></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {result.pages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-gray-500">
-            Page {result.page} of {result.pages}
-          </p>
-          <div className="flex gap-2">
-            {result.page > 1 && (
-              <Link href={pageLink(result.page - 1)} className="btn text-sm px-3 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50">
-                ← Previous
-              </Link>
-            )}
-            {result.page < result.pages && (
-              <Link href={pageLink(result.page + 1)} className="btn text-sm px-3 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50">
-                Next →
-              </Link>
-            )}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {result.tenants.map((t) => (
+                  <tr key={t.id}>
+                    <td className="py-3 px-4">
+                      <Link href={`/platform/tenants/${t.id}`} className="font-medium text-slate-900 hover:text-brand-700">
+                        {t.name}
+                      </Link>
+                      <p className="text-xs text-slate-500 font-mono">{t.code}</p>
+                    </td>
+                    <td className="py-3 px-4">{moduleBadge(t.momoEnabled, t.susuEnabled)}</td>
+                    <td className="py-3 px-4">{tenantStatusBadge(t.status)}</td>
+                    <td className="py-3 px-4 text-slate-600">{onboardingLabel(t.onboardingStatus)}</td>
+                    <td className="py-3 px-4">
+                      {t.primaryAdmin ? (
+                        <>
+                          <p className="text-slate-900">{t.primaryAdmin.fullName}</p>
+                          <p className="text-xs text-slate-500">{t.primaryAdmin.email}</p>
+                        </>
+                      ) : (
+                        <span className="badge badge-yellow">Not provisioned</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">{formatDateTime(t.createdAt)}</td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <Link
+                        href={`/platform/tenants/${t.id}`}
+                        className="text-sm font-medium text-brand-700 hover:text-brand-800"
+                        aria-label={`Manage ${t.name}`}
+                      >
+                        Manage &rarr;
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-slate-100">
+            <Pagination page={result.page} pages={result.pages} total={result.total} makeHref={pageLink} />
           </div>
         </div>
       )}

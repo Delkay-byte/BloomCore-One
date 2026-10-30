@@ -128,27 +128,27 @@ export default function EnrollTenantWizard() {
     return (
       <div className="max-w-2xl space-y-6">
         <div className="card bg-white">
-          <h1 className="text-xl font-bold text-gray-900 mb-1">Business enrolled</h1>
-          <p className="text-sm text-gray-500 mb-6">
+          <h1 className="text-xl font-bold text-slate-900 mb-1">Business enrolled</h1>
+          <p className="text-sm text-slate-500 mb-6">
             {state.name} is now enrolled on the platform.
           </p>
 
           <dl className="space-y-2 text-sm mb-6">
             <div className="flex justify-between">
-              <dt className="text-gray-500">Business</dt>
-              <dd className="text-gray-900">{state.name}</dd>
+              <dt className="text-slate-500">Business</dt>
+              <dd className="text-slate-900">{state.name}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Tenant code</dt>
-              <dd className="font-mono text-gray-900">{created.tenantCode}</dd>
+              <dt className="text-slate-500">Tenant code</dt>
+              <dd className="font-mono text-slate-900">{created.tenantCode}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Enabled modules</dt>
-              <dd className="text-gray-900">{moduleLabel(momoEnabled, susuEnabled)}</dd>
+              <dt className="text-slate-500">Enabled modules</dt>
+              <dd className="text-slate-900">{moduleLabel(momoEnabled, susuEnabled)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Administrator</dt>
-              <dd className="text-gray-900">{created.adminEmail}</dd>
+              <dt className="text-slate-500">Administrator</dt>
+              <dd className="text-slate-900">{created.adminEmail}</dd>
             </div>
           </dl>
 
@@ -173,7 +173,7 @@ export default function EnrollTenantWizard() {
             >
               Open business page
             </button>
-            <button onClick={() => router.push("/platform/tenants")} className="btn border border-gray-300 text-gray-600 hover:bg-gray-50">
+            <button onClick={() => router.push("/platform/tenants")} className="btn border border-slate-300 text-slate-600 hover:bg-slate-50">
               Back to directory
             </button>
           </div>
@@ -187,8 +187,8 @@ export default function EnrollTenantWizard() {
   return (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Enroll a Business</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-slate-900">Enroll a Business</h1>
+        <p className="text-sm text-slate-500 mt-1">
           Register a new business on the platform with its own isolated data and administrator.
         </p>
       </div>
@@ -200,10 +200,10 @@ export default function EnrollTenantWizard() {
             key={title}
             className={`flex-1 rounded-lg px-2 py-2 text-center border ${
               step === i + 1
-                ? "border-slate-800 bg-slate-800 text-white"
+                ? "border-brand-800 bg-brand-800 text-white"
                 : step > i + 1
                   ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-gray-200 bg-white text-gray-400"
+                  : "border-slate-200 bg-white text-slate-400"
             }`}
           >
             {step > i + 1 ? "✓ " : `${i + 1}. `}
@@ -213,7 +213,7 @@ export default function EnrollTenantWizard() {
       </ol>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="banner banner-error text-sm">
           {error}
         </div>
       )}
@@ -221,7 +221,7 @@ export default function EnrollTenantWizard() {
       <div className="card bg-white">
         {step === 1 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Step 1 — Business information</h2>
+            <h2 className="font-semibold text-slate-900">Step 1 — Business information</h2>
             <Field label="Business name" required value={state.name} onChange={(v) => update("name", v)} placeholder="e.g. Adom Mobile Money" />
             <Field label="Legal / registered name (if different)" value={state.legalName} onChange={(v) => update("legalName", v)} placeholder="Registered company name" />
             <div className="grid sm:grid-cols-2 gap-4">
@@ -234,8 +234,8 @@ export default function EnrollTenantWizard() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Step 2 — Select business type</h2>
-            <p className="text-sm text-gray-500">
+            <h2 className="font-semibold text-slate-900">Step 2 — Select business type</h2>
+            <p className="text-sm text-slate-500">
               This choice sets the business&apos;s server-side module entitlements. It can be
               changed later, but the business only ever operates the modules it is enrolled for.
             </p>
@@ -264,8 +264,8 @@ export default function EnrollTenantWizard() {
 
         {step === 3 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Step 3 — Primary tenant administrator</h2>
-            <p className="text-sm text-gray-500">
+            <h2 className="font-semibold text-slate-900">Step 3 — Primary tenant administrator</h2>
+            <p className="text-sm text-slate-500">
               A dedicated administrator account is created for this business. The
               administrator signs in through the standard business login and manages
               only this business.
@@ -273,7 +273,7 @@ export default function EnrollTenantWizard() {
             <Field label="Administrator full name" required value={state.adminFullName} onChange={(v) => update("adminFullName", v)} placeholder="e.g. Akua Darko" />
             <Field label="Administrator email (sign-in)" type="email" required value={state.adminEmail} onChange={(v) => update("adminEmail", v)} placeholder="admin@business.com" />
             <Field label="Administrator phone" value={state.adminPhone} onChange={(v) => update("adminPhone", v)} placeholder="+233…" />
-            <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-gray-600">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600">
               A secure one-time temporary password is generated for the administrator and
               shown once at the end of enrollment. Only its hash is stored, and the
               administrator must set a new password at first sign-in.
@@ -283,30 +283,30 @@ export default function EnrollTenantWizard() {
 
         {step === 4 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Step 4 — Initial configuration</h2>
+            <h2 className="font-semibold text-slate-900">Step 4 — Initial configuration</h2>
             {momoEnabled ? (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-gray-600">
-                <p className="font-medium text-gray-800 mb-1">MoMo module</p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-800 mb-1">MoMo module</p>
                 After enrollment, the business administrator creates its own locations
                 and workers from the business dashboard. No MoMo locations are created
                 automatically — a business starts with the locations it actually operates.
               </div>
             ) : (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-gray-600">
-                <p className="font-medium text-gray-800 mb-1">MoMo module</p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-800 mb-1">MoMo module</p>
                 This business is not enrolled for MoMo, so no MoMo configuration is needed.
               </div>
             )}
             {susuEnabled ? (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-gray-600">
-                <p className="font-medium text-gray-800 mb-1">Susu module</p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-800 mb-1">Susu module</p>
                 After enrollment, the business administrator registers customers and
                 provisions collectors from the business dashboard. No customers or
                 collectors are created automatically.
               </div>
             ) : (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-gray-600">
-                <p className="font-medium text-gray-800 mb-1">Susu module</p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-800 mb-1">Susu module</p>
                 This business is not enrolled for Susu, so no agency setup is needed.
               </div>
             )}
@@ -315,7 +315,7 @@ export default function EnrollTenantWizard() {
 
         {step === 5 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Step 5 — Review and confirm</h2>
+            <h2 className="font-semibold text-slate-900">Step 5 — Review and confirm</h2>
             <dl className="space-y-2 text-sm">
               <Review label="Business name" value={state.name} />
               <Review label="Legal name" value={state.legalName || "—"} />
@@ -325,7 +325,7 @@ export default function EnrollTenantWizard() {
               <Review label="Primary administrator" value={`${state.adminFullName} (${state.adminEmail})`} />
               <Review label="Initial status" value="Active" />
             </dl>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
+            <div className="banner banner-warning text-xs">
               Confirming creates the business, its isolated data boundary and its
               administrator account in one atomic operation. Nothing is created if any
               part fails.
@@ -333,11 +333,11 @@ export default function EnrollTenantWizard() {
           </div>
         )}
 
-        <div className="flex justify-between mt-6 pt-4 border-t border-gray-100">
+        <div className="flex justify-between mt-6 pt-4 border-t border-slate-100">
           <button
             onClick={back}
             disabled={step === 1 || submitting}
-            className="btn border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="btn border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
             ← Back
           </button>
@@ -396,7 +396,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+        className="w-full rounded-lg border border-slate-300 px-3 py-2.5"
       />
     </div>
   );
@@ -418,18 +418,18 @@ function ModuleOption({
       type="button"
       onClick={onSelect}
       className={`w-full text-left rounded-lg border-2 px-4 py-3 transition-colors ${
-        selected ? "border-slate-800 bg-slate-50" : "border-gray-200 hover:border-gray-300"
+        selected ? "border-brand-700 bg-brand-50" : "border-slate-200 hover:border-slate-300"
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-gray-900">{title}</span>
+        <span className="font-medium text-slate-900">{title}</span>
         <span
           className={`h-4 w-4 rounded-full border-2 ${
-            selected ? "border-slate-800 bg-slate-800" : "border-gray-300"
+            selected ? "border-brand-700 bg-brand-700" : "border-slate-300"
           }`}
         />
       </div>
-      <p className="text-sm text-gray-500 mt-1">{description}</p>
+      <p className="text-sm text-slate-500 mt-1">{description}</p>
     </button>
   );
 }
@@ -437,8 +437,8 @@ function ModuleOption({
 function Review({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="text-gray-500">{label}</dt>
-      <dd className="text-gray-900 text-right">{value}</dd>
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="text-slate-900 text-right">{value}</dd>
     </div>
   );
 }

@@ -1,5 +1,7 @@
+import { KeyRound, LogIn, ShieldCheck } from "lucide-react";
 import { requirePlatformAdmin } from "@/lib/platform-auth";
 import { getPlatformAuditLogs } from "@/lib/platform-audit";
+import { PageHeader } from "@/components/ui/DataDisplay";
 import PlatformPasswordForm from "./PlatformPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -10,48 +12,58 @@ export default async function PlatformSettingsPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Platform Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">Operator account and platform security.</p>
-      </div>
+      <PageHeader
+        title="Platform Settings"
+        description="Operator account and platform security."
+      />
 
       <div className="card bg-white">
-        <h2 className="font-semibold text-gray-900 mb-4">Operator account</h2>
+        <div className="flex items-center gap-2 mb-4">
+          <ShieldCheck size={16} className="text-brand-500" aria-hidden />
+          <h2 className="font-semibold text-slate-900">Operator account</h2>
+        </div>
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <dt className="text-gray-500">Name</dt>
-            <dd className="text-gray-900">{session.fullName}</dd>
+            <dt className="text-slate-500">Name</dt>
+            <dd className="text-slate-900">{session.fullName}</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-gray-500">Email</dt>
-            <dd className="text-gray-900">{session.email}</dd>
+            <dt className="text-slate-500">Email</dt>
+            <dd className="text-slate-900">{session.email}</dd>
           </div>
           {session.forcePasswordReset && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm mt-2">
-              A password change is required before using the platform console.
+            <div className="banner banner-warning mt-2">
+              <span aria-hidden>⚠</span>
+              <span>A password change is required before using the platform console.</span>
             </div>
           )}
         </dl>
       </div>
 
       <div className="card bg-white">
-        <h2 className="font-semibold text-gray-900 mb-1">Change password</h2>
-        <p className="text-xs text-gray-500 mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <KeyRound size={16} className="text-brand-500" aria-hidden />
+          <h2 className="font-semibold text-slate-900">Change password</h2>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
           Changing your password signs out all other platform sessions.
         </p>
         <PlatformPasswordForm />
       </div>
 
       <div className="card bg-white">
-        <h2 className="font-semibold text-gray-900 mb-4">Recent platform sign-ins</h2>
+        <div className="flex items-center gap-2 mb-4">
+          <LogIn size={16} className="text-brand-500" aria-hidden />
+          <h2 className="font-semibold text-slate-900">Recent platform sign-ins</h2>
+        </div>
         {lastLogins.logs.length === 0 ? (
-          <p className="text-sm text-gray-500">No sign-ins recorded yet.</p>
+          <p className="text-sm text-slate-500">No sign-ins recorded yet.</p>
         ) : (
-          <ul className="divide-y divide-gray-100 text-sm">
+          <ul className="divide-y divide-slate-100 text-sm">
             {lastLogins.logs.map((e) => (
-              <li key={e.id} className="py-2 flex justify-between">
-                <span className="text-gray-700">{e.actorEmail}</span>
-                <span className="text-gray-500 text-xs">{new Date(e.createdAt).toLocaleString()}</span>
+              <li key={e.id} className="py-2 flex justify-between gap-4">
+                <span className="text-slate-700">{e.actorEmail}</span>
+                <span className="text-slate-500 text-xs whitespace-nowrap">{new Date(e.createdAt).toLocaleString()}</span>
               </li>
             ))}
           </ul>

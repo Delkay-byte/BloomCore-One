@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Modal, { ConfirmDialog } from "@/components/ui/Modal";
 import {
   resetTenantAdminAccess,
   setTenantStatus,
@@ -67,7 +68,7 @@ function ProfilePanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => vo
   return (
     <div className="card bg-white">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-gray-900">Business profile</h2>
+        <h2 className="font-semibold text-slate-900">Business profile</h2>
         {!open && (
           <button onClick={() => setOpen(true)} className="text-sm text-slate-700 hover:text-slate-900 font-medium">
             Edit
@@ -92,14 +93,14 @@ function ProfilePanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => vo
             <button
               type="button"
               onClick={() => { setOpen(false); setError(""); }}
-              className="btn border border-gray-300 text-gray-600 text-sm hover:bg-gray-50"
+              className="btn border border-slate-300 text-slate-600 text-sm hover:bg-slate-50"
             >
               Cancel
             </button>
           </div>
         </form>
       ) : (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-slate-500">
           Update the business identity and contact details.
         </p>
       )}
@@ -138,8 +139,8 @@ function ModulePanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => voi
 
   return (
     <div className="card bg-white">
-      <h2 className="font-semibold text-gray-900 mb-1">Module configuration</h2>
-      <p className="text-xs text-gray-500 mb-4">
+      <h2 className="font-semibold text-slate-900 mb-1">Module configuration</h2>
+      <p className="text-xs text-slate-500 mb-4">
         Controls which modules this business may operate server-side. Historical
         records are never deleted when a module is disabled.
       </p>
@@ -171,40 +172,44 @@ function ModulePanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => voi
         Apply module change
       </button>
 
-      {confirming && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40 px-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
-            <h3 className="font-semibold text-gray-900 mb-2">Confirm module change</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              {disablingMomo && !disablingSusu && (
-                <>Disabling MoMo will hide MoMo from this business&apos;s users and reject all
-                MoMo operations and API requests. Existing MoMo records are preserved.</>
+      <Modal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="Confirm module change"
+        footer={
+          <>
+            <button onClick={() => setConfirming(false)} className="btn btn-secondary btn-sm">
+              Cancel
+            </button>
+            <button onClick={apply} disabled={loading} className="btn btn-primary btn-sm">
+              {loading ? (
+                <>
+                  <span className="spinner spinner-sm" aria-hidden /> Applying…
+                </>
+              ) : (
+                "Confirm change"
               )}
-              {disablingSusu && !disablingMomo && (
-                <>Disabling Susu will hide Susu from this business&apos;s users and reject all
-                Susu operations, including the customer portal. Existing Susu records are
-                preserved.</>
-              )}
-              {disablingMomo && disablingSusu && (
-                <>This would disable both modules — not allowed. Suspend the tenant instead.</>
-              )}
-              {!disablingMomo && !disablingSusu && (
-                <>Enabling the selected module(s) will make their features available to this
-                business immediately.</>
-              )}
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setConfirming(false)} className="btn border border-gray-300 text-gray-600 text-sm hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={apply} disabled={loading} className="btn btn-primary text-sm">
-                {loading ? "Applying..." : "Confirm change"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+            </button>
+          </>
+        }
+      >
+        {disablingMomo && !disablingSusu && (
+          <p>Disabling MoMo will hide MoMo from this business&apos;s users and reject all
+          MoMo operations and API requests. Existing MoMo records are preserved.</p>
+        )}
+        {disablingSusu && !disablingMomo && (
+          <p>Disabling Susu will hide Susu from this business&apos;s users and reject all
+          Susu operations, including the customer portal. Existing Susu records are
+          preserved.</p>
+        )}
+        {disablingMomo && disablingSusu && (
+          <p>This would disable both modules — not allowed. Suspend the tenant instead.</p>
+        )}
+        {!disablingMomo && !disablingSusu && (
+          <p>Enabling the selected module(s) will make their features available to this
+          business immediately.</p>
+        )}
+      </Modal>    </div>
   );
 }
 
@@ -235,8 +240,8 @@ function StatusPanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => voi
 
   return (
     <div className="card bg-white">
-      <h2 className="font-semibold text-gray-900 mb-1">Lifecycle</h2>
-      <p className="text-xs text-gray-500 mb-4">
+      <h2 className="font-semibold text-slate-900 mb-1">Lifecycle</h2>
+      <p className="text-xs text-slate-500 mb-4">
         Suspension immediately blocks sign-in and all protected operations for this
         business. All records — including financial history — are preserved.
       </p>
@@ -250,7 +255,7 @@ function StatusPanel({ tenant, onDone }: { tenant: TenantInfo; onDone: () => voi
             onChange={(e) => setReason(e.target.value)}
             rows={2}
             placeholder="Why is this business being suspended?"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
       )}
@@ -295,13 +300,11 @@ function RecoveryPanel({
   const [oneTime, setOneTime] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   async function reset() {
     if (!primaryAdmin) return;
-    if (!window.confirm(
-      `Issue a one-time temporary password for ${primaryAdmin.email}? ` +
-      "Their current sessions are signed out and a password change is forced at next sign-in."
-    )) return;
+    setConfirming(false);
     setLoading(true);
     setError("");
     const result = await resetTenantAdminAccess(tenant.id, primaryAdmin.id);
@@ -317,18 +320,26 @@ function RecoveryPanel({
 
   return (
     <div className="card bg-white">
-      <h2 className="font-semibold text-gray-900 mb-1">Administrator recovery</h2>
-      <p className="text-xs text-gray-500 mb-4">
+      <h2 className="font-semibold text-slate-900 mb-1">Administrator recovery</h2>
+      <p className="text-xs text-slate-500 mb-4">
         If the business administrator is locked out, issue a secure one-time
         temporary password. Their current password is never shown or retrievable.
       </p>
       {error && <FormError message={error} />}
       {primaryAdmin ? (
         <>
-          <p className="text-sm text-gray-700 mb-3">{primaryAdmin.email}</p>
-          <button onClick={reset} disabled={loading} className="btn border border-gray-300 text-gray-700 text-sm hover:bg-gray-50">
-            {loading ? "Issuing..." : "Issue one-time password"}
+          <p className="text-sm text-slate-700 mb-3">{primaryAdmin.email}</p>
+          <button onClick={() => setConfirming(true)} disabled={loading} className="btn btn-secondary btn-sm">
+            {loading ? "Issuing…" : "Issue one-time password"}
           </button>
+          <ConfirmDialog
+            open={confirming}
+            onClose={() => setConfirming(false)}
+            onConfirm={reset}
+            title="Issue one-time password"
+            description={`A one-time temporary password will be issued for ${primaryAdmin.email}. Their current sessions are signed out and a password change is forced at next sign-in.`}
+            confirmLabel="Issue password"
+          />
           {oneTime && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">
               <p className="text-sm font-semibold text-amber-800 mb-1">One-time password</p>
@@ -377,7 +388,7 @@ function Input({
         type={type}
         defaultValue={defaultValue}
         required={required}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
       />
     </div>
   );
@@ -399,12 +410,12 @@ function Toggle({
       type="button"
       onClick={() => onChange(!checked)}
       className={`w-full text-left rounded-lg border px-4 py-3 flex items-center justify-between gap-4 transition-colors ${
-        checked ? "border-slate-300 bg-slate-50" : "border-gray-200"
+        checked ? "border-slate-300 bg-slate-50" : "border-slate-200"
       }`}
     >
       <span>
-        <span className="block font-medium text-gray-900 text-sm">{label}</span>
-        <span className="block text-xs text-gray-500">{description}</span>
+        <span className="block font-medium text-slate-900 text-sm">{label}</span>
+        <span className="block text-xs text-slate-500">{description}</span>
       </span>
       <span
         className={`flex-none relative inline-flex h-6 w-11 rounded-full transition-colors ${

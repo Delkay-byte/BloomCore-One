@@ -1,7 +1,17 @@
 import Link from "next/link";
+import {
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  FileClock,
+  Layers,
+  ShieldCheck,
+  UserPlus,
+} from "lucide-react";
 import { requirePlatformPage } from "@/lib/platform-auth";
 import { getPlatformOverview } from "@/lib/actions/platform.actions";
 import { formatDateTime } from "@/lib/utils";
+import { EmptyState, PageHeader } from "@/components/ui/DataDisplay";
 import { tenantStatusBadge } from "../../tenant-ui";
 
 export const dynamic = "force-dynamic";
@@ -14,85 +24,115 @@ export default async function PlatformDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Platform Overview</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Operational oversight of every enrolled business.
-        </p>
-      </div>
+      <PageHeader
+        title="Platform Overview"
+        description="Operational oversight of every enrolled business."
+        actions={
+          <Link href="/platform/tenants/new" className="btn btn-primary">
+            <UserPlus size={16} aria-hidden /> Enroll Business
+          </Link>
+        }
+      />
 
-      {/* Enrollment call-to-action */}
-      <div className="card bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-gray-900">Enroll a new business</h2>
-          <p className="text-sm text-gray-500">
-            Register a MoMo business, a Susu agency, or a business operating both modules.
-          </p>
+      {/* Primary numbers — one hero figure, supporting figures compact */}
+      <div className="card bg-white flex flex-col sm:flex-row sm:items-center gap-6">
+        <div className="sm:border-r sm:border-slate-200 sm:pr-8">
+          <p className="section-title">Enrolled businesses</p>
+          <p className="text-4xl font-bold text-brand-800 tnum mt-1">{data.totals.total}</p>
         </div>
-        <Link href="/platform/tenants/new" className="btn btn-primary whitespace-nowrap">
-          ➕ Enroll Business
-        </Link>
-      </div>
-
-      {/* Totals */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Enrolled businesses" value={data.totals.total} tone="slate" />
-        <StatCard label="Active" value={data.totals.active} tone="green" />
-        <StatCard label="Suspended" value={data.totals.suspended} tone="red" />
-        <StatCard label="Onboarding" value={data.onboarding.inProgress + data.onboarding.notStarted} tone="amber" />
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Module distribution */}
-        <div className="card bg-white">
-          <h2 className="font-semibold text-gray-900 mb-4">Business distribution by module</h2>
-          <div className="space-y-3">
-            <DistributionRow label="MoMo only" value={data.modules.momoOnly} total={moduleTotal} color="bg-emerald-500" />
-            <DistributionRow label="Susu only" value={data.modules.susuOnly} total={moduleTotal} color="bg-sky-500" />
-            <DistributionRow label="MoMo + Susu" value={data.modules.both} total={moduleTotal} color="bg-violet-500" />
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-6 flex-1">
+          <div>
+            <dt className="section-title">Active</dt>
+            <dd className="text-xl font-bold text-emerald-700 tnum mt-0.5">{data.totals.active}</dd>
           </div>
-          <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-sm text-gray-600">
-            <p>MoMo-enabled: <span className="font-semibold">{data.modules.momoEnabled}</span></p>
-            <p>Susu-enabled: <span className="font-semibold">{data.modules.susuEnabled}</span></p>
+          <div>
+            <dt className="section-title">Suspended</dt>
+            <dd className="text-xl font-bold text-red-700 tnum mt-0.5">{data.totals.suspended}</dd>
+          </div>
+          <div>
+            <dt className="section-title">Provisioning</dt>
+            <dd className="text-xl font-bold text-amber-700 tnum mt-0.5">{data.totals.provisioning}</dd>
+          </div>
+          <div>
+            <dt className="section-title">Needs setup</dt>
+            <dd className="text-xl font-bold text-slate-900 tnum mt-0.5">
+              {data.onboarding.notStarted + data.onboarding.inProgress}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <div className="grid lg:grid-cols-5 gap-6">
+        {/* Module distribution */}
+        <div className="card bg-white lg:col-span-3">
+          <div className="flex items-center gap-2 mb-4">
+            <Layers size={16} className="text-brand-500" aria-hidden />
+            <h2 className="font-semibold text-slate-900">Business distribution by module</h2>
+          </div>
+          <div className="space-y-4">
+            <DistributionRow
+              label="MoMo only"
+              value={data.modules.momoOnly}
+              total={moduleTotal}
+              barClass="bg-brand-500"
+            />
+            <DistributionRow
+              label="Susu only"
+              value={data.modules.susuOnly}
+              total={moduleTotal}
+              barClass="bg-gold-500"
+            />
+            <DistributionRow
+              label="MoMo + Susu"
+              value={data.modules.both}
+              total={moduleTotal}
+              barClass="bg-brand-800"
+            />
+          </div>
+          <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2 text-sm text-slate-600">
+            <p>MoMo-enabled: <span className="font-semibold tnum">{data.modules.momoEnabled}</span></p>
+            <p>Susu-enabled: <span className="font-semibold tnum">{data.modules.susuEnabled}</span></p>
           </div>
         </div>
 
         {/* Platform health */}
-        <div className="card bg-white">
-          <h2 className="font-semibold text-gray-900 mb-4">Platform health</h2>
+        <div className="card bg-white lg:col-span-2">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldCheck size={16} className="text-brand-500" aria-hidden />
+            <h2 className="font-semibold text-slate-900">Platform health</h2>
+          </div>
           <dl className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <dt className="text-gray-500">Database</dt>
+              <dt className="text-slate-500">Database</dt>
               <dd>
                 <span
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-                    data.health.database === "connected"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-700"
+                  className={`badge ${
+                    data.health.database === "connected" ? "badge-green" : "badge-red"
                   }`}
                 >
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      data.health.database === "connected" ? "bg-green-500" : "bg-red-500"
+                      data.health.database === "connected" ? "bg-emerald-600" : "bg-red-600"
                     }`}
+                    aria-hidden
                   />
                   {data.health.database === "connected" ? "Connected" : "Unavailable"}
                 </span>
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-gray-500">Environment</dt>
-              <dd className="text-gray-900">{data.health.appEnv || data.health.nodeEnv || "unknown"}</dd>
+              <dt className="text-slate-500">Environment</dt>
+              <dd className="text-slate-900">{data.health.appEnv || data.health.nodeEnv || "unknown"}</dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-gray-500">Deployed build</dt>
-              <dd className="text-gray-900 font-mono text-xs">
+              <dt className="text-slate-500">Deployed build</dt>
+              <dd className="text-slate-900 font-mono text-xs">
                 {data.health.commit ? data.health.commit.slice(0, 12) : "not reported"}
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-gray-500">Checked at</dt>
-              <dd className="text-gray-900">{formatDateTime(new Date(data.health.checkedAt))}</dd>
+              <dt className="text-slate-500">Checked at</dt>
+              <dd className="text-slate-900">{formatDateTime(new Date(data.health.checkedAt))}</dd>
             </div>
           </dl>
         </div>
@@ -102,25 +142,35 @@ export default async function PlatformDashboardPage() {
         {/* Recent enrollments */}
         <div className="card bg-white">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-900">Recently enrolled</h2>
-            <Link href="/platform/tenants" className="text-xs text-slate-600 hover:text-slate-800">
-              View all →
+            <div className="flex items-center gap-2">
+              <Building2 size={16} className="text-brand-500" aria-hidden />
+              <h2 className="font-semibold text-slate-900">Recently enrolled</h2>
+            </div>
+            <Link href="/platform/tenants" className="text-xs font-medium text-brand-700 hover:text-brand-800 inline-flex items-center gap-1">
+              View all <ArrowRight size={12} aria-hidden />
             </Link>
           </div>
           {data.recentTenants.length === 0 ? (
-            <p className="text-sm text-gray-500 py-6 text-center">
-              No businesses enrolled yet. Use <Link href="/platform/tenants/new" className="text-slate-700 underline">Enroll Business</Link> to add the first one.
-            </p>
+            <EmptyState
+              icon={<Building2 />}
+              title="No businesses enrolled yet"
+              hint="Use Enroll Business to add the first one — it takes about a minute."
+              action={
+                <Link href="/platform/tenants/new" className="btn btn-primary btn-sm">
+                  <UserPlus size={14} aria-hidden /> Enroll Business
+                </Link>
+              }
+            />
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-slate-100">
               {data.recentTenants.map((t) => (
                 <li key={t.id} className="py-2.5 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <Link href={`/platform/tenants/${t.id}`} className="text-sm font-medium text-gray-900 hover:text-slate-700 truncate block">
+                    <Link href={`/platform/tenants/${t.id}`} className="text-sm font-medium text-slate-900 hover:text-brand-700 truncate block">
                       {t.name}
                     </Link>
-                    <p className="text-xs text-gray-500">
-                      {t.code} · {moduleLabel(t.momoEnabled, t.susuEnabled)} · {formatDateTime(t.createdAt)}
+                    <p className="text-xs text-slate-500">
+                      <span className="font-mono">{t.code}</span> · {moduleLabel(t.momoEnabled, t.susuEnabled)} · {formatDateTime(t.createdAt)}
                     </p>
                   </div>
                   {tenantStatusBadge(t.status)}
@@ -133,19 +183,26 @@ export default async function PlatformDashboardPage() {
         {/* Recent platform activity */}
         <div className="card bg-white">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-900">Recent platform activity</h2>
-            <Link href="/platform/audit" className="text-xs text-slate-600 hover:text-slate-800">
-              Full history →
+            <div className="flex items-center gap-2">
+              <FileClock size={16} className="text-brand-500" aria-hidden />
+              <h2 className="font-semibold text-slate-900">Recent platform activity</h2>
+            </div>
+            <Link href="/platform/audit" className="text-xs font-medium text-brand-700 hover:text-brand-800 inline-flex items-center gap-1">
+              Full history <ArrowRight size={12} aria-hidden />
             </Link>
           </div>
           {data.recentActivity.length === 0 ? (
-            <p className="text-sm text-gray-500 py-6 text-center">No platform activity recorded yet.</p>
+            <EmptyState
+              icon={<CheckCircle2 />}
+              title="No platform activity recorded yet"
+              hint="Privileged actions — enrollments, suspensions, recovery — appear here."
+            />
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-slate-100">
               {data.recentActivity.map((e) => (
                 <li key={e.id} className="py-2.5">
-                  <p className="text-sm text-gray-900">{describeAction(e.action)}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-sm text-slate-900">{describeAction(e.action)}</p>
+                  <p className="text-xs text-slate-500">
                     {e.actorEmail || "system"} · {e.tenantCode ? `${e.tenantCode} · ` : ""}
                     {formatDateTime(e.createdAt)}
                   </p>
@@ -166,31 +223,30 @@ function moduleLabel(momo: boolean, susu: boolean) {
   return "No modules";
 }
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone: string }) {
-  const tones: Record<string, string> = {
-    slate: "bg-white text-gray-900",
-    green: "bg-white text-gray-900",
-    red: "bg-white text-gray-900",
-    amber: "bg-white text-gray-900",
-  };
-  return (
-    <div className={`card ${tones[tone] ?? tones.slate}`}>
-      <p className="text-3xl font-bold">{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{label}</p>
-    </div>
-  );
-}
-
-function DistributionRow({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+function DistributionRow({
+  label,
+  value,
+  total,
+  barClass,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  barClass: string;
+}) {
   const pct = Math.round((value / total) * 100);
   return (
     <div>
-      <div className="flex items-center justify-between text-sm mb-1">
-        <span className="text-gray-700">{label}</span>
-        <span className="text-gray-900 font-medium">{value}</span>
+      <div className="flex items-center justify-between text-sm mb-1.5">
+        <span className="text-slate-700 font-medium">{label}</span>
+        <span className="text-slate-900 font-semibold tnum">{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
+      <div
+        className="h-2 rounded-full bg-slate-100 overflow-hidden"
+        role="img"
+        aria-label={`${label}: ${value} of ${total} businesses (${pct}%)`}
+      >
+        <div className={`h-full ${barClass}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

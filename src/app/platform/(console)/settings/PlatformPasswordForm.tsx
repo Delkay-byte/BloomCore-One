@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
+import { useToast } from "@/components/ui/Toast";
 
 export default function PlatformPasswordForm() {
   const router = useRouter();
+  const toast = useToast();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -20,6 +22,7 @@ export default function PlatformPasswordForm() {
         setError(result.error || "Could not change password");
       } else {
         setSuccess(true);
+        toast.push("success", "Password changed. All other platform sessions were signed out.");
         // Refresh server components so the forced-reset banner clears.
         router.refresh();
       }
@@ -30,13 +33,8 @@ export default function PlatformPasswordForm() {
 
   return (
     <form action={handleSubmit} className="space-y-4 max-w-sm">
-      {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
-          ✓ Password changed. All other platform sessions were signed out.
-        </div>
-      )}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="banner banner-error" role="alert">
           {error}
         </div>
       )}
@@ -48,7 +46,6 @@ export default function PlatformPasswordForm() {
           name="currentPassword"
           required
           autoComplete="current-password"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
         />
       </div>
       <div className="form-group">
@@ -60,9 +57,11 @@ export default function PlatformPasswordForm() {
           required
           minLength={8}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+          aria-describedby="newPassword-hint"
         />
-        <p className="text-xs text-gray-500 mt-1">At least 8 characters with an uppercase letter and a digit.</p>
+        <p className="form-hint" id="newPassword-hint">
+          At least 8 characters with an uppercase letter and a digit.
+        </p>
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="confirmPassword">Confirm new password</label>
@@ -73,11 +72,16 @@ export default function PlatformPasswordForm() {
           required
           minLength={8}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
         />
       </div>
       <button type="submit" className="btn btn-primary" disabled={loading}>
-        {loading ? "Changing..." : "Change password"}
+        {loading ? (
+          <>
+            <span className="spinner spinner-sm" aria-hidden /> Changing…
+          </>
+        ) : (
+          "Change password"
+        )}
       </button>
     </form>
   );
