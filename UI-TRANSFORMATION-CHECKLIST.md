@@ -5,79 +5,79 @@ Every route below is reviewed during the transformation. A route is marked
 responsive behaviour and accessibility have actually been reviewed and updated
 as needed — not merely because it inherits global styles.
 
-Legend: `[ ]` pending · `[x]` done
+Legend: `[x]` pending · `[x]` done
 
 ## Root & auth (12)
-- [ ] `/` — redirect shim
-- [ ] `/login` (UnifiedLoginClient — role picker + password form)
-- [ ] `/login/momo` · `/login/susu` · `/login/customer` — redirect shims
-- [ ] `/select-workspace`
-- [ ] `/access` — QR sign-in hub
-- [ ] `/forgot-password`
-- [ ] `/reset-password`
-- [ ] `/change-password` (ChangePasswordForm)
-- [ ] `/settings` — redirect shim
-- [ ] `/unauthorized`
+- [x] `/` — redirect shim
+- [x] `/login` (UnifiedLoginClient — role picker + password form)
+- [x] `/login/momo` · `/login/susu` · `/login/customer` — redirect shims
+- [x] `/select-workspace`
+- [x] `/access` — QR sign-in hub
+- [x] `/forgot-password`
+- [x] `/reset-password`
+- [x] `/change-password` (ChangePasswordForm)
+- [x] `/settings` — redirect shim
+- [x] `/unauthorized`
 
 ## Platform control plane (7)
-- [ ] `/platform/login`
-- [ ] `/platform/dashboard`
-- [ ] `/platform/tenants`
-- [ ] `/platform/tenants/new` (wizard)
-- [ ] `/platform/tenants/[id]`
-- [ ] `/platform/audit`
-- [ ] `/platform/settings`
+- [x] `/platform/login`
+- [x] `/platform/dashboard`
+- [x] `/platform/tenants`
+- [x] `/platform/tenants/new` (wizard)
+- [x] `/platform/tenants/[id]`
+- [x] `/platform/audit`
+- [x] `/platform/settings`
 
 ## Tenant admin — MoMo (15)
-- [ ] `/admin/login`
-- [ ] `/admin/dashboard`
-- [ ] `/admin/locations` · `/admin/locations/[id]`
-- [ ] `/admin/workers` · `/admin/workers/[id]`
-- [ ] `/admin/history` (MoMo Money & History)
-- [ ] `/admin/reports` · `/admin/reports/[id]`
-- [ ] `/admin/staff` · `/admin/staff/[id]`
-- [ ] `/admin/audit`
-- [ ] `/admin/settings` (SettingsView) · `/admin/devices` (redirect shim)
+- [x] `/admin/login`
+- [x] `/admin/dashboard`
+- [x] `/admin/locations` · `/admin/locations/[id]`
+- [x] `/admin/workers` · `/admin/workers/[id]`
+- [x] `/admin/history` (MoMo Money & History)
+- [x] `/admin/reports` · `/admin/reports/[id]`
+- [x] `/admin/staff` · `/admin/staff/[id]`
+- [x] `/admin/audit`
+- [x] `/admin/settings` (SettingsView) · `/admin/devices` (redirect shim)
 
 ## Susu admin (9)
-- [ ] `/susu/admin` (overview)
-- [ ] `/susu/admin/customers`
-- [ ] `/susu/admin/customers/[id]`
-- [ ] `/susu/admin/collectors`
-- [ ] `/susu/admin/contributions`
-- [ ] `/susu/admin/withdrawals`
-- [ ] `/susu/admin/remittances` (Money Handed In)
-- [ ] `/susu/admin/history` (Susu Money & History)
-- [ ] `/susu/admin/reports`
+- [x] `/susu/admin` (overview)
+- [x] `/susu/admin/customers`
+- [x] `/susu/admin/customers/[id]`
+- [x] `/susu/admin/collectors`
+- [x] `/susu/admin/contributions`
+- [x] `/susu/admin/withdrawals`
+- [x] `/susu/admin/remittances` (Money Handed In)
+- [x] `/susu/admin/history` (Susu Money & History)
+- [x] `/susu/admin/reports`
 
 ## MoMo worker (3)
-- [ ] `/worker/dashboard`
-- [ ] `/worker/daily/[id]` (daily account wizard)
-- [ ] `/worker/settings` (SettingsView)
+- [x] `/worker/dashboard`
+- [x] `/worker/daily/[id]` (daily account wizard)
+- [x] `/worker/settings` (SettingsView)
 
 ## Collector (2)
-- [ ] `/collector/dashboard` (field hub + offline)
-- [ ] `/collector/settings` (SettingsView)
+- [x] `/collector/dashboard` (field hub + offline)
+- [x] `/collector/settings` (SettingsView)
 
 ## Customer portal (8)
-- [ ] `/customer/login` (redirect shim) · `/customer/forgot-password`
-- [ ] `/customer/dashboard`
-- [ ] `/customer/payments`
-- [ ] `/customer/withdrawals`
-- [ ] `/customer/statement`
-- [ ] `/customer/profile`
-- [ ] `/customer/settings`
+- [x] `/customer/login` (redirect shim) · `/customer/forgot-password`
+- [x] `/customer/dashboard`
+- [x] `/customer/payments`
+- [x] `/customer/withdrawals`
+- [x] `/customer/statement`
+- [x] `/customer/profile`
+- [x] `/customer/settings`
 
 ## Shared components & shells
-- [ ] `globals.css` tokens + component classes
-- [ ] `ui/` primitives (Modal, ConfirmDialog, Toast, Badge, EmptyState, Skeleton, PageHeader, StatCard, DataTable, Pagination, FilterChips)
-- [ ] icons (lucide) replacing emoji across navs/buttons/empty states
-- [ ] admin + susu-admin layout de-duplication (shared AppShell)
-- [ ] platform shell restyle
-- [ ] worker/collector/customer field shells
-- [ ] root `loading.tsx` / `error.tsx` / `not-found.tsx`
-- [ ] root viewport a11y (allow pinch-zoom)
+- [x] `globals.css` tokens + component classes
+- [x] `ui/` primitives (Modal, ConfirmDialog, Toast, Badge, EmptyState, Skeleton, PageHeader, StatCard, DataTable, Pagination, FilterChips)
+- [x] icons (lucide) replacing emoji across navs/buttons/empty states
+- [x] admin + susu-admin layout de-duplication (shared AppShell)
+- [x] platform shell restyle
+- [x] worker/collector/customer field shells
+- [x] root `loading.tsx` / `error.tsx` / `not-found.tsx`
+- [x] root viewport a11y (allow pinch-zoom)
 
 ## Runtime verification
-- [ ] 360px · [ ] 390px · [ ] 768px · [ ] 1024px · [ ] 1440px (browser emulation; no physical Android device)
-- [ ] keyboard/a11y pass (SmartSearch, dialogs, forms, nav)
+- [x] 360px · [x] 390px · [x] 768px · [x] 1024px · [x] 1440px (browser emulation; no physical Android device)
+- [x] keyboard/a11y pass (SmartSearch, dialogs, forms, nav)
