@@ -1,28 +1,32 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAdmin, resolveAuthenticatedCollector } from "@/lib/auth";
+import { requireTenantAdminSusu, requireTenantCollector } from "@/lib/tenant";
 
 /**
- * Get Susu dashboard overview stats for admin.
+ * Susu dashboard aggregates — all tenant scoped.
+ *
+ * Every aggregate carries tenantId in its where clause, so a business's
+ * dashboard only ever reflects its own customers, collectors and money.
  */
+
 export async function getSusuDashboardStats() {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
+  const tenantId = ctx.tenantId;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-  // Today's contributions (all channels)
   const todayContributions = await db.contribution.aggregate({
-    where: { collectionDate: { gte: today, lt: tomorrow } },
+    where: { tenantId, collectionDate: { gte: today, lt: tomorrow } },
     _sum: { amount: true },
     _count: true,
   });
 
-  // Collector-channel contributions only
   const todayCollectorContributions = await db.contribution.aggregate({
     where: {
+      tenantId,
       channel: "collector",
       collectionDate: { gte: today, lt: tomorrow },
     },
@@ -30,9 +34,9 @@ export async function getSusuDashboardStats() {
     _count: true,
   });
 
-  // Office contributions only
   const todayOfficeContributions = await db.contribution.aggregate({
     where: {
+      tenantId,
       channel: "direct_office",
       collectionDate: { gte: today, lt: tomorrow },
     },
@@ -49,56 +53,55 @@ export async function getSusuDashboardStats() {
     totalCustomers,
     paidTodayCustomers,
   ] = await Promise.all([
-    db.customer.count({ where: { status: "active" } }),
-    db.collector.count({ where: { status: "active" } }),
+    db.customer.count({ where: { status: "active", tenantId } }),
+    db.collector.count({ where: { status: "active", tenantId } }),
     db.withdrawal.aggregate({
-      where: { createdAt: { gte: today, lt: tomorrow }, status: "completed" },
+      where: {
+        tenantId,
+        createdAt: { gte: today, lt: tomorrow },
+        status: "completed",
+      },
       _sum: { requestedAmount: true, commissionAmount: true, netAmount: true },
       _count: true,
     }),
     db.commission.aggregate({
-      where: { createdAt: { gte: today, lt: tomorrow } },
+      where: { tenantId, createdAt: { gte: today, lt: tomorrow } },
       _sum: { amount: true },
     }),
-    db.cardFee.aggregate({
-      _sum: { amount: true },
-    }),
-    db.customer.count(),
+    db.cardFee.aggregate({ where: { tenantId }, _sum: { amount: true } }),
+    db.customer.count({ where: { tenantId } }),
     db.contribution.findMany({
-      where: { collectionDate: { gte: today, lt: tomorrow } },
+      where: { tenantId, collectionDate: { gte: today, lt: tomorrow } },
       select: { accountId: true },
       distinct: ["accountId"],
     }),
   ]);
 
-  // Pending Money Handed In: SUM of max(Expected to Bring In - Amount Handed In, 0) across collectors
-  // This represents money from collector collections that has not yet been recorded as handed in
-  // Per collector: Expected to Bring In = today's collector-channel contributions
-  // Amount Handed In = today's remittances
-  // Difference = Expected to Bring In - Amount Handed In
-  // Admin sum = SUM of max(Difference, 0) across collectors (don't offset shortages with overages)
+  // Pending Money Handed In: SUM of max(Expected - Handed In, 0) per collector.
   const collectors = await db.collector.findMany({
-    where: { status: "active" },
+    where: { status: "active", tenantId },
     select: { id: true },
   });
 
   let pendingMoneyHandedIn = 0;
   for (const collector of collectors) {
-    const todayContributions = await db.contribution.findMany({
+    const todayContribs = await db.contribution.findMany({
       where: {
+        tenantId,
         collectorId: collector.id,
         channel: "collector",
         collectionDate: { gte: today, lt: tomorrow },
       },
       select: { amount: true },
     });
-    const todayContributionsAmount = todayContributions.reduce(
+    const todayContributionsAmount = todayContribs.reduce(
       (sum, c) => sum + Number(c.amount),
       0
     );
 
     const todayRemittances = await db.collectorRemittance.findMany({
       where: {
+        tenantId,
         collectorId: collector.id,
         createdAt: { gte: today, lt: tomorrow },
       },
@@ -110,9 +113,7 @@ export async function getSusuDashboardStats() {
     );
 
     const difference = todayContributionsAmount - amountHandedInToday;
-    if (difference > 0) {
-      pendingMoneyHandedIn += difference;
-    }
+    if (difference > 0) pendingMoneyHandedIn += difference;
   }
 
   const outstandingToday = activeCustomers - paidTodayCustomers.length;
@@ -125,7 +126,9 @@ export async function getSusuDashboardStats() {
     outstandingToday,
     todayContributions: Number(todayContributions._sum.amount || 0),
     todayContributionCount: todayContributions._count,
-    todayCollectorContributions: Number(todayCollectorContributions._sum.amount || 0),
+    todayCollectorContributions: Number(
+      todayCollectorContributions._sum.amount || 0
+    ),
     todayCollectorContributionCount: todayCollectorContributions._count,
     todayOfficeContributions: Number(todayOfficeContributions._sum.amount || 0),
     todayOfficeContributionCount: todayOfficeContributions._count,
@@ -140,65 +143,63 @@ export async function getSusuDashboardStats() {
 }
 
 /**
- * Get collector-specific dashboard stats with TO VISIT and COLLECTED TODAY.
- * Only accessible by users with the collector role.
+ * Collector dashboard stats. The collector is resolved from the session and
+ * every query is scoped to their tenant.
  */
 export async function getCollectorDashboardStats(collectorUserId: string) {
-  // Resolve the authenticated collector canonically (Susu module session +
-  // active Collector record). The primary User.role is not used because the
-  // platform grants Susu capability to worker-role accounts via susuEnabled.
-  const resolved = await resolveAuthenticatedCollector();
-  if (!resolved) return null;
+  const ctx = await requireTenantCollector().catch(() => null);
+  if (!ctx) return null;
 
-  // Verify the requested userId matches the authenticated user
-  if (resolved.user.userId !== collectorUserId) {
-    return null;
-  }
+  // The requested id must be the authenticated user.
+  if (ctx.userId !== collectorUserId) return null;
 
-  const collector = resolved.collector;
+  const collector = await db.collector.findFirst({
+    where: { userId: ctx.userId, tenantId: ctx.tenantId, status: "active" },
+    select: { id: true },
+  });
+  if (!collector) return null;
 
-  // Use start-of-day in UTC (consistent with the rest of the app)
+  const tenantId = ctx.tenantId;
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
   const assignments = await db.collectorCustomerAssignment.findMany({
-    where: { collectorId: collector.id, active: true },
+    where: { collectorId: collector.id, active: true, tenantId },
     include: {
       customer: true,
       account: {
-        include: {
-          cycles: { where: { status: "active" }, take: 1 },
-        },
+        include: { cycles: { where: { status: "active" }, take: 1 } },
       },
     },
   });
 
-  // Fetch today's contributions for this collector (collector channel only for cash accountability)
   const todayCollectorContributions = await db.contribution.findMany({
     where: {
+      tenantId,
       collectorId: collector.id,
       channel: "collector",
       collectionDate: { gte: today, lt: tomorrow },
     },
-    include: {
-      allocations: true,
-    },
+    include: { allocations: true },
     orderBy: { collectionDate: "desc" },
   });
 
-  // Also fetch all today's contributions for TO VISIT / COLLECTED TODAY display (any channel)
+  // "Collected today" must only reflect THIS collector's own assignments, so
+  // it is scoped to the collector rather than the whole tenant.
   const todayAllContributions = await db.contribution.findMany({
     where: {
+      tenantId,
       collectionDate: { gte: today, lt: tomorrow },
+      account: {
+        assignments: { some: { collectorId: collector.id, active: true } },
+      },
     },
-    include: {
-      allocations: true,
-    },
+    include: { allocations: true },
     orderBy: { collectionDate: "desc" },
   });
 
-  // Index today's all contributions by accountId for quick lookup
   const todayByAccount = new Map<string, typeof todayAllContributions>();
   for (const c of todayAllContributions) {
     const existing = todayByAccount.get(c.accountId) || [];
@@ -230,13 +231,14 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
     const cycle = assignment.account.cycles[0];
     if (!cycle) continue;
 
-    // Check if this customer has been collected today (any channel)
     const todayContribs = todayByAccount.get(assignment.account.id);
     if (todayContribs && todayContribs.length > 0) {
-      // Customer has been collected today — show in COLLECTED TODAY
       const latestContrib = todayContribs[0];
       const daysCovered = latestContrib.allocations.length;
-      const amountCollected = todayContribs.reduce((sum, c) => sum + Number(c.amount), 0);
+      const amountCollected = todayContribs.reduce(
+        (sum, c) => sum + Number(c.amount),
+        0
+      );
       totalCollectedToday += amountCollected;
 
       collectedToday.push({
@@ -248,9 +250,8 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
         collectedAt: latestContrib.collectionDate.toISOString(),
       });
     } else {
-      // Customer has NOT been collected today — show in TO VISIT
       const allocations = await db.contributionAllocation.findMany({
-        where: { contribution: { cycleId: cycle.id } },
+        where: { tenantId, contribution: { cycleId: cycle.id } },
       });
       const paidDays = new Set(allocations.map((a) => a.cycleDay));
       const outstandingDays: number[] = [];
@@ -258,7 +259,6 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
         if (!paidDays.has(d)) outstandingDays.push(d);
       }
 
-      // Only include customers who actually have outstanding days
       if (outstandingDays.length > 0) {
         toVisit.push({
           accountId: assignment.account.id,
@@ -266,21 +266,21 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
           customerIdCode: assignment.customer.customerId,
           dailyContribution: Number(cycle.dailyContribution),
           outstandingDays: outstandingDays.length,
-          expectedAmount: outstandingDays.length * Number(cycle.dailyContribution),
+          expectedAmount:
+            outstandingDays.length * Number(cycle.dailyContribution),
         });
       }
     }
   }
 
-  // Calculate cash accountability metrics
   const todayContributionsAmount = todayCollectorContributions.reduce(
     (sum, c) => sum + Number(c.amount),
     0
   );
 
-  // Amount Handed In today (remittances recorded today)
   const todayRemittances = await db.collectorRemittance.findMany({
     where: {
+      tenantId,
       collectorId: collector.id,
       createdAt: { gte: today, lt: tomorrow },
     },
@@ -293,9 +293,8 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
   const expectedToBringIn = todayContributionsAmount;
   const difference = expectedToBringIn - amountHandedInToday;
 
-  // Fetch recent money handed in (last 5)
   const recentRemittances = await db.collectorRemittance.findMany({
-    where: { collectorId: collector.id },
+    where: { tenantId, collectorId: collector.id },
     orderBy: { createdAt: "desc" },
     take: 5,
   });
@@ -314,7 +313,6 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
       status: r.status,
       createdAt: r.createdAt.toISOString(),
     })),
-    // Cash accountability
     todayContributions: todayContributionsAmount,
     expectedToBringIn,
     amountHandedInToday,
@@ -325,28 +323,26 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
 }
 
 /**
- * Get collector breakdown for admin dashboard.
- * Returns cash accountability metrics per collector.
+ * Collector breakdown for the admin dashboard, tenant scoped.
  */
 export async function getAdminCollectorBreakdown() {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
+  const tenantId = ctx.tenantId;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
   const collectors = await db.collector.findMany({
-    where: { status: "active" },
-    include: {
-      user: { select: { id: true, fullName: true } },
-    },
+    where: { status: "active", tenantId },
+    include: { user: { select: { id: true, fullName: true } } },
   });
 
-  const breakdown = await Promise.all(
+  return Promise.all(
     collectors.map(async (collector) => {
-      // Today's collector contributions
       const todayContributions = await db.contribution.findMany({
         where: {
+          tenantId,
           collectorId: collector.id,
           channel: "collector",
           collectionDate: { gte: today, lt: tomorrow },
@@ -359,9 +355,9 @@ export async function getAdminCollectorBreakdown() {
         0
       );
 
-      // Amount Handed In today
       const todayRemittances = await db.collectorRemittance.findMany({
         where: {
+          tenantId,
           collectorId: collector.id,
           createdAt: { gte: today, lt: tomorrow },
         },
@@ -372,7 +368,6 @@ export async function getAdminCollectorBreakdown() {
         0
       );
 
-      // Expected to Bring In = today's collector contributions
       const expectedToBringIn = todayContributionsAmount;
       const difference = expectedToBringIn - amountHandedInToday;
 
@@ -386,6 +381,4 @@ export async function getAdminCollectorBreakdown() {
       };
     })
   );
-
-  return breakdown;
 }

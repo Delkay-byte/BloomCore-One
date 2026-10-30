@@ -1,7 +1,8 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAdmin, hashPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
+import { requireTenantAdminMomo, requireTenantAdminSusu, assertTenantEntity } from "@/lib/tenant";
 import { createStaffSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
@@ -13,13 +14,25 @@ export interface ActionResponse {
 }
 
 /**
- * Get all staff members (admin, worker, collector roles).
- * Unified people directory for the business.
+ * Staff directory — tenant owned.
+ *
+ * The staff directory is a shared (MoMo + Susu) surface, so it accepts a
+ * tenant administrator from either module. Every query is scoped by tenantId.
  */
+
+async function requireStaffAdmin() {
+  const momo = await requireTenantAdminMomo().catch(() => null);
+  if (momo) return momo;
+  return requireTenantAdminSusu();
+}
+
 export async function getStaff() {
-  await requireAdmin();
+  const ctx = await requireStaffAdmin();
   return db.user.findMany({
-    where: { role: { in: ["admin", "worker", "collector"] } },
+    where: {
+      tenantId: ctx.tenantId,
+      role: { in: ["admin", "worker", "collector"] },
+    },
     include: {
       location: { select: { id: true, name: true, code: true } },
       collector: { select: { id: true, status: true } },
@@ -28,27 +41,20 @@ export async function getStaff() {
   });
 }
 
-/**
- * Get a single staff member by ID with full details.
- */
 export async function getStaffById(id: string) {
-  await requireAdmin();
-  return db.user.findUnique({
-    where: { id, role: { in: ["admin", "worker", "collector"] } },
-    include: {
-      location: true,
-      collector: true,
+  const ctx = await requireStaffAdmin();
+  return db.user.findFirst({
+    where: {
+      id,
+      tenantId: ctx.tenantId,
+      role: { in: ["admin", "worker", "collector"] },
     },
+    include: { location: true, collector: true },
   });
 }
 
-/**
- * Create a new staff member.
- * Role is server-assigned from validated form data.
- * Password is securely hashed. No plaintext stored.
- */
 export async function createStaff(formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireStaffAdmin();
 
   const raw = {
     fullName: (formData.get("fullName") as string)?.trim(),
@@ -64,7 +70,18 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  const existing = await db.user.findUnique({ where: { email: validated.data.email } });
+  // Module entitlement: a tenant cannot create a collector unless Susu is
+  // enabled for the business.
+  if (validated.data.role === "collector" && !ctx.susuEnabled) {
+    return {
+      success: false,
+      error: "This business is not enrolled for the Susu module.",
+    };
+  }
+
+  const existing = await db.user.findUnique({
+    where: { email: validated.data.email },
+  });
   if (existing) {
     return { success: false, error: "A user with this email already exists" };
   }
@@ -74,6 +91,7 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
   const user = await db.$transaction(async (tx) => {
     const created = await tx.user.create({
       data: {
+        tenantId: ctx.tenantId,
         fullName: validated.data.fullName,
         email: validated.data.email,
         phone: validated.data.phone,
@@ -84,15 +102,19 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
         susuEnabled: validated.data.role === "collector",
       },
       select: {
-        id: true, fullName: true, email: true, phone: true,
-        role: true, status: true, createdAt: true,
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        createdAt: true,
       },
     });
 
-    // If role is collector, create the corresponding Collector record
     if (validated.data.role === "collector") {
       await tx.collector.create({
-        data: { userId: created.id, status: "active" },
+        data: { tenantId: ctx.tenantId, userId: created.id, status: "active" },
       });
     }
 
@@ -100,7 +122,7 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.staff_created",
     entityType: "user",
     entityId: user.id,
@@ -112,12 +134,15 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
   return { success: true, data: user };
 }
 
-/**
- * Update staff member details (name, email, phone, status).
- * Role changes are not allowed through this action — use dedicated role change.
- */
-export async function updateStaff(staffId: string, formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function updateStaff(
+  staffId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireStaffAdmin();
+
+  if (!(await assertTenantEntity("user", staffId, ctx))) {
+    return { success: false, error: "Staff member not found" };
+  }
 
   const raw = {
     fullName: (formData.get("fullName") as string)?.trim(),
@@ -140,7 +165,9 @@ export async function updateStaff(staffId: string, formData: FormData): Promise<
     return { success: false, error: "A user with this email already exists" };
   }
 
-  const target = await db.user.findUnique({ where: { id: staffId } });
+  const target = await db.user.findFirst({
+    where: { id: staffId, tenantId: ctx.tenantId },
+  });
   if (!target || !["admin", "worker", "collector"].includes(target.role)) {
     return { success: false, error: "Staff member not found" };
   }
@@ -153,11 +180,18 @@ export async function updateStaff(staffId: string, formData: FormData): Promise<
       phone: raw.phone,
       status: raw.status,
     },
-    select: { id: true, fullName: true, email: true, phone: true, role: true, status: true },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      role: true,
+      status: true,
+    },
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.staff_updated",
     entityType: "user",
     entityId: staffId,
@@ -169,48 +203,42 @@ export async function updateStaff(staffId: string, formData: FormData): Promise<
   return { success: true, data: user };
 }
 
-/**
- * Activate or deactivate a staff member.
- * Inactive staff do not appear in Received By / Recorded By selectors.
- * Historical records are preserved.
- */
-export async function toggleStaffStatus(staffId: string, newStatus: string): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function toggleStaffStatus(
+  staffId: string,
+  newStatus: string
+): Promise<ActionResponse> {
+  const ctx = await requireStaffAdmin();
 
-  const target = await db.user.findUnique({ where: { id: staffId } });
+  const target = await db.user.findFirst({
+    where: { id: staffId, tenantId: ctx.tenantId },
+  });
   if (!target || !["admin", "worker", "collector"].includes(target.role)) {
     return { success: false, error: "Staff member not found" };
   }
 
   const user = await db.user.update({
     where: { id: staffId },
-    data: { status: newStatus },
+    data: { status: newStatus, tokenVersion: { increment: 1 } },
     select: { fullName: true, role: true },
   });
 
-  // If deactivating a collector, also deactivate the Collector record
-  if (newStatus === "inactive" && target.role === "collector") {
-    const collector = await db.collector.findUnique({ where: { userId: staffId } });
-    if (collector && collector.status === "active") {
-      await db.collector.update({
-        where: { id: collector.id },
-        data: { status: "inactive" },
-      });
-    }
-  }
-  // If reactivating a collector, also reactivate the Collector record
-  if (newStatus === "active" && target.role === "collector") {
-    const collector = await db.collector.findUnique({ where: { userId: staffId } });
-    if (collector && collector.status === "inactive") {
-      await db.collector.update({
-        where: { id: collector.id },
-        data: { status: "active" },
-      });
+  if (target.role === "collector") {
+    const collector = await db.collector.findFirst({
+      where: { userId: staffId, tenantId: ctx.tenantId },
+    });
+    if (collector) {
+      const desired = newStatus === "active" ? "active" : "inactive";
+      if (collector.status !== desired) {
+        await db.collector.update({
+          where: { id: collector.id },
+          data: { status: desired },
+        });
+      }
     }
   }
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: `user.staff_${newStatus === "active" ? "activated" : "deactivated"}`,
     entityType: "user",
     entityId: staffId,
@@ -223,15 +251,14 @@ export async function toggleStaffStatus(staffId: string, newStatus: string): Pro
   return { success: true };
 }
 
-/**
- * Reset a staff member's password.
- * Invalidates existing sessions by bumping tokenVersion.
- */
-export async function resetStaffPassword(staffId: string, formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function resetStaffPassword(
+  staffId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireStaffAdmin();
 
-  const target = await db.user.findUnique({
-    where: { id: staffId },
+  const target = await db.user.findFirst({
+    where: { id: staffId, tenantId: ctx.tenantId },
     select: { id: true, role: true },
   });
   if (!target || !["admin", "worker", "collector"].includes(target.role)) {
@@ -255,7 +282,7 @@ export async function resetStaffPassword(staffId: string, formData: FormData): P
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.password_reset",
     entityType: "user",
     entityId: staffId,
@@ -267,12 +294,10 @@ export async function resetStaffPassword(staffId: string, formData: FormData): P
 }
 
 /**
- * Search authorized staff members for SmartSearch dropdowns.
- * Returns active users with role in [admin, worker, collector].
- * Case-insensitive search on name, email, phone, and user ID.
+ * SmartSearch over the staff directory — tenant scoped.
  */
 export async function searchStaffDirectory(query: string) {
-  await requireAdmin();
+  const ctx = await requireStaffAdmin();
 
   if (!query || query.length < 2) return [];
 
@@ -280,6 +305,7 @@ export async function searchStaffDirectory(query: string) {
 
   const candidates = await db.user.findMany({
     where: {
+      tenantId: ctx.tenantId,
       status: "active",
       role: { in: ["admin", "worker", "collector"] },
     },

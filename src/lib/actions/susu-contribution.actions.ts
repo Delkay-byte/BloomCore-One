@@ -2,12 +2,11 @@
 
 import { db } from "@/lib/db";
 import {
-  getAdminSession,
-  getSusuSession,
-  getAnyAuthUser,
-  requireAdmin,
-  resolveAuthenticatedCollector,
-} from "@/lib/auth";
+  requireTenantAdminSusu,
+  requireTenantCollector,
+  assertTenantEntity,
+  type TenantContext,
+} from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
@@ -19,86 +18,112 @@ export interface ActionResponse {
 }
 
 /**
+ * Resolve the acting context for a contribution.
+ *
+ * Admin sessions take precedence so a leftover collector cookie cannot shadow
+ * an administrator entering an office payment. Both paths resolve a TENANT, and
+ * every referenced entity (account, collector, staff) is verified to belong to
+ * that tenant before use.
+ */
+async function resolveContributionActor(): Promise<
+  | { ok: true; ctx: TenantContext; isAdmin: boolean }
+  | { ok: false; error: string }
+> {
+  const adminCtx = await requireTenantAdminSusu().catch(() => null);
+  if (adminCtx) return { ok: true, ctx: adminCtx, isAdmin: true };
+
+  const collectorCtx = await requireTenantCollector().catch(() => null);
+  if (collectorCtx) return { ok: true, ctx: collectorCtx, isAdmin: false };
+
+  return { ok: false, error: "Not authenticated. Please sign in again." };
+}
+
+/**
  * Record a contribution and allocate it across outstanding days in the cycle.
  *
- * Identity is derived server-side from the authenticated session:
- * - Admin → can record for any account (channel = "direct_office", or
- *   channel = "collector" with an explicit collectorId for the on-behalf flow)
- * - Collector → can only record for assigned customers (channel = "collector")
- *
- * Admin sessions are resolved from the ADMIN cookie first so that a leftover
- * Susu collector session (e.g. a browser that previously signed in a collector)
- * can never shadow the admin account entering an office payment. Collector
- * identity is always resolved via the canonical resolveAuthenticatedCollector()
- * (Susu module session + active Collector record) — never from browser input.
- *
- * For direct_office channel, admin can optionally specify receivedById (the staff
- * member who physically received the money). If not provided, recordedById is used.
+ * Tenant isolation:
+ *   * The account must belong to the authenticated tenant.
+ *   * A collector can only record against customers assigned to them.
+ *   * Admin-selected collector / recorder / receiver ids are all re-verified
+ *     against the tenant, so a foreign id cannot be substituted in.
  */
 export async function recordContribution(params: {
   accountId: string;
   amount: number;
   channel: "collector" | "direct_office";
-  collectorId?: string; // Admin-only: manually selected collector. Ignored for collector role.
-  receivedById?: string; // Admin-only for direct_office: staff (User) who received the money
-  receivedByName?: string; // Free-text name of the staff who physically received the money (office)
-  recordedById?: string; // Admin-only for direct_office: staff (User) who recorded the payment
-  recordedByName?: string; // Free-text display name of the person recording the payment
+  collectorId?: string;
+  receivedById?: string;
+  receivedByName?: string;
+  recordedById?: string;
+  recordedByName?: string;
   notes?: string;
 }): Promise<ActionResponse> {
-  const { accountId, amount, channel, collectorId, receivedById, recordedById: clientRecordedById, recordedByName, notes } = params;
+  const {
+    accountId,
+    amount,
+    channel,
+    collectorId,
+    receivedById,
+    receivedByName,
+    recordedById: clientRecordedById,
+    recordedByName,
+    notes,
+  } = params;
 
-  // ── 1. Authenticate ─────────────────────────────────────────────────
-  // Admin cookie first, then the Susu collector session. The account that
-  // enters the payment is the one recorded as recordedById.
-  const admin = await getAdminSession();
-  const susu = await getSusuSession();
-  const isAdmin = !!admin && admin.role === "admin";
-  const user = admin ?? susu;
-  if (!user) {
-    return { success: false, error: "Not authenticated. Please sign in again." };
-  }
+  // ── 1. Authenticate + resolve tenant ────────────────────────────────
+  const actor = await resolveContributionActor();
+  if (!actor.ok) return { success: false, error: actor.error };
+  const { ctx, isAdmin } = actor;
 
   // ── 2. Validate amount ──────────────────────────────────────────────
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-    return { success: false, error: "Contribution amount must be greater than 0" };
+    return {
+      success: false,
+      error: "Contribution amount must be greater than 0",
+    };
   }
 
-  // ── 3. Derive collector identity from session ───────────────────────
+  // ── 3. Derive collector identity ────────────────────────────────────
   let effectiveCollectorId: string | null = null;
   let recordedById: string;
 
   if (channel === "collector") {
     if (isAdmin && collectorId) {
-      // Admin recording on behalf of a collector: trust the admin-selected ID
-      const collector = await db.collector.findUnique({ where: { id: collectorId } });
-      if (!collector) {
+      // Admin recording on behalf of a collector — the collector must belong
+      // to this tenant.
+      if (!(await assertTenantEntity("collector", collectorId, ctx))) {
         return { success: false, error: "Selected collector not found" };
       }
       effectiveCollectorId = collectorId;
-      recordedById = admin!.userId;
+      recordedById = ctx.userId;
     } else {
-      // Collector: always derive from the canonical session resolution
-      // (never trust client input for collectorId)
-      const resolved = await resolveAuthenticatedCollector();
-      if (!resolved) {
-        const anyUser = await getAnyAuthUser();
-        if (!anyUser) {
-          return { success: false, error: "Not authenticated. Please sign in again." };
-        }
-        return { success: false, error: "Collector identity is required for collector-channel contributions" };
+      // Collector: derive from the canonical session resolution, never input.
+      const collector = await db.collector.findFirst({
+        where: { userId: ctx.userId, tenantId: ctx.tenantId, status: "active" },
+        select: { id: true },
+      });
+      if (!collector) {
+        return {
+          success: false,
+          error:
+            "Collector identity is required for collector-channel contributions",
+        };
       }
-      effectiveCollectorId = resolved.collector.id;
-      recordedById = resolved.user.userId;
+      effectiveCollectorId = collector.id;
+      recordedById = ctx.userId;
     }
   } else {
-    // channel === "direct_office" — office payments are entered by admins only
+    // direct_office — administrators only
     if (!isAdmin) {
-      return { success: false, error: "Only administrators can record office contributions" };
+      return {
+        success: false,
+        error: "Only administrators can record office contributions",
+      };
     }
-    // Use the selected staff recorder if provided, otherwise default to the authenticated admin
     if (clientRecordedById) {
-      const recordedByUser = await db.user.findUnique({ where: { id: clientRecordedById } });
+      const recordedByUser = await db.user.findFirst({
+        where: { id: clientRecordedById, tenantId: ctx.tenantId },
+      });
       if (!recordedByUser) {
         return { success: false, error: "Selected recorder staff member not found" };
       }
@@ -106,25 +131,30 @@ export async function recordContribution(params: {
         return { success: false, error: "Selected recorder staff member is not active" };
       }
       if (!["admin", "worker", "collector"].includes(recordedByUser.role)) {
-        return { success: false, error: "Selected recorder is not an authorized staff member" };
+        return {
+          success: false,
+          error: "Selected recorder is not an authorized staff member",
+        };
       }
       recordedById = clientRecordedById;
     } else {
-      recordedById = admin!.userId;
+      recordedById = ctx.userId;
     }
   }
 
-  // ── 3b. Resolve authoritative recordedByName from validated recordedById ──
-  // Never trust free-text client input for identity resolution.
-  const recorderUser = await db.user.findUnique({
-    where: { id: recordedById },
+  // ── 3b. Authoritative recordedByName ────────────────────────────────
+  // Identity anchor (recordedById) is always session-derived; the display name
+  // is the business-typed name when supplied, else the resolved user's name.
+  const recorderUser = await db.user.findFirst({
+    where: { id: recordedById, tenantId: ctx.tenantId },
     select: { fullName: true },
   });
-  const effectiveRecordedByName = recorderUser?.fullName || recordedByName?.trim() || null;
+  const effectiveRecordedByName =
+    recordedByName?.trim() || recorderUser?.fullName || null;
 
-  // ── 4. Fetch account and verify ─────────────────────────────────────
-  const account = await db.susuAccount.findUnique({
-    where: { id: accountId },
+  // ── 4. Fetch account — TENANT SCOPED ────────────────────────────────
+  const account = await db.susuAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
     include: {
       cycles: { where: { status: "active" }, take: 1 },
       customer: true,
@@ -141,13 +171,14 @@ export async function recordContribution(params: {
     return { success: false, error: "No active cycle found for this account" };
   }
 
-  // ── 5. Authorize: collector can only record for assigned customers ───
+  // ── 5. Collector may only record for assigned customers ─────────────
   if (effectiveCollectorId) {
     const assignment = await db.collectorCustomerAssignment.findFirst({
       where: {
         collectorId: effectiveCollectorId,
-        accountId: accountId,
+        accountId,
         active: true,
+        tenantId: ctx.tenantId,
       },
     });
     if (!assignment) {
@@ -161,14 +192,13 @@ export async function recordContribution(params: {
   const cycle = account.cycles[0];
   const dailyContribution = Number(cycle.dailyContribution);
 
-  // ── 6. Determine receivedById for direct_office channel ──────────────
+  // ── 6. Receiver for direct_office ───────────────────────────────────
   let effectiveReceivedById: string | null = null;
   let effectiveReceivedByName: string | null = null;
   if (channel === "direct_office") {
     if (receivedById) {
-      // Verify the receivedById is an authorized staff member
-      const receivedByUser = await db.user.findUnique({
-        where: { id: receivedById },
+      const receivedByUser = await db.user.findFirst({
+        where: { id: receivedById, tenantId: ctx.tenantId },
       });
       if (!receivedByUser) {
         return { success: false, error: "Selected staff member not found" };
@@ -177,31 +207,39 @@ export async function recordContribution(params: {
         return { success: false, error: "Selected staff member is not active" };
       }
       if (!["admin", "worker", "collector"].includes(receivedByUser.role)) {
-        return { success: false, error: "Selected receiver is not an authorized staff member" };
+        return {
+          success: false,
+          error: "Selected receiver is not an authorized staff member",
+        };
       }
       effectiveReceivedById = receivedById;
-      // Resolve authoritative name from validated user — never trust free-text input
+      // A validated staff id is authoritative for the receiver's name.
       effectiveReceivedByName = receivedByUser.fullName;
     } else {
-      // Default to the recording user (the admin entering the payment)
+      // No staff selected: default the receiver anchor to the person recording
+      // the payment; the business may still type the receiver's name at the
+      // office (free text), which the statement displays in preference.
       effectiveReceivedById = recordedById;
-      // Resolve the name from the recordedBy user
-      const defaultReceiver = await db.user.findUnique({
-        where: { id: recordedById },
-        select: { fullName: true },
-      });
-      effectiveReceivedByName = defaultReceiver?.fullName || null;
+      if (receivedByName?.trim()) {
+        effectiveReceivedByName = receivedByName.trim();
+      } else {
+        const defaultReceiver = await db.user.findFirst({
+          where: { id: recordedById, tenantId: ctx.tenantId },
+          select: { fullName: true },
+        });
+        effectiveReceivedByName = defaultReceiver?.fullName || null;
+      }
     }
   }
 
-  // ── 7. Generate idempotency key ─────────────────────────────────────
+  // ── 7. Idempotency key ──────────────────────────────────────────────
   const referenceId = `CON-${randomBytes(8).toString("hex")}`;
 
-  // ── 8. Database transaction (financial integrity) ───────────────────
+  // ── 8. Financial transaction ────────────────────────────────────────
   const result = await db.$transaction(async (tx) => {
-    // Create the contribution record
     const contribution = await tx.contribution.create({
       data: {
+        tenantId: ctx.tenantId,
         accountId: account.id,
         cycleId: cycle.id,
         amount,
@@ -217,25 +255,29 @@ export async function recordContribution(params: {
       },
     });
 
-    // Calculate days covered
     const daysCovered = Math.floor(amount / dailyContribution);
     const allocatedAmount = daysCovered * dailyContribution;
 
-    // Find already-paid days in this cycle
     const existingAllocations = await tx.contributionAllocation.findMany({
       where: {
         contribution: { cycleId: cycle.id },
+        tenantId: ctx.tenantId,
       },
     });
     const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
 
-    // Allocate to first N unpaid days
-    const allocations: { contributionId: string; cycleDay: number; amount: number }[] = [];
+    const allocations: {
+      tenantId: string;
+      contributionId: string;
+      cycleDay: number;
+      amount: number;
+    }[] = [];
     let daysAllocated = 0;
 
     for (let day = 1; day <= 31 && daysAllocated < daysCovered; day++) {
       if (!paidDays.has(day)) {
         allocations.push({
+          tenantId: ctx.tenantId,
           contributionId: contribution.id,
           cycleDay: day,
           amount: dailyContribution,
@@ -256,11 +298,9 @@ export async function recordContribution(params: {
     };
   });
 
-  // ── 8. Audit log ────────────────────────────────────────────────────
-  // The audit log preserves the authenticated actor (who submitted the request)
-  // separately from the business attribution (who received/recorded the payment).
+  // ── 9. Audit ────────────────────────────────────────────────────────
   await createAuditLog({
-    userId: user.userId, // Authenticated actor — always from the session
+    userId: ctx.userId,
     action: "susu.contribution_recorded",
     entityType: "contribution",
     entityId: result.contribution.id,
@@ -271,16 +311,15 @@ export async function recordContribution(params: {
       collectorId: effectiveCollectorId,
       receivedById: effectiveReceivedById,
       receivedByName: effectiveReceivedByName,
-      recordedById, // Business attribution — the staff selected as recorder
+      recordedById,
       recordedByName: effectiveRecordedByName,
-      authenticatedActorId: user.userId, // Explicit audit trail
+      authenticatedActorId: ctx.userId,
       daysAllocated: result.daysAllocated,
       allocatedAmount: result.allocatedAmount,
       referenceId,
     },
   });
 
-  // ── 9. Revalidate relevant pages ────────────────────────────────────
   revalidatePath("/susu/admin/contributions");
   revalidatePath("/susu/admin/customers");
   revalidatePath("/susu/admin");
@@ -308,13 +347,14 @@ export async function getContributions(params?: {
   dateTo?: string;
   collectorId?: string;
 }) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const page = params?.page || 1;
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = {};
+  // Tenant scope is always applied.
+  const where: Record<string, unknown> = { tenantId: ctx.tenantId };
   if (params?.accountId) where.accountId = params.accountId;
   if (params?.cycleId) where.cycleId = params.cycleId;
   if (params?.channel) where.channel = params.channel;
@@ -323,8 +363,10 @@ export async function getContributions(params?: {
   if (params?.dateFrom || params?.dateTo) {
     where.collectionDate = {};
     const dateRange = where.collectionDate as Record<string, Date>;
-    if (params.dateFrom) dateRange.gte = new Date(params.dateFrom + "T00:00:00.000Z");
-    if (params.dateTo) dateRange.lte = new Date(params.dateTo + "T23:59:59.999Z");
+    if (params.dateFrom)
+      dateRange.gte = new Date(params.dateFrom + "T00:00:00.000Z");
+    if (params.dateTo)
+      dateRange.lte = new Date(params.dateTo + "T23:59:59.999Z");
   }
 
   const [contributions, total] = await Promise.all([
@@ -332,7 +374,9 @@ export async function getContributions(params?: {
       where,
       include: {
         account: {
-          include: { customer: { select: { customerId: true, fullName: true } } },
+          include: {
+            customer: { select: { customerId: true, fullName: true } },
+          },
         },
         allocations: true,
         collector: { include: { user: { select: { fullName: true } } } },
@@ -352,14 +396,12 @@ export async function getContributions(params?: {
   };
 }
 
-/**
- * Get contribution summary for a specific cycle
- */
+/** Contribution summary for a specific cycle, scoped to the tenant. */
 export async function getCycleContributionSummary(cycleId: string) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
-  const cycle = await db.susuCycle.findUnique({
-    where: { id: cycleId },
+  const cycle = await db.susuCycle.findFirst({
+    where: { id: cycleId, tenantId: ctx.tenantId },
     include: {
       contributions: {
         include: { allocations: true },
@@ -370,9 +412,13 @@ export async function getCycleContributionSummary(cycleId: string) {
 
   if (!cycle) return null;
 
-  const totalContributed = cycle.contributions.reduce((sum, c) => sum + Number(c.amount), 0);
+  const totalContributed = cycle.contributions.reduce(
+    (sum, c) => sum + Number(c.amount),
+    0
+  );
   const totalAllocated = cycle.contributions.reduce(
-    (sum, c) => sum + c.allocations.reduce((aSum, a) => aSum + Number(a.amount), 0),
+    (sum, c) =>
+      sum + c.allocations.reduce((aSum, a) => aSum + Number(a.amount), 0),
     0
   );
   const allocatedDays = new Set(

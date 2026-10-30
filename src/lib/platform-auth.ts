@@ -1,0 +1,273 @@
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { db } from "./db";
+import { hashPassword, verifyPassword, SESSION_POLICY } from "./auth";
+
+/**
+ * ============================================================================
+ * PLATFORM SUPER ADMIN AUTHENTICATION
+ * ============================================================================
+ *
+ * A completely separate authentication boundary from every tenant surface.
+ *
+ *   /platform/*            bik-platform-session   ← this module
+ *   /admin/*               bik-admin-session
+ *   /worker/*              bik-worker-session
+ *   /collector/*           bik-collector-session
+ *   /customer/*            bik-customer-session
+ *
+ * Guarantees enforced here and in middleware.ts:
+ *
+ *   1. A tenant session can NEVER authenticate a /platform/* request, even if
+ *      the user is a tenant administrator. The platform guard reads only
+ *      PLATFORM_COOKIE.
+ *   2. A platform session can NEVER authenticate a tenant route. The tenant
+ *      guards in lib/auth.ts and lib/tenant.ts read only their own module
+ *      cookies.
+ *   3. The token carries `kind: "platform"` and is rejected if that claim is
+ *      missing, so a tenant JWT can never be replayed as a platform token even
+ *      if it somehow landed in the platform cookie.
+ *
+ * The identity lives in its own table (PlatformSuperAdmin), not in User. A
+ * Platform Super Admin is never a tenant administrator and vice versa.
+ */
+
+export const PLATFORM_COOKIE = "bik-platform-session";
+/** Short-lived cookie marking a completed platform login challenge. */
+const PLATFORM_LOGIN_KIND = "platform";
+
+export interface PlatformJwtPayload {
+  /** PlatformSuperAdmin.id */
+  adminId: string;
+  email: string;
+  fullName: string;
+  kind: "platform";
+  forcePasswordReset?: boolean;
+  tokenVersion?: number;
+  iat?: number;
+  exp?: number;
+  lastActivityAt?: number;
+}
+
+export interface PlatformSession {
+  adminId: string;
+  email: string;
+  fullName: string;
+  forcePasswordReset: boolean;
+}
+
+function getJwtSecret(): Uint8Array {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET environment variable is required. Set it in your .env file."
+    );
+  }
+  return new TextEncoder().encode(secret);
+}
+
+/** Platform sessions are shorter-lived than tenant sessions by design. */
+export const PLATFORM_SESSION_POLICY = {
+  ABSOLUTE_TIMEOUT_SECONDS: Math.min(
+    SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS,
+    14400 // 4 hours
+  ),
+  INACTIVITY_TIMEOUT_SECONDS: Math.min(
+    SESSION_POLICY.INACTIVITY_TIMEOUT_SECONDS,
+    3600 // 1 hour
+  ),
+} as const;
+
+export async function hashPlatformPassword(password: string): Promise<string> {
+  return hashPassword(password);
+}
+
+export async function verifyPlatformPassword(
+  password: string,
+  hash: string
+): Promise<boolean> {
+  return verifyPassword(password, hash);
+}
+
+/** Shared credential policy: length, an uppercase letter and a digit. */
+export function validatePasswordPolicy(password: string): string | null {
+  if (password.length < 8) return "Password must be at least 8 characters";
+  if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain a digit";
+  return null;
+}
+
+async function createPlatformToken(
+  payload: PlatformJwtPayload
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS;
+  const minutes = Math.floor(PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS / 60);
+  return new SignJWT({
+    ...payload,
+    iat: now,
+    exp,
+    lastActivityAt: now,
+  } as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt(now)
+    .setExpirationTime(`${minutes}m`)
+    .sign(getJwtSecret());
+}
+
+export async function verifyPlatformToken(
+  token: string
+): Promise<PlatformJwtPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, getJwtSecret());
+    const p = payload as unknown as PlatformJwtPayload;
+    // Reject anything that is not explicitly a platform token. This is what
+    // stops a tenant JWT from being accepted on the platform boundary.
+    if (p.kind !== PLATFORM_LOGIN_KIND) return null;
+    if (!p.adminId) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+export async function setPlatformSession(
+  payload: Omit<PlatformJwtPayload, "kind">
+): Promise<void> {
+  const cookieStore = await cookies();
+  const token = await createPlatformToken({
+    ...payload,
+    kind: PLATFORM_LOGIN_KIND,
+  });
+  cookieStore.set(PLATFORM_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict", // stricter than tenant cookies: cross-site never needs this
+    path: "/",
+    maxAge: PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+  });
+}
+
+export async function clearPlatformSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(PLATFORM_COOKIE);
+}
+
+/** Timing enforcement, mirroring the tenant session rules. */
+function validatePlatformTiming(p: PlatformJwtPayload): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  if (p.exp && now > p.exp) return false;
+  const last = p.lastActivityAt ?? p.iat ?? 0;
+  if (now - last > PLATFORM_SESSION_POLICY.INACTIVITY_TIMEOUT_SECONDS) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve the authenticated platform administrator, or null.
+ * Re-reads the database on every call so a deactivated or replaced platform
+ * administrator loses access immediately, regardless of cookie lifetime.
+ */
+export async function getPlatformSession(): Promise<PlatformSession | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(PLATFORM_COOKIE)?.value;
+    if (!token) return null;
+
+    const payload = await verifyPlatformToken(token);
+    if (!payload) return null;
+    if (!validatePlatformTiming(payload)) return null;
+
+    const admin = await db.platformSuperAdmin.findUnique({
+      where: { id: payload.adminId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        status: true,
+        forcePasswordReset: true,
+        tokenVersion: true,
+      },
+    });
+    if (!admin) return null;
+    if (admin.status !== "active") return null;
+    // Bumping tokenVersion invalidates every existing platform session.
+    if (admin.tokenVersion !== (payload.tokenVersion ?? 0)) return null;
+
+    return {
+      adminId: admin.id,
+      email: admin.email,
+      fullName: admin.fullName,
+      forcePasswordReset: admin.forcePasswordReset,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Guard for platform pages. Redirects to the platform login on any failure.
+ * The platform login lives on its own route — never the tenant /login.
+ */
+export async function requirePlatformAdmin(): Promise<PlatformSession> {
+  const session = await getPlatformSession();
+  if (!session) {
+    redirect("/platform/login");
+  }
+  return session;
+}
+
+/**
+ * Guard for every platform page EXCEPT the settings page: a first-login or
+ * reset platform password must be changed before any other platform operation.
+ */
+export async function requirePlatformPage(): Promise<PlatformSession> {
+  const session = await requirePlatformAdmin();
+  if (session.forcePasswordReset) {
+    redirect("/platform/settings?tab=password");
+  }
+  return session;
+}
+
+/** Non-redirecting guard for platform API routes. */
+export async function getPlatformAdminOrNull(): Promise<PlatformSession | null> {
+  return getPlatformSession();
+}
+
+/**
+ * Authenticate a platform administrator by credentials.
+ *
+ * Deliberately returns a discriminated result rather than throwing, so callers
+ * cannot accidentally log the reason (and so failure messages stay generic).
+ */
+export async function authenticatePlatformAdmin(
+  email: string,
+  password: string
+): Promise<
+  | { ok: true; admin: PlatformSession; tokenVersion: number }
+  | { ok: false; reason: "invalid" | "inactive" | "not_found" }
+> {
+  const normalized = email.trim().toLowerCase();
+  const admin = await db.platformSuperAdmin.findUnique({
+    where: { email: normalized },
+  });
+  if (!admin) return { ok: false, reason: "not_found" };
+
+  const valid = await verifyPlatformPassword(password, admin.passwordHash);
+  if (!valid) return { ok: false, reason: "invalid" };
+
+  if (admin.status !== "active") return { ok: false, reason: "inactive" };
+
+  return {
+    ok: true,
+    tokenVersion: admin.tokenVersion,
+    admin: {
+      adminId: admin.id,
+      email: admin.email,
+      fullName: admin.fullName,
+      forcePasswordReset: admin.forcePasswordReset,
+    },
+  };
+}

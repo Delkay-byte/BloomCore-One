@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import TabSessionGuard from "@/components/TabSessionGuard";
 import { navSections } from "@/lib/admin-nav";
@@ -10,6 +10,42 @@ import { navSections } from "@/lib/admin-nav";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Module navigation comes from the TENANT's entitlement (server-resolved via
+  // /api/auth/me), never from a browser flag. A business not enrolled for a
+  // module must not see — or be invited into — that module's navigation.
+  const [modules, setModules] = useState<{ momo: boolean; susu: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me?module=admin")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.tenant) {
+          setModules({ momo: !!data.tenant.momoEnabled, susu: !!data.tenant.susuEnabled });
+        } else {
+          setModules({ momo: true, susu: true });
+        }
+      })
+      .catch(() => !cancelled && setModules({ momo: true, susu: true }));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Until the entitlement resolves, show non-module navigation only — the
+  // server actions reject disabled modules anyway (fail closed).
+  function visibleSections() {
+    if (!modules) {
+      return navSections.filter((s) => !s.title || s.title === "Administration");
+    }
+    return navSections.filter((s) => {
+      if (s.title === "MoMo") return modules.momo;
+      if (s.title === "Susu") return modules.susu;
+      return true;
+    });
+  }
 
   // The administrator login is a public, standalone page. It must NOT inherit
   // the authenticated dashboard shell (sidebar, navigation, TabSessionGuard).
@@ -65,7 +101,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           />
         </div>
         <nav className="p-4 flex-1 overflow-y-auto">
-          {navSections.map((section) => (
+          {visibleSections().map((section) => (
             <div key={section.title || "main"} className="mb-4">
               {section.title && (
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">

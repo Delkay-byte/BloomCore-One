@@ -8,8 +8,9 @@
  *  - Customer statement shows the receiver, never the internal recorder
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- test assertions read untyped action payloads */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { prisma, cleanDatabase } from "./setup";
+import { prisma, cleanDatabase, createTestTenant } from "./setup";
 
 // --- Auth + cache mocking so server actions can run in the test DB ----------
 const adminId = "test-admin-id";
@@ -25,11 +26,18 @@ vi.mock("@/lib/auth", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/auth")>();
   return {
     ...actual,
-    requireAdmin: async () => ({ userId: adminId, role: "admin" }),
-    requireAuth: async () => ({ userId: adminId, role: "admin" }),
-    getAnyAuthUser: async () => ({ userId: adminId, role: "admin" }),
-    getAdminSession: async () => ({ userId: adminId, role: "admin" }),
+    requireAdmin: async () => ({ userId: adminId, role: "admin", lastActivityAt: Math.floor(Date.now() / 1000) }),
+    requireAuth: async () => ({ userId: adminId, role: "admin", lastActivityAt: Math.floor(Date.now() / 1000) }),
+    getAnyAuthUser: async () => ({ userId: adminId, role: "admin", lastActivityAt: Math.floor(Date.now() / 1000) }),
+    getAdminSession: async () => ({ userId: adminId, role: "admin", lastActivityAt: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 }),
     getSusuSession: async () => null,
+    getCustomerSession: async () => ({
+      userId: customerSessionId,
+      role: "customer",
+      modules: ["customer"],
+      lastActivityAt: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }),
     resolveAuthenticatedCollector: async () => null,
     requireCustomer: async () => ({
       userId: customerSessionId,
@@ -49,29 +57,31 @@ beforeEach(async () => {
   await cleanDatabase();
   customerSessionId = custAId;
 
+  const tenant = await createTestTenant({ momo: true, susu: true });
+
   await prisma.user.create({
-    data: { id: adminId, email: "admin@bik.test", fullName: "Admin User", role: "admin", status: "active", passwordHash: "x" },
+    data: { id: adminId, email: "admin@bik.test", fullName: "Admin User", role: "admin", status: "active", passwordHash: "x", tenantId: tenant.id },
   });
   await prisma.user.create({
-    data: { id: receiverId, email: "receiver@bik.test", fullName: "Ama Mensah", role: "worker", status: "active", passwordHash: "x" },
+    data: { id: receiverId, email: "receiver@bik.test", fullName: "Ama Mensah", role: "worker", status: "active", passwordHash: "x", tenantId: tenant.id },
   });
   await prisma.user.create({
-    data: { id: collectorUserId, email: "collector@bik.test", fullName: "Kofi Mensah", role: "collector", status: "active", passwordHash: "x" },
+    data: { id: collectorUserId, email: "collector@bik.test", fullName: "Kofi Mensah", role: "collector", status: "active", passwordHash: "x", susuEnabled: true, tenantId: tenant.id },
   });
   await prisma.collector.create({
-    data: { id: collectorId, userId: collectorUserId, status: "active" },
+    data: { id: collectorId, userId: collectorUserId, status: "active", tenantId: tenant.id },
   });
 
-  await makeCustomer(custAId, "BIK-C-A", "Kofi Mensah", "+233000A");
-  await makeCustomer(custBId, "BIK-C-B", "Ama Serwaa", "+233000B");
+  await makeCustomer(custAId, "BIK-C-A", "Kofi Mensah", "+233000A", tenant.id);
+  await makeCustomer(custBId, "BIK-C-B", "Ama Serwaa", "+233000B", tenant.id);
 });
 
-async function makeCustomer(id: string, customerId: string, fullName: string, phone: string) {
+async function makeCustomer(id: string, customerId: string, fullName: string, phone: string, tenantId: string) {
   await prisma.customer.create({
-    data: { id, customerId, fullName, phone, status: "active" },
+    data: { id, customerId, fullName, phone, status: "active", portalEnabled: true, tenantId },
   });
   const account = await prisma.susuAccount.create({
-    data: { accountId: `BIK-S-${customerId}`, customerId: id, dailyContribution: 50, status: "active", cardCustody: "customer" },
+    data: { accountId: `BIK-S-${customerId}`, customerId: id, dailyContribution: 50, status: "active", cardCustody: "customer", tenantId },
   });
   await prisma.susuCycle.create({
     data: {
@@ -82,6 +92,7 @@ async function makeCustomer(id: string, customerId: string, fullName: string, ph
       dailyContribution: 50,
       status: "active",
       commissionCharged: false,
+      tenantId,
     },
   });
 }

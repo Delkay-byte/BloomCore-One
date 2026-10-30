@@ -283,7 +283,7 @@ function normalizePayload(payload: JwtPayload): JwtPayload {
   };
 }
 
-async function readModuleCookie(module: ModuleName): Promise<JwtPayload | null> {
+export async function readModuleCookie(module: ModuleName): Promise<JwtPayload | null> {
   const cookieStore = await cookies();
   const name = SESSION_COOKIES[module];
 

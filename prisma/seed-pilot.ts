@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { BIK_TENANT_CODE } from "./seed";
 
 const prisma = new PrismaClient();
 
@@ -8,10 +9,28 @@ async function main() {
 
   const adminPassword = await bcrypt.hash("Admin123", 12);
 
+  // 0. Ensure the BIK Prestige Enterprise tenant exists (idempotent)
+  const bikTenant = await prisma.businessTenant.upsert({
+    where: { code: BIK_TENANT_CODE },
+    update: {},
+    create: {
+      code: BIK_TENANT_CODE,
+      name: "BIK Prestige Enterprise",
+      contactEmail: "admin@bikprestige.com",
+      contactPhone: "+233240000000",
+      momoEnabled: true,
+      susuEnabled: true,
+      status: "ACTIVE",
+      onboardingStatus: "COMPLETED",
+    },
+  });
+  const tenantId = bikTenant.id;
+  console.log(`✅ Tenant: ${bikTenant.name} (${bikTenant.code})`);
+
   // 1. Create Admin User (idempotent)
   const admin = await prisma.user.upsert({
     where: { email: "admin@bikprestige.com" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "admin@bikprestige.com",
       fullName: "BIK Admin",
@@ -19,8 +38,15 @@ async function main() {
       role: "admin",
       status: "active",
       passwordHash: adminPassword,
+      tenantId,
     },
   });
+  if (!bikTenant.primaryAdminUserId) {
+    await prisma.businessTenant.update({
+      where: { id: tenantId },
+      data: { primaryAdminUserId: admin.id },
+    });
+  }
   console.log(`✅ Admin: ${admin.email}`);
 
   // 2. Create MoMo Locations (idempotent)
@@ -33,9 +59,9 @@ async function main() {
 
   for (const loc of locations) {
     const created = await prisma.location.upsert({
-      where: { code: loc.code },
+      where: { tenantId_code: { tenantId, code: loc.code } },
       update: {},
-      create: loc,
+      create: { ...loc, tenantId },
     });
     console.log(`✅ Location: ${created.name} (${created.code})`);
   }

@@ -1,7 +1,12 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAdmin, hashPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
+import {
+  requireTenantAdminMomo,
+  requireTenantAdminSusu,
+  assertTenantEntity,
+} from "@/lib/tenant";
 import { createWorkerSchema, editWorkerSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
@@ -12,8 +17,19 @@ export interface ActionResponse {
   data?: unknown;
 }
 
-export async function createWorker(formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+/**
+ * Workers are tenant-owned staff accounts.
+ *
+ * Every function resolves the tenant from the session and scopes by tenantId.
+ * Email remains globally unique (login resolves by email with no tenant hint),
+ * so two businesses cannot share a staff email address — a documented
+ * limitation, not a leak.
+ */
+
+export async function createWorker(
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
 
   const raw = {
     fullName: (formData.get("fullName") as string)?.trim(),
@@ -29,23 +45,32 @@ export async function createWorker(formData: FormData): Promise<ActionResponse> 
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  const existing = await db.user.findUnique({ where: { email: validated.data.email } });
+  const existing = await db.user.findUnique({
+    where: { email: validated.data.email },
+  });
   if (existing) {
     return { success: false, error: "A user with this email already exists" };
   }
 
-  const location = await db.location.findUnique({ where: { id: validated.data.locationId } });
+  // The location must belong to this tenant.
+  const location = await db.location.findFirst({
+    where: { id: validated.data.locationId, tenantId: ctx.tenantId },
+  });
   if (!location) {
     return { success: false, error: "Selected location does not exist" };
   }
   if (location.status === "inactive") {
-    return { success: false, error: "Cannot assign worker to an inactive location" };
+    return {
+      success: false,
+      error: "Cannot assign worker to an inactive location",
+    };
   }
 
   const passwordHash = await hashPassword(validated.data.password);
 
   const worker = await db.user.create({
     data: {
+      tenantId: ctx.tenantId,
       fullName: validated.data.fullName,
       email: validated.data.email,
       phone: validated.data.phone,
@@ -56,11 +81,19 @@ export async function createWorker(formData: FormData): Promise<ActionResponse> 
       status: validated.data.status,
       forcePasswordReset: true,
     },
-    select: { id: true, fullName: true, email: true, role: true, status: true, locationId: true, createdAt: true },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      status: true,
+      locationId: true,
+      createdAt: true,
+    },
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.worker_created",
     entityType: "user",
     entityId: worker.id,
@@ -72,8 +105,15 @@ export async function createWorker(formData: FormData): Promise<ActionResponse> 
   return { success: true, data: worker };
 }
 
-export async function updateWorker(workerId: string, formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function updateWorker(
+  workerId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+
+  if (!(await assertTenantEntity("user", workerId, ctx))) {
+    return { success: false, error: "Worker not found" };
+  }
 
   const raw = {
     fullName: (formData.get("fullName") as string)?.trim(),
@@ -95,11 +135,26 @@ export async function updateWorker(workerId: string, formData: FormData): Promis
     return { success: false, error: "A user with this email already exists" };
   }
 
-  // Module capability: optional Susu collector registration for this person.
-  // One person, one account — capabilities are assignments, not new users.
+  // A location reassignment must stay inside the tenant.
+  if (
+    validated.data.locationId &&
+    !(await assertTenantEntity("location", validated.data.locationId, ctx))
+  ) {
+    return { success: false, error: "Selected location does not exist" };
+  }
+
   const wantsSusu = formData.get("susuCollector") === "on";
-  const target = await db.user.findUnique({
-    where: { id: workerId },
+
+  // Susu capability can only be granted if the TENANT has Susu enabled.
+  if (wantsSusu && !ctx.susuEnabled) {
+    return {
+      success: false,
+      error: "This business is not enrolled for the Susu module.",
+    };
+  }
+
+  const target = await db.user.findFirst({
+    where: { id: workerId, tenantId: ctx.tenantId },
     include: { collector: true },
   });
   if (!target) {
@@ -117,15 +172,29 @@ export async function updateWorker(workerId: string, formData: FormData): Promis
         locationId: validated.data.locationId,
         status: validated.data.status,
         susuEnabled: wantsSusu,
+        // Capability changes take effect on the next request.
+        ...(susuChanged ? { tokenVersion: { increment: 1 } } : {}),
       },
-      select: { id: true, fullName: true, email: true, role: true, status: true, locationId: true },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        status: true,
+        locationId: true,
+      },
     });
 
     if (wantsSusu && !target.collector) {
-      await tx.collector.create({ data: { userId: workerId, status: "active" } });
+      await tx.collector.create({
+        data: { tenantId: ctx.tenantId, userId: workerId, status: "active" },
+      });
     }
     if (!wantsSusu && target.collector && target.collector.status === "active") {
-      await tx.collector.update({ where: { id: target.collector.id }, data: { status: "inactive" } });
+      await tx.collector.update({
+        where: { id: target.collector.id },
+        data: { status: "inactive" },
+      });
     }
 
     return updated;
@@ -133,7 +202,7 @@ export async function updateWorker(workerId: string, formData: FormData): Promis
 
   if (susuChanged) {
     await createAuditLog({
-      userId: admin.userId,
+      userId: ctx.userId,
       action: "user.module_assignment_changed",
       entityType: "user",
       entityId: workerId,
@@ -142,7 +211,7 @@ export async function updateWorker(workerId: string, formData: FormData): Promis
   }
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.worker_updated",
     entityType: "user",
     entityId: workerId,
@@ -154,13 +223,14 @@ export async function updateWorker(workerId: string, formData: FormData): Promis
   return { success: true, data: worker };
 }
 
-export async function resetWorkerPassword(workerId: string, formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function resetWorkerPassword(
+  workerId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
 
-  // Target user is resolved server-side from the admin's request context —
-  // never from arbitrary browser-supplied role/ID combinations.
-  const target = await db.user.findUnique({
-    where: { id: workerId },
+  const target = await db.user.findFirst({
+    where: { id: workerId, tenantId: ctx.tenantId },
     select: { id: true, role: true },
   });
   if (!target || (target.role !== "worker" && target.role !== "collector")) {
@@ -179,12 +249,12 @@ export async function resetWorkerPassword(workerId: string, formData: FormData):
     data: {
       passwordHash,
       forcePasswordReset: true,
-      tokenVersion: { increment: 1 }, // invalidate the user's existing sessions
+      tokenVersion: { increment: 1 },
     },
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "user.password_reset",
     entityType: "user",
     entityId: workerId,
@@ -195,17 +265,24 @@ export async function resetWorkerPassword(workerId: string, formData: FormData):
   return { success: true };
 }
 
-export async function toggleWorkerStatus(workerId: string, newStatus: string): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function toggleWorkerStatus(
+  workerId: string,
+  newStatus: string
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+
+  if (!(await assertTenantEntity("user", workerId, ctx))) {
+    return { success: false, error: "Worker not found" };
+  }
 
   const worker = await db.user.update({
     where: { id: workerId },
-    data: { status: newStatus },
+    data: { status: newStatus, tokenVersion: { increment: 1 } },
     select: { fullName: true },
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: `user.worker_${newStatus === "active" ? "activated" : "deactivated"}`,
     entityType: "user",
     entityId: workerId,
@@ -219,21 +296,22 @@ export async function toggleWorkerStatus(workerId: string, newStatus: string): P
 }
 
 export async function getWorkers() {
-  await requireAdmin();
+  const ctx = await requireTenantAdminMomo();
   return db.user.findMany({
-    where: { role: "worker" },
+    where: { role: "worker", tenantId: ctx.tenantId },
     include: { location: { select: { id: true, name: true, code: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getWorkerById(id: string) {
-  await requireAdmin();
-  return db.user.findUnique({
-    where: { id, role: "worker" },
+  const ctx = await requireTenantAdminMomo();
+  return db.user.findFirst({
+    where: { id, role: "worker", tenantId: ctx.tenantId },
     include: {
       location: true,
       dailyAccounts: {
+        where: { tenantId: ctx.tenantId },
         orderBy: { businessDate: "desc" },
         take: 10,
         include: { location: { select: { name: true } } },
@@ -243,24 +321,22 @@ export async function getWorkerById(id: string) {
 }
 
 /**
- * Search authorized staff members for "Received By" dropdown.
- * Only returns active internal staff (admin, worker, collector roles).
- * Case-insensitive search on name, email, and phone.
+ * Search authorized staff members for the "Received By" dropdown.
+ * Tenant scoped: only this business's staff are ever returned.
  */
 export async function searchStaff(query: string) {
-  await requireAdmin();
+  const ctx =
+    (await requireTenantAdminMomo().catch(() => null)) ??
+    (await requireTenantAdminSusu().catch(() => null));
+  if (!ctx) return [];
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
 
-  // Fetch all active staff and filter in-memory for case-insensitive matching.
-  // Prisma `contains` is case-sensitive LIKE on PostgreSQL (SQLite's LIKE is
-  // ASCII case-insensitive), and `mode: "insensitive"` is rejected by the
-  // SQLite connector, so a DB-level prefilter would miss mixed-case matches in
-  // production. Pilot scale is small — filtering in memory is safe.
   const candidates = await db.user.findMany({
     where: {
+      tenantId: ctx.tenantId,
       status: "active",
       role: { in: ["admin", "worker", "collector"] },
     },

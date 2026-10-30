@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireTenantAdminMomo } from "@/lib/tenant";
 
 export interface MoMoHistoryRecord {
   id: string;
@@ -71,7 +71,7 @@ export async function getMoMoHistory(params?: {
   page?: number;
   limit?: number;
 }) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminMomo();
 
   const page = params?.page || 1;
   const limit = params?.limit || 50;
@@ -80,6 +80,7 @@ export async function getMoMoHistory(params?: {
   const type = params?.transactionType || "";
 
   const where: Record<string, unknown> = {
+    tenantId: ctx.tenantId,
     businessDate: { gte: dateRange.gte, lte: dateRange.lte },
   };
   if (params?.locationId) where.locationId = params.locationId;
@@ -270,14 +271,14 @@ function formatDecimal(val: unknown): string {
 }
 
 export async function searchLocations(query: string) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminMomo();
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
 
   const candidates = await db.location.findMany({
-    where: { status: "active" },
+    where: { status: "active", tenantId: ctx.tenantId },
     select: { id: true, name: true, code: true },
     take: 100,
   });
@@ -293,14 +294,14 @@ export async function searchLocations(query: string) {
 }
 
 export async function searchWorkers(query: string) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminMomo();
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
 
   const candidates = await db.user.findMany({
-    where: { status: "active", role: "worker" },
+    where: { status: "active", role: "worker", tenantId: ctx.tenantId },
     select: { id: true, fullName: true, email: true },
     take: 100,
   });

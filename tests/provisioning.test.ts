@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test assertions read untyped action payloads */
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma, cleanDatabase } from "./setup";
 import { isSessionCurrent } from "@/lib/auth";

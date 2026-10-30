@@ -265,13 +265,15 @@ describe("Location management", () => {
   });
 
   it("prevents duplicate location codes", async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { id: adminId } });
+    const tenantId = admin.tenantId!;
     await prisma.location.create({
-      data: { name: "Location 1", code: "DUP-001", status: "active" },
+      data: { name: "Location 1", code: "DUP-001", status: "active", tenantId },
     });
 
     await expect(
       prisma.location.create({
-        data: { name: "Location 2", code: "DUP-001", status: "active" },
+        data: { name: "Location 2", code: "DUP-001", status: "active", tenantId },
       })
     ).rejects.toThrow();
   });

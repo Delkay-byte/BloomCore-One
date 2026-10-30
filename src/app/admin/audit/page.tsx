@@ -3,7 +3,6 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/utils";
-import { db } from "@/lib/db";
 
 interface AuditEntry {
   id: string;
