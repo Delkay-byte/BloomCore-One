@@ -2,14 +2,40 @@
 
 **Release:** multi-tenant foundation → Render production (`bik-prestige`)
 **Prepared:** 2026-10-30 · **Status:** PREFLIGHT PENDING OPERATOR EXECUTION
-**Local HEAD:** `379a465` (master) · **origin/master & origin/main & production:** `a30d2aa`
-**Unpushed:** 6 commits — `4a03231`, `0a765aa` (foundation) + `e092681`, `58f64a2`, `c878550`, `379a465` (UI Phase 2)
+**Local HEAD:** `41db51d` (master) · **origin/master & origin/main & production:** `a30d2aa`
+**Unpushed:** 7 commits — Phase 1 boundary is `0a765aa`; Phase 2 = `e092681`…`379a465` + docs `41db51d`
+
+## Two-stage release plan (mandatory order)
+
+- **Stage 1 — Phase 1 only:** `git push origin master:<SHA 0a765aa>` — i.e. push
+  `0a765aa` as the new `master`/`main` head (fast-forward from `a30d2aa`, no
+  force). Render deploys the foundation WITHOUT the UI commits. Verify live
+  (platform + BIK + isolation per below).
+- **Stage 2 — Phase 2:** only after Stage 1 passes live verification, push
+  `41db51d` (fast-forward; ships the 4 UI commits + the docs commits).
 
 > **Rule:** do not push until every stage below has passed. All commands run from
 > `Momo module/` with `DATABASE_URL` pointing at the **production** PostgreSQL
 > database, supplied by the operator (never committed, never pasted into chat).
 > Sanity-check before every stage: `echo ${DATABASE_URL:0:19}…` must read
 > `postgresql://…` — never `file:…`.
+
+## REHEARSAL EVIDENCE (PostgreSQL, 2026-10-30)
+
+The complete Stage A–F procedure was executed end-to-end against a throwaway
+PostgreSQL 16 container (`bik-release-rehearsal-pg`, port 55444, database
+`bik_pilot`) seeded with synthetic pre-tenancy rows covering all 19 models:
+
+- Backup `pg_dump --format=custom` + `pg_restore --list` verification: PASS
+- `prisma db push --schema=prisma/schema-pg.prisma`: PASS (additive; platform
+  tables + 20 `tenantId` columns confirmed via information_schema)
+- Dry-run: read-only, correctly reported 21 unassigned rows / 19 tables
+- Bootstrap: created `PlatformSuperAdmin` (separate table; BIK admin untouched)
+- Backfill: all 21 rows assigned to `BIK-HQ-001`; counts preserved
+- 19-model verification: every row BIK-owned, zero nulls, zero foreign tenants
+- Idempotency re-run: PASS; legacy password hash untouched; `primaryAdminUserId`
+  set to the existing legacy admin
+- **Not production evidence.** Production stages remain operator-run.
 
 ---
 
