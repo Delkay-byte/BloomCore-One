@@ -1,5 +1,7 @@
 "use client";
 
+import { KeyRound, Smartphone, UserRound } from "lucide-react";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
@@ -124,11 +126,11 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
               onClick={() => setActiveTab("profile")}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === "profile"
-                  ? "border-green-500 text-green-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
               }`}
             >
-              👤 Profile
+              <UserRound size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />Profile
             </button>
             <button
               type="button"
@@ -137,11 +139,11 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
               onClick={() => setActiveTab("password")}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === "password"
-                  ? "border-green-500 text-green-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
               }`}
             >
-              🔐 Change Password
+              <KeyRound size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />Change Password
             </button>
             {module === "admin" && (
               <button
@@ -151,11 +153,11 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
                 onClick={() => setActiveTab("devices")}
                 className={`px-3 sm:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === "devices"
-                    ? "border-green-500 text-green-700"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    ? "border-brand-600 text-brand-700"
+                    : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
                 }`}
               >
-                📱 <span className="hidden sm:inline">Offline </span>Devices
+                <Smartphone size={15} className="inline mr-1.5 -mt-0.5" aria-hidden /><span className="hidden sm:inline">Offline </span>Devices
               </button>
             )}
           </nav>

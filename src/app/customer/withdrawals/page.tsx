@@ -46,7 +46,7 @@ export default function CustomerWithdrawalsPage() {
   if (error) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">{error}</p>
+        <p className="text-slate-500">{error}</p>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export default function CustomerWithdrawalsPage() {
     return (
       <div className="text-center py-20">
         <p className="text-4xl mb-2">🏧</p>
-        <p className="font-medium text-gray-700">No withdrawals recorded.</p>
+        <p className="font-medium text-slate-700">No withdrawals recorded.</p>
       </div>
     );
   }
@@ -63,8 +63,8 @@ export default function CustomerWithdrawalsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Withdrawals</h1>
-        <p className="text-gray-500 mt-1">All your Susu withdrawals</p>
+        <h1 className="text-2xl font-bold text-slate-900">My Withdrawals</h1>
+        <p className="text-slate-500 mt-1">All your Susu withdrawals</p>
       </div>
 
       <div className="card">
@@ -92,12 +92,12 @@ export default function CustomerWithdrawalsPage() {
                         {w.commissionAmount > 0 && <span className="text-xs ml-1">(First withdrawal)</span>}
                       </>
                     ) : (
-                      <span className="text-gray-400">—</span>
+                      <span className="text-slate-400">—</span>
                     )}
                   </td>
                   <td className="font-mono font-semibold text-orange-700"><CediAmount amount={w.netAmount} /></td>
                   <td className="font-mono"><CediAmount amount={w.remainingBalance} /></td>
-                  <td className="text-sm text-gray-500">Cycle {w.cycleNumber}</td>
+                  <td className="text-sm text-slate-500">Cycle {w.cycleNumber}</td>
                 </tr>
               ))}
             </tbody>

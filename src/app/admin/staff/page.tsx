@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getStaff, createStaff, toggleStaffStatus } from "@/lib/actions/staff.actions";
@@ -117,8 +118,8 @@ export default function StaffPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Directory</h1>
-          <p className="text-gray-500 mt-1">Manage office staff, collectors, and administrators</p>
+          <h1 className="text-2xl font-bold text-slate-900">Staff Directory</h1>
+          <p className="text-slate-500 mt-1">Manage office staff, collectors, and administrators</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -129,15 +130,15 @@ export default function StaffPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">✕</button>
+          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">✕</button>
+          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -220,13 +221,13 @@ export default function StaffPage() {
               placeholder="Search name, email, phone, ID..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-green-400"
+              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-green-400"
             />
           </div>
         </div>
 
         {filtered.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2">👤</p>
             <p className="font-medium">No staff found</p>
             <p className="text-sm mt-1">
@@ -254,16 +255,16 @@ export default function StaffPage() {
                   <tr key={s.id}>
                     <td>
                       <div className="font-medium">{s.fullName}</div>
-                      <div className="text-xs text-gray-400 font-mono">{s.id.slice(0, 12)}…</div>
+                      <div className="text-xs text-slate-400 font-mono">{s.id.slice(0, 12)}…</div>
                     </td>
                     <td>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[s.role] || "bg-gray-100 text-gray-800"}`}>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[s.role] || "bg-slate-100 text-slate-800"}`}>
                         {ROLE_LABELS[s.role] || s.role}
                       </span>
                     </td>
                     <td>
                       <div className="text-sm">{s.email}</div>
-                      {s.phone && <div className="text-xs text-gray-500">{s.phone}</div>}
+                      {s.phone && <div className="text-xs text-slate-500">{s.phone}</div>}
                     </td>
                     <td>
                       <div className="flex gap-1 flex-wrap">
@@ -284,7 +285,7 @@ export default function StaffPage() {
                         {s.status === "active" ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td className="text-sm text-gray-500">{formatDate(s.createdAt)}</td>
+                    <td className="text-sm text-slate-500">{formatDate(s.createdAt)}</td>
                     <td>
                       <div className="flex gap-2">
                         <a

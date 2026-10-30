@@ -1,4 +1,5 @@
 "use client";
+import { ClipboardList } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -63,7 +64,7 @@ export default function ReportsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <div><h1 className="text-2xl font-bold text-gray-900">Reports</h1><p className="text-gray-500 mt-1">View and filter daily account reports</p></div>
+        <div><h1 className="text-2xl font-bold text-slate-900">Reports</h1><p className="text-slate-500 mt-1">View and filter daily account reports</p></div>
         <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={accounts.length === 0}>📥 Export CSV</button>
       </div>
 
@@ -80,7 +81,7 @@ export default function ReportsPage() {
         {loading ? (
           <div className="flex items-center justify-center py-12"><div className="spinner"></div></div>
         ) : accounts.length === 0 ? (
-          <div className="text-center py-12 text-gray-500"><p className="text-4xl mb-2">📋</p><p className="font-medium">No reports found</p><p className="text-sm mt-1">Try adjusting your filters.</p></div>
+          <div className="text-center py-12 text-slate-500"><p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardList size={36} /></p><p className="font-medium">No reports found</p><p className="text-sm mt-1">Try adjusting your filters.</p></div>
         ) : (
           <>
             <div className="table-container">
@@ -90,7 +91,7 @@ export default function ReportsPage() {
                   {accounts.map((account) => (
                     <tr key={account.id}>
                       <td className="font-medium">{formatDate(account.businessDate)}</td>
-                      <td><div>{account.location.name}</div><div className="text-xs text-gray-500">{account.location.code}</div></td>
+                      <td><div>{account.location.name}</div><div className="text-xs text-slate-500">{account.location.code}</div></td>
                       <td>{account.worker.fullName}</td>
                       <td><span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : account.status === "draft" ? "badge-yellow" : "badge-gray"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span></td>
                       <td className="text-right font-mono text-sm"><span className={Number(account.calculatedMomoVariance) === 0 ? "text-green-600" : "text-red-600"}><CediAmount amount={account.calculatedMomoVariance} /></span></td>
@@ -103,8 +104,8 @@ export default function ReportsPage() {
               </table>
             </div>
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">Showing {(pagination.page - 1) * pagination.limit + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}</p>
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">Showing {(pagination.page - 1) * pagination.limit + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}</p>
                 <div className="flex gap-2">
                   <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn btn-secondary btn-sm">Previous</button>
                   <button onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))} disabled={page === pagination.totalPages} className="btn btn-secondary btn-sm">Next</button>

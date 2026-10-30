@@ -63,7 +63,7 @@ export default function CustomerProfilePage() {
   if (error || !data) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">{error || "Unable to load profile"}</p>
+        <p className="text-slate-500">{error || "Unable to load profile"}</p>
       </div>
     );
   }
@@ -73,8 +73,8 @@ export default function CustomerProfilePage() {
   return (
     <div className="space-y-6">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-        <p className="text-gray-500 mt-1">Your Susu account information</p>
+        <h1 className="text-2xl font-bold text-slate-900">My Profile</h1>
+        <p className="text-slate-500 mt-1">Your Susu account information</p>
       </div>
 
       <div className="card">
@@ -85,47 +85,47 @@ export default function CustomerProfilePage() {
             </span>
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">{customer.fullName}</h2>
-            <p className="text-sm text-gray-500">Susu Customer</p>
+            <h2 className="text-xl font-semibold text-slate-900">{customer.fullName}</h2>
+            <p className="text-sm text-slate-500">Susu Customer</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Customer ID
             </label>
-            <p className="text-gray-900 mt-1 font-mono font-medium">{customer.customerId}</p>
+            <p className="text-slate-900 mt-1 font-mono font-medium">{customer.customerId}</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Phone
             </label>
-            <p className="text-gray-900 mt-1 font-medium">{customer.phone || "Not provided"}</p>
+            <p className="text-slate-900 mt-1 font-medium">{customer.phone || "Not provided"}</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Email
             </label>
-            <p className="text-gray-900 mt-1 font-medium">{customer.email || "Not provided"}</p>
+            <p className="text-slate-900 mt-1 font-medium">{customer.email || "Not provided"}</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Address
             </label>
-            <p className="text-gray-900 mt-1 font-medium">{customer.address || "Not provided"}</p>
+            <p className="text-slate-900 mt-1 font-medium">{customer.address || "Not provided"}</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Daily Contribution
             </label>
-            <p className="text-gray-900 mt-1 font-medium text-green-700"><CediAmount amount={customer.dailyContribution} />/day</p>
+            <p className="text-slate-900 mt-1 font-medium text-green-700"><CediAmount amount={customer.dailyContribution} />/day</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Account Status
             </label>
-            <p className="text-gray-900 mt-1 font-medium">
+            <p className="text-slate-900 mt-1 font-medium">
               <span className={`badge ${customer.status === "active" ? "badge-green" : "badge-red"}`}>
                 {customer.status}
               </span>
@@ -136,37 +136,37 @@ export default function CustomerProfilePage() {
         <div className="border-t pt-6">
           <h3 className="font-semibold mb-4">Account Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Account Number
               </label>
-              <p className="text-gray-900 mt-1 font-mono font-semibold text-lg">{account.accountId}</p>
+              <p className="text-slate-900 mt-1 font-mono font-semibold text-lg">{account.accountId}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Card Status
               </label>
-              <p className="text-gray-900 mt-1 font-medium capitalize">{account.cardCustody}</p>
+              <p className="text-slate-900 mt-1 font-medium capitalize">{account.cardCustody}</p>
             </div>
           </div>
 
           {currentCollector && (
-            <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Current Collector
               </label>
-              <p className="text-gray-900 mt-1 font-medium">{currentCollector.fullName}</p>
+              <p className="text-slate-900 mt-1 font-medium">{currentCollector.fullName}</p>
             </div>
           )}
 
           {currentCycle && (
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Current Cycle
               </label>
               <div className="mt-1">
                 <p className="font-medium">Cycle {currentCycle.cycleNumber}</p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-slate-500">
                   {formatDate(currentCycle.startDate)} – {formatDate(currentCycle.endDate)}
                 </p>
                 <span className={`badge ${currentCycle.status === "active" ? "badge-green" : "badge-blue"}`} mt-1>

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
@@ -145,8 +146,8 @@ export default function SusuCustomersPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Susu Customers</h1>
-          <p className="text-gray-500 mt-1">Manage Susu customers and their accounts</p>
+          <h1 className="text-2xl font-bold text-slate-900">Susu Customers</h1>
+          <p className="text-slate-500 mt-1">Manage Susu customers and their accounts</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">
           {showForm ? "Cancel" : "+ New Customer"}
@@ -154,7 +155,7 @@ export default function SusuCustomersPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">
             ✕
@@ -162,7 +163,7 @@ export default function SusuCustomersPage() {
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">
             ✕
@@ -223,7 +224,7 @@ export default function SusuCustomersPage() {
                   checked={enablePortal}
                   onChange={(e) => setEnablePortal(e.target.checked)}
                 />
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-slate-700">
                   Enable Customer Portal &amp; set a temporary password
                 </span>
               </label>
@@ -295,8 +296,8 @@ export default function SusuCustomersPage() {
       {/* Customer List */}
       <div className="card">
         {filtered.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">🧑</p>
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><UserRound size={36} /></p>
             <p className="font-medium">No customers found</p>
             <p className="text-sm mt-1">
               {search ? "Try adjusting your search." : "Register your first customer to get started."}
@@ -325,9 +326,9 @@ export default function SusuCustomersPage() {
                     <tr key={customer.id}>
                       <td>
                         <div className="font-medium">{customer.fullName}</div>
-                        <div className="text-xs text-gray-500">{customer.customerId}</div>
+                        <div className="text-xs text-slate-500">{customer.customerId}</div>
                         {customer.phone && (
-                          <div className="text-xs text-gray-400">{customer.phone}</div>
+                          <div className="text-xs text-slate-400">{customer.phone}</div>
                         )}
                       </td>
                       <td className="font-mono text-sm">
@@ -409,13 +410,13 @@ export default function SusuCustomersPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">Assign Collector</h3>
-            <p className="text-sm text-gray-500 mb-4">Select a collector for this customer:</p>
+            <p className="text-sm text-slate-500 mb-4">Select a collector for this customer:</p>
             <div className="space-y-2">
               {collectors.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => handleAssign(c.id)}
-                  className="w-full text-left p-3 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-300 transition-colors"
+                  className="w-full text-left p-3 rounded-lg border border-slate-200 hover:bg-green-50 hover:border-green-300 transition-colors"
                 >
                   {c.user.fullName}
                 </button>

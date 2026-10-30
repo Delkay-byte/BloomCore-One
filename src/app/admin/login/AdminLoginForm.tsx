@@ -36,7 +36,7 @@ export default function AdminLoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-emerald-50 to-amber-50 px-4 py-10">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-brand-50 to-gold-50 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="text-center mb-7">
           <img
@@ -46,19 +46,19 @@ export default function AdminLoginForm() {
             width={224}
             height={112}
           />
-          <p className="text-emerald-700 mt-2 text-sm font-medium">Administrator Sign In</p>
+          <p className="text-brand-700 mt-2 text-sm font-medium">Administrator Sign In</p>
         </div>
 
         <div className="card bg-white">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Administrator Sign In</h2>
+          <h2 className="text-xl font-semibold text-slate-900 mb-6">Administrator Sign In</h2>
 
           {passwordReset && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            <div className="banner banner-success mb-4 text-sm">
               ✓ Password reset successful. Please sign in with your new password.
             </div>
           )}
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+            <div className="banner banner-error mb-4 text-sm">
               {error}
             </div>
           )}
@@ -73,7 +73,7 @@ export default function AdminLoginForm() {
                 placeholder="Enter your administrator email"
                 required
                 autoComplete="email"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-200"
               />
             </div>
             <div className="form-group">
@@ -84,10 +84,10 @@ export default function AdminLoginForm() {
                 placeholder="Enter your password"
                 required
                 autoComplete="current-password"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-200"
               />
               <div className="text-right mt-1">
-                <Link href="/forgot-password" className="text-xs text-emerald-600 hover:text-emerald-700">
+                <Link href="/forgot-password" className="text-xs text-brand-700 hover:text-brand-800">
                   Forgot password?
                 </Link>
               </div>
@@ -104,14 +104,14 @@ export default function AdminLoginForm() {
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-            <Link href="/login" className="text-xs text-gray-500 hover:text-gray-700">
+          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+            <Link href="/login" className="text-xs text-slate-500 hover:text-slate-700">
               Staff &amp; customer login →
             </Link>
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-8">
+        <p className="text-center text-xs text-slate-400 mt-8">
           Built by BloomCore Technologies
         </p>
       </div>

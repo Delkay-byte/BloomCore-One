@@ -1,5 +1,6 @@
 "use client";
 
+import { Footprints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getSusuDashboardStats, getAdminCollectorBreakdown } from "@/lib/actions/susu-dashboard.actions";
@@ -70,7 +71,7 @@ export default function SusuAdminOverviewPage() {
     );
   if (error)
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+      <div className="banner banner-error">
         {error}
       </div>
     );
@@ -94,8 +95,8 @@ export default function SusuAdminOverviewPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Susu Overview</h1>
-        <p className="text-gray-500 mt-1">Susu module dashboard — today&apos;s activity at a glance</p>
+        <h1 className="text-2xl font-bold text-slate-900">Susu Overview</h1>
+        <p className="text-slate-500 mt-1">Susu module dashboard — today&apos;s activity at a glance</p>
       </div>
 
       {/* Overview Stats */}
@@ -104,7 +105,7 @@ export default function SusuAdminOverviewPage() {
           <div key={card.label} className={`card ${card.color} text-center`}>
             <div className="text-2xl mb-1">{card.icon}</div>
             <div className="text-2xl font-bold">{card.value}</div>
-            <div className="text-xs text-gray-600 mt-1">{card.label}</div>
+            <div className="text-xs text-slate-600 mt-1">{card.label}</div>
           </div>
         ))}
       </div>
@@ -116,7 +117,7 @@ export default function SusuAdminOverviewPage() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">{card.icon}</span>
               <div>
-                <div className="flex items-center gap-1 text-sm text-gray-500">
+                <div className="flex items-center gap-1 text-sm text-slate-500">
                   {card.label}
                   <InfoTooltip text="Total successful contributions across all channels today." />
                 </div>
@@ -133,7 +134,7 @@ export default function SusuAdminOverviewPage() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">{card.icon}</span>
               <div>
-                <div className="flex items-center gap-1 text-sm text-gray-500">
+                <div className="flex items-center gap-1 text-sm text-slate-500">
                   {card.label}
                   {card.label === "Pending Money Handed In" && (
                     <InfoTooltip text="Money from collector collections that has not yet been recorded as handed in." />
@@ -153,8 +154,8 @@ export default function SusuAdminOverviewPage() {
           <InfoTooltip text="Per-collector breakdown of today's collections and money handed in." />
         </h2>
         {collectorBreakdown.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <p className="text-4xl mb-2">🚶</p>
+          <div className="text-center py-8 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Footprints size={36} /></p>
             <p className="font-medium">No active collectors</p>
           </div>
         ) : (
@@ -192,19 +193,19 @@ export default function SusuAdminOverviewPage() {
         <h2 className="text-lg font-semibold mb-4">Quick Summary</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
-            <div className="text-gray-500">Total Registered Customers</div>
+            <div className="text-slate-500">Total Registered Customers</div>
             <div className="font-semibold text-lg">{stats.totalCustomers}</div>
           </div>
           <div>
-            <div className="text-gray-500">Contribution Events Today</div>
+            <div className="text-slate-500">Contribution Events Today</div>
             <div className="font-semibold text-lg">{stats.todayContributionCount}</div>
           </div>
           <div>
-            <div className="text-gray-500">Withdrawals Today</div>
+            <div className="text-slate-500">Withdrawals Today</div>
             <div className="font-semibold text-lg">{stats.todayWithdrawalCount}</div>
           </div>
           <div>
-            <div className="text-gray-500">Net Paid to Customers Today</div>
+            <div className="text-slate-500">Net Paid to Customers Today</div>
             <div className="font-semibold text-lg text-green-700"><CediAmount amount={stats.todayNetPaid} /></div>
           </div>
         </div>

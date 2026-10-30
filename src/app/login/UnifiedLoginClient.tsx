@@ -6,33 +6,35 @@ import PasswordInput from "@/components/PasswordInput";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
+import { Footprints, Smartphone, UserRound } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 type RoleKey = "customer" | "momo" | "susu";
 
 const ROLES: {
   key: RoleKey;
-  icon: string;
+  Icon: LucideIcon;
   label: string;
   blurb: string;
   accent: string;
 }[] = [
   {
     key: "customer",
-    icon: "👤",
+    Icon: UserRound,
     label: "Customer",
     blurb: "View your Susu savings and account",
     accent: "border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50",
   },
   {
     key: "momo",
-    icon: "💰",
+    Icon: Smartphone,
     label: "MoMo Agent",
     blurb: "Manage today's MoMo transactions",
-    accent: "border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50",
+    accent: "border-brand-200 hover:border-brand-400 hover:bg-brand-50",
   },
   {
     key: "susu",
-    icon: "🧑‍💼",
+    Icon: Footprints,
     label: "Susu Collector",
     blurb: "Manage customer savings collections",
     accent: "border-amber-200 hover:border-amber-400 hover:bg-amber-50",
@@ -57,6 +59,7 @@ export default function UnifiedLoginClient({
       ? (requested as RoleKey)
       : null
   );
+  const SelectedIcon = selectedRole ? ROLE_META[selectedRole].Icon : UserRound;
   const [invalidAdmin, setInvalidAdmin] = useState(requested === "admin");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -85,7 +88,7 @@ export default function UnifiedLoginClient({
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-emerald-50 to-amber-50 px-4 py-10">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-brand-50 to-gold-50 px-4 py-10">
       <div className="w-full max-w-md">
         {/* Brand */}
         <div className="text-center mb-7">
@@ -96,7 +99,7 @@ export default function UnifiedLoginClient({
             width={224}
             height={112}
           />
-          <p className="text-gray-500 mt-2 text-sm">Business Management Platform</p>
+          <p className="text-slate-500 mt-2 text-sm">Business Management Platform</p>
         </div>
 
         {/* Invalid admin role */}
@@ -104,8 +107,8 @@ export default function UnifiedLoginClient({
           <div className="card">
             <div className="text-center">
               <div className="text-4xl mb-3">🔒</div>
-              <h2 className="text-xl font-semibold text-gray-900">Please use the administrator login.</h2>
-              <p className="text-gray-500 mt-2 text-sm">
+              <h2 className="text-xl font-semibold text-slate-900">Please use the administrator login.</h2>
+              <p className="text-slate-500 mt-2 text-sm">
                 The administrator sign-in is kept separate for security.
               </p>
               <Link href="/admin/login" className="btn btn-primary w-full mt-5 inline-block text-center">
@@ -117,7 +120,7 @@ export default function UnifiedLoginClient({
                   setInvalidAdmin(false);
                   setSelectedRole(null);
                 }}
-                className="text-sm text-gray-500 hover:text-gray-700 mt-4 underline"
+                className="text-sm text-slate-500 hover:text-slate-700 mt-4 underline"
               >
                 Back to login
               </button>
@@ -128,8 +131,8 @@ export default function UnifiedLoginClient({
         {/* Role selection */}
         {!invalidAdmin && !selectedRole && (
           <div className="card">
-            <h2 className="text-xl font-semibold text-gray-900 text-center mb-1">Who are you?</h2>
-            <p className="text-gray-500 text-center text-sm mb-6">
+            <h2 className="text-xl font-semibold text-slate-900 text-center mb-1">Who are you?</h2>
+            <p className="text-slate-500 text-center text-sm mb-6">
               Select your role to continue
             </p>
             <div className="space-y-3">
@@ -140,12 +143,12 @@ export default function UnifiedLoginClient({
                   onClick={() => setSelectedRole(role.key)}
                   className={`w-full card flex items-center gap-4 text-left transition-colors border-2 ${role.accent}`}
                 >
-                  <span className="text-3xl" aria-hidden="true">{role.icon}</span>
+                  <role.Icon size={30} className="text-slate-700" aria-hidden="true" />
                   <span>
-                    <span className="block text-lg font-semibold text-gray-900">{role.label}</span>
-                    <span className="block text-sm text-gray-500">{role.blurb}</span>
+                    <span className="block text-lg font-semibold text-slate-900">{role.label}</span>
+                    <span className="block text-sm text-slate-500">{role.blurb}</span>
                   </span>
-                  <span className="ml-auto text-gray-400 font-bold text-xl">→</span>
+                  <span className="ml-auto text-slate-400 font-bold text-xl">→</span>
                 </button>
               ))}
             </div>
@@ -161,27 +164,27 @@ export default function UnifiedLoginClient({
                 selectedRole === "customer"
                   ? "bg-indigo-50 border border-indigo-100"
                   : selectedRole === "momo"
-                  ? "bg-emerald-50 border border-emerald-100"
+                  ? "bg-brand-50 border border-brand-100"
                   : "bg-amber-50 border border-amber-100"
               }`}
             >
-              <span className="text-2xl" aria-hidden="true">{ROLE_META[selectedRole].icon}</span>
-              <span className="text-sm font-medium text-gray-700">
+              <SelectedIcon size={24} className="text-slate-700" aria-hidden="true" />
+              <span className="text-sm font-medium text-slate-700">
                 You selected: <span className="font-semibold">{ROLE_META[selectedRole].label}</span>
               </span>
             </div>
 
-            <h2 className="text-xl font-semibold text-gray-900 mb-5">
+            <h2 className="text-xl font-semibold text-slate-900 mb-5">
               {selectedRole === "customer" ? "Customer Sign In" : "Sign In"}
             </h2>
 
             {passwordReset && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              <div className="banner banner-success mb-4 text-sm">
                 ✓ Password reset successful. Please sign in with your new password.
               </div>
             )}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              <div className="banner banner-error mb-4 text-sm">
                 {error}
               </div>
             )}
@@ -206,7 +209,7 @@ export default function UnifiedLoginClient({
                       : "Enter your email or phone"
                   }
                   required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-200"
                 />
               </div>
 
@@ -218,12 +221,12 @@ export default function UnifiedLoginClient({
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-200"
                 />
                 <div className="text-right mt-1">
                   <Link
                     href={selectedRole === "customer" ? "/customer/forgot-password" : "/forgot-password"}
-                    className="text-xs text-emerald-600 hover:text-emerald-700"
+                    className="text-xs text-brand-700 hover:text-brand-800"
                   >
                     Forgot password?
                   </Link>
@@ -252,18 +255,18 @@ export default function UnifiedLoginClient({
                 setError("");
                 setSelectedRole(null);
               }}
-              className="text-sm text-gray-500 hover:text-gray-700 mt-5 inline-flex items-center gap-1"
+              className="text-sm text-slate-500 hover:text-slate-700 mt-5 inline-flex items-center gap-1"
             >
               ← Change role
             </button>
           </div>
         )}
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-slate-500 mt-6">
           Contact your administrator for account access
         </p>
       </div>
-      <p className="text-center text-xs text-gray-400 mt-8">
+      <p className="text-center text-xs text-slate-400 mt-8">
         Built by BloomCore Technologies
       </p>
     </div>

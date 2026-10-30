@@ -14,7 +14,7 @@ export default function CustomerForgotPasswordPage() {
             width={256}
             height={128}
           />
-          <h1 className="text-2xl font-bold text-gray-900 mt-4">Forgot Password?</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mt-4">Forgot Password?</h1>
         </div>
         <div className="card">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -28,11 +28,11 @@ export default function CustomerForgotPasswordPage() {
             </p>
           </div>
 
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-            <p className="text-sm text-gray-600">
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-slate-600">
               <strong>What your administrator can do:</strong>
             </p>
-            <ul className="text-sm text-gray-600 mt-2 space-y-1 list-disc list-inside">
+            <ul className="text-sm text-slate-600 mt-2 space-y-1 list-disc list-inside">
               <li>Reset your portal password</li>
               <li>Provide a new temporary password</li>
               <li>Force a password change on your next login</li>
@@ -49,7 +49,7 @@ export default function CustomerForgotPasswordPage() {
           </div>
         </div>
       </div>
-      <p className="text-center text-xs text-gray-400 mt-8">
+      <p className="text-center text-xs text-slate-400 mt-8">
         Built by BloomCore Technologies
       </p>
     </div>

@@ -46,7 +46,7 @@ export default function CustomerPaymentsPage() {
   if (error) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">{error}</p>
+        <p className="text-slate-500">{error}</p>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export default function CustomerPaymentsPage() {
     return (
       <div className="text-center py-20">
         <p className="text-4xl mb-2">💵</p>
-        <p className="font-medium text-gray-700">No customer payments recorded yet.</p>
+        <p className="font-medium text-slate-700">No customer payments recorded yet.</p>
       </div>
     );
   }
@@ -63,8 +63,8 @@ export default function CustomerPaymentsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Payments</h1>
-        <p className="text-gray-500 mt-1">All your Susu contributions</p>
+        <h1 className="text-2xl font-bold text-slate-900">My Payments</h1>
+        <p className="text-slate-500 mt-1">All your Susu contributions</p>
       </div>
 
       <div className="card">
@@ -100,7 +100,7 @@ export default function CustomerPaymentsPage() {
                       ? `Collected by ${p.collector?.user?.fullName || "—"}`
                       : `Received by ${(p as { receivedByName?: string | null }).receivedByName || p.receivedBy?.fullName || "—"}`}
                   </td>
-                  <td className="text-sm text-gray-500">Cycle {p.cycleNumber}</td>
+                  <td className="text-sm text-slate-500">Cycle {p.cycleNumber}</td>
                 </tr>
               ))}
             </tbody>

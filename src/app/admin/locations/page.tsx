@@ -1,4 +1,5 @@
 "use client";
+import { X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -76,16 +77,16 @@ export default function LocationsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Locations</h1>
-          <p className="text-gray-500 mt-1">Manage your business locations</p>
+          <h1 className="text-2xl font-bold text-slate-900">Locations</h1>
+          <p className="text-slate-500 mt-1">Manage your business locations</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">
           {showForm ? "Cancel" : "+ Add Location"}
         </button>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">✕</button></div>}
-      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">✕</button></div>}
+      {error && <div className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
+      {success && <div className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
 
       {showForm && (
         <div className="card mb-6">
@@ -134,7 +135,7 @@ export default function LocationsPage() {
 
       <div className="card">
         {filteredLocations.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2">📍</p>
             <p className="font-medium">No locations found</p>
             <p className="text-sm mt-1">{filter === "all" ? "Create your first location to get started." : `No ${filter} locations.`}</p>
@@ -148,7 +149,7 @@ export default function LocationsPage() {
                   <tr key={loc.id}>
                     <td>
                       <div className="font-medium">{loc.name}</div>
-                      {loc.address && <div className="text-xs text-gray-500">{loc.address}</div>}
+                      {loc.address && <div className="text-xs text-slate-500">{loc.address}</div>}
                     </td>
                     <td className="font-mono text-sm">{loc.code}</td>
                     <td>{loc._count.users}</td>
