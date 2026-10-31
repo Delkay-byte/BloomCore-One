@@ -10,6 +10,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // /api/auth/me), never from a browser flag. A business not enrolled for a
   // module must not see — or be invited into — that module's navigation.
   const [modules, setModules] = useState<{ momo: boolean; susu: boolean } | null>(null);
+  // The business's own name, shown beside the BloomCore One identity so a
+  // tenant administrator always sees which workspace they are working in.
+  const [tenantName, setTenantName] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,6 +22,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         if (cancelled) return;
         if (data?.tenant) {
           setModules({ momo: !!data.tenant.momoEnabled, susu: !!data.tenant.susuEnabled });
+          setTenantName(data.tenant.name ?? null);
         } else {
           setModules({ momo: true, susu: true });
         }
@@ -45,7 +49,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <>
       <TabSessionGuard />
-      <AppShell sections={visibleSections()} subtitle="Business Management">
+      <AppShell
+        sections={visibleSections()}
+        subtitle="Business Management"
+        tenantName={tenantName}
+      >
         {children}
       </AppShell>
     </>

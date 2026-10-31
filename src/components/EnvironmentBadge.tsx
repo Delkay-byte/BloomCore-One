@@ -1,3 +1,8 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import { isPublicMarketingRoute } from "@/lib/public-routes";
+
 function getEnvironmentLabel(): string | null {
   // Explicit APP_ENV takes priority (set in hosting environment)
   const appEnv = process.env.APP_ENV;
@@ -27,8 +32,13 @@ function getEnvironmentLabel(): string | null {
 }
 
 export default function EnvironmentBadge() {
+  const pathname = usePathname();
   const label = getEnvironmentLabel();
   if (!label) return null;
+
+  // The badge is an internal deployment marker. It never appears on the
+  // public marketing site, where a visitor has no business seeing it.
+  if (isPublicMarketingRoute(pathname)) return null;
 
   const colors: Record<string, string> = {
     DEVELOPMENT: "bg-yellow-100 text-yellow-800 border-yellow-300",

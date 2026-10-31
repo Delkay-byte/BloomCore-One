@@ -1,27 +1,40 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayoutDashboard, Settings } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import TabSessionGuard from "@/components/TabSessionGuard";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
+import { AppBrand } from "@/components/brand/AppBrand";
 
+/**
+ * MoMo worker shell. The header shows the BloomCore One identity plus the
+ * worker's own business name, resolved server-side from the signed-in session.
+ */
 export default function WorkerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
+  const [tenantName, setTenantName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me?module=momo")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.tenant?.name) setTenantName(data.tenant.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <TabSessionGuard />
       <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
-        <img
-          src="/branding/bik-prestige-logo.svg"
-          alt="BIK Prestige Enterprise"
-          className="h-8 w-auto"
-          width={160}
-          height={80}
-        />
+        <AppBrand tenantName={tenantName} markSize={30} href="/worker/dashboard" />
         <WorkspaceSwitcher current="momo" />
         <div className="relative">
           <button onClick={() => setShowMenu(!showMenu)} className="text-slate-600 hover:text-slate-800 p-2" aria-label="Open menu">
@@ -46,7 +59,9 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       <main className="p-4 max-w-2xl mx-auto flex-1">{children}</main>
       <footer className="border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">
+            BloomCore One{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+          </p>
         </div>
       </footer>
     </div>

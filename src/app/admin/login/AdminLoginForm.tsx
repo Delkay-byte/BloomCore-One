@@ -6,6 +6,7 @@ import PasswordInput from "@/components/PasswordInput";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
+import { BrandLockup } from "@/components/brand/Brand";
 
 export default function AdminLoginForm() {
   const [error, setError] = useState("");
@@ -39,14 +40,8 @@ export default function AdminLoginForm() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-brand-50 to-gold-50 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="text-center mb-7">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-14 w-auto mx-auto"
-            width={224}
-            height={112}
-          />
-          <p className="text-brand-700 mt-2 text-sm font-medium">Administrator Sign In</p>
+          <BrandLockup size={56} className="justify-center" />
+          <p className="text-brand-700 mt-3 text-sm font-medium">Administrator Sign In</p>
         </div>
 
         <div className="card bg-white">

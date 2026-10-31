@@ -18,6 +18,10 @@ node_modules
 # Backups and dumps
 backups/
 *.dump
+prisma/*.bak
+
+# Superpowers working directories (ledger, review packages)
+.superpowers/
 
 # Test databases
 tests/test-*.db

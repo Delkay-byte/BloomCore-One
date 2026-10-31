@@ -1,19 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { BrandLockup } from "@/components/brand/Brand";
 
 export default function CustomerForgotPasswordPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-16 w-auto mx-auto"
-            width={256}
-            height={128}
-          />
+          <BrandLockup size={56} className="justify-center" />
           <h1 className="text-2xl font-bold text-slate-900 mt-4">Forgot Password?</h1>
         </div>
         <div className="card">
@@ -50,7 +45,7 @@ export default function CustomerForgotPasswordPage() {
         </div>
       </div>
       <p className="text-center text-xs text-slate-400 mt-8">
-        Built by BloomCore Technologies
+        BloomCore One · Built by BloomCore Technologies
       </p>
     </div>
   );

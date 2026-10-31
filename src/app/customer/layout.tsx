@@ -6,8 +6,9 @@ import Link from "next/link";
 import { customerLogout } from "@/lib/actions/auth.actions";
 import { isRedirectError } from "@/lib/errors";
 
-import { Banknote, ClipboardList, CreditCard, Landmark, Settings, UserRound, Wallet } from "lucide-react";
+import { Banknote, ClipboardList, CreditCard, Landmark, LogOut, Settings, UserRound, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { AppBrand } from "@/components/brand/AppBrand";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/customer/dashboard", label: "My Savings", icon: Wallet },
@@ -21,6 +22,7 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [userName, setUserName] = useState("");
+  const [tenantName, setTenantName] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -30,6 +32,8 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
       if (res.ok) {
         const data = await res.json();
         setUserName(data.fullName || "Customer");
+        // The Susu business the customer belongs to — their own workspace.
+        if (data?.tenant?.name) setTenantName(data.tenant.name);
       }
     } catch {
       // ignore
@@ -70,15 +74,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link href="/customer/dashboard" className="flex items-center gap-2">
-            <img
-              src="/branding/bik-prestige-logo.svg"
-              alt="BIK Prestige Enterprise"
-              className="h-8 w-auto"
-              width={160}
-              height={80}
-            />
-          </Link>
+          <AppBrand tenantName={tenantName} markSize={30} href="/customer/dashboard" />
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
@@ -110,7 +106,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
                       onClick={handleLogout}
                       className="w-full text-left flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50"
                     >
-                      <span>🚪</span>
+                      <span><LogOut size={16} aria-hidden /></span>
                       Sign Out
                     </button>
                   </nav>
@@ -123,7 +119,9 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
       <main className="p-4 max-w-4xl mx-auto flex-1">{children}</main>
       <footer className="border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">
+            BloomCore One{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+          </p>
         </div>
       </footer>
     </div>

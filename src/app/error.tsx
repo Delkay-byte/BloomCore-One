@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { useEffect } from "react";
+import { PRODUCT_NAME } from "@/lib/site";
 
 export default function Error({
   error,
@@ -29,10 +30,11 @@ export default function Error({
           <button type="button" onClick={reset} className="btn btn-primary btn-sm">
             Try again
           </button>
-          <Link href="/" className="btn btn-secondary btn-sm">
-            Go home
+          <Link href="/login" className="btn btn-secondary btn-sm">
+            Back to sign in
           </Link>
         </div>
+        <p className="text-xs text-slate-400 mt-4">{PRODUCT_NAME}</p>
       </div>
     </div>
   );

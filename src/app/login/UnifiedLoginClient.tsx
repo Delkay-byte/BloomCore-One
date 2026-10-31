@@ -6,8 +6,9 @@ import PasswordInput from "@/components/PasswordInput";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
-import { Footprints, Smartphone, UserRound } from "lucide-react";
+import { Footprints, Lock, Smartphone, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { BrandLockup } from "@/components/brand/Brand";
 
 type RoleKey = "customer" | "momo" | "susu";
 
@@ -92,21 +93,17 @@ export default function UnifiedLoginClient({
       <div className="w-full max-w-md">
         {/* Brand */}
         <div className="text-center mb-7">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-14 w-auto mx-auto"
-            width={224}
-            height={112}
-          />
-          <p className="text-slate-500 mt-2 text-sm">Business Management Platform</p>
+          <BrandLockup size={56} className="justify-center" />
+          <p className="text-slate-500 mt-3 text-sm">Business & Financial Operations Platform</p>
         </div>
 
         {/* Invalid admin role */}
         {invalidAdmin && (
           <div className="card">
             <div className="text-center">
-              <div className="text-4xl mb-3">🔒</div>
+              <div className="mb-3 flex justify-center">
+                <Lock size={32} className="text-slate-400" aria-hidden />
+              </div>
               <h2 className="text-xl font-semibold text-slate-900">Please use the administrator login.</h2>
               <p className="text-slate-500 mt-2 text-sm">
                 The administrator sign-in is kept separate for security.

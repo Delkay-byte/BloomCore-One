@@ -14,6 +14,7 @@ import {
 import { platformLogout } from "@/lib/actions/platform.actions";
 import { isRedirectError } from "@/lib/errors";
 import type { PlatformSession } from "@/lib/platform-auth";
+import { BrandLockup } from "@/components/brand/Brand";
 
 const navItems = [
   { href: "/platform/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -66,7 +67,7 @@ export default function PlatformShell({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span className="text-sm font-medium text-white">Platform Admin</span>
+        <span className="text-sm font-medium text-white">BloomCore One · Platform Admin</span>
         <span className="text-xs text-brand-300">{session.fullName}</span>
       </div>
 
@@ -87,15 +88,9 @@ export default function PlatformShell({
         }`}
       >
         <div className="p-6 border-b border-brand-900 flex-none">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-9 w-auto rounded bg-white p-1.5"
-            width={180}
-            height={90}
-          />
+          <BrandLockup size={36} tone="dark" />
           <p className="text-brand-400 text-xs mt-3 uppercase tracking-wider">
-            BloomCore Platform Console
+            Platform Administration
           </p>
         </div>
         <nav className="p-3 flex-1 overflow-y-auto" aria-label="Primary">
@@ -147,7 +142,7 @@ export default function PlatformShell({
       {/* Footer */}
       <footer className="md:ml-64 border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">BIK Prestige Enterprise Platform · Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">BloomCore One · Platform Administration · Built by BloomCore Technologies</p>
         </div>
       </footer>
     </div>

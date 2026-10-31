@@ -6,6 +6,7 @@ import { isRedirectError } from "@/lib/errors";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import PasswordInput from "@/components/PasswordInput";
+import { BrandLockup } from "@/components/brand/Brand";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -49,13 +50,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-16 w-auto mx-auto"
-            width={256}
-            height={128}
-          />
+          <BrandLockup size={56} className="justify-center" />
         </div>
 
         <div className="card">

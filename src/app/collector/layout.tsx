@@ -1,27 +1,40 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayoutDashboard, Settings } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import TabSessionGuard from "@/components/TabSessionGuard";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
+import { AppBrand } from "@/components/brand/AppBrand";
 
+/**
+ * Susu collector shell. The header shows the BloomCore One identity plus the
+ * collector's own business name, resolved server-side from the session.
+ */
 export default function CollectorLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
+  const [tenantName, setTenantName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me?module=susu")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.tenant?.name) setTenantName(data.tenant.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <TabSessionGuard />
       <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
-        <img
-          src="/branding/bik-prestige-logo.svg"
-          alt="BIK Prestige Enterprise"
-          className="h-8 w-auto"
-          width={160}
-          height={80}
-        />
+        <AppBrand tenantName={tenantName} markSize={30} href="/collector/dashboard" />
         <WorkspaceSwitcher current="susu" />
         <div className="relative">
           <button
@@ -39,13 +52,15 @@ export default function CollectorLayout({ children }: { children: React.ReactNod
                   onClick={() => { router.push("/collector/dashboard"); setShowMenu(false); }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
-                  📊 Dashboard
+                  <LayoutDashboard size={15} className="inline mr-2 -mt-0.5" aria-hidden />
+                  Dashboard
                 </button>
                 <button
                   onClick={() => { router.push("/collector/settings"); setShowMenu(false); }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
-                  ⚙️ Settings
+                  <Settings size={15} className="inline mr-2 -mt-0.5" aria-hidden />
+                  Settings
                 </button>
                 <hr className="my-1" />
                 <ConfirmSignOutButton
@@ -60,7 +75,9 @@ export default function CollectorLayout({ children }: { children: React.ReactNod
       <main className="p-4 max-w-2xl mx-auto flex-1">{children}</main>
       <footer className="border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">
+            BloomCore One{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+          </p>
         </div>
       </footer>
     </div>

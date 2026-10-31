@@ -1,15 +1,17 @@
 {
-  "name": "BIK Prestige Enterprise - Management Platform",
-  "short_name": "BIK Prestige",
-  "description": "BIK Prestige Enterprise Management Platform — Built by BloomCore Technologies",
-  "start_url": "/",
+  "name": "BloomCore One — Business & Financial Operations Platform",
+  "short_name": "BloomCore One",
+  "description": "BloomCore One brings business operations, collections, people and financial records together in one connected platform.",
+  "id": "/login",
+  "start_url": "/login",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#16a34a",
+  "background_color": "#F6F5EC",
+  "theme_color": "#0e4d34",
   "orientation": "portrait-primary",
   "icons": [
-    { "src": "/branding/bik-prestige-icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/branding/bik-prestige-icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/branding/bik-prestige-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/branding/bloomcore-one-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/branding/bloomcore-one-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/branding/bloomcore-one-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

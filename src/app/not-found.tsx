@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SearchX } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/site";
 
 export default function NotFound() {
   return (
@@ -15,6 +16,7 @@ export default function NotFound() {
             Go home
           </Link>
         </div>
+        <p className="text-xs text-slate-400 mt-4">{PRODUCT_NAME}</p>
       </div>
     </div>
   );

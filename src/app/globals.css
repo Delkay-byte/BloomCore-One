@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   BIK PRESTIGE ENTERPRISE — DESIGN TOKENS
+   BLOOMCORE ONE — DESIGN TOKENS
    ============================================================================
    Single source of truth for the platform's visual identity. The palette is
    derived from the existing brand assets (public/branding/*.svg): dark green
@@ -37,6 +37,13 @@
   --color-gold-800: #6b5417;
   --color-gold-900: #574414;
 
+  /* Public marketing surfaces (BloomCore One brand sheet). These extend the
+     green/gold system rather than introducing a second one: forest #0E4D34,
+     gold #C9A227, ivory #F6F5EC and deep ink #17211C. */
+  --color-ivory: #f6f5ec;
+  --color-ivory-deep: #edecdf;
+  --color-ink-deep: #17211c;
+
   /* Semantic roles (aligned with the palette the product already used) */
   --color-success: #16a34a;
   --color-success-strong: #15803d;
@@ -63,11 +70,16 @@
   --color-line: #e2e8f0;
   --color-line-strong: #cbd5e1;
 
-  /* Text */
+  /* Text
+     ink-muted and ink-faint are darkened from their previous slate values so
+     every muted text token clears WCAG AA (4.5:1) on white, ivory and the
+     sunken surfaces used across both the marketing site and the application.
+       ink-muted  #4E5B6E → 6.9:1 on white, 6.3:1 on ivory
+       ink-faint  #5A6878 → 5.7:1 on white, 5.2:1 on ivory */
   --color-ink-strong: #0f172a;
   --color-ink: #334155;
-  --color-ink-muted: #64748b;
-  --color-ink-faint: #94a3b8;
+  --color-ink-muted: #4e5b6e;
+  --color-ink-faint: #5a6878;
 
   /* Radii */
   --radius-control: 0.5rem;

@@ -1,5 +1,5 @@
 /**
- * Public access-link configuration for BIK Prestige Enterprise.
+ * Public access-link configuration for BloomCore One.
  *
  * This data structure is intentionally machine-readable so QR generation can
  * be added later. Each entry is a PUBLIC login URL — never credentials,
@@ -46,7 +46,7 @@ export const ACCESS_LINKS: AccessLink[] = [
     key: "admin",
     title: "Administrator",
     icon: "🔐",
-    description: "Manage BIK Prestige Enterprise",
+    description: "Manage your business workspace",
     shortPath: "/admin/login",
     instruction: "Use the separate administrator login.",
     admin: true,

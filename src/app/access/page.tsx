@@ -5,6 +5,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { Footprints, Smartphone, UserRound } from "lucide-react";
 import { ACCESS_LINKS, type AccessLink } from "@/lib/access-links";
+import { BrandLockup } from "@/components/brand/Brand";
 
 const LINK_ICONS = { customer: UserRound, momo: Smartphone, susu: Footprints } as const;
 function LinkIcon({ link }: { link: AccessLink }) {
@@ -72,8 +73,8 @@ export default function AccessPage() {
   async function share(link: AccessLink) {
     try {
       await navigator.share({
-        title: `BIK Prestige Enterprise — ${link.title} Login`,
-        text: `Sign in to BIK Prestige Enterprise as ${link.title}.`,
+        title: `BloomCore One — ${link.title} Login`,
+        text: `Sign in to BloomCore One as ${link.title}.`,
         url: fullUrl(link.shortPath),
       });
     } catch {
@@ -86,14 +87,8 @@ export default function AccessPage() {
       <div className="w-full max-w-md">
         {/* Brand */}
         <div className="text-center mb-6">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-14 w-auto mx-auto"
-            width={224}
-            height={112}
-          />
-          <h1 className="sr-only">BIK Prestige Enterprise</h1>
+          <BrandLockup size={52} className="justify-center" />
+          <h1 className="sr-only">BloomCore One sign in</h1>
           <h2 className="text-xl font-bold text-slate-900 mt-3">How would you like to sign in?</h2>
           <p className="text-slate-500 mt-1 text-sm">Choose the option that matches your role.</p>
         </div>
@@ -179,7 +174,7 @@ export default function AccessPage() {
                 {qr[link.key] && (
                   <button
                     type="button"
-                    onClick={() => downloadSvg(`bik-prestige-${link.key}-login.svg`, qr[link.key])}
+                    onClick={() => downloadSvg(`bloomcore-one-${link.key}-login.svg`, qr[link.key])}
                     className={`access-download-btn text-xs px-3 py-1.5 rounded-md ${
                       link.admin
                         ? "text-slate-200 hover:bg-slate-700"
@@ -203,7 +198,7 @@ export default function AccessPage() {
         `}</style>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          Built by BloomCore Technologies
+          BloomCore One · Built by BloomCore Technologies
         </p>
       </div>
     </div>

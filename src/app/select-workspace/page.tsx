@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Footprints, Smartphone } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { selectWorkspace } from "@/lib/actions/auth.actions";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
+import { AppBrand } from "@/components/brand/AppBrand";
 
 interface Selection {
   userId: string;
@@ -12,16 +15,16 @@ interface Selection {
   modules: ("momo" | "susu")[];
 }
 
-const MODULE_META: Record<string, { label: string; icon: string; path: string; blurb: string }> = {
+const MODULE_META: Record<string, { label: string; Icon: LucideIcon; path: string; blurb: string }> = {
   momo: {
     label: "MoMo",
-    icon: "📱",
+    Icon: Smartphone,
     path: "/worker/dashboard",
     blurb: "Daily MoMo accounts and reconciliation",
   },
   susu: {
     label: "Susu",
-    icon: "💰",
+    Icon: Footprints,
     path: "/collector/dashboard",
     blurb: "Customer collections and contributions",
   },
@@ -30,6 +33,7 @@ const MODULE_META: Record<string, { label: string; icon: string; path: string; b
 export default function SelectWorkspacePage() {
   const router = useRouter();
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [tenantName, setTenantName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyModule, setBusyModule] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -44,6 +48,20 @@ export default function SelectWorkspacePage() {
       .catch(() => router.replace("/login"))
       .finally(() => setLoading(false));
   }, [router]);
+
+  // The business name, so the workspace chooser names the business it opens.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.tenant?.name) setTenantName(data.tenant.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function choose(moduleKey: "momo" | "susu") {
     setBusyModule(moduleKey);
@@ -80,13 +98,9 @@ export default function SelectWorkspacePage() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-12 w-auto mx-auto mb-4"
-            width={192}
-            height={96}
-          />
+          <div className="mb-4 flex justify-center">
+            <AppBrand tenantName={tenantName} markSize={34} />
+          </div>
           <h1 className="text-xl font-bold text-slate-900">Welcome back, {firstName}</h1>
           <p className="text-slate-500 mt-1">Where would you like to work?</p>
         </div>
@@ -101,6 +115,7 @@ export default function SelectWorkspacePage() {
           {selection.modules.map((mod) => {
             const meta = MODULE_META[mod];
             if (!meta) return null;
+            const MetaIcon = meta.Icon;
             return (
               <button
                 key={mod}
@@ -109,7 +124,7 @@ export default function SelectWorkspacePage() {
                 disabled={busyModule !== null}
                 className="w-full card flex items-center gap-4 text-left hover:border-green-300 hover:bg-green-50 transition-colors disabled:opacity-60"
               >
-                <span className="text-3xl">{meta.icon}</span>
+                <span className="text-brand-700"><MetaIcon size={28} aria-hidden /></span>
                 <span>
                   <span className="block text-lg font-semibold text-slate-900">{meta.label}</span>
                   <span className="block text-sm text-slate-500">{meta.blurb}</span>
@@ -123,7 +138,7 @@ export default function SelectWorkspacePage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          BIK Prestige Enterprise — Built by BloomCore Technologies
+          BloomCore One{tenantName ? ` · ${tenantName}` : ""} — Built by BloomCore Technologies
         </p>
       </div>
     </div>

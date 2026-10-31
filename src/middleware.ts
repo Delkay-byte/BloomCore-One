@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { isPublicMarketingRoute } from "@/lib/public-routes";
 
 // Require JWT_SECRET — fail hard if missing
 const JWT_SECRET_RAW = process.env.JWT_SECRET;
@@ -133,6 +134,18 @@ export async function middleware(request: NextRequest) {
     return r;
   }
 
+  // ---------------------------------------------------------------------
+  // PUBLIC MARKETING SITE — BloomCore One.
+  //
+  // Evaluated AFTER the platform boundary, so no /platform route can ever be
+  // made public by a marketing route match, and BEFORE every tenant rule.
+  // Only the routes listed in src/lib/public-routes.ts are exempt: the rest of
+  // the application keeps exactly the guards it had.
+  // ---------------------------------------------------------------------
+  if (isPublicMarketingRoute(pathname)) {
+    return NextResponse.next();
+  }
+
   // Allow public routes (login, health check)
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
     return NextResponse.next();
@@ -188,24 +201,10 @@ export async function middleware(request: NextRequest) {
   else if (pathname.startsWith("/worker")) pathModule = "momo";
   else if (pathname.startsWith("/collector")) pathModule = "susu";
 
-  // Root: send the person to any active workspace.
-  if (pathname === "/") {
-    // Check customer session first
-    const customerClaims = await readClaims(request.cookies.get(SESSION_COOKIES.customer)?.value);
-    if (customerClaims && customerClaims.role === "customer") {
-      return redirectTo("/customer/dashboard");
-    }
-    for (const [mod, name] of Object.entries(SESSION_COOKIES)) {
-      if (mod === "customer") continue; // Already checked above
-      const claims = await readClaims(request.cookies.get(name)?.value);
-      if (claims && claimsMatchModule(claims, mod as keyof typeof SESSION_COOKIES)) {
-        return redirectTo(
-          mod === "admin" ? "/admin/dashboard" : mod === "momo" ? "/worker/dashboard" : "/collector/dashboard"
-        );
-      }
-    }
-    return redirectTo("/login");
-  }
+  // "/" is the public BloomCore One landing page and was returned above by
+  // isPublicMarketingRoute(). Signed-in people reach their workspace from the
+  // landing page's Sign In link, which keeps the public page genuinely public
+  // for every visitor (including signed-in ones).
 
   // Dual-role workspace selection page requires a valid selection token.
   if (pathname.startsWith("/select-workspace")) {

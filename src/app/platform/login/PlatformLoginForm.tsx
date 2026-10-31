@@ -5,6 +5,7 @@ import { KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
 import { isRedirectError } from "@/lib/errors";
+import { BrandLockup } from "@/components/brand/Brand";
 
 export default function PlatformLoginForm() {
   const [error, setError] = useState("");
@@ -30,13 +31,7 @@ export default function PlatformLoginForm() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-brand-950 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="text-center mb-7">
-          <img
-            src="/branding/bik-prestige-logo.svg"
-            alt="BIK Prestige Enterprise"
-            className="h-14 w-auto mx-auto rounded-lg bg-white p-2"
-            width={224}
-            height={112}
-          />
+          <BrandLockup size={56} tone="dark" className="justify-center" />
           <p className="text-gold-400 mt-3 text-xs font-semibold tracking-[0.2em] uppercase">
             Platform Administration
           </p>
