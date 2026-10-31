@@ -1,10 +1,10 @@
-# Render Deployment Blueprint — BIK Prestige Enterprise (Neon rehost)
+# Render Deployment Blueprint — BIK Prestige Enterprise (Neon)
 # https://render.com/docs/blueprint-spec
 #
-# Scope: this blueprint describes ONLY the parallel Neon-backed service
-# (`bik-prestige-enterprise-neon`). The pre-existing service
-# `bik-prestige-enterprise` is intentionally NOT described or managed here so
-# that blueprint syncs can never modify, suspend or redeploy it.
+# Scope: describes ONLY the Neon-backed service `BIK-Prestige-Enterprise`
+# (already created manually in the Render dashboard, service id
+# srv-dbihvrmgekts73fdcbj0). Do not run "New → Blueprint" against this branch
+# unless the existing service is first deleted, or a duplicate will be created.
 #
 # Database schema is NEVER created or altered by a build. Provisioning the
 # schema is a separate, explicitly run operator step — see
@@ -12,11 +12,11 @@
 
 services:
   - type: web
-    name: bik-prestige-enterprise-neon
+    name: BIK-Prestige-Enterprise
     runtime: node
     plan: free
     region: oregon
-    branch: rehost/neon-render
+    branch: main
     buildCommand: npm ci && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
@@ -36,11 +36,11 @@ services:
       - key: NEXTAUTH_URL
         sync: false
       - key: SESSION_IDLE_TIMEOUT_SECONDS
-        value: "300"
+        value: "28800"
       - key: SESSION_BACKGROUND_TIMEOUT_SECONDS
-        value: "60"
+        value: "7200"
       - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
-        value: "900"
+        value: "28800"
       - key: OFFLINE_COLLECTIONS_ENABLED
         value: "false"
       - key: OFFLINE_MOMO_ENABLED
