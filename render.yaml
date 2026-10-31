@@ -17,7 +17,10 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm ci && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
+    # --include=dev is required: NODE_ENV=production is set on the service, which
+    # makes `npm ci` skip devDependencies. `next build` type-checks tests/, which
+    # import vitest, so the build fails without them.
+    buildCommand: npm ci --include=dev && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true

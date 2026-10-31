@@ -96,10 +96,16 @@ cross-tenant ID substitution has no entry point.
 
 | Setting | Value |
 |---|---|
-| Build command | `npm ci && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build` |
+| Build command | `npm ci --include=dev && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build` |
 | Start command | `npm start` (`next start`, reads `PORT`) |
 | Health check path | `/api/health` |
 | Auto-deploy | on `main` |
+
+`--include=dev` is required. The service sets `NODE_ENV=production`, which makes
+`npm ci` install production dependencies only (216 packages), but `next build`
+type-checks `tests/`, which import `vitest`. Without devDependencies the build
+fails with `TS2307: Cannot find module 'vitest'`. With the flag it installs the
+full set (564 packages) and the build passes.
 
 The build performs **no** database work: no `prisma db push`, no
 `prisma migrate dev`, no `migrate deploy`, no seed, no `scripts/ensure-columns.js`.
