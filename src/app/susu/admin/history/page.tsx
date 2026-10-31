@@ -11,6 +11,7 @@ import {
 import { searchCustomers as searchCustomersRaw, searchStaff } from "@/lib/actions/susu-customer.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { ClipboardList, X } from "lucide-react";
 import SmartSearch from "@/components/SmartSearch";
 
 async function searchCustomersAdapter(query: string) {
@@ -163,14 +164,14 @@ export default function MoneyTransactionHistoryPage() {
   function getTransactionTypeLabel(type: string) {
     switch (type) {
       case "contribution": return <span className="badge badge-green">Contribution</span>;
-      case "withdrawal": return <span className="badge badge-orange">Withdrawal</span>;
+      case "withdrawal": return <span className="badge badge-red">Withdrawal</span>;
       case "remittance": return <span className="badge badge-blue">Money Handed In</span>;
       default: return <span className="badge badge-gray">{type}</span>;
     }
   }
 
   function getChannelBadge(channel?: string) {
-    if (!channel) return <span className="text-gray-400">—</span>;
+    if (!channel) return <span className="text-slate-400">—</span>;
     return (
       <span className={`badge ${channel === "collector" ? "badge-yellow" : "badge-green"}`}>
         {channel === "collector" ? "Collector" : "Direct Office"}
@@ -182,8 +183,8 @@ export default function MoneyTransactionHistoryPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Money &amp; Transaction History</h1>
-          <p className="text-gray-500 mt-1">View all financial transactions across dates</p>
+          <h1 className="text-2xl font-bold text-slate-900">Money &amp; Transaction History</h1>
+          <p className="text-slate-500 mt-1">View all financial transactions across dates</p>
         </div>
         <div className="flex gap-2">
           <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={transactions.length === 0}>
@@ -196,9 +197,9 @@ export default function MoneyTransactionHistoryPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -206,23 +207,23 @@ export default function MoneyTransactionHistoryPage() {
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           <div className="card bg-green-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Total Contributions</div>
+            <div className="text-xs text-slate-600 mb-1">Total Contributions</div>
             <div className="text-lg font-bold"><CediAmount amount={summary.totalContributions} /></div>
           </div>
           <div className="card bg-emerald-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Office Contributions</div>
+            <div className="text-xs text-slate-600 mb-1">Office Contributions</div>
             <div className="text-lg font-bold"><CediAmount amount={summary.totalOfficeContributions} /></div>
           </div>
           <div className="card bg-yellow-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Collector Contributions</div>
+            <div className="text-xs text-slate-600 mb-1">Collector Contributions</div>
             <div className="text-lg font-bold"><CediAmount amount={summary.totalCollectorContributions} /></div>
           </div>
           <div className="card bg-orange-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Total Withdrawals</div>
+            <div className="text-xs text-slate-600 mb-1">Total Withdrawals</div>
             <div className="text-lg font-bold"><CediAmount amount={summary.totalWithdrawals} /></div>
           </div>
           <div className="card bg-blue-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Money Handed In</div>
+            <div className="text-xs text-slate-600 mb-1">Money Handed In</div>
             <div className="text-lg font-bold"><CediAmount amount={summary.totalRemittances} /></div>
           </div>
         </div>
@@ -371,8 +372,8 @@ export default function MoneyTransactionHistoryPage() {
             <div className="spinner"></div>
           </div>
         ) : transactions.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">📋</p>
+          <div className="text-center py-12 text-slate-500">
+            <ClipboardList className="mx-auto text-brand-300 mb-2" size={36} aria-hidden />
             <p className="font-medium">No transactions found</p>
             <p className="text-sm mt-1">Try adjusting your filters</p>
           </div>
@@ -401,7 +402,7 @@ export default function MoneyTransactionHistoryPage() {
                       <td>
                         <div className="font-medium text-sm">{t.customerName}</div>
                         {t.customerId !== "—" && (
-                          <div className="text-xs text-gray-500">{t.customerId}</div>
+                          <div className="text-xs text-slate-500">{t.customerId}</div>
                         )}
                       </td>
                       <td className="font-mono font-semibold"><CediAmount amount={t.amount} /></td>
@@ -434,8 +435,8 @@ export default function MoneyTransactionHistoryPage() {
               </table>
             </div>
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
                   Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
                 </p>
                 <div className="flex gap-2">

@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getContributions } from "@/lib/actions/susu-contribution.actions";
@@ -118,8 +119,8 @@ export default function SusuReportsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Susu Reports</h1>
-          <p className="text-gray-500 mt-1">View contribution and withdrawal reports</p>
+          <h1 className="text-2xl font-bold text-slate-900">Susu Reports</h1>
+          <p className="text-slate-500 mt-1">View contribution and withdrawal reports</p>
         </div>
         <button onClick={handleExportCSV} className="btn btn-secondary btn-sm">
           📥 Export CSV
@@ -127,9 +128,9 @@ export default function SusuReportsPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -176,8 +177,8 @@ export default function SusuReportsPage() {
           </div>
         ) : tab === "contributions" ? (
           contributions.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-4xl mb-2">📋</p>
+            <div className="text-center py-12 text-slate-500">
+              <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardList size={36} /></p>
               <p>No contribution records found</p>
             </div>
           ) : (
@@ -198,7 +199,7 @@ export default function SusuReportsPage() {
                       <td className="text-sm">{formatDateTime(c.collectionDate)}</td>
                       <td>
                         <div className="font-medium text-sm">{c.account.customer.fullName}</div>
-                        <div className="text-xs text-gray-500">{c.account.customer.customerId}</div>
+                        <div className="text-xs text-slate-500">{c.account.customer.customerId}</div>
                       </td>
                       <td className="font-mono font-semibold"><CediAmount amount={c.amount} /></td>
                       <td><span className="badge badge-blue">{c.allocations.length}</span></td>
@@ -211,8 +212,8 @@ export default function SusuReportsPage() {
           )
         ) : (
           withdrawals.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-4xl mb-2">📋</p>
+            <div className="text-center py-12 text-slate-500">
+              <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardList size={36} /></p>
               <p>No withdrawal records found</p>
             </div>
           ) : (
@@ -234,11 +235,11 @@ export default function SusuReportsPage() {
                       <td className="text-sm">{formatDateTime(w.createdAt)}</td>
                       <td>
                         <div className="font-medium text-sm">{w.account.customer.fullName}</div>
-                        <div className="text-xs text-gray-500">{w.account.customer.customerId}</div>
+                        <div className="text-xs text-slate-500">{w.account.customer.customerId}</div>
                       </td>
                       <td className="font-mono text-sm"><CediAmount amount={w.requestedAmount} /></td>
                       <td className="font-mono text-sm">
-                        {w.commissionAmount > 0 ? <CediAmount amount={w.commissionAmount} /> : <span className="text-gray-400">—</span>}
+                        {w.commissionAmount > 0 ? <CediAmount amount={w.commissionAmount} /> : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="font-mono text-sm font-semibold"><CediAmount amount={w.netAmount} /></td>
                       <td><span className="badge badge-blue">Cycle {w.cycle.cycleNumber}</span></td>
@@ -251,8 +252,8 @@ export default function SusuReportsPage() {
         )}
 
         {pagination && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+            <p className="text-sm text-slate-500">
               Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
             </p>
             <div className="flex gap-2">

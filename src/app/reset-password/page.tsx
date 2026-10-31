@@ -62,12 +62,12 @@ export default function ResetPasswordPage() {
           {!success ? (
             <>
               <h2 className="text-xl font-semibold mb-2">Reset Password</h2>
-              <p className="text-sm text-gray-500 mb-6">
+              <p className="text-sm text-slate-500 mb-6">
                 Enter your recovery token and create a new password.
               </p>
 
               {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+                <div className="banner banner-error mb-4 text-sm">
                   {error}
                 </div>
               )}
@@ -134,10 +134,10 @@ export default function ResetPasswordPage() {
             <div className="text-center py-4">
               <p className="text-3xl mb-3">✅</p>
               <h2 className="text-xl font-semibold mb-2">Password Reset Successful</h2>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-slate-500 mb-4">
                 Your password has been updated. You can now sign in with your new password.
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-slate-400">
                 Redirecting to sign in...
               </p>
             </div>
@@ -145,7 +145,7 @@ export default function ResetPasswordPage() {
         </div>
 
         <p className="text-center mt-6">
-          <Link href="/login" className="text-sm text-green-600 hover:text-green-700">
+          <Link href="/login" className="text-sm text-brand-700 hover:text-brand-800">
             ← Back to Sign In
           </Link>
         </p>

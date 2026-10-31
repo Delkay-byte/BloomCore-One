@@ -6,13 +6,16 @@ import Link from "next/link";
 import { customerLogout } from "@/lib/actions/auth.actions";
 import { isRedirectError } from "@/lib/errors";
 
-const NAV_ITEMS = [
-  { href: "/customer/dashboard", label: "My Savings", icon: "💰" },
-  { href: "/customer/payments", label: "My Payments", icon: "💵" },
-  { href: "/customer/withdrawals", label: "My Withdrawals", icon: "🏧" },
-  { href: "/customer/statement", label: "My Statement", icon: "📋" },
-  { href: "/customer/profile", label: "My Profile", icon: "👤" },
-  { href: "/customer/settings", label: "Settings", icon: "⚙️" },
+import { Banknote, ClipboardList, CreditCard, Landmark, Settings, UserRound, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/customer/dashboard", label: "My Savings", icon: Wallet },
+  { href: "/customer/payments", label: "My Payments", icon: Banknote },
+  { href: "/customer/withdrawals", label: "My Withdrawals", icon: Landmark },
+  { href: "/customer/statement", label: "My Statement", icon: ClipboardList },
+  { href: "/customer/profile", label: "My Profile", icon: UserRound },
+  { href: "/customer/settings", label: "Settings", icon: Settings },
 ];
 
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
@@ -57,15 +60,15 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="spinner" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-40">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <Link href="/customer/dashboard" className="flex items-center gap-2">
             <img
@@ -79,7 +82,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="text-gray-600 hover:text-gray-800 p-2"
+              className="text-slate-600 hover:text-slate-800 p-2"
               aria-label="Open menu"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,16 +92,16 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50">
                   <nav className="py-1">
                     {NAV_ITEMS.map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
                         onClick={() => setShowMenu(false)}
-                        className="flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                        className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50"
                       >
-                        <span>{item.icon}</span>
+                        <span><item.icon size={16} aria-hidden /></span>
                         {item.label}
                       </Link>
                     ))}
@@ -118,9 +121,9 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
         </div>
       </header>
       <main className="p-4 max-w-4xl mx-auto flex-1">{children}</main>
-      <footer className="border-t border-gray-200 bg-white">
+      <footer className="border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-gray-400">Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">Built by BloomCore Technologies</p>
         </div>
       </footer>
     </div>

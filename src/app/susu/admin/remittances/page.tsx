@@ -1,5 +1,6 @@
 "use client";
 
+import { Landmark, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
@@ -118,8 +119,8 @@ export default function SusuRemittancesPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Collector Money Handed In</h1>
-          <p className="text-gray-500 mt-1">Record and reconcile money collectors bring to the business</p>
+          <h1 className="text-2xl font-bold text-slate-900">Collector Money Handed In</h1>
+          <p className="text-slate-500 mt-1">Record and reconcile money collectors bring to the business</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">
           {showForm ? "Cancel" : "+ Record Money Handed In"}
@@ -127,15 +128,15 @@ export default function SusuRemittancesPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2">✕</button>
+          <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -203,8 +204,8 @@ export default function SusuRemittancesPage() {
             <div className="spinner"></div>
           </div>
         ) : remittances.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">🏦</p>
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Landmark size={36} /></p>
             <p className="font-medium">No money handed in yet</p>
           </div>
         ) : (
@@ -252,8 +253,8 @@ export default function SusuRemittancesPage() {
               </table>
             </div>
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
                   Page {pagination.page} of {pagination.totalPages}
                 </p>
                 <div className="flex gap-2">

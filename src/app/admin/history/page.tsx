@@ -12,6 +12,9 @@ import {
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import SmartSearch from "@/components/SmartSearch";
+import FilterChips from "@/components/ui/FilterChips";
+import { NoResults, PageHeader } from "@/components/ui/DataDisplay";
+import { Download, X } from "lucide-react";
 
 type TransactionType = "" | "cash_in" | "cash_out" | "momo_added" | "momo_paid" | "commission" | "other_income" | "expenses" | "reconciliation";
 type DatePreset = "" | "today" | "yesterday" | "24h" | "48h" | "7d" | "30d" | "custom";
@@ -146,11 +149,11 @@ export default function MoMoHistoryPage() {
   function getTypeBadge(type: string) {
     switch (type) {
       case "Cash Received": return <span className="badge badge-green">Cash Received</span>;
-      case "Cash Paid Out": return <span className="badge badge-orange">Cash Paid Out</span>;
+      case "Cash Paid Out": return <span className="badge badge-red">Cash Paid Out</span>;
       case "Money Added to MoMo": return <span className="badge badge-blue">MoMo Added</span>;
       case "Money Paid from MoMo": return <span className="badge badge-yellow">MoMo Paid</span>;
-      case "Commission Earned": return <span className="badge badge-purple">Commission</span>;
-      case "Other Money Received": return <span className="badge badge-teal">Other Income</span>;
+      case "Commission Earned": return <span className="badge badge-gold">Commission</span>;
+      case "Other Money Received": return <span className="badge badge-brand">Other Income</span>;
       case "Business Expense": return <span className="badge badge-red">Expense</span>;
       case "Reconciliation Record": return <span className="badge badge-gray">Reconciliation</span>;
       default: return <span className="badge badge-gray">{type}</span>;
@@ -158,64 +161,35 @@ export default function MoMoHistoryPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">MoMo Money &amp; History</h1>
-          <p className="text-gray-500 mt-1">View all MoMo financial transactions across dates</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={records.length === 0}>
-            Export CSV
+    <div className="space-y-6">
+      <PageHeader
+        title="MoMo Money & History"
+        description="Every MoMo financial transaction across dates - filter, inspect, export."
+        actions={
+          <button onClick={handleExportCSV} className="btn btn-secondary" disabled={records.length === 0}>
+            <Download size={15} aria-hidden /> Export CSV
           </button>
-          <button onClick={resetFilters} className="btn btn-secondary btn-sm">
-            Reset Filters
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary - reconciles exactly with the filtered records */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="card bg-green-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Cash Received</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalCashReceived} /></div>
-          </div>
-          <div className="card bg-orange-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Cash Paid Out</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalCashPaid} /></div>
-          </div>
-          <div className="card bg-blue-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Money Added to MoMo</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalMomoAdded} /></div>
-          </div>
-          <div className="card bg-yellow-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Money Paid from MoMo</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalMomoPaid} /></div>
-          </div>
-          <div className="card bg-red-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Business Expenses</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalExpenses} /></div>
-          </div>
-          <div className="card bg-purple-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Commission Earned</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalCommission} /></div>
-          </div>
-          <div className="card bg-teal-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Other Money Received</div>
-            <div className="text-lg font-bold"><CediAmount amount={summary.totalOtherIncome} /></div>
-          </div>
-          <div className="card bg-gray-50 text-center">
-            <div className="text-xs text-gray-600 mb-1">Total Records</div>
-            <div className="text-lg font-bold">{summary.recordCount}</div>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <SummaryCard label="Cash Received" amount={summary.totalCashReceived} tone="text-emerald-700" />
+          <SummaryCard label="Cash Paid Out" amount={summary.totalCashPaid} tone="text-red-700" />
+          <SummaryCard label="Money Added to MoMo" amount={summary.totalMomoAdded} />
+          <SummaryCard label="Money Paid from MoMo" amount={summary.totalMomoPaid} />
+          <SummaryCard label="Business Expenses" amount={summary.totalExpenses} tone="text-red-700" />
+          <SummaryCard label="Commission Earned" amount={summary.totalCommission} tone="text-emerald-700" />
+          <SummaryCard label="Other Money Received" amount={summary.totalOtherIncome} />
+          <SummaryCard label="Total Records" count={summary.recordCount} />
         </div>
       )}
 
@@ -319,31 +293,49 @@ export default function MoMoHistoryPage() {
         </div>
       </div>
 
+      <FilterChips
+        chips={[
+          ...(datePreset ? [{ key: "date", label: "Period", value: DATE_PRESETS.find((p) => p.value === datePreset)?.label ?? datePreset }] : []),
+          ...(transactionType ? [{ key: "type", label: "Type", value: TYPE_OPTIONS.find((t) => t.value === transactionType)?.label ?? transactionType }] : []),
+          ...(status ? [{ key: "status", label: "Status", value: status }] : []),
+          ...(locationId ? [{ key: "location", label: "Location", value: locationName }] : []),
+          ...(workerId ? [{ key: "worker", label: "Worker", value: workerName }] : []),
+        ]}
+        onRemove={(key) => {
+          if (key === "date") { setDatePreset(""); setDateFrom(""); setDateTo(""); }
+          if (key === "type") setTransactionType("");
+          if (key === "status") setStatus("");
+          if (key === "location") { setLocationId(""); setLocationName(""); }
+          if (key === "worker") { setWorkerId(""); setWorkerName(""); }
+          setPage(1);
+        }}
+        onReset={resetFilters}
+      />
+
       {/* Records List */}
-      <div className="card">
+      <div className="card !p-0 overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="spinner"></div>
+          <div className="p-4" role="status" aria-label="Loading records">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="skeleton h-9 w-full mb-3" />
+            ))}
           </div>
         ) : records.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">📋</p>
-            <p className="font-medium">No MoMo records found</p>
-            <p className="text-sm mt-1">Try adjusting your filters</p>
-          </div>
+          <NoResults hint="No MoMo records match the active filters. Adjust or clear them to see more." />
         ) : (
           <>
             <div className="table-container">
               <table>
+                <caption className="sr-only">MoMo transaction history</caption>
                 <thead>
                   <tr>
-                    <th>Date &amp; Time</th>
-                    <th>Location</th>
-                    <th>Worker</th>
-                    <th>Type</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Notes</th>
+                    <th scope="col">Date &amp; Time</th>
+                    <th scope="col">Location</th>
+                    <th scope="col">Worker</th>
+                    <th scope="col">Type</th>
+                    <th scope="col" className="num">Amount</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -353,8 +345,8 @@ export default function MoMoHistoryPage() {
                       <td className="text-sm">{r.locationName}</td>
                       <td className="text-sm">{r.workerName}</td>
                       <td>{getTypeBadge(r.type)}</td>
-                      <td className="font-mono font-semibold">
-                        {r.amount > 0 ? <CediAmount amount={r.amount} /> : <span className="text-gray-400">—</span>}
+                      <td className="num font-semibold">
+                        {r.amount > 0 ? <CediAmount amount={r.amount} /> : <span className="text-slate-400">—</span>}
                       </td>
                       <td>
                         <span className={`badge ${
@@ -365,15 +357,15 @@ export default function MoMoHistoryPage() {
                           {r.status}
                         </span>
                       </td>
-                      <td className="text-sm text-gray-600 max-w-xs truncate">{r.notes}</td>
+                      <td className="text-sm text-slate-600 max-w-xs truncate">{r.notes}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
                   Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
                 </p>
                 <div className="flex gap-2">
@@ -397,6 +389,17 @@ export default function MoMoHistoryPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function SummaryCard({ label, amount, count, tone = "text-slate-900" }: { label: string; amount?: number; count?: number; tone?: string }) {
+  return (
+    <div className="card !p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className={"text-base font-bold mt-0.5 tnum " + tone}>
+        {count != null ? count : <CediAmount amount={amount ?? 0} />}
+      </p>
     </div>
   );
 }

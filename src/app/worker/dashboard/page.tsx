@@ -73,15 +73,15 @@ export default function WorkerDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <h1 className="text-2xl font-bold text-gray-900">{getGreeting()}, {userName || "Worker"}! 👋</h1>
-        {locationName && <p className="text-gray-500 mt-1">Location: <span className="font-medium text-gray-700">{locationName}</span></p>}
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+        <h1 className="text-2xl font-bold text-slate-900">{getGreeting()}, {userName || "Worker"}! 👋</h1>
+        {locationName && <p className="text-slate-500 mt-1">Location: <span className="font-medium text-slate-700">{locationName}</span></p>}
         <p className="text-sm text-green-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+      {error && <div className="banner banner-error text-sm">{error}</div>}
 
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h2 className="text-lg font-semibold mb-4">Today&apos;s Account</h2>
         {todayAccount ? (
           <div>
@@ -90,12 +90,12 @@ export default function WorkerDashboardPage() {
               {todayAccount.status === "draft" && <Link href={`/worker/daily/${todayAccount.id}`} className="btn btn-primary btn-sm">Continue →</Link>}
             </div>
             {todayAccount.status !== "draft" && (
-              <div className="text-center py-4 text-gray-500"><p className="text-2xl mb-2">✅</p><p className="font-medium">Today&apos;s account has been submitted</p></div>
+              <div className="text-center py-4 text-slate-500"><p className="text-2xl mb-2">✅</p><p className="font-medium">Today&apos;s account has been submitted</p></div>
             )}
           </div>
         ) : (
           <div className="text-center py-6">
-            <p className="text-gray-500 mb-4">No account opened for today yet</p>
+            <p className="text-slate-500 mb-4">No account opened for today yet</p>
             <button onClick={handleCreateAccount} className="btn btn-primary" disabled={creating}>
               {creating ? <span className="flex items-center gap-2"><span className="spinner"></span>Opening...</span> : "Start Daily Account"}
             </button>
@@ -103,16 +103,16 @@ export default function WorkerDashboardPage() {
         )}
       </div>
 
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h2 className="text-lg font-semibold mb-4">Recent Reports</h2>
         {accounts.length === 0 ? (
-          <div className="text-center py-6 text-gray-500"><p className="text-3xl mb-2">📋</p><p>No reports yet</p></div>
+          <div className="text-center py-6 text-slate-500"><p className="text-3xl mb-2">📋</p><p>No reports yet</p></div>
         ) : (
           <div className="space-y-2">
             {accounts.slice(0, 10).map((account) => {
               const variance = Number(account.calculatedMomoVariance) + Number(account.calculatedCashVariance);
               return (
-                <Link key={account.id} href={`/worker/daily/${account.id}`} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 border border-gray-100 transition-colors">
+                <Link key={account.id} href={`/worker/daily/${account.id}`} className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 border border-slate-100 transition-colors">
                   <div className="font-medium text-sm">{formatDate(account.businessDate)}</div>
                   <div className="text-right">
                     <span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : "badge-yellow"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span>

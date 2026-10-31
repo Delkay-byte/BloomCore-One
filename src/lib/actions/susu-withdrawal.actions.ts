@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAuth, requireAdmin } from "@/lib/auth";
+import { requireTenantAdminSusu } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
@@ -14,8 +14,6 @@ export interface ActionResponse {
 }
 
 /**
- * Calculate the available balance for a customer in a given cycle.
- *
  * Balance = total contributions - total withdrawals (including commissions)
  */
 function calculateCycleBalance(
@@ -29,28 +27,32 @@ function calculateCycleBalance(
 /**
  * Process a withdrawal request.
  *
- * Commission rule:
- * - One day's contribution is deducted as commission on the FIRST withdrawal in a cycle.
- * - Commission = dailyContribution (configured per account/cycle).
- * - NOT charged on subsequent withdrawals in the same cycle.
- * - Resets each new cycle.
+ * Commission rule (unchanged):
+ * - One day's contribution is deducted as commission on the FIRST withdrawal
+ *   in a cycle, and resets each new cycle.
+ *
+ * Tenant isolation: the account must belong to the authenticated tenant, and
+ * every cycle-level financial aggregate is scoped by tenantId as well.
  */
 export async function processWithdrawal(params: {
   accountId: string;
   requestedAmount: number;
   notes?: string;
 }): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const { accountId, requestedAmount, notes } = params;
 
   if (requestedAmount <= 0) {
-    return { success: false, error: "Withdrawal amount must be greater than 0" };
+    return {
+      success: false,
+      error: "Withdrawal amount must be greater than 0",
+    };
   }
 
-  // Fetch the account with active cycle
-  const account = await db.susuAccount.findUnique({
-    where: { id: accountId },
+  // TENANT SCOPED account fetch.
+  const account = await db.susuAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
     include: {
       cycles: { where: { status: "active" }, take: 1 },
       customer: true,
@@ -58,38 +60,48 @@ export async function processWithdrawal(params: {
   });
 
   if (!account) return { success: false, error: "Susu account not found" };
-  if (account.status !== "active") return { success: false, error: "Account is not active" };
-  if (!account.cycles.length) return { success: false, error: "No active cycle found" };
+  if (account.status !== "active")
+    return { success: false, error: "Account is not active" };
+  if (!account.cycles.length)
+    return { success: false, error: "No active cycle found" };
 
   const cycle = account.cycles[0];
   const dailyContribution = Number(cycle.dailyContribution);
 
-  // Calculate current cycle financials
   const cycleContributions = await db.contribution.findMany({
-    where: { cycleId: cycle.id },
+    where: { cycleId: cycle.id, tenantId: ctx.tenantId },
   });
   const cycleWithdrawals = await db.withdrawal.findMany({
-    where: { cycleId: cycle.id, status: "completed" },
+    where: { cycleId: cycle.id, status: "completed", tenantId: ctx.tenantId },
   });
   const cycleCommissions = await db.commission.findMany({
-    where: { cycleId: cycle.id },
+    where: { cycleId: cycle.id, tenantId: ctx.tenantId },
   });
 
-  const totalContributed = cycleContributions.reduce((sum, c) => sum + Number(c.amount), 0);
-  const totalWithdrawn = cycleWithdrawals.reduce((sum, w) => sum + Number(w.netAmount), 0);
-  const totalCommissions = cycleCommissions.reduce((sum, c) => sum + Number(c.amount), 0);
+  const totalContributed = cycleContributions.reduce(
+    (sum, c) => sum + Number(c.amount),
+    0
+  );
+  const totalWithdrawn = cycleWithdrawals.reduce(
+    (sum, w) => sum + Number(w.netAmount),
+    0
+  );
+  const totalCommissions = cycleCommissions.reduce(
+    (sum, c) => sum + Number(c.amount),
+    0
+  );
 
-  const currentBalance = calculateCycleBalance(totalContributed, totalWithdrawn, totalCommissions);
+  const currentBalance = calculateCycleBalance(
+    totalContributed,
+    totalWithdrawn,
+    totalCommissions
+  );
 
-  // Determine commission
   let commissionAmount = 0;
   if (!cycle.commissionCharged) {
-    // First withdrawal in this cycle — charge one day's contribution as commission
     commissionAmount = dailyContribution;
   }
 
-  // Commission reduces the available balance, NOT the withdrawal amount.
-  // Customer receives the full requestedAmount.
   const availableAfterCommission = currentBalance - commissionAmount;
 
   if (requestedAmount > availableAfterCommission) {
@@ -103,37 +115,36 @@ export async function processWithdrawal(params: {
   const referenceId = `WDR-${randomBytes(8).toString("hex")}`;
 
   const result = await db.$transaction(async (tx) => {
-    // Record commission if applicable
     if (commissionAmount > 0) {
       await tx.commission.create({
         data: {
+          tenantId: ctx.tenantId,
           accountId: account.id,
           cycleId: cycle.id,
           amount: commissionAmount,
           basis: "one_day_contribution",
           triggeredBy: "first_withdrawal",
-          recordedById: admin.userId,
+          recordedById: ctx.userId,
         },
       });
 
-      // Mark commission as charged for this cycle
       await tx.susuCycle.update({
         where: { id: cycle.id },
         data: { commissionCharged: true },
       });
     }
 
-    // Record withdrawal — customer receives the full requestedAmount
     const withdrawal = await tx.withdrawal.create({
       data: {
+        tenantId: ctx.tenantId,
         accountId: account.id,
         cycleId: cycle.id,
         requestedAmount,
         commissionAmount,
-        netAmount: requestedAmount, // Customer gets full amount; commission is separate
+        netAmount: requestedAmount,
         remainingBalance,
         status: "completed",
-        authorizedById: admin.userId,
+        authorizedById: ctx.userId,
         referenceId,
         notes,
       },
@@ -143,7 +154,7 @@ export async function processWithdrawal(params: {
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.withdrawal_processed",
     entityType: "withdrawal",
     entityId: result.withdrawal.id,
@@ -170,21 +181,23 @@ export async function getWithdrawals(params?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const page = params?.page || 1;
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { tenantId: ctx.tenantId };
   if (params?.accountId) where.accountId = params.accountId;
   if (params?.cycleId) where.cycleId = params.cycleId;
 
   if (params?.dateFrom || params?.dateTo) {
     where.createdAt = {};
     const dateRange = where.createdAt as Record<string, Date>;
-    if (params.dateFrom) dateRange.gte = new Date(params.dateFrom + "T00:00:00.000Z");
-    if (params.dateTo) dateRange.lte = new Date(params.dateTo + "T23:59:59.999Z");
+    if (params.dateFrom)
+      dateRange.gte = new Date(params.dateFrom + "T00:00:00.000Z");
+    if (params.dateTo)
+      dateRange.lte = new Date(params.dateTo + "T23:59:59.999Z");
   }
 
   const [withdrawals, total] = await Promise.all([
@@ -192,7 +205,9 @@ export async function getWithdrawals(params?: {
       where,
       include: {
         account: {
-          include: { customer: { select: { customerId: true, fullName: true } } },
+          include: {
+            customer: { select: { customerId: true, fullName: true } },
+          },
         },
         cycle: true,
       },

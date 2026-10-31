@@ -46,7 +46,7 @@ export default function CustomerStatementPage() {
   if (error) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">{error}</p>
+        <p className="text-slate-500">{error}</p>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export default function CustomerStatementPage() {
     return (
       <div className="text-center py-20">
         <p className="text-4xl mb-2">📋</p>
-        <p className="font-medium text-gray-700">No account history available yet.</p>
+        <p className="font-medium text-slate-700">No account history available yet.</p>
       </div>
     );
   }
@@ -63,8 +63,8 @@ export default function CustomerStatementPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Account Statement</h1>
-        <p className="text-gray-500 mt-1">Chronological transaction history</p>
+        <h1 className="text-2xl font-bold text-slate-900">My Account Statement</h1>
+        <p className="text-slate-500 mt-1">Chronological transaction history</p>
       </div>
 
       <div className="card">
@@ -97,7 +97,7 @@ export default function CustomerStatementPage() {
                     )}
                   </td>
                   <td className="font-mono text-right">
-                    {entry.balance !== undefined ? <CediAmount amount={entry.balance} /> : <span className="text-gray-400">—</span>}
+                    {entry.balance !== undefined ? <CediAmount amount={entry.balance} /> : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="text-sm">
                     {entry.type === "contribution" ? (
@@ -111,7 +111,7 @@ export default function CustomerStatementPage() {
                       "First withdrawal commission"
                     )}
                   </td>
-                  <td className="text-sm text-gray-500">Cycle {entry.cycleNumber}</td>
+                  <td className="text-sm text-slate-500">Cycle {entry.cycleNumber}</td>
                 </tr>
               ))}
             </tbody>

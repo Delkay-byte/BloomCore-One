@@ -19,7 +19,7 @@ export default function AdminDevicesRedirect() {
     <div className="min-h-[50vh] flex items-center justify-center">
       <div className="text-center">
         <div className="spinner mb-4"></div>
-        <p className="text-gray-500 text-sm">Redirecting to Settings → Offline Devices...</p>
+        <p className="text-slate-500 text-sm">Redirecting to Settings → Offline Devices...</p>
       </div>
     </div>
   );

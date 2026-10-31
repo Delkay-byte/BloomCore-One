@@ -2,6 +2,9 @@ import { db } from "./db";
 
 interface AuditParams {
   userId: string;
+  /** Owning tenant — stamp every tenant-scoped audit row so tenant-scoped
+   *  audit lists (where tenantId is the filter) can see it. */
+  tenantId?: string | null;
   action: string;
   entityType: string;
   entityId?: string;
@@ -76,8 +79,33 @@ export const AUDIT_ACTIONS = {
   WORKSPACE_SWITCHED: "auth.workspace_switched",
 } as const;
 
+/**
+ * Resolve the owning tenant for an audit row. The acting user (or customer)
+ * determines the tenant — the same fail-closed identity the actions themselves
+ * used. An explicit tenantId param always wins.
+ */
+async function resolveAuditTenantId(
+  userId: string
+): Promise<string | null | undefined> {
+  try {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+    if (user) return user.tenantId;
+    const customer = await db.customer.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+    return customer?.tenantId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createAuditLog({
   userId,
+  tenantId: explicitTenantId,
   action,
   entityType,
   entityId,
@@ -85,9 +113,11 @@ export async function createAuditLog({
   ipAddress,
 }: AuditParams) {
   try {
+    const tenantId = explicitTenantId ?? (await resolveAuditTenantId(userId));
     await db.auditLog.create({
       data: {
         userId,
+        tenantId: tenantId ?? undefined,
         action,
         entityType,
         entityId,

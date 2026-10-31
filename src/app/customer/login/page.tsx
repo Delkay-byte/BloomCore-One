@@ -17,7 +17,7 @@ export default function CustomerLoginRedirectPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-indigo-50 to-amber-50 px-4">
       <div className="card text-center p-8 max-w-md">
         <div className="spinner mx-auto mb-4"></div>
-        <p className="text-gray-600">Redirecting to Customer Portal...</p>
+        <p className="text-slate-600">Redirecting to Customer Portal...</p>
       </div>
     </div>
   );

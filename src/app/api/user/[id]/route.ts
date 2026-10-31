@@ -1,25 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getApiTenantContext } from "@/lib/tenant";
 
+/**
+ * GET /api/user/[id]
+ *
+ * Isolation: the target user must belong to the authenticated tenant. Workers
+ * and collectors may only read their own record; tenant administrators may read
+ * staff within their own business. A user id from another tenant resolves to
+ * 404 regardless of the caller's role.
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authUser = await getAuthUser();
-  if (!authUser) {
+  const ctx =
+    (await getApiTenantContext("admin")) ??
+    (await getApiTenantContext("momo")) ??
+    (await getApiTenantContext("susu"));
+
+  if (!ctx) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
   const { id } = await params;
 
-  // Workers and collectors can only see their own info
-  if ((authUser.role === "worker" || authUser.role === "collector") && authUser.userId !== id) {
+  // Non-administrators may only read their own record.
+  if (ctx.role !== "admin" && ctx.userId !== id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const user = await db.user.findUnique({
-    where: { id },
+  const user = await db.user.findFirst({
+    where: { id, tenantId: ctx.tenantId },
     select: {
       id: true,
       fullName: true,

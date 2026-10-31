@@ -1,7 +1,13 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAuth, requireAdmin, requireCustomer, hashPassword } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
+import {
+  requireTenantAdminSusu,
+  requireTenantCustomer,
+  assertTenantEntity,
+  type TenantContext,
+} from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
@@ -12,25 +18,57 @@ export interface ActionResponse {
   data?: unknown;
 }
 
-// Generate unique customer ID: BIK-C-XXXXXX
-function generateCustomerId(counter: number): string {
-  return `BIK-C-${String(counter).padStart(6, "0")}`;
+// ---------------------------------------------------------------------------
+// Human-readable identifier generation
+//
+// Customer and account identifiers stay GLOBALLY unique (the customer portal
+// signs in with them, and login has no tenant hint to disambiguate). They are
+// therefore allocated from a global sequence, but the sequence is computed
+// safely: we never assume the count is free, we probe for the next unused
+// value. Two tenants creating a customer concurrently cannot collide.
+// ---------------------------------------------------------------------------
+
+async function nextCustomerId(): Promise<string> {
+  const total = await db.customer.count();
+  for (let i = total + 1; i < total + 1000; i++) {
+    const candidate = `BIK-C-${String(i).padStart(6, "0")}`;
+    const taken = await db.customer.findUnique({
+      where: { customerId: candidate },
+      select: { id: true },
+    });
+    if (!taken) return candidate;
+  }
+  // Extremely unlikely: fall back to a random suffix rather than fail.
+  return `BIK-C-${Math.floor(Math.random() * 900000 + 100000)}`;
 }
 
-// Generate unique account ID: BIK-S-XXXXXX
-function generateAccountId(counter: number): string {
-  return `BIK-S-${String(counter).padStart(6, "0")}`;
+async function nextAccountId(): Promise<string> {
+  const total = await db.susuAccount.count();
+  for (let i = total + 1; i < total + 1000; i++) {
+    const candidate = `BIK-S-${String(i).padStart(6, "0")}`;
+    const taken = await db.susuAccount.findUnique({
+      where: { accountId: candidate },
+      select: { id: true },
+    });
+    if (!taken) return candidate;
+  }
+  return `BIK-S-${Math.floor(Math.random() * 900000 + 100000)}`;
 }
 
-export async function createCustomer(formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function createCustomer(
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminSusu();
 
   const fullName = (formData.get("fullName") as string)?.trim();
   const phone = (formData.get("phone") as string)?.trim() || undefined;
   const address = (formData.get("address") as string)?.trim() || undefined;
-  const dailyContribution = parseFloat(formData.get("dailyContribution") as string);
+  const dailyContribution = parseFloat(
+    formData.get("dailyContribution") as string
+  );
   const cardFee = parseFloat(formData.get("cardFee") as string) || 10;
-  const temporaryPassword = (formData.get("temporaryPassword") as string)?.trim() || undefined;
+  const temporaryPassword =
+    (formData.get("temporaryPassword") as string)?.trim() || undefined;
 
   if (!fullName || fullName.length < 2) {
     return { success: false, error: "Full name must be at least 2 characters" };
@@ -39,67 +77,75 @@ export async function createCustomer(formData: FormData): Promise<ActionResponse
     return { success: false, error: "Daily contribution must be greater than 0" };
   }
   if (temporaryPassword && temporaryPassword.length < 8) {
-    return { success: false, error: "Temporary password must be at least 8 characters" };
+    return {
+      success: false,
+      error: "Temporary password must be at least 8 characters",
+    };
   }
 
-  // Generate IDs
-  const customerCount = await db.customer.count();
-  const customerId = generateCustomerId(customerCount + 1);
-  const accountId = generateAccountId(customerCount + 1);
+  const customerId = await nextCustomerId();
+  const accountId = await nextAccountId();
 
-  const customer = await db.customer.create({
-    data: {
-      customerId,
-      fullName,
-      phone,
-      address,
-      status: "active",
-    },
+  // Customer, account, card fee and first cycle are created together so a
+  // failure cannot leave a customer with no account.
+  const created = await db.$transaction(async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        tenantId: ctx.tenantId,
+        customerId,
+        fullName,
+        phone,
+        address,
+        status: "active",
+      },
+    });
+
+    const susuAccount = await tx.susuAccount.create({
+      data: {
+        tenantId: ctx.tenantId,
+        accountId,
+        customerId: customer.id,
+        dailyContribution,
+        status: "active",
+        cardCustody: "customer",
+      },
+    });
+
+    await tx.cardFee.create({
+      data: {
+        tenantId: ctx.tenantId,
+        accountId: susuAccount.id,
+        amount: cardFee,
+        recordedById: ctx.userId,
+        notes: "Initial card purchase",
+      },
+    });
+
+    const now = new Date();
+    const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
+
+    await tx.susuCycle.create({
+      data: {
+        tenantId: ctx.tenantId,
+        accountId: susuAccount.id,
+        cycleNumber: 1,
+        startDate: cycleStart,
+        endDate: cycleEnd,
+        dailyContribution,
+        status: "active",
+        commissionCharged: false,
+      },
+    });
+
+    return { customer, susuAccount };
   });
 
-  const susuAccount = await db.susuAccount.create({
-    data: {
-      accountId,
-      customerId: customer.id,
-      dailyContribution,
-      status: "active",
-      cardCustody: "customer",
-    },
-  });
-
-  // Record card fee
-  await db.cardFee.create({
-    data: {
-      accountId: susuAccount.id,
-      amount: cardFee,
-      recordedById: admin.userId,
-      notes: "Initial card purchase",
-    },
-  });
-
-  // Create first cycle
-  const now = new Date();
-  const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
-
-  await db.susuCycle.create({
-    data: {
-      accountId: susuAccount.id,
-      cycleNumber: 1,
-      startDate: cycleStart,
-      endDate: cycleEnd,
-      dailyContribution,
-      status: "active",
-      commissionCharged: false,
-    },
-  });
-
-  // Optional: enable portal access with a temporary password at creation time
   let portalCreated = false;
   if (temporaryPassword) {
     const portalPasswordHash = await hashPassword(temporaryPassword);
     await db.customer.update({
-      where: { id: customer.id },
+      where: { id: created.customer.id },
       data: {
         portalEnabled: true,
         portalPasswordHash,
@@ -108,33 +154,54 @@ export async function createCustomer(formData: FormData): Promise<ActionResponse
     });
     portalCreated = true;
     await createAuditLog({
-      userId: admin.userId,
+      userId: ctx.userId,
       action: "susu.customer_portal_created",
       entityType: "customer",
-      entityId: customer.id,
-      details: { customerId, method: "create_customer", forcePasswordReset: true },
+      entityId: created.customer.id,
+      details: {
+        customerId,
+        method: "create_customer",
+        forcePasswordReset: true,
+      },
     });
   }
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.customer_created",
     entityType: "customer",
-    entityId: customer.id,
+    entityId: created.customer.id,
     details: { customerId, fullName, dailyContribution },
   });
 
   revalidatePath("/susu/admin/customers");
-  return { success: true, data: { customer, susuAccount, portalEnabled: portalCreated } };
+  return {
+    success: true,
+    data: {
+      customer: created.customer,
+      susuAccount: created.susuAccount,
+      portalEnabled: portalCreated,
+    },
+  };
 }
 
-export async function updateCustomer(customerId: string, formData: FormData): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function updateCustomer(
+  customerId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminSusu();
+
+  // Cross-tenant guard: the customer must belong to this business.
+  if (!(await assertTenantEntity("customer", customerId, ctx))) {
+    return { success: false, error: "Customer not found" };
+  }
 
   const fullName = (formData.get("fullName") as string)?.trim();
   const phone = (formData.get("phone") as string)?.trim() || undefined;
   const address = (formData.get("address") as string)?.trim() || undefined;
-  const dailyContribution = parseFloat(formData.get("dailyContribution") as string);
+  const dailyContribution = parseFloat(
+    formData.get("dailyContribution") as string
+  );
 
   if (!fullName || fullName.length < 2) {
     return { success: false, error: "Full name must be at least 2 characters" };
@@ -145,16 +212,15 @@ export async function updateCustomer(customerId: string, formData: FormData): Pr
     data: { fullName, phone, address },
   });
 
-  // Update daily contribution on the account if provided
   if (dailyContribution && dailyContribution > 0) {
     await db.susuAccount.updateMany({
-      where: { customerId, status: "active" },
+      where: { customerId, status: "active", tenantId: ctx.tenantId },
       data: { dailyContribution },
     });
   }
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.customer_updated",
     entityType: "customer",
     entityId: customerId,
@@ -165,8 +231,15 @@ export async function updateCustomer(customerId: string, formData: FormData): Pr
   return { success: true, data: customer };
 }
 
-export async function toggleCustomerStatus(customerId: string, newStatus: string): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+export async function toggleCustomerStatus(
+  customerId: string,
+  newStatus: string
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminSusu();
+
+  if (!(await assertTenantEntity("customer", customerId, ctx))) {
+    return { success: false, error: "Customer not found" };
+  }
 
   await db.customer.update({
     where: { id: customerId },
@@ -174,7 +247,7 @@ export async function toggleCustomerStatus(customerId: string, newStatus: string
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: `susu.customer_${newStatus === "active" ? "activated" : "deactivated"}`,
     entityType: "customer",
     entityId: customerId,
@@ -191,13 +264,14 @@ export async function getCustomers(params?: {
   search?: string;
   collectorId?: string;
 }) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const page = params?.page || 1;
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = {};
+  // Tenant scope is always present and cannot be overridden by params.
+  const where: Record<string, unknown> = { tenantId: ctx.tenantId };
   if (params?.status) where.status = params.status;
 
   if (params?.search) {
@@ -209,8 +283,19 @@ export async function getCustomers(params?: {
   }
 
   if (params?.collectorId) {
+    // The collector must belong to this tenant before we filter by it.
+    if (!(await assertTenantEntity("collector", params.collectorId, ctx))) {
+      return {
+        customers: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
     where.assignments = {
-      some: { collectorId: params.collectorId, active: true },
+      some: {
+        collectorId: params.collectorId,
+        active: true,
+        tenantId: ctx.tenantId,
+      },
     };
   }
 
@@ -219,14 +304,16 @@ export async function getCustomers(params?: {
       where,
       include: {
         accounts: {
-          where: { status: "active" },
+          where: { status: "active", tenantId: ctx.tenantId },
           include: {
             cycles: { where: { status: "active" }, take: 1 },
           },
         },
         assignments: {
-          where: { active: true },
-          include: { collector: { include: { user: { select: { fullName: true } } } } },
+          where: { active: true, tenantId: ctx.tenantId },
+          include: {
+            collector: { include: { user: { select: { fullName: true } } } },
+          },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -243,20 +330,24 @@ export async function getCustomers(params?: {
 }
 
 export async function getCustomerById(id: string) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
-  return db.customer.findUnique({
-    where: { id },
+  return db.customer.findFirst({
+    where: { id, tenantId: ctx.tenantId },
     include: {
       accounts: {
         include: {
           cycles: {
             orderBy: { cycleNumber: "desc" },
             include: {
-               contributions: {
-                 orderBy: { collectionDate: "asc" },
-                 include: { allocations: true, recordedBy: { select: { fullName: true } }, receivedBy: { select: { fullName: true } } },
-               },
+              contributions: {
+                orderBy: { collectionDate: "asc" },
+                include: {
+                  allocations: true,
+                  recordedBy: { select: { fullName: true } },
+                  receivedBy: { select: { fullName: true } },
+                },
+              },
               withdrawals: { orderBy: { createdAt: "desc" } },
               commissions: true,
             },
@@ -265,7 +356,11 @@ export async function getCustomerById(id: string) {
         },
       },
       assignments: {
-        include: { collector: { include: { user: { select: { fullName: true, id: true } } } } },
+        include: {
+          collector: {
+            include: { user: { select: { fullName: true, id: true } } },
+          },
+        },
         orderBy: { assignedAt: "desc" },
       },
     },
@@ -277,40 +372,59 @@ export async function reassignCustomer(params: {
   accountId: string;
   newCollectorId: string;
 }): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
   const { customerId, accountId, newCollectorId } = params;
 
-  // 1. Verify customer exists
-  const customer = await db.customer.findUnique({ where: { id: customerId } });
-  if (!customer) {
+  // All three referenced entities must belong to this tenant. This is the
+  // cross-tenant ID substitution guard: a foreign id fails here.
+  const failed = await (async () => {
+    for (const [model, id] of [
+      ["customer", customerId],
+      ["susuAccount", accountId],
+      ["collector", newCollectorId],
+    ] as const) {
+      if (!(await assertTenantEntity(model, id, ctx))) return model;
+    }
+    return null;
+  })();
+
+  if (failed === "customer") {
     return { success: false, error: "Customer not found" };
   }
+  if (failed === "susuAccount") {
+    return { success: false, error: "Account not found" };
+  }
+  if (failed === "collector") {
+    return { success: false, error: "Selected collector is not available" };
+  }
 
-  // 2. Verify new collector exists and is active
-  const newCollector = await db.collector.findUnique({
-    where: { id: newCollectorId },
+  const customer = await db.customer.findUnique({ where: { id: customerId } });
+  if (!customer) return { success: false, error: "Customer not found" };
+
+  const newCollector = await db.collector.findFirst({
+    where: { id: newCollectorId, tenantId: ctx.tenantId },
     include: { user: { select: { fullName: true, status: true } } },
   });
   if (!newCollector || newCollector.user.status !== "active") {
     return { success: false, error: "Selected collector is not available" };
   }
 
-  // 3. Find current active assignment
   const currentAssignment = await db.collectorCustomerAssignment.findFirst({
-    where: { customerId, accountId, active: true },
+    where: { customerId, accountId, active: true, tenantId: ctx.tenantId },
     include: { collector: { include: { user: { select: { fullName: true } } } } },
   });
 
-  // 4. Prevent no-op reassignment
   if (currentAssignment && currentAssignment.collectorId === newCollectorId) {
-    return { success: false, error: "Customer is already assigned to this collector" };
+    return {
+      success: false,
+      error: "Customer is already assigned to this collector",
+    };
   }
 
-  const previousCollectorName = currentAssignment?.collector?.user?.fullName || "None";
+  const previousCollectorName =
+    currentAssignment?.collector?.user?.fullName || "None";
 
-  // 5. Atomic reassignment
   await db.$transaction(async (tx) => {
-    // Deactivate old assignment
     if (currentAssignment) {
       await tx.collectorCustomerAssignment.update({
         where: { id: currentAssignment.id },
@@ -318,21 +432,21 @@ export async function reassignCustomer(params: {
       });
     }
 
-    // Check if new collector already has an assignment for this account
     const existingNew = await tx.collectorCustomerAssignment.findUnique({
-      where: { collectorId_accountId: { collectorId: newCollectorId, accountId } },
+      where: {
+        collectorId_accountId: { collectorId: newCollectorId, accountId },
+      },
     });
 
     if (existingNew) {
-      // Reactivate existing assignment
       await tx.collectorCustomerAssignment.update({
         where: { id: existingNew.id },
         data: { active: true, unassignedAt: null },
       });
     } else {
-      // Create new assignment
       await tx.collectorCustomerAssignment.create({
         data: {
+          tenantId: ctx.tenantId,
           collectorId: newCollectorId,
           customerId,
           accountId,
@@ -342,9 +456,8 @@ export async function reassignCustomer(params: {
     }
   });
 
-  // 6. Audit
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.customer_reassigned",
     entityType: "customer",
     entityId: customerId,
@@ -357,25 +470,21 @@ export async function reassignCustomer(params: {
   });
 
   revalidatePath("/susu/admin/customers");
-revalidatePath(`/susu/admin/customers/${customerId}`);
-  revalidatePath("/susu/admin/customers");
+  revalidatePath(`/susu/admin/customers/${customerId}`);
   return { success: true };
 }
 
 export async function searchStaff(query: string) {
-  await requireAuth();
+  const ctx = await requireTenantAdminSusu();
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
 
-  // Fetch all active staff and filter in-memory for case-insensitive matching.
-  // Prisma `contains` is case-sensitive LIKE on PostgreSQL (SQLite's LIKE is
-  // ASCII case-insensitive), and `mode: "insensitive"` is rejected by the
-  // SQLite connector, so a DB-level prefilter would miss mixed-case matches in
-  // production. Pilot scale is small — filtering in memory is safe.
+  // Tenant-scoped: staff search never crosses business boundaries.
   const candidates = await db.user.findMany({
     where: {
+      tenantId: ctx.tenantId,
       status: "active",
       role: { in: ["admin", "worker", "collector"] },
     },
@@ -409,23 +518,19 @@ export async function searchStaff(query: string) {
 }
 
 export async function searchCustomers(query: string) {
-  await requireAuth();
+  const ctx = await requireTenantAdminSusu();
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
   const phoneCandidates = normalizeGhanaPhone(query);
 
-  // Fetch all active customers and filter in-memory for case-insensitive matching.
-  // Prisma `contains` is case-sensitive LIKE on PostgreSQL (SQLite's LIKE is
-  // ASCII case-insensitive), and `mode: "insensitive"` is rejected by the
-  // SQLite connector, so a DB-level prefilter would miss mixed-case matches in
-  // production. Pilot scale is small — filtering in memory is safe.
+  // Tenant-scoped SmartSearch.
   const candidates = await db.customer.findMany({
-    where: { status: "active" },
+    where: { status: "active", tenantId: ctx.tenantId },
     include: {
       accounts: {
-        where: { status: "active" },
+        where: { status: "active", tenantId: ctx.tenantId },
         include: {
           cycles: { where: { status: "active" }, take: 1 },
         },
@@ -445,36 +550,50 @@ export async function searchCustomers(query: string) {
         nameLower.includes(normalizedQuery) ||
         idLower.includes(normalizedQuery) ||
         phoneLower.includes(normalizedQuery) ||
-        phoneCandidates.some((p) => (c.phone || "").replace(/[^\d]/g, "").endsWith(p.replace(/[^\d]/g, "")));
+        phoneCandidates.some((p) =>
+          (c.phone || "")
+            .replace(/[^\d]/g, "")
+            .endsWith(p.replace(/[^\d]/g, ""))
+        );
       if (matches) seen.add(c.id);
       return matches;
     })
     .slice(0, 10);
 }
 
-export async function getCustomerAccount() {
-  const session = await requireCustomer();
+// ---------------------------------------------------------------------------
+// CUSTOMER PORTAL (self-service)
+//
+// The portal resolves the customer from the session and additionally scopes
+// every query by the customer's tenant, so a portal session can only ever read
+// its own business's data.
+// ---------------------------------------------------------------------------
 
-  return db.customer.findUnique({
-    where: { id: session.userId },
+export async function getCustomerAccount() {
+  const ctx = await requireTenantCustomer();
+
+  return db.customer.findFirst({
+    where: { id: ctx.userId, tenantId: ctx.tenantId },
     include: {
       accounts: {
-        where: { status: "active" },
+        where: { status: "active", tenantId: ctx.tenantId },
         take: 1,
         include: {
           cycles: {
             where: { status: "active" },
             take: 1,
             include: {
-               contributions: {
-                 orderBy: { collectionDate: "desc" },
-                 take: 20,
-                 include: {
-                   allocations: true,
-                   receivedBy: { select: { fullName: true } },
-                   collector: { include: { user: { select: { fullName: true } } } },
-                 },
-               },
+              contributions: {
+                orderBy: { collectionDate: "desc" },
+                take: 20,
+                include: {
+                  allocations: true,
+                  receivedBy: { select: { fullName: true } },
+                  collector: {
+                    include: { user: { select: { fullName: true } } },
+                  },
+                },
+              },
               withdrawals: { orderBy: { createdAt: "desc" }, take: 20 },
               commissions: { orderBy: { createdAt: "desc" } },
             },
@@ -482,21 +601,22 @@ export async function getCustomerAccount() {
         },
       },
       assignments: {
-        where: { active: true },
-        include: { collector: { include: { user: { select: { fullName: true } } } } },
+        where: { active: true, tenantId: ctx.tenantId },
+        include: {
+          collector: { include: { user: { select: { fullName: true } } } },
+        },
       },
     },
   });
 }
 
 export async function getCustomerPayments() {
-  const session = await requireCustomer();
+  const ctx = await requireTenantCustomer();
 
   return db.contribution.findMany({
     where: {
-      account: {
-        customerId: session.userId,
-      },
+      tenantId: ctx.tenantId,
+      account: { customerId: ctx.userId, tenantId: ctx.tenantId },
     },
     include: {
       cycle: { select: { cycleNumber: true } },
@@ -509,21 +629,19 @@ export async function getCustomerPayments() {
 }
 
 export async function getCustomerCycles() {
-  const session = await requireCustomer();
+  const ctx = await requireTenantCustomer();
 
-  const customer = await db.customer.findUnique({
-    where: { id: session.userId },
+  const customer = await db.customer.findFirst({
+    where: { id: ctx.userId, tenantId: ctx.tenantId },
     include: {
       accounts: {
-        where: { status: "active" },
+        where: { status: "active", tenantId: ctx.tenantId },
         take: 1,
         include: {
           cycles: {
             orderBy: { cycleNumber: "desc" },
             include: {
-              contributions: {
-                include: { allocations: true },
-              },
+              contributions: { include: { allocations: true } },
               withdrawals: true,
               commissions: true,
             },
@@ -538,9 +656,18 @@ export async function getCustomerCycles() {
   const account = customer.accounts[0];
 
   return account.cycles.map((cycle) => {
-    const totalContributed = cycle.contributions.reduce((sum, c) => sum + Number(c.amount), 0);
-    const totalWithdrawn = cycle.withdrawals.reduce((sum, w) => sum + Number(w.netAmount), 0);
-    const totalCommissions = cycle.commissions.reduce((sum, c) => sum + Number(c.amount), 0);
+    const totalContributed = cycle.contributions.reduce(
+      (sum, c) => sum + Number(c.amount),
+      0
+    );
+    const totalWithdrawn = cycle.withdrawals.reduce(
+      (sum, w) => sum + Number(w.netAmount),
+      0
+    );
+    const totalCommissions = cycle.commissions.reduce(
+      (sum, c) => sum + Number(c.amount),
+      0
+    );
     const paidDays = new Set(
       cycle.contributions.flatMap((c) => c.allocations.map((a) => a.cycleDay))
     ).size;
@@ -563,65 +690,47 @@ export async function getCustomerCycles() {
 }
 
 export async function getCustomerWithdrawals() {
-  const session = await requireCustomer();
+  const ctx = await requireTenantCustomer();
 
   return db.withdrawal.findMany({
     where: {
-      account: {
-        customerId: session.userId,
-      },
+      tenantId: ctx.tenantId,
+      account: { customerId: ctx.userId, tenantId: ctx.tenantId },
     },
-    include: {
-      cycle: { select: { cycleNumber: true } },
-    },
+    include: { cycle: { select: { cycleNumber: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getCustomerStatement() {
-  const session = await requireCustomer();
+  const ctx = await requireTenantCustomer();
 
-  // Get contributions
+  const scope = {
+    tenantId: ctx.tenantId,
+    account: { customerId: ctx.userId, tenantId: ctx.tenantId },
+  };
+
   const contributions = await db.contribution.findMany({
-    where: {
-      account: {
-        customerId: session.userId,
-      },
+    where: scope,
+    include: {
+      cycle: { select: { cycleNumber: true } },
+      receivedBy: { select: { fullName: true } },
     },
-      include: {
-        cycle: { select: { cycleNumber: true } },
-        receivedBy: { select: { fullName: true } },
-      },
-      orderBy: { collectionDate: "asc" },
-    });
+    orderBy: { collectionDate: "asc" },
+  });
 
-  // Get withdrawals
   const withdrawals = await db.withdrawal.findMany({
-    where: {
-      account: {
-        customerId: session.userId,
-      },
-    },
-    include: {
-      cycle: { select: { cycleNumber: true } },
-    },
+    where: scope,
+    include: { cycle: { select: { cycleNumber: true } } },
     orderBy: { createdAt: "asc" },
   });
 
-  // Get commissions
   const commissions = await db.commission.findMany({
-    where: {
-      account: {
-        customerId: session.userId,
-      },
-    },
-    include: {
-      cycle: { select: { cycleNumber: true } },
-    },
+    where: scope,
+    include: { cycle: { select: { cycleNumber: true } } },
     orderBy: { createdAt: "asc" },
   });
 
-  // Build chronological statement
   const entries: Array<{
     date: Date;
     type: "contribution" | "withdrawal" | "commission";
@@ -642,9 +751,11 @@ export async function getCustomerStatement() {
       type: "contribution",
       amount: Number(c.amount),
       balance: runningBalance,
-       channel: c.channel,
-       receivedBy: (c as { receivedByName?: string | null }).receivedByName ?? c.receivedBy?.fullName,
-       cycleNumber: c.cycle.cycleNumber,
+      channel: c.channel,
+      receivedBy:
+        (c as { receivedByName?: string | null }).receivedByName ??
+        c.receivedBy?.fullName,
+      cycleNumber: c.cycle.cycleNumber,
     });
   });
 
@@ -689,24 +800,23 @@ export async function getCustomerStatement() {
 }
 
 export async function getCustomerProfile() {
-  const session = await requireCustomer();
+  const ctx = await requireTenantCustomer();
 
-  return db.customer.findUnique({
-    where: { id: session.userId },
+  return db.customer.findFirst({
+    where: { id: ctx.userId, tenantId: ctx.tenantId },
     include: {
       accounts: {
-        where: { status: "active" },
+        where: { status: "active", tenantId: ctx.tenantId },
         take: 1,
         include: {
-          cycles: {
-            where: { status: "active" },
-            take: 1,
-          },
+          cycles: { where: { status: "active" }, take: 1 },
         },
       },
       assignments: {
-        where: { active: true },
-        include: { collector: { include: { user: { select: { fullName: true } } } } },
+        where: { active: true, tenantId: ctx.tenantId },
+        include: {
+          collector: { include: { user: { select: { fullName: true } } } },
+        },
       },
     },
   });
@@ -716,15 +826,11 @@ export async function getCustomerProfile() {
 // ADMIN CUSTOMER PORTAL PROVISIONING
 // ===================================================================
 
-/**
- * Admin creates customer portal login credentials.
- * Sets a temporary password and forces password change on first login.
- */
 export async function createCustomerPortalAccess(
   customerId: string,
   formData: FormData
 ): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const loginIdentifier = (formData.get("loginIdentifier") as string)?.trim();
   const temporaryPassword = formData.get("temporaryPassword") as string;
@@ -733,16 +839,26 @@ export async function createCustomerPortalAccess(
     return { success: false, error: "Login identifier is required" };
   }
   if (!temporaryPassword || temporaryPassword.length < 8) {
-    return { success: false, error: "Temporary password must be at least 8 characters" };
+    return {
+      success: false,
+      error: "Temporary password must be at least 8 characters",
+    };
   }
 
-  const customer = await db.customer.findUnique({ where: { id: customerId } });
-  if (!customer) {
+  if (!(await assertTenantEntity("customer", customerId, ctx))) {
     return { success: false, error: "Customer not found" };
   }
 
+  const customer = await db.customer.findFirst({
+    where: { id: customerId, tenantId: ctx.tenantId },
+  });
+  if (!customer) return { success: false, error: "Customer not found" };
+
   if (customer.portalEnabled && customer.portalPasswordHash) {
-    return { success: false, error: "Customer already has portal access. Use password reset instead." };
+    return {
+      success: false,
+      error: "Customer already has portal access. Use password reset instead.",
+    };
   }
 
   const passwordHash = await hashPassword(temporaryPassword);
@@ -756,11 +872,8 @@ export async function createCustomerPortalAccess(
     },
   });
 
-  // Invalidate any existing customer sessions
-  // (tokenVersion isn't on Customer model, but portalPasswordReset flag suffices)
-
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.customer_portal_created",
     entityType: "customer",
     entityId: customerId,
@@ -776,25 +889,25 @@ export async function createCustomerPortalAccess(
   return { success: true };
 }
 
-/**
- * Admin resets a customer's portal password.
- * Invalidates existing sessions and forces password change.
- */
 export async function resetCustomerPassword(
   customerId: string,
   formData: FormData
 ): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   const newPassword = formData.get("newPassword") as string;
   if (!newPassword || newPassword.length < 8) {
     return { success: false, error: "Password must be at least 8 characters" };
   }
 
-  const customer = await db.customer.findUnique({ where: { id: customerId } });
-  if (!customer) {
+  if (!(await assertTenantEntity("customer", customerId, ctx))) {
     return { success: false, error: "Customer not found" };
   }
+
+  const customer = await db.customer.findFirst({
+    where: { id: customerId, tenantId: ctx.tenantId },
+  });
+  if (!customer) return { success: false, error: "Customer not found" };
 
   const passwordHash = await hashPassword(newPassword);
 
@@ -808,7 +921,7 @@ export async function resetCustomerPassword(
   });
 
   await createAuditLog({
-    userId: admin.userId,
+    userId: ctx.userId,
     action: "susu.customer_portal_password_reset",
     entityType: "customer",
     entityId: customerId,
@@ -823,27 +936,30 @@ export async function resetCustomerPassword(
   return { success: true };
 }
 
-/**
- * Admin enables or disables customer portal access.
- * Disabling does NOT delete financial records.
- */
 export async function toggleCustomerPortal(
   customerId: string,
   enabled: boolean
 ): Promise<ActionResponse> {
-  const admin = await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
-  const customer = await db.customer.findUnique({ where: { id: customerId } });
-  if (!customer) {
+  if (!(await assertTenantEntity("customer", customerId, ctx))) {
     return { success: false, error: "Customer not found" };
   }
+
+  const customer = await db.customer.findFirst({
+    where: { id: customerId, tenantId: ctx.tenantId },
+  });
+  if (!customer) return { success: false, error: "Customer not found" };
 
   if (!enabled && !customer.portalEnabled) {
     return { success: false, error: "Customer portal is already disabled" };
   }
 
   if (enabled && !customer.portalPasswordHash) {
-    return { success: false, error: "Cannot enable portal without creating login credentials first" };
+    return {
+      success: false,
+      error: "Cannot enable portal without creating login credentials first",
+    };
   }
 
   await db.customer.update({
@@ -852,8 +968,10 @@ export async function toggleCustomerPortal(
   });
 
   await createAuditLog({
-    userId: admin.userId,
-    action: enabled ? "susu.customer_portal_enabled" : "susu.customer_portal_disabled",
+    userId: ctx.userId,
+    action: enabled
+      ? "susu.customer_portal_enabled"
+      : "susu.customer_portal_disabled",
     entityType: "customer",
     entityId: customerId,
     details: {
@@ -866,3 +984,6 @@ export async function toggleCustomerPortal(
   revalidatePath("/susu/admin/customers");
   return { success: true };
 }
+
+/** Re-exported for callers that need the resolved context type. */
+export type { TenantContext };

@@ -1,9 +1,9 @@
 "use client";
+import { ClipboardPen } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/utils";
-import { db } from "@/lib/db";
 
 interface AuditEntry {
   id: string;
@@ -74,8 +74,8 @@ export default function AuditLogPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Activity History</h1>
-        <p className="text-gray-500 mt-1">A record of important actions performed in the system</p>
+        <h1 className="text-2xl font-bold text-slate-900">Activity History</h1>
+        <p className="text-slate-500 mt-1">A record of important actions performed in the system</p>
       </div>
 
       <div className="card">
@@ -84,8 +84,8 @@ export default function AuditLogPage() {
             <div className="spinner"></div>
           </div>
         ) : logs.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">📝</p>
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardPen size={36} /></p>
             <p className="font-medium">No audit entries yet</p>
           </div>
         ) : (
@@ -110,12 +110,12 @@ export default function AuditLogPage() {
                       <td className="text-sm">
                         <span className="font-medium">{log.entityType}</span>
                         {log.entityId && (
-                          <span className="text-gray-400 ml-1 text-xs">
+                          <span className="text-slate-400 ml-1 text-xs">
                             {log.entityId.substring(0, 8)}...
                           </span>
                         )}
                       </td>
-                      <td className="text-sm text-gray-500 max-w-xs truncate">
+                      <td className="text-sm text-slate-500 max-w-xs truncate">
                         {log.details || "—"}
                       </td>
                     </tr>
@@ -124,8 +124,8 @@ export default function AuditLogPage() {
               </table>
             </div>
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
                   Page {page} of {totalPages} ({total} entries)
                 </p>
                 <div className="flex gap-2">

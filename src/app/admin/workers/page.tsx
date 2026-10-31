@@ -1,5 +1,6 @@
 "use client";
 
+import { Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getWorkers, createWorker, toggleWorkerStatus } from "@/lib/actions/worker.actions";
@@ -59,12 +60,12 @@ export default function WorkersPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <div><h1 className="text-2xl font-bold text-gray-900">Workers</h1><p className="text-gray-500 mt-1">Manage your MoMo workers</p></div>
+        <div><h1 className="text-2xl font-bold text-slate-900">Workers</h1><p className="text-slate-500 mt-1">Manage your MoMo workers</p></div>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">{showForm ? "Cancel" : "+ Add Worker"}</button>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">✕</button></div>}
-      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">✕</button></div>}
+      {error && <div className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
+      {success && <div className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
 
       {showForm && (
         <div className="card mb-6">
@@ -94,8 +95,8 @@ export default function WorkersPage() {
 
       <div className="card">
         {filteredWorkers.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">👥</p><p className="font-medium">No workers found</p>
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Users size={36} /></p><p className="font-medium">No workers found</p>
             <p className="text-sm mt-1">{filter === "all" ? "Create your first worker to get started." : `No ${filter} workers.`}</p>
           </div>
         ) : (
@@ -105,9 +106,9 @@ export default function WorkersPage() {
               <tbody>
                 {filteredWorkers.map((worker) => (
                   <tr key={worker.id}>
-                    <td><div className="font-medium">{worker.fullName}</div>{worker.phone && <div className="text-xs text-gray-500">{worker.phone}</div>}</td>
-                    <td className="text-sm text-gray-600">{worker.email}</td>
-                    <td>{worker.location ? <span className="text-sm">{worker.location.name}<span className="text-gray-400 ml-1">({worker.location.code})</span></span> : <span className="text-sm text-gray-400">Unassigned</span>}</td>
+                    <td><div className="font-medium">{worker.fullName}</div>{worker.phone && <div className="text-xs text-slate-500">{worker.phone}</div>}</td>
+                    <td className="text-sm text-slate-600">{worker.email}</td>
+                    <td>{worker.location ? <span className="text-sm">{worker.location.name}<span className="text-slate-400 ml-1">({worker.location.code})</span></span> : <span className="text-sm text-slate-400">Unassigned</span>}</td>
                     <td><span className={`badge ${worker.status === "active" ? "badge-green" : "badge-red"}`}>{worker.status === "active" ? "Active" : "Inactive"}</span></td>
                     <td>
                       <div className="flex gap-2">

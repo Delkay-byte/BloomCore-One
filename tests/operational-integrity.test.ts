@@ -125,7 +125,13 @@ async function setCollectorSession(userId: string) {
   mockCookieStore.delete("bik-admin-session");
 }
 
-async function createCollectorUser(fullName: string) {
+async function tenantOf(userId: string): Promise<string> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { tenantId: true } });
+  if (!u?.tenantId) throw new Error("fixture user has no tenant");
+  return u.tenantId;
+}
+
+async function createCollectorUser(fullName: string, tenantId: string) {
   const user = await prisma.user.create({
     data: {
       email: `${fullName.replace(/\s+/g, ".").toLowerCase()}.${Date.now()}@bikprestige.com`,
@@ -134,10 +140,11 @@ async function createCollectorUser(fullName: string) {
       status: "active",
       passwordHash: "test-hash",
       susuEnabled: true,
+      tenantId,
     },
   });
   const collector = await prisma.collector.create({
-    data: { userId: user.id, status: "active" },
+    data: { userId: user.id, status: "active", tenantId },
   });
   return { user, collector };
 }
@@ -149,7 +156,7 @@ async function createCollectorUser(fullName: string) {
  * collector. This is the account shape that previously hit the false
  * "Only collectors can register customers" error.
  */
-async function createSusuWorkerUser(fullName: string) {
+async function createSusuWorkerUser(fullName: string, tenantId: string) {
   const user = await prisma.user.create({
     data: {
       email: `${fullName.replace(/\s+/g, ".").toLowerCase()}.${Date.now()}@bikprestige.com`,
@@ -159,15 +166,16 @@ async function createSusuWorkerUser(fullName: string) {
       passwordHash: "test-hash",
       susuEnabled: true,
       momoEnabled: true,
+      tenantId,
     },
   });
   const collector = await prisma.collector.create({
-    data: { userId: user.id, status: "active" },
+    data: { userId: user.id, status: "active", tenantId },
   });
   return { user, collector };
 }
 
-async function createWorkerUser(fullName: string) {
+async function createWorkerUser(fullName: string, tenantId: string) {
   return prisma.user.create({
     data: {
       email: `${fullName.replace(/\s+/g, ".").toLowerCase()}.${Date.now()}@bikprestige.com`,
@@ -175,6 +183,7 @@ async function createWorkerUser(fullName: string) {
       role: "worker",
       status: "active",
       passwordHash: "test-hash",
+      tenantId,
     },
   });
 }
@@ -184,8 +193,12 @@ async function assignToCollector(
   customerId: string,
   accountId: string
 ) {
+  const collector = await prisma.collector.findUnique({
+    where: { id: collectorId },
+    select: { tenantId: true },
+  });
   return prisma.collectorCustomerAssignment.create({
-    data: { collectorId, customerId, accountId, active: true },
+    data: { collectorId, customerId, accountId, active: true, tenantId: collector?.tenantId ?? null },
   });
 }
 
@@ -203,7 +216,7 @@ describe("Operational Integrity — Collector Dashboard Cash Accountability", ()
     await cleanDatabase();
     const admin = await createTestAdmin();
     adminId = admin.id;
-    const c = await createCollectorUser("Kofi Asamoah");
+    const c = await createCollectorUser("Kofi Asamoah", admin.tenantId!);
     collectorUser = c.user;
     collector = c.collector;
   });
@@ -349,7 +362,7 @@ describe("Operational Integrity — Collector Dashboard Cash Accountability", ()
     const kofiCustomer = await createTestCustomer(adminId, 50, "PEN1");
     await assignToCollector(collector.id, kofiCustomer.account.customerId, kofiCustomer.account.id);
 
-    const ama = await createCollectorUser("Ama Serwaa");
+    const ama = await createCollectorUser("Ama Serwaa", await tenantOf(adminId));
     const amaCustomer = await createTestCustomer(adminId, 50, "PEN2");
     await assignToCollector(ama.collector.id, amaCustomer.account.customerId, amaCustomer.account.id);
 
@@ -378,7 +391,7 @@ describe("Operational Integrity — Collector Dashboard Cash Accountability", ()
   });
 
   it("collector channel attribution comes from the session, never the browser", async () => {
-    const otherCollector = await createCollectorUser("Other Collector");
+    const otherCollector = await createCollectorUser("Other Collector", await tenantOf(adminId));
     const { account } = await createTestCustomer(adminId, 50, "ATTR1");
     await assignToCollector(collector.id, account.customerId, account.id);
 
@@ -405,7 +418,7 @@ describe("Operational Integrity — Collector Dashboard Cash Accountability", ()
   });
 
   it("module-based collector (worker role + susu capability) can record collections", async () => {
-    const { user, collector } = await createSusuWorkerUser("David Asamoah");
+    const { user, collector } = await createSusuWorkerUser("David Asamoah", await tenantOf(adminId));
     const { account } = await createTestCustomer(adminId, 50, "MOD1");
     await assignToCollector(collector.id, account.customerId, account.id);
 
@@ -433,8 +446,8 @@ describe("Operational Integrity — Collector Dashboard Cash Accountability", ()
 
   it("leftover collector cookie never shadows the admin's Recorded By", async () => {
     // Browser holds BOTH an admin session and a stale collector session.
-    const { user: david } = await createSusuWorkerUser("David Asamoah");
-    const ama = await createWorkerUser("Ama Serwaa");
+    const { user: david } = await createSusuWorkerUser("David Asamoah", await tenantOf(adminId));
+    const ama = await createWorkerUser("Ama Serwaa", await tenantOf(adminId));
     const { account } = await createTestCustomer(adminId, 50, "SHAD1");
 
     await setAdminSession(adminId);
@@ -481,13 +494,13 @@ describe("Operational Integrity — Received By / Recorded By", () => {
     await cleanDatabase();
     const admin = await createTestAdmin();
     adminId = admin.id;
-    const c = await createCollectorUser("Kofi Asamoah");
+    const c = await createCollectorUser("Kofi Asamoah", admin.tenantId!);
     collectorUser = c.user;
     collector = c.collector;
   });
 
   it("direct office: Received By = selected staff, Recorded By = authenticated admin", async () => {
-    const ama = await createWorkerUser("Ama Serwaa");
+    const ama = await createWorkerUser("Ama Serwaa", await tenantOf(adminId));
     const { account } = await createTestCustomer(adminId, 50, "RB1");
 
     await setAdminSession(adminId);
@@ -530,7 +543,7 @@ describe("Operational Integrity — Received By / Recorded By", () => {
   });
 
   it("collector channel: receivedById from the browser is ignored; session collector is recorded", async () => {
-    const ama = await createWorkerUser("Ama Serwaa");
+    const ama = await createWorkerUser("Ama Serwaa", await tenantOf(adminId));
     const { account } = await createTestCustomer(adminId, 50, "RB2");
     await assignToCollector(collector.id, account.customerId, account.id);
 
@@ -577,7 +590,7 @@ describe("Operational Integrity — Collector Customer Registration", () => {
     await cleanDatabase();
     const admin = await createTestAdmin();
     adminId = admin.id;
-    const c = await createCollectorUser("Kofi Asamoah");
+    const c = await createCollectorUser("Kofi Asamoah", admin.tenantId!);
     collectorUser = c.user;
     collector = c.collector;
   });
@@ -668,6 +681,7 @@ describe("Operational Integrity — Collector Customer Registration", () => {
         passwordHash: "test-hash",
         momoEnabled: true,
         susuEnabled: false,
+        tenantId: await tenantOf(adminId),
       },
     });
     mockCookieStore.set(
@@ -695,7 +709,7 @@ describe("Operational Integrity — Collector Customer Registration", () => {
   it("module-based collector (worker role + susu capability) can register a customer", async () => {
     // Same account shape as David Asamoah: primary role "worker", granted Susu
     // capability via susuEnabled + active Collector record.
-    const { user, collector } = await createSusuWorkerUser("David Asamoah");
+    const { user, collector } = await createSusuWorkerUser("David Asamoah", await tenantOf(adminId));
     await setCollectorSession(user.id);
 
     const result = await registerCustomerByCollector({
@@ -724,8 +738,8 @@ describe("Operational Integrity — Case-Insensitive Smart Search", () => {
 
   it("searchStaff matches kofi / Kofi / KOFI / KoFi identically", async () => {
     const admin = await createTestAdmin();
-    await createCollectorUser("Kofi Asamoah");
-    await createWorkerUser("Ama Serwaa");
+    await createCollectorUser("Kofi Asamoah", admin.tenantId!);
+    await createWorkerUser("Ama Serwaa", admin.tenantId!);
 
     await setAdminSession(admin.id);
 
@@ -752,6 +766,7 @@ describe("Operational Integrity — Case-Insensitive Smart Search", () => {
         role: "worker",
         status: "active",
         passwordHash: "test-hash",
+        tenantId: admin.tenantId,
       },
     });
 

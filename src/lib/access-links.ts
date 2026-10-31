@@ -21,7 +21,7 @@ export const ACCESS_LINKS: AccessLink[] = [
   {
     key: "customer",
     title: "Customer",
-    icon: "👤",
+    icon: "customer",
     description: "View your Susu savings and account",
     shortPath: "/login/customer",
     instruction: "Use your Customer ID, phone or email and password.",
@@ -29,7 +29,7 @@ export const ACCESS_LINKS: AccessLink[] = [
   {
     key: "momo",
     title: "MoMo Agent",
-    icon: "💰",
+    icon: "momo",
     description: "Manage your daily MoMo transactions",
     shortPath: "/login/momo",
     instruction: "Use the staff login details provided by your administrator.",
@@ -37,7 +37,7 @@ export const ACCESS_LINKS: AccessLink[] = [
   {
     key: "susu",
     title: "Susu Collector",
-    icon: "🧑‍💼",
+    icon: "susu",
     description: "Manage customer savings collections",
     shortPath: "/login/susu",
     instruction: "Use the staff login details provided by your administrator.",

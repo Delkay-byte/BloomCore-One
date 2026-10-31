@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LogOut } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
 import { clearTabSession } from "@/components/TabSessionGuard";
 import { getPendingCount } from "@/lib/offline/store";
@@ -12,7 +13,7 @@ import { getPendingCount } from "@/lib/offline/store";
 export default function ConfirmSignOutButton({
   className = "",
   label = "Sign Out",
-  icon = "🚪",
+  icon = null,
 }: {
   className?: string;
   label?: string;
@@ -54,7 +55,7 @@ export default function ConfirmSignOutButton({
   return (
     <>
       <button type="button" onClick={handleClick} className={className}>
-        {icon && <span className="text-lg">{icon}</span>}
+        {icon === null ? <LogOut size={16} aria-hidden /> : <span className="text-lg">{icon}</span>}
         {label}
       </button>
 

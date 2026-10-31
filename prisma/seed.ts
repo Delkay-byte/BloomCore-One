@@ -3,6 +3,11 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+// Well-known tenant code for the pre-existing BIK Prestige Enterprise tenant.
+// Deliberately deterministic so the seed and the production backfill script
+// address the same tenant across environments.
+export const BIK_TENANT_CODE = "BIK-HQ-001";
+
 async function main() {
   console.log("🌱 Seeding BIK Prestige Enterprise database...\n");
 
@@ -10,10 +15,28 @@ async function main() {
   const workerPassword = await bcrypt.hash("Worker123", 12);
   const collectorPassword = await bcrypt.hash("Collector123", 12);
 
+  // 0. Ensure the BIK Prestige Enterprise tenant exists
+  const bikTenant = await prisma.businessTenant.upsert({
+    where: { code: BIK_TENANT_CODE },
+    update: {},
+    create: {
+      code: BIK_TENANT_CODE,
+      name: "BIK Prestige Enterprise",
+      contactEmail: "admin@bikprestige.com",
+      contactPhone: "+233240000000",
+      momoEnabled: true,
+      susuEnabled: true,
+      status: "ACTIVE",
+      onboardingStatus: "COMPLETED",
+    },
+  });
+  console.log(`✅ Tenant: ${bikTenant.name} (${bikTenant.code})`);
+  const tenantId = bikTenant.id;
+
   // 1. Create Admin User
   const admin = await prisma.user.upsert({
     where: { email: "admin@bikprestige.com" },
-    update: {},
+    update: { tenantId },
     create: {
       email: "admin@bikprestige.com",
       fullName: "BIK Admin",
@@ -21,8 +44,15 @@ async function main() {
       role: "admin",
       status: "active",
       passwordHash: adminPassword,
+      tenantId,
     },
   });
+  if (!bikTenant.primaryAdminUserId) {
+    await prisma.businessTenant.update({
+      where: { id: tenantId },
+      data: { primaryAdminUserId: admin.id },
+    });
+  }
   console.log(`✅ Admin: ${admin.email}`);
 
   // 2. Create MoMo Locations
@@ -35,7 +65,11 @@ async function main() {
 
   const createdLocations = [];
   for (const loc of locations) {
-    const created = await prisma.location.upsert({ where: { code: loc.code }, update: {}, create: loc });
+    const created = await prisma.location.upsert({
+      where: { tenantId_code: { tenantId, code: loc.code } },
+      update: {},
+      create: { ...loc, tenantId },
+    });
     createdLocations.push(created);
     console.log(`✅ Location: ${created.name} (${created.code})`);
   }
@@ -52,7 +86,7 @@ async function main() {
     const created = await prisma.user.upsert({
       where: { email: w.email },
       update: {},
-      create: { email: w.email, fullName: w.fullName, phone: w.phone, role: "worker", status: "active", passwordHash: workerPassword, locationId: createdLocations[w.locationIndex].id, momoEnabled: true },
+      create: { email: w.email, fullName: w.fullName, phone: w.phone, role: "worker", status: "active", passwordHash: workerPassword, locationId: createdLocations[w.locationIndex].id, momoEnabled: true, tenantId },
     });
     console.log(`✅ Worker: ${created.fullName} → ${createdLocations[w.locationIndex].name}`);
   }
@@ -70,7 +104,7 @@ async function main() {
   for (const acct of sampleAccounts) {
     const { expenses, ...acctData } = acct;
     try {
-      await prisma.dailyAccount.create({ data: { ...acctData, expenses: { create: expenses } } });
+      await prisma.dailyAccount.create({ data: { ...acctData, tenantId, expenses: { create: expenses.map((e) => ({ ...e, tenantId })) } } });
       console.log(`✅ Daily Account: ${createdLocations.find((l) => l.id === acct.locationId)?.name} — ${acct.businessDate.toISOString().split("T")[0]}`);
     } catch { console.log(`⚠️  Daily Account skipped: ${acct.businessDate.toISOString().split("T")[0]}`); }
   }
@@ -91,12 +125,12 @@ async function main() {
     const user = await prisma.user.upsert({
       where: { email: c.email },
       update: {},
-      create: { email: c.email, fullName: c.fullName, phone: c.phone, role: "collector", status: "active", passwordHash: collectorPassword, susuEnabled: true },
+      create: { email: c.email, fullName: c.fullName, phone: c.phone, role: "collector", status: "active", passwordHash: collectorPassword, susuEnabled: true, tenantId },
     });
     const collector = await prisma.collector.upsert({
       where: { userId: user.id },
-      update: {},
-      create: { userId: user.id, status: "active" },
+      update: { tenantId },
+      create: { userId: user.id, status: "active", tenantId },
     });
     createdCollectorUsers.push({ user, collector });
     console.log(`✅ Collector: ${user.fullName}`);
@@ -123,6 +157,7 @@ async function main() {
         phone: c.phone,
         address: c.address,
         status: "active",
+        tenantId,
       },
     });
 
@@ -133,6 +168,7 @@ async function main() {
         dailyContribution: c.dailyContribution,
         status: "active",
         cardCustody: "customer",
+        tenantId,
       },
     });
 
@@ -143,6 +179,7 @@ async function main() {
         amount: 10,
         recordedById: admin.id,
         notes: "Initial card purchase",
+        tenantId,
       },
     });
 
@@ -161,6 +198,7 @@ async function main() {
         dailyContribution: c.dailyContribution,
         status: "active",
         commissionCharged: false,
+        tenantId,
       },
     });
 
@@ -171,6 +209,7 @@ async function main() {
         collectorId: createdCollectorUsers[collectorIndex].collector.id,
         customerId: customer.id,
         accountId: susuAccount.id,
+        tenantId,
       },
     });
 

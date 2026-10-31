@@ -138,7 +138,7 @@ async function main() {
 
   // Money Handed In (check if model exists)
   try {
-    // @ts-ignore
+    // @ts-expect-error -- optional model may not exist in this schema
     const moneyHandedIn = await prisma.moneyHandedIn?.findMany({
       select: { id: true },
     });

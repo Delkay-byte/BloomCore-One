@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle, UserPlus, Wallet, X, RefreshCw, Info, CheckCircle2, PartyPopper, Clock } from "lucide-react";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getCollectorDashboardStats } from "@/lib/actions/susu-dashboard.actions";
@@ -347,7 +348,7 @@ export default function CollectorDashboardPage() {
           createdAt: new Date().toISOString(),
         };
         await addTransaction(tx);
-        setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on device ⏳`);
+        setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on device, will sync when online`);
         setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
         refreshPendingTxs();
       } else {
@@ -431,7 +432,7 @@ export default function CollectorDashboardPage() {
   }, [data, searchQuery]);
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
-  if (error && !data) return <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>;
+  if (error && !data) return <div className="banner banner-error">{error}</div>;
 
   const totalAssigned = data?.assignedCustomers || 0;
   const collected = data?.collectedToday.length || 0;
@@ -444,10 +445,10 @@ export default function CollectorDashboardPage() {
   return (
     <div className="space-y-5">
       {/* Header with greeting */}
-      <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+      <div className="card !p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{getGreeting()}, {user?.fullName || "Collector"} 👋</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{getGreeting()}, {user?.fullName || "Collector"}</h1>
             <p className="text-sm text-green-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
           </div>
           <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">              <button
@@ -455,7 +456,7 @@ export default function CollectorDashboardPage() {
                 onClick={() => { setShowRegisterModal(true); setRegError(""); }}
                 className="btn btn-primary text-sm w-full sm:w-auto"
               >
-                ➕ Register New Customer
+                <UserPlus size={15} className="inline mr-1 -mt-0.5" aria-hidden />Register New Customer
               </button>
             <div className="text-right flex flex-col items-end gap-1">
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${isOnline ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
@@ -470,7 +471,7 @@ export default function CollectorDashboardPage() {
                     Reconnect required
                   </div>
                 )}
-                {lastSyncTime && <p className="text-[10px] text-gray-400">Last sync: {lastSyncTime}</p>}
+                {lastSyncTime && <p className="text-[10px] text-slate-400">Last sync: {lastSyncTime}</p>}
                 {!isOnline && !offlineAuthExpired && offlineAuthExpiry > 0 && (
                   <p className="text-[10px] text-yellow-600">Offline auth expires in {Math.floor(offlineAuthExpiry / 3600)}h{Math.floor((offlineAuthExpiry % 3600) / 60)}m</p>
                 )}
@@ -482,7 +483,7 @@ export default function CollectorDashboardPage() {
                 disabled={enrollingOffline}
                 className="btn btn-secondary text-sm"
               >
-                {enrollingOffline ? "Enabling…" : "📱 Enable Offline"}
+                {enrollingOffline ? "Enabling…" : "Enable Offline"}
               </button>
             )}
             </div>
@@ -491,14 +492,14 @@ export default function CollectorDashboardPage() {
       </div>
 
       {/* Messages */}
-      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">✓ {success}</div>}
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+      {success && <div className="banner banner-success text-sm">✓ {success}</div>}
+      {error && <div className="banner banner-error text-sm">{error}</div>}
 
       {/* Pending Sync Banner */}
       {offlineEnabled && pendingTxs.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-center justify-between">
+        <div className="banner banner-warning !rounded-xl items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-yellow-600 text-lg">⏳</span>
+            <RefreshCw size={20} className="text-yellow-600" aria-hidden />
             <div>
               <p className="font-medium text-yellow-800">{pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} waiting to sync</p>
               <p className="text-xs text-yellow-600">These will sync automatically when connection returns</p>
@@ -514,9 +515,10 @@ export default function CollectorDashboardPage() {
 
       {/* Today's Money — Cash Accountability */}
       {data && (
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="card !p-5">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <span>💰</span> Today&apos;s Money
+            <Wallet size={17} className="text-brand-600" aria-hidden />
+            Today&apos;s Money — Cash Accountability
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-green-50 rounded-lg p-4">
@@ -527,7 +529,7 @@ export default function CollectorDashboardPage() {
                 className="mt-2 text-xs text-green-700 hover:underline flex items-center gap-1"
                 onClick={() => setError("")}
               >
-                <span>ℹ️</span> Total customer payments you have successfully recorded today.
+                <Info size={13} className="flex-none" aria-hidden /> Total customer payments you have successfully recorded today.
               </button>
             </div>
             <div className="bg-blue-50 rounded-lg p-4">
@@ -537,7 +539,7 @@ export default function CollectorDashboardPage() {
                 type="button"
                 className="mt-2 text-xs text-blue-700 hover:underline flex items-center gap-1"
               >
-                <span>ℹ️</span> Money from today&apos;s customer collections that you are expected to hand to the business.
+                <Info size={13} className="flex-none" aria-hidden /> Money from today&apos;s customer collections that you are expected to hand to the business.
               </button>
             </div>
             <div className="bg-purple-50 rounded-lg p-4">
@@ -547,29 +549,29 @@ export default function CollectorDashboardPage() {
                 type="button"
                 className="mt-2 text-xs text-purple-700 hover:underline flex items-center gap-1"
               >
-                <span>ℹ️</span> Money you have already brought to the business today.
+                <Info size={13} className="flex-none" aria-hidden /> Money you have already brought to the business today.
               </button>
             </div>
             <div className={`rounded-lg p-4 ${data.difference >= 0 ? "bg-red-50" : "bg-green-50"}`}>
-              <div className="text-xs font-medium text-gray-600">Difference</div>
+              <div className="text-xs font-medium text-slate-600">Difference</div>
               <div className={`text-2xl font-bold mt-1 ${data.difference >= 0 ? "text-red-700" : "text-green-700"}`}>
                 <CediAmount amount={Math.abs(data.difference)} />
               </div>
               <button
                 type="button"
-                className="mt-2 text-xs text-gray-700 hover:underline flex items-center gap-1"
+                className="mt-2 text-xs text-slate-700 hover:underline flex items-center gap-1"
               >
-                <span>ℹ️</span> The difference between the money you are expected to bring in and the money you have handed in.
+                <Info size={13} className="flex-none" aria-hidden /> The difference between the money you are expected to bring in and the money you have handed in.
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
-            <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <div className="text-xs text-gray-500">Customers Collected</div>
+          <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
+            <div className="bg-slate-50 rounded-lg p-3 text-center">
+              <div className="text-xs text-slate-500">Customers Collected</div>
               <div className="text-xl font-bold text-green-700">{data.customersCollected}</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <div className="text-xs text-gray-500">Customers Remaining</div>
+            <div className="bg-slate-50 rounded-lg p-3 text-center">
+              <div className="text-xs text-slate-500">Customers Remaining</div>
               <div className="text-xl font-bold text-orange-600">{data.customersRemaining}</div>
             </div>
           </div>
@@ -578,29 +580,29 @@ export default function CollectorDashboardPage() {
 
       {/* Progress */}
       {data && (
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="card !p-5">
           <h2 className="text-lg font-semibold mb-3">Today&apos;s Collections</h2>
           {allDone && pendingTxs.length === 0 ? (
             <div className="text-center py-2">
-              <p className="text-2xl mb-1">✅</p>
+              <CheckCircle2 className="mx-auto text-emerald-600 mb-1" size={26} aria-hidden />
               <p className="font-semibold text-green-700">All collections completed!</p>
-              <p className="text-sm text-gray-500 mt-1">{totalAssigned} of {totalAssigned} customers collected</p>
+              <p className="text-sm text-slate-500 mt-1">{totalAssigned} of {totalAssigned} customers collected</p>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <div className="text-center flex-1">
                 <div className="text-2xl font-bold text-green-700">{collected}</div>
-                <div className="text-xs text-gray-500">Collected</div>
+                <div className="text-xs text-slate-500">Collected</div>
               </div>
-              <div className="text-gray-300 text-xl">·</div>
+              <div className="text-slate-300 text-xl">·</div>
               <div className="text-center flex-1">
                 <div className="text-2xl font-bold text-orange-600">{remaining}</div>
-                <div className="text-xs text-gray-500">Remaining</div>
+                <div className="text-xs text-slate-500">Remaining</div>
               </div>
-              <div className="text-gray-300 text-xl">·</div>
+              <div className="text-slate-300 text-xl">·</div>
               <div className="text-center flex-1">
-                <div className="text-2xl font-bold text-gray-700"><CediAmount amount={data.todayCollected} /></div>
-                <div className="text-xs text-gray-500">Collected Today</div>
+                <div className="text-2xl font-bold text-slate-700"><CediAmount amount={data.todayCollected} /></div>
+                <div className="text-xs text-slate-500">Collected Today</div>
               </div>
             </div>
           )}
@@ -609,30 +611,30 @@ export default function CollectorDashboardPage() {
 
       {/* Search + Filters + Sort */}
       {data && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <input type="text" placeholder="Search customers..." value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-green-400" />
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-green-400" />
             </div>
             <div className="flex gap-1 flex-wrap">
               {(["all", "visit", "collected"] as const).map((f) => (
                 <button key={f} onClick={() => setFilter(f)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${filter === f ? "bg-green-100 text-green-700" : "bg-gray-50 text-gray-500 hover:bg-gray-100"}`}>
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${filter === f ? "bg-green-100 text-green-700" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>
                   {f === "all" ? "All" : f === "visit" ? "To Visit" : "Collected"}
                 </button>
               ))}
               {offlineEnabled && pendingTxs.length > 0 && (
                 <button onClick={() => setFilter("pending")}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${filter === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-gray-50 text-gray-500 hover:bg-gray-100"}`}>
-                  ⏳ Pending ({pendingTxs.length})
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${filter === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`}>
+                  Pending ({pendingTxs.length})
                 </button>
               )}
             </div>
             {showVisit && remaining > 0 && (
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-600">
+                className="px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-600">
                 <option value="amount">Sort: Amount</option>
                 <option value="days">Sort: Days Due</option>
                 <option value="name">Sort: Name</option>
@@ -646,21 +648,21 @@ export default function CollectorDashboardPage() {
       {data && showVisit && filteredToVisit.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold mb-1 px-1">To Visit</h2>
-          <p className="text-sm text-gray-500 mb-3 px-1">{filteredToVisit.length} customer{filteredToVisit.length !== 1 ? "s" : ""} remaining</p>
+          <p className="text-sm text-slate-500 mb-3 px-1">{filteredToVisit.length} customer{filteredToVisit.length !== 1 ? "s" : ""} remaining</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredToVisit.map((customer) => (
-              <div key={customer.accountId} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:border-green-300 transition-colors flex flex-col">
+              <div key={customer.accountId} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 hover:border-green-300 transition-colors flex flex-col">
                 <div className="flex-1">
                   <div className="font-medium text-sm truncate" title={customer.customerName}>{customer.customerName}</div>
-                  <div className="text-xs text-gray-400 mb-2">{customer.customerIdCode}</div>
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <div className="text-xs text-slate-400 mb-2">{customer.customerIdCode}</div>
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
                     <span>Daily: <CediAmount amount={customer.dailyContribution} /></span>
                     <span>{customer.outstandingDays}d due</span>
                   </div>
                   <div className="font-semibold text-sm text-green-700"><CediAmount amount={customer.expectedAmount} /></div>
                 </div>
                 <button onClick={() => { setRecordingFor(customer); setCollectAmount(String(customer.expectedAmount)); setCollectError(""); }}
-                  className="btn btn-primary btn-sm w-full mt-3">💵 Collect</button>
+                  className="btn btn-primary btn-sm w-full mt-3">Collect</button>
               </div>
             ))}
           </div>
@@ -669,23 +671,23 @@ export default function CollectorDashboardPage() {
 
       {/* Empty search */}
       {data && showVisit && searchQuery && filteredToVisit.length === 0 && remaining > 0 && (
-        <div className="text-center py-6 text-gray-500"><p className="text-sm">No customers matching &ldquo;{searchQuery}&rdquo;</p></div>
+        <div className="text-center py-6 text-slate-500"><p className="text-sm">No customers matching &ldquo;{searchQuery}&rdquo;</p></div>
       )}
 
       {/* All caught up */}
       {data && allDone && pendingTxs.length === 0 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 text-center">
-          <p className="text-3xl mb-2">🎉</p>
-          <p className="font-medium text-gray-700">All collections completed for today!</p>
-          <p className="text-sm text-gray-500 mt-1">{totalAssigned} of {totalAssigned} collected</p>
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100 text-center">
+          <PartyPopper className="mx-auto text-brand-500 mb-2" size={30} aria-hidden />
+          <p className="font-medium text-slate-700">All collections completed for today!</p>
+          <p className="text-sm text-slate-500 mt-1">{totalAssigned} of {totalAssigned} collected</p>
         </div>
       )}
 
       {/* Pending Sync List */}
       {showPending && pendingTxs.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold mb-1 px-1">⏳ Pending Sync</h2>
-          <p className="text-sm text-gray-500 mb-3 px-1">{pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} saved on device</p>
+          <h2 className="text-lg font-semibold mb-1 px-1">Pending Sync</h2>
+          <p className="text-sm text-slate-500 mb-3 px-1">{pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} saved on device</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {pendingTxs.map((tx) => {
               const payload = JSON.parse(tx.payload);
@@ -693,7 +695,7 @@ export default function CollectorDashboardPage() {
               return (
                 <div key={tx.id} className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-yellow-600">⏳</span>
+                    <Clock size={14} className="text-yellow-600" aria-hidden />
                     <span className="font-medium text-sm truncate">{cust?.customerName || "Customer"}</span>
                   </div>
                   <div className="font-semibold text-sm text-yellow-800"><CediAmount amount={payload.amount} /></div>
@@ -711,7 +713,7 @@ export default function CollectorDashboardPage() {
       {data && showCollected && filteredCollected.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold mb-1 px-1">Collected Today</h2>
-          <p className="text-sm text-gray-500 mb-3 px-1">{filteredCollected.length} customer{filteredCollected.length !== 1 ? "s" : ""} collected</p>
+          <p className="text-sm text-slate-500 mb-3 px-1">{filteredCollected.length} customer{filteredCollected.length !== 1 ? "s" : ""} collected</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredCollected.map((customer) => (
               <div key={customer.accountId} className="bg-green-50 rounded-xl p-4 border border-green-100">
@@ -719,9 +721,9 @@ export default function CollectorDashboardPage() {
                   <span className="text-green-600">✓</span>
                   <span className="font-medium text-sm truncate">{customer.customerName}</span>
                 </div>
-                <div className="text-xs text-gray-400 mb-2">{customer.customerIdCode}</div>
+                <div className="text-xs text-slate-400 mb-2">{customer.customerIdCode}</div>
                 <div className="font-semibold text-sm text-green-700"><CediAmount amount={customer.amountCollected} /></div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-slate-500 mt-1">
                   {customer.daysCovered} day{customer.daysCovered !== 1 ? "s" : ""} covered · {formatTime(customer.collectedAt)}
                 </div>
               </div>
@@ -732,11 +734,11 @@ export default function CollectorDashboardPage() {
 
       {/* Recent Money Handed In */}
       {data && data.recentRemittances.length > 0 && (
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="card !p-5">
           <h2 className="text-lg font-semibold mb-4">Recent Money Handed In</h2>
           <div className="space-y-2">
             {data.recentRemittances.map((r) => (
-              <div key={r.id} className="flex justify-between items-center p-2 rounded-lg bg-gray-50">
+              <div key={r.id} className="flex justify-between items-center p-2 rounded-lg bg-slate-50">
                 <div className="text-sm">
                   <span className="font-mono"><CediAmount amount={r.remittedAmount} /></span>
                   {r.variance !== 0 && (
@@ -761,18 +763,18 @@ export default function CollectorDashboardPage() {
             <h3 className="text-lg font-semibold mb-2">Record Collection</h3>
             <div className="bg-green-50 rounded-lg p-3 mb-4">
               <div className="font-medium">{recordingFor.customerName}</div>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-slate-600">
                 {recordingFor.outstandingDays} day{recordingFor.outstandingDays !== 1 ? "s" : ""} due · Expected: <CediAmount amount={recordingFor.expectedAmount} />
               </div>
             </div>
             {!isOnline && offlineEnabled && offlineAuthExpired && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-2 mb-4 text-xs text-red-700">
-                ⚠️ Reconnect to the internet and sign in again before continuing offline work.
+                Reconnect to the internet and sign in again before continuing offline work.
               </div>
             )}
             {!isOnline && offlineEnabled && !offlineAuthExpired && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-4 text-xs text-yellow-700">
-                ⚠️ You&apos;re offline. This will be saved on your device and synced when you reconnect.
+                You&apos;re offline. This will be saved on your device and synced when you reconnect.
               </div>
             )}
             {collectError && (
@@ -794,7 +796,7 @@ export default function CollectorDashboardPage() {
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={handleRecordCollection} className="btn btn-primary flex-1" disabled={submitting || (!isOnline && offlineEnabled && offlineAuthExpired)}>
-                {submitting ? "Recording..." : !isOnline && offlineEnabled ? (offlineAuthExpired ? "🔒 Reconnect Required" : "💾 Save on Device") : "✅ Record"}
+                {submitting ? "Recording..." : !isOnline && offlineEnabled ? (offlineAuthExpired ? "Reconnect Required" : "Save on Device") : "Record Contribution"}
               </button>
               <button onClick={() => { setRecordingFor(null); setCollectAmount(""); setCollectError(""); }} className="btn btn-secondary flex-1">Cancel</button>
             </div>
@@ -809,7 +811,7 @@ export default function CollectorDashboardPage() {
             <h3 className="text-lg font-semibold mb-2">Register New Customer</h3>
             {!isOnline && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-4 text-xs text-yellow-700">
-                ⚠️ You&apos;re offline. Customer registration requires an internet connection.
+                You&apos;re offline. Customer registration requires an internet connection.
               </div>
             )}
             {regError && (

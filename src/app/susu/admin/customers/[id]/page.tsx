@@ -1,4 +1,5 @@
 "use client";
+import { ClipboardList, X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -242,7 +243,7 @@ export default function SusuCustomerDetailPage() {
   if (!customer)
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">Customer not found</p>
+        <p className="text-slate-500">Customer not found</p>
         <button onClick={() => router.push("/susu/admin/customers")} className="btn btn-primary mt-4">
           Back to Customers
         </button>
@@ -381,14 +382,14 @@ export default function SusuCustomerDetailPage() {
       <div className="mb-8">
         <button
           onClick={() => router.push("/susu/admin/customers")}
-          className="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-block"
+          className="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block"
         >
           ← Back to Customers
         </button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{customer.fullName}</h1>
-            <p className="text-gray-500 mt-1">
+            <h1 className="text-2xl font-bold text-slate-900">{customer.fullName}</h1>
+            <p className="text-slate-500 mt-1">
               {customer.customerId} &bull; {customer.phone || "No phone"}
               {customer.address && ` &bull; ${customer.address}`}
             </p>
@@ -402,15 +403,15 @@ export default function SusuCustomerDetailPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2">✕</button>
+          <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -449,8 +450,8 @@ export default function SusuCustomerDetailPage() {
               <div className="font-semibold text-lg">{daysOutstanding}</div>
             </div>
           </div>
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg text-sm">
-            <div className="flex justify-between text-gray-600">
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg text-sm">
+            <div className="flex justify-between text-slate-600">
               <span>Daily Rate:</span>
               <span className="font-medium"><CediAmount amount={currentCycle.dailyContribution} />/day</span>
             </div>
@@ -461,7 +462,7 @@ export default function SusuCustomerDetailPage() {
               </div>
             )}
             {currentCycleStats.totalCommissions === 0 && (
-              <div className="flex justify-between text-gray-500 mt-1">
+              <div className="flex justify-between text-slate-500 mt-1">
                 <span>First-withdrawal commission:</span>
                 <span className="font-medium">Not yet charged</span>
               </div>
@@ -472,30 +473,30 @@ export default function SusuCustomerDetailPage() {
 
       {/* Physical Card Check */}
       {account && currentCycle && currentCycleStats && (
-        <div className="card border border-dashed border-gray-300 mb-8">
+        <div className="card border border-dashed border-slate-300 mb-8">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">💳</span>
-            <h3 className="font-semibold text-gray-700">Physical Card Check</h3>
+            <h3 className="font-semibold text-slate-700">Physical Card Check</h3>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <div>
-              <div className="text-gray-500">Daily Contribution</div>
+              <div className="text-slate-500">Daily Contribution</div>
               <div className="font-semibold"><CediAmount amount={account.dailyContribution} />/day</div>
             </div>
             <div>
-              <div className="text-gray-500">Days Covered (Digital)</div>
+              <div className="text-slate-500">Days Covered (Digital)</div>
               <div className="font-semibold">{daysCovered}/31</div>
             </div>
             <div>
-              <div className="text-gray-500">Current Cycle</div>
+              <div className="text-slate-500">Current Cycle</div>
               <div className="font-semibold">Cycle {currentCycle.cycleNumber}</div>
             </div>
             <div>
-              <div className="text-gray-500">Current Balance (Digital)</div>
+              <div className="text-slate-500">Current Balance (Digital)</div>
               <div className="font-semibold text-green-700"><CediAmount amount={currentBalance} /></div>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-3">
+          <p className="text-xs text-slate-500 mt-3">
             Compare with physical Susu card. Digital ledger is authoritative; reconcile during pilot.
           </p>
         </div>
@@ -504,11 +505,11 @@ export default function SusuCustomerDetailPage() {
       {/* Current Collector + Account Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="card border-l-4 border-l-blue-500">
-          <div className="text-sm text-gray-500 mb-1">Current Collector</div>
+          <div className="text-sm text-slate-500 mb-1">Current Collector</div>
           {currentCollector ? (
             <div className="font-semibold text-lg">{currentCollector}</div>
           ) : (
-            <div className="text-gray-400 italic">No Collector Assigned</div>
+            <div className="text-slate-400 italic">No Collector Assigned</div>
           )}
           <button
             onClick={() => setShowReassign(true)}
@@ -520,11 +521,11 @@ export default function SusuCustomerDetailPage() {
         {account && (
           <>
             <div className="card">
-              <div className="text-sm text-gray-500 mb-1">Account Number</div>
+              <div className="text-sm text-slate-500 mb-1">Account Number</div>
               <div className="font-mono font-semibold text-lg">{account.accountId}</div>
             </div>
             <div className="card">
-              <div className="text-sm text-gray-500 mb-1">Daily Contribution</div>
+              <div className="text-sm text-slate-500 mb-1">Daily Contribution</div>
               <div className="font-semibold text-lg text-green-700">
                 <CediAmount amount={account.dailyContribution} />/day
               </div>
@@ -538,7 +539,7 @@ export default function SusuCustomerDetailPage() {
         <button
           onClick={() => setViewMode("cycles")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            viewMode === "cycles" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            viewMode === "cycles" ? "bg-green-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-gray-200"
           }`}
         >
           Cycle History
@@ -546,7 +547,7 @@ export default function SusuCustomerDetailPage() {
         <button
           onClick={() => setViewMode("statement")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            viewMode === "statement" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            viewMode === "statement" ? "bg-green-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-gray-200"
           }`}
         >
           Account Statement
@@ -559,10 +560,10 @@ export default function SusuCustomerDetailPage() {
           <h3 className="font-semibold mb-3">Collector History</h3>
           <div className="space-y-2">
             {assignmentHistory.map((a) => (
-              <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg ${a.active ? "bg-green-50 border border-green-200" : "bg-gray-50"}`}>
+              <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg ${a.active ? "bg-green-50 border border-green-200" : "bg-slate-50"}`}>
                 <div>
                   <div className="font-medium text-sm">{a.collector.user.fullName}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-slate-500">
                     {formatDate(a.assignedAt)}
                     {a.unassignedAt ? ` — ${formatDate(a.unassignedAt)}` : " — Current"}
                   </div>
@@ -591,7 +592,7 @@ export default function SusuCustomerDetailPage() {
 
         {!customer.portalEnabled && !customer.portalPasswordHash && !showPortalForm && (
           <div>
-            <p className="text-sm text-gray-500 mb-3">Customer does not have portal access yet.</p>
+            <p className="text-sm text-slate-500 mb-3">Customer does not have portal access yet.</p>
             <button
               onClick={() => setShowPortalForm(true)}
               className="btn btn-primary btn-sm"
@@ -639,7 +640,7 @@ export default function SusuCustomerDetailPage() {
 
         {/* Create Portal Access Form */}
         {showPortalForm && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <div className="mt-4 p-4 bg-slate-50 rounded-lg">
             <h4 className="font-medium mb-3">Create Customer Portal Login</h4>
             <div className="space-y-3">
               <div className="form-group">
@@ -685,7 +686,7 @@ export default function SusuCustomerDetailPage() {
 
         {/* Reset Password Form */}
         {showResetPassword && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <div className="mt-4 p-4 bg-slate-50 rounded-lg">
             <h4 className="font-medium mb-3">Reset Customer Password</h4>
             <div className="space-y-3">
               <div className="form-group">
@@ -733,7 +734,7 @@ export default function SusuCustomerDetailPage() {
         <div className="card mb-8">
           <h3 className="font-semibold mb-3">Card Fee</h3>
           {account.cardFees.map((fee) => (
-            <div key={fee.id} className="flex justify-between items-center p-2 rounded-lg bg-gray-50">
+            <div key={fee.id} className="flex justify-between items-center p-2 rounded-lg bg-slate-50">
               <span className="text-sm">Card Purchase Fee</span>
               <span className="font-mono font-semibold"><CediAmount amount={fee.amount} /></span>
             </div>
@@ -745,7 +746,7 @@ export default function SusuCustomerDetailPage() {
       {viewMode === "cycles" && account && account.cycles.length > 0 && (
         <div className="space-y-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Cycle History</h2>
+            <h2 className="text-xl font-bold text-slate-900">Cycle History</h2>
             <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={statementEntries.length === 0}>
               📥 Export Statement CSV
             </button>
@@ -760,7 +761,7 @@ export default function SusuCustomerDetailPage() {
                       Cycle {cycle.cycleNumber} —{" "}
                       {formatDate(cycle.startDate)} to {formatDate(cycle.endDate)}
                     </h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-slate-500">
                       {stats.paidDays}/31 days paid &bull; Daily rate: <CediAmount amount={cycle.dailyContribution} />
                     </p>
                   </div>
@@ -798,13 +799,13 @@ export default function SusuCustomerDetailPage() {
                 {/* Contributions */}
                 {cycle.contributions.length > 0 && (
                   <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-gray-600 mb-2">Contributions</h4>
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2">Contributions</h4>
                     <div className="space-y-1">
                       {cycle.contributions.map((c) => (
-                        <div key={c.id} className="flex justify-between items-center text-sm p-2 rounded bg-gray-50">
+                        <div key={c.id} className="flex justify-between items-center text-sm p-2 rounded bg-slate-50">
                           <div>
                             <span>{formatDate(c.collectionDate)}</span>
-                            <span className="text-gray-400 ml-2">
+                            <span className="text-slate-400 ml-2">
                               ({c.channel === "collector" ? "Collector" : "Office"})
                               {c.channel === "direct_office" && ((c as { receivedByName?: string | null }).receivedByName || c.receivedBy?.fullName)
                                 ? ` — Received by ${(c as { receivedByName?: string | null }).receivedByName || c.receivedBy?.fullName}`
@@ -823,7 +824,7 @@ export default function SusuCustomerDetailPage() {
                 {/* Withdrawals */}
                 {cycle.withdrawals.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-600 mb-2">Withdrawals</h4>
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2">Withdrawals</h4>
                     <div className="space-y-1">
                       {cycle.withdrawals.map((w) => (
                         <div key={w.id} className="flex justify-between items-center text-sm p-2 rounded bg-orange-50">
@@ -837,7 +838,7 @@ export default function SusuCustomerDetailPage() {
                           </div>
                           <div className="text-right">
                             <div className="font-mono font-semibold"><CediAmount amount={w.netAmount} /></div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-slate-500">
                               Balance: <CediAmount amount={w.remainingBalance} />
                             </div>
                           </div>
@@ -856,12 +857,12 @@ export default function SusuCustomerDetailPage() {
       {viewMode === "statement" && (
         <div className="card">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Account Statement</h2>
+            <h2 className="text-xl font-bold text-slate-900">Account Statement</h2>
             <div className="flex flex-wrap gap-2">
               <select
                 value={statementFilter}
                 onChange={(e) => setStatementFilter(e.target.value as "all" | "contributions" | "withdrawals")}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
               >
                 <option value="all">All Transactions</option>
                 <option value="contributions">Contributions Only</option>
@@ -871,14 +872,14 @@ export default function SusuCustomerDetailPage() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 placeholder="Date From"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 placeholder="Date To"
               />
               <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={filteredStatementEntries.length === 0}>
@@ -888,8 +889,8 @@ export default function SusuCustomerDetailPage() {
           </div>
 
           {filteredStatementEntries.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-4xl mb-2">📋</p>
+            <div className="text-center py-12 text-slate-500">
+              <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardList size={36} /></p>
               <p className="font-medium">No transactions found</p>
               <p className="text-sm mt-1">Try adjusting your filters.</p>
             </div>
@@ -913,7 +914,7 @@ export default function SusuCustomerDetailPage() {
                     <tr key={`${entry.date.getTime()}-${entry.type}-${entry.amount}`}>
                       <td className="text-sm whitespace-nowrap">{formatDateTime(entry.date)}</td>
                       <td>
-                        <span className={`badge ${entry.type === "contribution" ? "badge-green" : "badge-orange"}`}>
+                        <span className={`badge ${entry.type === "contribution" ? "badge-green" : "badge-red"}`}>
                           {entry.type === "contribution" ? "Contribution" : "Withdrawal"}
                         </span>
                       </td>
@@ -928,11 +929,11 @@ export default function SusuCustomerDetailPage() {
                         {entry.commission ? (
                           <span className="text-purple-600"><CediAmount amount={entry.commission} /></span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                       <td className="font-mono text-right">
-                        {entry.balance !== undefined ? <CediAmount amount={entry.balance} /> : <span className="text-gray-400">—</span>}
+                        {entry.balance !== undefined ? <CediAmount amount={entry.balance} /> : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="text-sm">
                         {entry.type === "contribution" ? (
@@ -944,8 +945,8 @@ export default function SusuCustomerDetailPage() {
                           "Withdrawal"
                         )}
                       </td>
-                      <td className="text-sm text-gray-500">Cycle {entry.cycleNumber}</td>
-                      <td className="text-sm text-gray-500 max-w-xs truncate">{entry.notes || "—"}</td>
+                      <td className="text-sm text-slate-500">Cycle {entry.cycleNumber}</td>
+                      <td className="text-sm text-slate-500 max-w-xs truncate">{entry.notes || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -961,17 +962,17 @@ export default function SusuCustomerDetailPage() {
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-2">Change Collector</h3>
 
-            <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+            <div className="bg-slate-50 rounded-lg p-3 mb-4 text-sm">
               <div className="flex justify-between mb-1">
-                <span className="text-gray-500">Customer:</span>
+                <span className="text-slate-500">Customer:</span>
                 <span className="font-medium">{customer.fullName}</span>
               </div>
               <div className="flex justify-between mb-1">
-                <span className="text-gray-500">Customer ID:</span>
+                <span className="text-slate-500">Customer ID:</span>
                 <span className="font-mono">{customer.customerId}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Current Collector:</span>
+                <span className="text-slate-500">Current Collector:</span>
                 <span className="font-medium">{currentCollector || "None"}</span>
               </div>
             </div>
@@ -985,9 +986,9 @@ export default function SusuCustomerDetailPage() {
                 onChange={(e) => setCollectorSearch(e.target.value)}
                 className="w-full"
               />
-              <div className="mt-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+              <div className="mt-2 max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
                 {filteredCollectors.length === 0 ? (
-                  <div className="p-3 text-sm text-gray-500 text-center">No collectors found</div>
+                  <div className="p-3 text-sm text-slate-500 text-center">No collectors found</div>
                 ) : (
                   filteredCollectors.map((c) => (
                     <button
@@ -996,12 +997,12 @@ export default function SusuCustomerDetailPage() {
                         setNewCollectorId(c.id);
                         setCollectorSearch(c.user.fullName);
                       }}
-                      className={`w-full text-left p-3 text-sm border-b border-gray-100 last:border-0 hover:bg-green-50 transition-colors ${
+                      className={`w-full text-left p-3 text-sm border-b border-slate-100 last:border-0 hover:bg-green-50 transition-colors ${
                         newCollectorId === c.id ? "bg-green-50 border-l-2 border-l-green-500" : ""
                       }`}
                     >
                       <div className="font-medium">{c.user.fullName}</div>
-                      <div className="text-xs text-gray-500">{c.user.email}</div>
+                      <div className="text-xs text-slate-500">{c.user.email}</div>
                     </button>
                   ))
                 )}

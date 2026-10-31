@@ -34,6 +34,20 @@ const SESSION_COOKIES = {
 const SELECTION_COOKIE = "bik-workspace-select";
 const LEGACY_COOKIE = "bik-prestige-token";
 
+/**
+ * Platform Super Admin session (BloomCore operator).
+ *
+ * This cookie is deliberately NOT part of SESSION_COOKIES. The platform
+ * boundary is one-way isolated:
+ *   * /platform/* accepts ONLY bik-platform-session (checked below, before any
+ *     tenant logic runs), so a tenant administrator can never reach the
+ *     platform dashboard with their tenant cookie.
+ *   * Tenant routes only ever read SESSION_COOKIES, so a platform session can
+ *     never act as a tenant user.
+ */
+const PLATFORM_COOKIE = "bik-platform-session";
+const PLATFORM_PUBLIC_ROUTES = ["/platform/login"];
+
 const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/api/health", "/api/diag"];
 const CUSTOMER_PUBLIC_ROUTES = ["/customer/login", "/customer/forgot-password"];
 // The dedicated administrator login must be reachable without any session.
@@ -43,6 +57,8 @@ interface TokenClaims {
   role?: string;
   modules?: string[];
   forcePasswordReset?: boolean;
+  kind?: string;
+  adminId?: string;
 }
 
 function claimsMatchModule(claims: TokenClaims, module: keyof typeof SESSION_COOKIES): boolean {
@@ -51,6 +67,15 @@ function claimsMatchModule(claims: TokenClaims, module: keyof typeof SESSION_COO
   if (explicitModules) return explicitModules.includes(module);
   // Legacy tokens carry only the primary role
   return module === "momo" ? claims.role === "worker" : claims.role === "collector";
+}
+
+/**
+ * Platform token check. Requires the explicit `kind: "platform"` claim, so a
+ * tenant JWT can never be replayed as a platform session even if it were
+ * somehow written into the platform cookie.
+ */
+function isPlatformClaims(claims: TokenClaims | null): boolean {
+  return Boolean(claims && claims.kind === "platform" && claims.adminId);
 }
 
 async function readClaims(token: string | undefined): Promise<TokenClaims | null> {
@@ -74,6 +99,39 @@ export async function middleware(request: NextRequest) {
     r.headers.set("Cache-Control", "no-store, must-revalidate");
     return r;
   };
+
+  // ---------------------------------------------------------------------
+  // PLATFORM BOUNDARY — evaluated before every tenant rule.
+  //
+  // /platform/* is reachable ONLY with a valid platform session. Tenant
+  // cookies are not consulted here at all, so a tenant administrator (or a
+  // worker/collector/customer) cannot open the platform dashboard by any
+  // cookie they legitimately hold.
+  // ---------------------------------------------------------------------
+  if (pathname.startsWith("/platform")) {
+    // The platform login itself is public.
+    if (PLATFORM_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
+      // An already-authenticated operator is sent straight to the dashboard.
+      const existing = await readClaims(
+        request.cookies.get(PLATFORM_COOKIE)?.value
+      );
+      if (isPlatformClaims(existing) && pathname === "/platform/login") {
+        return redirectTo("/platform/dashboard");
+      }
+      return NextResponse.next();
+    }
+
+    const platformClaims = await readClaims(
+      request.cookies.get(PLATFORM_COOKIE)?.value
+    );
+    if (!isPlatformClaims(platformClaims)) {
+      return redirectTo("/platform/login");
+    }
+
+    const r = NextResponse.next();
+    r.headers.set("Cache-Control", "no-store, must-revalidate");
+    return r;
+  }
 
   // Allow public routes (login, health check)
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {

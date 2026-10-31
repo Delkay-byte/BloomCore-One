@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -123,8 +124,8 @@ export default function StaffDetailPage() {
   if (!staff) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">Staff member not found.</p>
-        <Link href="/admin/staff" className="text-blue-600 hover:underline mt-2 inline-block">
+        <p className="text-slate-500">Staff member not found.</p>
+        <Link href="/admin/staff" className="text-brand-700 hover:underline mt-2 inline-block">
           ← Back to Staff Directory
         </Link>
       </div>
@@ -135,9 +136,9 @@ export default function StaffDetailPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <Link href="/admin/staff" className="text-sm text-blue-600 hover:underline">← Staff Directory</Link>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2">{staff.fullName}</h1>
-          <p className="text-gray-500 mt-1">{ROLE_LABELS[staff.role] || staff.role}</p>
+          <Link href="/admin/staff" className="text-sm text-brand-700 hover:underline">← Staff Directory</Link>
+          <h1 className="text-2xl font-bold text-slate-900 mt-2">{staff.fullName}</h1>
+          <p className="text-slate-500 mt-1">{ROLE_LABELS[staff.role] || staff.role}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -162,15 +163,15 @@ export default function StaffDetailPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">✕</button>
+          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">✕</button>
+          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -247,23 +248,23 @@ export default function StaffDetailPage() {
           <h3 className="text-lg font-semibold mb-4">Staff Information</h3>
           <dl className="space-y-3">
             <div>
-              <dt className="text-sm text-gray-500">Full Name</dt>
+              <dt className="text-sm text-slate-500">Full Name</dt>
               <dd className="font-medium">{staff.fullName}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Staff ID</dt>
+              <dt className="text-sm text-slate-500">Staff ID</dt>
               <dd className="font-mono text-sm">{staff.id}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Email</dt>
+              <dt className="text-sm text-slate-500">Email</dt>
               <dd>{staff.email}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Phone</dt>
+              <dt className="text-sm text-slate-500">Phone</dt>
               <dd>{staff.phone || "—"}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Role</dt>
+              <dt className="text-sm text-slate-500">Role</dt>
               <dd>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                   staff.role === "admin" ? "bg-purple-100 text-purple-800" :
@@ -275,7 +276,7 @@ export default function StaffDetailPage() {
               </dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Status</dt>
+              <dt className="text-sm text-slate-500">Status</dt>
               <dd>
                 <span className={`badge ${staff.status === "active" ? "badge-green" : "badge-red"}`}>
                   {staff.status === "active" ? "Active" : "Inactive"}
@@ -289,16 +290,16 @@ export default function StaffDetailPage() {
           <h3 className="text-lg font-semibold mb-4">Modules & Capabilities</h3>
           <dl className="space-y-3">
             <div>
-              <dt className="text-sm text-gray-500">MoMo Module</dt>
+              <dt className="text-sm text-slate-500">MoMo Module</dt>
               <dd>{staff.momoEnabled ? "✅ Enabled" : "❌ Disabled"}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Susu Module</dt>
+              <dt className="text-sm text-slate-500">Susu Module</dt>
               <dd>{staff.susuEnabled ? "✅ Enabled" : "❌ Disabled"}</dd>
             </div>
             {staff.collector && (
               <div>
-                <dt className="text-sm text-gray-500">Collector Status</dt>
+                <dt className="text-sm text-slate-500">Collector Status</dt>
                 <dd>
                   <span className={`badge ${staff.collector.status === "active" ? "badge-green" : "badge-red"}`}>
                     {staff.collector.status === "active" ? "Active" : "Inactive"}
@@ -308,20 +309,20 @@ export default function StaffDetailPage() {
             )}
             {staff.location && (
               <div>
-                <dt className="text-sm text-gray-500">Location</dt>
+                <dt className="text-sm text-slate-500">Location</dt>
                 <dd>{staff.location.name} ({staff.location.code})</dd>
               </div>
             )}
             <div>
-              <dt className="text-sm text-gray-500">Force Password Reset</dt>
+              <dt className="text-sm text-slate-500">Force Password Reset</dt>
               <dd>{staff.forcePasswordReset ? "Yes" : "No"}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Created</dt>
+              <dt className="text-sm text-slate-500">Created</dt>
               <dd>{formatDateTime(staff.createdAt)}</dd>
             </div>
             <div>
-              <dt className="text-sm text-gray-500">Last Updated</dt>
+              <dt className="text-sm text-slate-500">Last Updated</dt>
               <dd>{formatDateTime(staff.updatedAt)}</dd>
             </div>
           </dl>

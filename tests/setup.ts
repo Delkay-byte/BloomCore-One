@@ -29,8 +29,35 @@ export async function cleanDatabase() {
   await prisma.expense.deleteMany();
   await prisma.dailyAccount.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
+  await prisma.offlineTransaction.deleteMany();
+  await prisma.deviceEnrollment.deleteMany();
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
+  await prisma.businessTenant.deleteMany();
+  await prisma.platformAuditLog.deleteMany();
+  await prisma.platformSuperAdmin.deleteMany();
+}
+
+/**
+ * Create an enrolled BusinessTenant for test fixtures. Each call gets a unique
+ * code so multiple tenants can coexist in isolation tests.
+ */
+export async function createTestTenant(
+  options: { momo?: boolean; susu?: boolean; name?: string } = {}
+) {
+  const momoEnabled = options.momo ?? true;
+  const susuEnabled = options.susu ?? true;
+  return prisma.businessTenant.create({
+    data: {
+      code: `T-${randomBytes(3).toString("hex").toUpperCase()}`,
+      name: options.name ?? "Test Tenant",
+      momoEnabled,
+      susuEnabled,
+      status: "ACTIVE",
+      onboardingStatus: "COMPLETED",
+    },
+  });
 }
 
 /**
@@ -41,20 +68,38 @@ export function generateRefId(prefix: string): string {
 }
 
 /**
- * Create a test admin user.
+ * Create a test admin user in its own enrolled tenant (dual-module by default)
+ * so tenant-guarded actions resolve a context.
  */
-export async function createTestAdmin() {
+export async function createTestAdmin(options: {
+  momo?: boolean;
+  susu?: boolean;
+  tenantId?: string;
+} = {}) {
   const bcrypt = await import("bcryptjs");
   const passwordHash = await bcrypt.hash("Test1234!", 12);
-  return prisma.user.create({
+  const tenant =
+    options.tenantId != null
+      ? null
+      : await createTestTenant({ momo: options.momo, susu: options.susu });
+  const tenantId = options.tenantId ?? tenant!.id;
+  const user = await prisma.user.create({
     data: {
       email: `test-admin-${randomBytes(2).toString("hex")}@bikprestige.com`,
       fullName: "Test Admin",
       role: "admin",
       status: "active",
       passwordHash,
+      momoEnabled: options.momo ?? true,
+      susuEnabled: options.susu ?? true,
+      tenantId,
     },
   });
+  await prisma.businessTenant.update({
+    where: { id: tenantId },
+    data: { primaryAdminUserId: user.id },
+  });
+  return user;
 }
 
 /**
@@ -65,12 +110,15 @@ export async function createTestCustomer(
   dailyContribution: number,
   suffix: string
 ) {
+  const admin = await prisma.user.findUnique({ where: { id: adminId } });
+  const tenantId = admin?.tenantId ?? null;
   const customer = await prisma.customer.create({
     data: {
       customerId: `BIK-C-TEST-${suffix}`,
       fullName: `Test Customer ${suffix}`,
       phone: `+23327000${suffix}`,
       status: "active",
+      tenantId,
     },
   });
 
@@ -81,6 +129,7 @@ export async function createTestCustomer(
       dailyContribution,
       status: "active",
       cardCustody: "customer",
+      tenantId,
     },
   });
 
@@ -91,6 +140,7 @@ export async function createTestCustomer(
       amount: 10,
       recordedById: adminId,
       notes: "Initial card purchase",
+      tenantId,
     },
   });
 
@@ -104,6 +154,7 @@ export async function createTestCustomer(
       dailyContribution,
       status: "active",
       commissionCharged: false,
+      tenantId,
     },
   });
 

@@ -66,7 +66,7 @@ export default function SelectWorkspacePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="spinner"></div>
       </div>
     );
@@ -77,7 +77,7 @@ export default function SelectWorkspacePage() {
   const firstName = selection.fullName.split(" ")[0];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
@@ -87,12 +87,12 @@ export default function SelectWorkspacePage() {
             width={192}
             height={96}
           />
-          <h1 className="text-xl font-bold text-gray-900">Welcome back, {firstName}</h1>
-          <p className="text-gray-500 mt-1">Where would you like to work?</p>
+          <h1 className="text-xl font-bold text-slate-900">Welcome back, {firstName}</h1>
+          <p className="text-slate-500 mt-1">Where would you like to work?</p>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm text-center">
+          <div className="banner banner-error mb-4 text-sm text-center">
             {error}
           </div>
         )}
@@ -111,8 +111,8 @@ export default function SelectWorkspacePage() {
               >
                 <span className="text-3xl">{meta.icon}</span>
                 <span>
-                  <span className="block text-lg font-semibold text-gray-900">{meta.label}</span>
-                  <span className="block text-sm text-gray-500">{meta.blurb}</span>
+                  <span className="block text-lg font-semibold text-slate-900">{meta.label}</span>
+                  <span className="block text-sm text-slate-500">{meta.blurb}</span>
                 </span>
                 <span className="ml-auto text-green-600 font-bold">
                   {busyModule === mod ? "..." : "→"}
@@ -122,7 +122,7 @@ export default function SelectWorkspacePage() {
           })}
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-8">
+        <p className="text-center text-xs text-slate-400 mt-8">
           BIK Prestige Enterprise — Built by BloomCore Technologies
         </p>
       </div>

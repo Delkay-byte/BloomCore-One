@@ -1,5 +1,6 @@
 "use client";
 
+import { CreditCard, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getWithdrawals, processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
@@ -147,8 +148,8 @@ export default function SusuWithdrawalsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Withdrawals</h1>
-          <p className="text-gray-500 mt-1">Process and view customer withdrawals</p>
+          <h1 className="text-2xl font-bold text-slate-900">Withdrawals</h1>
+          <p className="text-slate-500 mt-1">Process and view customer withdrawals</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">
           {showForm ? "Cancel" : "+ Process Withdrawal"}
@@ -156,15 +157,15 @@ export default function SusuWithdrawalsPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-error mb-4">
           {error}
-          <button onClick={() => setError("")} className="ml-2">✕</button>
+          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+        <div className="banner banner-success mb-4">
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2">✕</button>
+          <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
 
@@ -191,7 +192,7 @@ export default function SusuWithdrawalsPage() {
               onChange={(e) => handleSearch(e.target.value)}
             />
             {searchResults.length > 0 && (
-              <div className="border border-gray-200 rounded-lg mt-1 max-h-48 overflow-y-auto">
+              <div className="border border-slate-200 rounded-lg mt-1 max-h-48 overflow-y-auto">
                 {searchResults.map((c) => (
                   <button
                     key={c.id}
@@ -200,10 +201,10 @@ export default function SusuWithdrawalsPage() {
                       setSearchQuery(c.fullName);
                       setSearchResults([]);
                     }}
-                    className="w-full text-left p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                    className="w-full text-left p-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
                   >
                     <div className="font-medium text-sm">{c.fullName}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-slate-500">
                       {c.customerId} &bull; {c.accounts[0]?.accountId}
                     </div>
                   </button>
@@ -215,7 +216,7 @@ export default function SusuWithdrawalsPage() {
           {selectedCustomer && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
               <div className="font-medium">{selectedCustomer.fullName}</div>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-slate-600">
                 Account: {selectedCustomer.accounts[0]?.accountId} &bull; Daily:{" "}
                 <CediAmount amount={selectedCustomer.accounts[0]?.dailyContribution || 0} />/day
               </div>
@@ -276,8 +277,8 @@ export default function SusuWithdrawalsPage() {
             <div className="spinner"></div>
           </div>
         ) : withdrawals.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-2">🏧</p>
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><CreditCard size={36} /></p>
             <p className="font-medium">No withdrawals yet</p>
           </div>
         ) : (
@@ -301,14 +302,14 @@ export default function SusuWithdrawalsPage() {
                       <td className="text-sm">{formatDateTime(w.createdAt)}</td>
                       <td>
                         <div className="font-medium text-sm">{w.account.customer.fullName}</div>
-                        <div className="text-xs text-gray-500">{w.account.customer.customerId}</div>
+                        <div className="text-xs text-slate-500">{w.account.customer.customerId}</div>
                       </td>
                       <td className="font-mono text-sm"><CediAmount amount={w.requestedAmount} /></td>
                       <td className="font-mono text-sm">
                         {w.commissionAmount > 0 ? (
                           <span className="text-orange-600"><CediAmount amount={w.commissionAmount} /></span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                       <td className="font-mono text-sm font-semibold"><CediAmount amount={w.netAmount} /></td>
@@ -322,8 +323,8 @@ export default function SusuWithdrawalsPage() {
               </table>
             </div>
             {pagination && pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
                   Page {pagination.page} of {pagination.totalPages}
                 </p>
                 <div className="flex gap-2">

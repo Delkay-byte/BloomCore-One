@@ -1,11 +1,91 @@
 @import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
+/* ============================================================================
+   BIK PRESTIGE ENTERPRISE — DESIGN TOKENS
+   ============================================================================
+   Single source of truth for the platform's visual identity. The palette is
+   derived from the existing brand assets (public/branding/*.svg): dark green
+   #0E4D34 and gold #C9A227. Bright green (#16a34a, the long-standing UI
+   primary) is retained as the SUCCESS/positive semantic, not as the brand
+   primary. Every component must use these semantic tokens — arbitrary one-off
+   hex values in page markup are a defect.
+   ========================================================================== */
+@theme {
+  /* Brand — anchored on the logo's dark green */
+  --color-brand-50: #f0f7f4;
+  --color-brand-100: #dcece5;
+  --color-brand-200: #b9d8cb;
+  --color-brand-300: #8fbdae;
+  --color-brand-400: #5f9d8c;
+  --color-brand-500: #3d8070;
+  --color-brand-600: #256b58;
+  --color-brand-700: #0e4d34;
+  --color-brand-800: #0b3f2a;
+  --color-brand-900: #083122;
+  --color-brand-950: #052117;
+
+  /* Gold — brand accent, used sparingly (active indicators, highlights) */
+  --color-gold-50: #fbf7ea;
+  --color-gold-100: #f5edcd;
+  --color-gold-200: #ead894;
+  --color-gold-300: #e0c25c;
+  --color-gold-400: #d4ac33;
+  --color-gold-500: #c9a227;
+  --color-gold-600: #a88420;
+  --color-gold-700: #86691b;
+  --color-gold-800: #6b5417;
+  --color-gold-900: #574414;
+
+  /* Semantic roles (aligned with the palette the product already used) */
+  --color-success: #16a34a;
+  --color-success-strong: #15803d;
+  --color-success-soft: #dcfce7;
+  --color-success-ink: #166534;
+
+  --color-danger: #dc2626;
+  --color-danger-strong: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-danger-ink: #991b1b;
+
+  --color-warning: #d97706;
+  --color-warning-soft: #fef9c3;
+  --color-warning-ink: #854d0e;
+
+  --color-info: #1d4ed8;
+  --color-info-soft: #dbeafe;
+  --color-info-ink: #1e40af;
+
+  /* Surfaces & lines */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #f1f5f9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+
+  /* Text */
+  --color-ink-strong: #0f172a;
+  --color-ink: #334155;
+  --color-ink-muted: #64748b;
+  --color-ink-faint: #94a3b8;
+
+  /* Radii */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-raised: 0 2px 6px -1px rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+  --shadow-overlay: 0 10px 30px -5px rgb(15 23 42 / 0.2), 0 4px 10px -4px rgb(15 23 42 / 0.12);
+}
+
 body {
   /* Noto Sans is placed after system fonts so visual appearance is unchanged,
      but when the cedi glyph (U+20B5) is missing from Roboto/system fonts
      the browser falls back to Noto Sans which contains it. */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  color: var(--color-ink);
+  background-color: var(--color-surface-muted);
 }
 
 /*
@@ -17,6 +97,30 @@ body {
   font-family: "Noto Sans", system-ui, -apple-system, sans-serif;
 }
 
+/* Tabular figures for financial columns — digits align in tables. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible, consistent keyboard focus everywhere (WCAG 2.4.7). */
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+}
+
+/* Respect reduced-motion preferences (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Form controls
+   --------------------------------------------------------------------------- */
 input[type="text"],
 input[type="email"],
 input[type="password"],
@@ -27,69 +131,92 @@ select,
 textarea {
   width: 100%;
   padding: 0.625rem 0.875rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
   font-size: 0.875rem;
   line-height: 1.25rem;
   transition: border-color 0.15s, box-shadow 0.15s;
-  background-color: white;
+  background-color: var(--color-surface);
+  color: var(--color-ink-strong);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px #bbf7d0;
+  border-color: var(--color-brand-600);
+  box-shadow: 0 0 0 3px var(--color-brand-200);
 }
 
 input:disabled,
 select:disabled,
 textarea:disabled {
-  background-color: #f1f5f9;
+  background-color: var(--color-surface-sunken);
   cursor: not-allowed;
 }
 
+/* Numeric inputs: right-aligned, monospaced digits for financial entry. */
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   Buttons
+   --------------------------------------------------------------------------- */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   padding: 0.625rem 1.25rem;
   font-size: 0.875rem;
-  font-weight: 500;
-  border-radius: 0.5rem;
-  transition: all 0.15s;
+  font-weight: 600;
+  border-radius: var(--radius-control);
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.05s;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   line-height: 1.25rem;
 }
 
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
 .btn-primary {
-  background-color: #16a34a;
-  color: white;
+  background-color: var(--color-brand-700);
+  color: #ffffff;
 }
 
 .btn-primary:hover {
-  background-color: #15803d;
+  background-color: var(--color-brand-800);
 }
 
 .btn-secondary {
-  background-color: white;
-  color: #0f172a;
-  border: 1px solid #e2e8f0;
+  background-color: var(--color-surface);
+  color: var(--color-ink-strong);
+  border-color: var(--color-line);
 }
 
 .btn-secondary:hover {
-  background-color: #f8fafc;
+  background-color: var(--color-surface-muted);
 }
 
 .btn-danger {
-  background-color: #dc2626;
-  color: white;
+  background-color: var(--color-danger);
+  color: #ffffff;
 }
 
 .btn-danger:hover {
-  background-color: #b91c1c;
+  background-color: var(--color-danger-strong);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-brand-700);
+}
+
+.btn-ghost:hover {
+  background-color: var(--color-brand-50);
 }
 
 .btn-sm {
@@ -102,49 +229,81 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
+/* ---------------------------------------------------------------------------
+   Surfaces
+   --------------------------------------------------------------------------- */
 .card {
-  background-color: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
   padding: 1.5rem;
+  box-shadow: var(--shadow-card);
 }
 
+/* Section label used inside cards and tables. */
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Badges & status
+   --------------------------------------------------------------------------- */
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   padding: 0.25rem 0.625rem;
   font-size: 0.75rem;
   font-weight: 500;
   border-radius: 9999px;
+  white-space: nowrap;
 }
 
 .badge-green {
-  background-color: #dcfce7;
-  color: #166534;
+  background-color: var(--color-success-soft);
+  color: var(--color-success-ink);
 }
 
 .badge-red {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: var(--color-danger-soft);
+  color: var(--color-danger-ink);
 }
 
 .badge-yellow {
-  background-color: #fef9c3;
-  color: #854d0e;
+  background-color: var(--color-warning-soft);
+  color: var(--color-warning-ink);
 }
 
 .badge-blue {
-  background-color: #dbeafe;
-  color: #1e40af;
+  background-color: var(--color-info-soft);
+  color: var(--color-info-ink);
 }
 
 .badge-gray {
-  background-color: #f1f5f9;
-  color: #475569;
+  background-color: var(--color-surface-sunken);
+  color: var(--color-ink);
 }
 
+.badge-brand {
+  background-color: var(--color-brand-100);
+  color: var(--color-brand-800);
+}
+
+.badge-gold {
+  background-color: var(--color-gold-100);
+  color: var(--color-gold-800);
+}
+
+/* ---------------------------------------------------------------------------
+   Data tables
+   --------------------------------------------------------------------------- */
 .table-container {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -154,40 +313,71 @@ table {
 
 th {
   text-align: left;
-  padding: 0.75rem 1rem;
+  padding: 0.625rem 1rem;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
-  border-bottom: 1px solid #e2e8f0;
+  color: var(--color-ink-muted);
+  border-bottom: 1px solid var(--color-line);
+  background-color: var(--color-surface);
 }
 
 td {
   padding: 0.75rem 1rem;
   font-size: 0.875rem;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink);
 }
 
-tr:hover {
-  background-color: #f8fafc;
+tbody tr:hover {
+  background-color: var(--color-surface-muted);
 }
 
+/* Right-aligned financial cell helper. */
+th.num, td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   Loading
+   --------------------------------------------------------------------------- */
 .spinner {
   width: 1.5rem;
   height: 1.5rem;
-  border: 2px solid #e2e8f0;
-  border-top-color: #16a34a;
+  border: 2px solid var(--color-line);
+  border-top-color: var(--color-brand-700);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
+}
+
+.spinner-sm {
+  width: 1rem;
+  height: 1rem;
+  border-width: 2px;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
+.skeleton {
+  background-color: var(--color-surface-sunken);
+  border-radius: var(--radius-control);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ---------------------------------------------------------------------------
+   Forms
+   --------------------------------------------------------------------------- */
 .error-text {
-  color: #dc2626;
+  color: var(--color-danger);
   font-size: 0.8125rem;
   margin-top: 0.25rem;
 }
@@ -201,11 +391,47 @@ tr:hover {
   font-size: 0.875rem;
   font-weight: 500;
   margin-bottom: 0.375rem;
-  color: #0f172a;
+  color: var(--color-ink-strong);
 }
 
 .form-hint {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--color-ink-muted);
   margin-top: 0.25rem;
+}
+
+/* Inline feedback banners (success / error / warning) — one pattern, used
+   everywhere instead of dozens of hand-rolled colour copies. */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-control);
+  font-size: 0.875rem;
+  border: 1px solid transparent;
+}
+
+.banner-success {
+  background-color: var(--color-success-soft);
+  border-color: #bbf7d0;
+  color: var(--color-success-ink);
+}
+
+.banner-error {
+  background-color: var(--color-danger-soft);
+  border-color: #fecaca;
+  color: var(--color-danger-ink);
+}
+
+.banner-warning {
+  background-color: var(--color-warning-soft);
+  border-color: #fde68a;
+  color: var(--color-warning-ink);
+}
+
+.banner-info {
+  background-color: var(--color-info-soft);
+  border-color: #bfdbfe;
+  color: var(--color-info-ink);
 }

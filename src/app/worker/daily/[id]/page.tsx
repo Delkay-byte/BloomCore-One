@@ -1,4 +1,5 @@
 "use client";
+import { X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -117,18 +118,18 @@ export default function DailyAccountFormPage() {
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setSubmitting(false); setConfirmOpen(false); }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
-  if (!account) return <div className="text-center py-20"><p className="text-gray-500">Account not found</p><button onClick={() => router.push("/worker/dashboard")} className="btn btn-primary mt-4">Back to Dashboard</button></div>;
+  if (loading) return <div className="space-y-4 py-4" role="status" aria-label="Loading daily account"><div className="skeleton h-20 rounded-xl" /><div className="skeleton h-64 rounded-xl" /></div>;
+  if (!account) return <div className="text-center py-20"><p className="text-slate-500">Account not found</p><button onClick={() => router.push("/worker/dashboard")} className="btn btn-primary mt-4">Back to Dashboard</button></div>;
 
   if (account.status !== "draft") {
     return (
       <div>
-        <button onClick={() => router.push("/worker/dashboard")} className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block">← Back to Dashboard</button>
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">This report has been submitted and is now read-only.</div>
+        <button onClick={() => router.push("/worker/dashboard")} className="text-sm text-slate-500 hover:text-slate-700 mb-4 inline-block">← Back to Dashboard</button>
+        <div className="banner banner-success mb-4">This report has been submitted and is now read-only.</div>
         <div className="card">
           <h2 className="text-lg font-semibold mb-2">Daily Account — {formatDate(account.businessDate)}</h2>
-          <p className="text-gray-500 mb-4">{account.location.name}</p>
-          <p className="text-sm text-gray-500">Status: <span className="badge badge-green">{account.status}</span></p>
+          <p className="text-slate-500 mb-4">{account.location.name}</p>
+          <p className="text-sm text-slate-500">Status: <span className="badge badge-green">{account.status}</span></p>
         </div>
       </div>
     );
@@ -141,28 +142,28 @@ export default function DailyAccountFormPage() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => router.push("/worker/dashboard")} className="text-sm text-gray-500 hover:text-gray-700 inline-block">← Back to Dashboard</button>
+      <button onClick={() => router.push("/worker/dashboard")} className="text-sm text-slate-500 hover:text-slate-700 inline-block">← Back to Dashboard</button>
 
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-        <h1 className="text-lg font-bold text-gray-900">Daily Account</h1>
-        <p className="text-sm text-gray-500">{formatDate(account.businessDate)} &bull; {account.location.name}</p>
+      <div className="card !p-4">
+        <h1 className="text-lg font-bold text-slate-900">Daily Account</h1>
+        <p className="text-sm text-slate-500">{formatDate(account.businessDate)} &bull; {account.location.name}</p>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
-      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      {error && <div className="banner banner-error text-sm">{error}</div>}
+      {success && <div className="banner banner-success text-sm">{success}</div>}
 
       <div className="flex gap-1 overflow-x-auto pb-2">
         {steps.map((s) => (
-          <button key={s.num} onClick={() => setStep(s.num)} className={`flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${step === s.num ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+          <button key={s.num} onClick={() => setStep(s.num)} aria-current={step === s.num ? "step" : undefined} className={`flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${step === s.num ? "bg-brand-700 text-white" : "bg-slate-100 text-slate-600"}`}>
             {s.num}. {s.label}
           </button>
         ))}
       </div>
 
       {step === 1 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
+        <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Starting Balances</h2>
-          <p className="text-sm text-gray-500">Enter the balances you started business with today.</p>
+          <p className="text-sm text-slate-500">Enter the balances you started business with today.</p>
           <div className="form-group"><label className="form-label">Starting Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money available when you started the day." /></label><input type="number" step="0.01" min="0" value={openingMomoFloat || ""} onChange={(e) => setOpeningMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="form-group"><label className="form-label">Starting Cash (GH&#x20B5;) <InfoTooltip text="Physical business cash you had at the beginning of the day." /></label><input type="number" step="0.01" min="0" value={openingCash || ""} onChange={(e) => setOpeningCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <button onClick={() => setStep(2)} className="btn btn-primary w-full">Next: Daily Totals →</button>
@@ -170,9 +171,9 @@ export default function DailyAccountFormPage() {
       )}
 
       {step === 2 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
+        <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Daily Business Totals</h2>
-          <p className="text-sm text-gray-500">Enter the summary totals for today&apos;s operations.</p>
+          <p className="text-sm text-slate-500">Enter the summary totals for today&apos;s operations.</p>
           <div className="form-group"><label className="form-label">Money Added to MoMo (GH&#x20B5;) <InfoTooltip text="Total money added to your MoMo balance through customer deposits." /></label><input type="number" step="0.01" min="0" value={totalCashIn || ""} onChange={(e) => setTotalCashIn(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="form-group"><label className="form-label">Money Paid from MoMo (GH&#x20B5;) <InfoTooltip text="Total MoMo money paid to customers who withdrew money." /></label><input type="number" step="0.01" min="0" value={totalCashOut || ""} onChange={(e) => setTotalCashOut(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="form-group"><label className="form-label">Cash Received (GH&#x20B5;) <InfoTooltip text="Physical cash received during the day." /></label><input type="number" step="0.01" min="0" value={totalCashReceived || ""} onChange={(e) => setTotalCashReceived(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
@@ -184,13 +185,13 @@ export default function DailyAccountFormPage() {
       )}
 
       {step === 3 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
+        <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Business Expenses <InfoTooltip text="Money spent from business cash for approved business expenses (e.g. transport, phone/data, stationery, minor repairs)." /></h2>
           {expenses.map((expense, index) => (
             <div key={index} className="flex gap-2 items-start">
               <div className="flex-1"><input type="text" placeholder="Description (e.g. Transport)" value={expense.description} onChange={(e) => updateExpense(index, "description", e.target.value)} /></div>
               <div className="w-32"><input type="number" step="0.01" min="0" placeholder="Amount" value={expense.amount || ""} onChange={(e) => updateExpense(index, "amount", parseFloat(e.target.value) || 0)} /></div>
-              <button onClick={() => removeExpense(index)} className="text-red-500 hover:text-red-700 p-2">✕</button>
+              <button type="button" onClick={() => removeExpense(index)} className="text-red-500 hover:text-red-700 p-2" aria-label={`Remove expense ${index + 1}`}><X size={16} aria-hidden /></button>
             </div>
           ))}
           <button onClick={addExpense} className="btn btn-secondary btn-sm w-full">+ Add Expense</button>
@@ -200,9 +201,9 @@ export default function DailyAccountFormPage() {
       )}
 
       {step === 4 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
+        <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Ending Balances</h2>
-          <p className="text-sm text-gray-500">Count and enter what you actually have at the end of business today.</p>
+          <p className="text-sm text-slate-500">Count and enter what you actually have at the end of business today.</p>
           <div className="form-group"><label className="form-label">Ending Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money you have at the end of the day." /></label><input type="number" step="0.01" min="0" value={closingMomoFloat || ""} onChange={(e) => setClosingMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="form-group"><label className="form-label">Ending Cash on Hand (GH&#x20B5;) <InfoTooltip text="Physical business cash available at the location." /></label><input type="number" step="0.01" min="0" value={closingCash || ""} onChange={(e) => setClosingCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="flex gap-3"><button onClick={() => setStep(3)} className="btn btn-secondary flex-1">← Back</button><button onClick={() => setStep(5)} className="btn btn-primary flex-1">Next: Review →</button></div>
@@ -211,7 +212,7 @@ export default function DailyAccountFormPage() {
 
       {step === 5 && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div className="card">
             <h2 className="text-lg font-semibold mb-4">Review — Today&apos;s Account</h2>
             <div className="space-y-3">
               {/* MoMo Balance */}
@@ -263,12 +264,12 @@ export default function DailyAccountFormPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div className="card">
             <h2 className="text-lg font-semibold mb-3">Quick Summary</h2>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-600">Business Expenses</span><span className="font-mono"><CediAmount amount={getTotalExpenses()} /></span></div>
-              <div className="flex justify-between"><span className="text-gray-600">Commission Earned</span><span className="font-mono"><CediAmount amount={commission} /></span></div>
-              <div className="flex justify-between"><span className="text-gray-600">Other Money Received</span><span className="font-mono"><CediAmount amount={otherIncome} /></span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Business Expenses</span><span className="font-mono"><CediAmount amount={getTotalExpenses()} /></span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Commission Earned</span><span className="font-mono"><CediAmount amount={commission} /></span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Other Money Received</span><span className="font-mono"><CediAmount amount={otherIncome} /></span></div>
             </div>
           </div>
 
@@ -284,8 +285,8 @@ export default function DailyAccountFormPage() {
       {confirmOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 px-4" role="dialog" aria-modal="true" aria-labelledby="submit-title">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-            <h2 id="submit-title" className="text-lg font-semibold text-gray-900">Submit today&apos;s account?</h2>
-            <p className="text-sm text-gray-600 mt-2">After you submit, this account becomes read-only. Please make sure the figures are correct.</p>
+            <h2 id="submit-title" className="text-lg font-semibold text-slate-900">Submit today&apos;s account?</h2>
+            <p className="text-sm text-slate-600 mt-2">After you submit, this account becomes read-only. Please make sure the figures are correct.</p>
             <div className="flex gap-3 mt-6">
               <button type="button" onClick={() => setConfirmOpen(false)} className="btn btn-secondary flex-1" disabled={submitting}>Cancel</button>
               <button type="button" onClick={handleSubmit} className="btn btn-primary flex-1" disabled={submitting}>{submitting ? "Submitting..." : "Submit Today&apos;s Account"}</button>

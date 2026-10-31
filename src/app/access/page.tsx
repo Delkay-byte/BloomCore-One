@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import QRCode from "qrcode";
+import { Footprints, Smartphone, UserRound } from "lucide-react";
 import { ACCESS_LINKS, type AccessLink } from "@/lib/access-links";
+
+const LINK_ICONS = { customer: UserRound, momo: Smartphone, susu: Footprints } as const;
+function LinkIcon({ link }: { link: AccessLink }) {
+  const Icon = LINK_ICONS[link.icon as keyof typeof LINK_ICONS] ?? UserRound;
+  return <Icon size={30} className={link.admin ? "text-gold-400" : "text-brand-600"} aria-hidden="true" />;
+}
 
 function downloadSvg(filename: string, svg: string) {
   const blob = new Blob([svg], { type: "image/svg+xml" });
@@ -87,8 +94,8 @@ export default function AccessPage() {
             height={112}
           />
           <h1 className="sr-only">BIK Prestige Enterprise</h1>
-          <h2 className="text-xl font-bold text-gray-900 mt-3">How would you like to sign in?</h2>
-          <p className="text-gray-500 mt-1 text-sm">Choose the option that matches your role.</p>
+          <h2 className="text-xl font-bold text-slate-900 mt-3">How would you like to sign in?</h2>
+          <p className="text-slate-500 mt-1 text-sm">Choose the option that matches your role.</p>
         </div>
 
         <div className="space-y-4">
@@ -100,18 +107,18 @@ export default function AccessPage() {
               }`}
             >
               <div className="flex items-start gap-3">
-                <span className="text-3xl" aria-hidden="true">{link.icon}</span>
+                <LinkIcon link={link} />
                 <div className="flex-1 min-w-0">
-                  <h3 className={`text-lg font-semibold ${link.admin ? "text-white" : "text-gray-900"}`}>
+                  <h3 className={`text-lg font-semibold ${link.admin ? "text-white" : "text-slate-900"}`}>
                     {link.title}
                   </h3>
-                  <p className={`text-sm ${link.admin ? "text-slate-300" : "text-gray-500"}`}>
+                  <p className={`text-sm ${link.admin ? "text-slate-300" : "text-slate-500"}`}>
                     {link.description}
                   </p>
                 </div>
               </div>
 
-              <p className={`text-xs mt-3 ${link.admin ? "text-slate-400" : "text-gray-500"}`}>
+              <p className={`text-xs mt-3 ${link.admin ? "text-slate-400" : "text-slate-500"}`}>
                 {link.instruction}
               </p>
 
@@ -128,7 +135,7 @@ export default function AccessPage() {
               </div>
 
               <p
-                className={`text-center text-xs mt-2 break-all ${link.admin ? "text-slate-400" : "text-gray-400"}`}
+                className={`text-center text-xs mt-2 break-all ${link.admin ? "text-slate-400" : "text-slate-400"}`}
               >
                 {fullUrl(link.shortPath)}
               </p>
@@ -195,7 +202,7 @@ export default function AccessPage() {
           }
         `}</style>
 
-        <p className="text-center text-xs text-gray-400 mt-8">
+        <p className="text-center text-xs text-slate-400 mt-8">
           Built by BloomCore Technologies
         </p>
       </div>

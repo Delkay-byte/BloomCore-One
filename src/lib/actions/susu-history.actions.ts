@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireTenantAdminSusu } from "@/lib/tenant";
 
 export interface HistoryTransaction {
   id: string;
@@ -72,7 +72,8 @@ export async function getFinancialHistory(params?: {
   page?: number;
   limit?: number;
 }) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
+  const tenantId = ctx.tenantId;
 
   const page = params?.page || 1;
   const limit = params?.limit || 50;
@@ -90,13 +91,14 @@ export async function getFinancialHistory(params?: {
   // Fetch contributions if needed
   if (!type || type === "contributions") {
     const contribWhere: Record<string, unknown> = {
+      tenantId,
       collectionDate: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.channel) contribWhere.channel = params.channel;
     if (params?.collectorId) contribWhere.collectorId = params.collectorId;
     if (params?.customerId) {
       const customerAccounts = await db.susuAccount.findMany({
-        where: { customerId: params.customerId },
+        where: { customerId: params.customerId, tenantId },
         select: { id: true },
       });
       contribWhere.accountId = { in: customerAccounts.map((a) => a.id) };
@@ -163,11 +165,12 @@ export async function getFinancialHistory(params?: {
   // Fetch withdrawals if needed
   if (!type || type === "withdrawals") {
     const withdrawalWhere: Record<string, unknown> = {
+      tenantId,
       createdAt: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.customerId) {
       const customerAccounts = await db.susuAccount.findMany({
-        where: { customerId: params.customerId },
+        where: { customerId: params.customerId, tenantId },
         select: { id: true },
       });
       withdrawalWhere.accountId = { in: customerAccounts.map((a) => a.id) };
@@ -214,6 +217,7 @@ export async function getFinancialHistory(params?: {
   // Fetch remittances (money handed in) if needed
   if (!type || type === "remittances") {
     const remitWhere: Record<string, unknown> = {
+      tenantId,
       createdAt: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.collectorId) remitWhere.collectorId = params.collectorId;
@@ -279,14 +283,14 @@ export async function getFinancialHistory(params?: {
 }
 
 export async function searchCollectors(query: string) {
-  await requireAdmin();
+  const ctx = await requireTenantAdminSusu();
 
   if (!query || query.length < 2) return [];
 
   const normalizedQuery = query.trim().toLowerCase();
 
   const candidates = await db.collector.findMany({
-    where: { status: "active" },
+    where: { status: "active", tenantId: ctx.tenantId },
     include: { user: { select: { id: true, fullName: true, email: true } } },
     take: 100,
   });
