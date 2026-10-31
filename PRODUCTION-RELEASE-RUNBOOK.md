@@ -1,118 +1,146 @@
-# PRODUCTION RELEASE RUNBOOK — Platform Foundation Activation
+# PRODUCTION RELEASE RUNBOOK — Multi-Tenant SaaS Activation
 
-**Release:** multi-tenant foundation → Render production (`bik-prestige`)
-**Prepared:** 2026-10-30 · **Status:** PREFLIGHT PENDING OPERATOR EXECUTION
-**Local HEAD:** `41db51d` (master) · **origin/master & origin/main & production:** `a30d2aa`
-**Unpushed:** 7 commits — Phase 1 boundary is `0a765aa`; Phase 2 = `e092681`…`379a465` + docs `41db51d`
+**Release:** multi-tenant platform foundation + Phase 2 UI → Render production
+**Executed:** 2026-10-31 · **Status:** DATABASE MIGRATED — MAIN PROMOTION PENDING
+**Production branch:** `main` · **Previous `main`:** `b88a10a`
+**Neon:** project `BIK Prestige`, database `neondb`, PostgreSQL 18.6, region `us-east-2`
+**Render:** `BIK-Prestige-Enterprise` (`srv-dbihvrmgekts73fdcbj0`), Oregon, tracks `main`
 
-## Two-stage release plan (mandatory order)
+This runbook is now the record of an executed release, not a plan. The two-stage
+Phase 1 / Phase 2 split below is superseded: the whole foundation and the UI
+transformation ship together because the database was migrated and verified
+first. Keep the verification and rollback sections as the standing procedure.
 
-- **Stage 1 — Phase 1 only:** `git push origin master:<SHA 0a765aa>` — i.e. push
-  `0a765aa` as the new `master`/`main` head (fast-forward from `a30d2aa`, no
-  force). Render deploys the foundation WITHOUT the UI commits. Verify live
-  (platform + BIK + isolation per below).
-- **Stage 2 — Phase 2:** only after Stage 1 passes live verification, push
-  `41db51d` (fast-forward; ships the 4 UI commits + the docs commits).
+> All commands run from `Momo module/`. Connection strings come from the Render
+> service's environment variables (`DIRECT_URL` for schema administration) and
+> are never committed, printed or pasted into chat.
 
-> **Rule:** do not push until every stage below has passed. All commands run from
-> `Momo module/` with `DATABASE_URL` pointing at the **production** PostgreSQL
-> database, supplied by the operator (never committed, never pasted into chat).
-> Sanity-check before every stage: `echo ${DATABASE_URL:0:19}…` must read
-> `postgresql://…` — never `file:…`.
+## What actually happened (order matters)
 
-## REHEARSAL EVIDENCE (PostgreSQL, 2026-10-30)
+| Step | Action | Result |
+|---|---|---|
+| 1 | Integration branch `promotion/multitenant-saas` from `origin/main` (`b88a10a`), `git merge --no-ff master` (`0b372a3`) | merge commit `c075aad`, **no conflicts** |
+| 2 | Neon migration-history inspection | `_prisma_migrations` **absent** — database built by `db push` |
+| 3 | Baseline: 9 historical migrations marked applied | proven additive-superset, see below |
+| 4 | `prisma migrate deploy` → `20261029_multitenant_platform_foundation` | applied |
+| 5 | `prisma migrate deploy` → `20261031_tenant_ownership_integrity` | applied |
+| 6 | `prisma migrate diff` Neon → schema | **empty** (no drift) |
+| 7 | `node scripts/backfill-bik-tenant.mjs --dry-run` then apply | tenant `BIK-HQ-001` created, ACTIVE, MoMo + Susu enabled |
+| 8 | Local verification: generate, typecheck, lint, 196 tests, build | all pass |
+| 9 | Push integration branch → `main` (fast-forward) | Render deploys |
+| 10 | Owner runs the two bootstrap scripts | Platform Super Admin + BIK tenant admin |
 
-The complete Stage A–F procedure was executed end-to-end against a throwaway
-PostgreSQL 16 container (`bik-release-rehearsal-pg`, port 55444, database
-`bik_pilot`) seeded with synthetic pre-tenancy rows covering all 19 models:
+## Stage 0 — Pre-release state (verified)
 
-- Backup `pg_dump --format=custom` + `pg_restore --list` verification: PASS
-- `prisma db push --schema=prisma/schema-pg.prisma`: PASS (additive; platform
-  tables + 20 `tenantId` columns confirmed via information_schema)
-- Dry-run: read-only, correctly reported 21 unassigned rows / 19 tables
-- Bootstrap: created `PlatformSuperAdmin` (separate table; BIK admin untouched)
-- Backfill: all 21 rows assigned to `BIK-HQ-001`; counts preserved
-- 19-model verification: every row BIK-owned, zero nulls, zero foreign tenants
-- Idempotency re-run: PASS; legacy password hash untouched; `primaryAdminUserId`
-  set to the existing legacy admin
-- **Not production evidence.** Production stages remain operator-run.
+- `origin/main` = `b88a10a`, `origin/master` = `a30d2aa`, local `master` = `0b372a3` (8 commits ahead, preserved as backup).
+- Neon: 19 tables, 94 indexes, 202 constraints, **0 rows in every table**.
+- No `_prisma_migrations` table → the schema had been created by the old build's
+  `prisma db push`, so migration history had to be baselined before any
+  `migrate deploy`.
 
----
+## Stage 1 — Migration baseline (the part that must never be skipped)
 
-## Stage A — Production backup (BLOCKING)
+`prisma migrate deploy` on a database with no `_prisma_migrations` table would
+try to re-run `20260823_init_postgresql` and fail. Marking migrations applied
+without proof would be falsifying history. The proof used:
 
-From the Render dashboard (Postgres instance → Backups) or locally:
+1. A throwaway **PostgreSQL 18.6** container (`bik-pg18-rehearsal`) was brought
+   to the exact historical end-state with the 9 pre-tenancy migrations.
+2. `prisma migrate diff --from-url <Neon> --to-url <rehearsal>` produced a single
+   statement: `DROP INDEX "OfflineTransaction_idempotencyKey_idx"`. That index is
+   declared in `schema-pg.prisma` (`@@index([idempotencyKey])`) and was created by
+   `db push`, so **Neon was a strict superset of the historical end-state** —
+   every historical migration's effects were proven present.
+3. Each of the 9 migrations was then recorded with
+   `prisma migrate resolve --applied <name>`.
 
-```bash
-# Render CLI / dashboard equivalent:
-pg_dump "$DATABASE_URL" --no-owner --format=custom \
-  -f "backups/prod-pre-tenancy-$(date +%Y%m%d-%H%M).dump"
-# Verify it is restorable:
-pg_restore --list "backups/prod-pre-tenancy-*.dump" > /dev/null && echo "BACKUP VERIFIED"
-```
+Never baseline a migration whose objects are not proven present. If the diff
+above had shown missing tables, columns or constraints, the correct action is to
+stop and report, not to resolve.
 
-Record: database identity, dump filename, timestamp, size. **Do not continue if
-this cannot be verified.**
+## Stage 2 — Tenant migration (applied)
 
-Pre-count reference snapshot (also serves Stage F):
+`20261029_multitenant_platform_foundation` is additive: 3 tables
+(`BusinessTenant`, `PlatformSuperAdmin`, `PlatformAuditLog`), 19 nullable
+`tenantId` columns, 19 tenant indexes, the `Location` unique swap, and one audit
+foreign key. 19 statements are `ADD COLUMN IF NOT EXISTS`; there is no
+`DROP TABLE`, `TRUNCATE` or `DELETE`.
 
-```bash
-node scripts/inventory-database.ts   # or: the count SQL in Appendix 1
-```
+Two defects in that migration were found during review and are closed by
+`20261031_tenant_ownership_integrity` (kept as a separate migration so the
+original file stays byte-identical to the authored commit):
 
-## Stage B — Additive schema (old application stays live)
+1. It never created the 19 `tenantId` foreign keys that the Prisma schema
+   declares, so the migrated database did not match `schema-pg.prisma`.
+2. It removed the global `Location.code` unique with
+   `ALTER TABLE … DROP CONSTRAINT IF EXISTS`, which is a **no-op** when that
+   object is a unique *index* — which is what `prisma db push` creates. The
+   corrective migration drops the constraint *and* the index, creates the
+   missing `OfflineTransaction_idempotencyKey_idx` only when absent, and adds the
+   19 foreign keys inside `DO $$ … EXCEPTION WHEN duplicate_object` blocks.
 
-Run **locally** against production (the Render shell checks out the OLD commit
-`a30d2aa`, whose schema files predate tenancy — do not run db push from there):
+Both migration paths were rehearsed before touching production:
 
-```bash
-DATABASE_URL="$PROD_DATABASE_URL" npx prisma db push --schema=prisma/schema-pg.prisma --skip-generate
-DATABASE_URL="$PROD_DATABASE_URL" node scripts/ensure-columns.js
-```
+- drifted database (10 migrations applied, index still present) → residual diff empty
+- empty database → all 11 migrations → residual diff empty
 
-Verified additive: 3 `CREATE TABLE IF NOT EXISTS` (BusinessTenant,
-PlatformSuperAdmin, PlatformAuditLog), 19 nullable `tenantId` columns + indexes,
-Location unique swap. No DROP/TRUNCATE/DELETE. The deployed old Prisma client
-is column-explicit and unaffected. If anything fails here: STOP — the old app
-keeps working (nullable columns are invisible to it).
+Post-migration production state: **22 tables, 128 indexes, 252 constraints,
+19 `tenantId` foreign keys, `prisma migrate diff` empty, `migrate status` "up to
+date"**.
 
-## Stage C — Backfill dry-run (read-only)
-
-```bash
-DATABASE_URL="$PROD_DATABASE_URL" node scripts/backfill-bik-tenant.mjs --dry-run
-```
-
-Accept only if: provider prints `PostgreSQL`; every table's "without tenant"
-count matches Stage A expectations; zero unexpected/ambiguous ownership is
-reported. Investigate any surprise before proceeding.
-
-## Stage D — Platform Super Admin bootstrap
-
-```bash
-DATABASE_URL="$PROD_DATABASE_URL" node scripts/bootstrap-platform-admin.mjs \
-  --email "<bloomcore operator email>" --name "<operator name>"
-```
-
-Either supply `PLATFORM_ADMIN_PASSWORD` (≥12 chars, not displayed) or capture
-the printed ONE-TIME password from the script output (shown once). This creates
-a `PlatformSuperAdmin` — it never touches the BIK tenant administrator.
-
-## Stage E — Actual backfill
+## Stage 3 — BIK tenant
 
 ```bash
-DATABASE_URL="$PROD_DATABASE_URL" node scripts/backfill-bik-tenant.mjs
+DATABASE_URL="$NEON_DIRECT" node scripts/backfill-bik-tenant.mjs --dry-run
+DATABASE_URL="$NEON_DIRECT" node scripts/backfill-bik-tenant.mjs
 ```
 
-Idempotent; assigns only rows with `tenantId IS NULL`; keeps all IDs, amounts,
-timestamps and relationships. Re-runs are safe.
+Result: exactly one tenant — `BIK-HQ-001`, name `BIK Prestige Enterprise`,
+`status = ACTIVE`, `onboardingStatus = COMPLETED`, `momoEnabled = true`,
+`susuEnabled = true`, `primaryAdminUserId = null` (set later by the tenant admin
+bootstrap). Re-running the script neither duplicates the tenant nor creates rows;
+it appends one `tenant.onboarding_updated` audit event per run, so run it once in
+production and use `--dry-run` for later checks.
 
-## Stage F — Backfill verification
+## Stage 4 — Administrator provisioning (owner-run, one time)
 
-Re-run the script once more (must print "none — every row already has a
-tenant" and preserve counts), then:
+Two separate identities, two separate scripts, two separate login routes. Do not
+substitute one for the other.
+
+```bash
+# Platform control plane (/platform/login) — NOT a tenant user
+DATABASE_URL="$NEON_DIRECT" node scripts/bootstrap-first-platform-super-admin.mjs \
+  --email "<owner email>" --name "<owner name>"
+
+# BIK business administration (/admin/login) — ordinary tenant User, role admin
+DATABASE_URL="$NEON_DIRECT" node scripts/bootstrap-bik-tenant-admin.mjs \
+  --email "<bik admin email>" --name "<bik admin name>"
+```
+
+Both prompts hide the password. Non-interactive alternative: export
+`PLATFORM_SUPER_ADMIN_PASSWORD` / `TENANT_ADMIN_PASSWORD` in the local shell for
+that one command and unset it afterwards. Neither variable belongs on Render.
+`PLATFORM_ADMIN_PASSWORD` and `scripts/bootstrap-platform-admin.mjs` are the
+older variants and remain unused by this release.
+
+## Stage 5 — Promotion
+
+```bash
+git push origin promotion/multitenant-saas:main   # fast-forward only, never --force
+```
+
+Then confirm the deployed SHA, not the deploy event:
+
+```bash
+curl -s https://bik-prestige-enterprise-pcxi.onrender.com/api/health
+# commit must equal the promoted main SHA
+curl -s -o /dev/null -w '%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/api/health/ready
+```
+
+## Stage 6 — Backfill verification SQL
 
 ```sql
--- Appendix 1: per-model counts + null check (all must show null_tenant = 0)
+-- Per-model counts + null check (all must show null_tenant = 0)
 SELECT 'User' t, COUNT(*) total, COUNT(*) FILTER (WHERE "tenantId" IS NULL) null_tenant FROM "User"
 UNION ALL SELECT 'Location', COUNT(*), COUNT(*) FILTER (WHERE "tenantId" IS NULL) FROM "Location"
 UNION ALL SELECT 'DailyAccount', COUNT(*), COUNT(*) FILTER (WHERE "tenantId" IS NULL) FROM "DailyAccount"
@@ -135,59 +163,55 @@ UNION ALL SELECT 'AuditLog', COUNT(*), COUNT(*) FILTER (WHERE "tenantId" IS NULL
 
 -- unexpected tenant IDs (must return exactly one row: BIK-HQ-001)
 SELECT t.code, COUNT(*) FROM "User" u JOIN "BusinessTenant" t ON t.id = u."tenantId" GROUP BY t.code;
-```
 
-## Stage G — Deploy
-
-```bash
-git push origin master        # ships all 6 commits: foundation + UI Phase 2
-```
-
-Watch the Render build (`prisma generate` → `db push` → `ensure-columns` →
-build), then confirm the live SHA:
-
-```bash
-curl -s https://bik-prestige-enterprise.onrender.com/api/health
-# "commit" must equal 379a4651bc58538d82269d882039af6f1d49ebf5
+-- orphaned ownership (both must be 0)
+SELECT COUNT(*) FROM "User" WHERE "tenantId" IS NOT NULL
+  AND "tenantId" NOT IN (SELECT id FROM "BusinessTenant");
 ```
 
 ## Post-deploy verification checklist
 
-Platform: `/platform/login` loads → operator signs in (change generated
-password) → dashboard shows BIK-HQ-001 active, both modules → audit trail has
-`platform.bootstrap` + backfill events → enrollment page loads.
-BIK admin: sign in normally (NO password reset) → dashboard, locations,
-workers, staff, reports, Money & History, Susu customers/collectors/
-contributions/withdrawals/remittances/history all load with existing data.
-MoMo worker + Susu collector + customer portal: sign in, confirm routes and
-workflows unchanged.
+**Platform control plane** — `/platform/login` loads → the bootstrap operator can
+sign in → dashboard counts load → tenant directory lists `BIK-HQ-001` as ACTIVE
+with MoMo + Susu → the tenant detail page shows its administrators → a platform
+action writes a `PlatformAuditLog` row → a tenant cookie alone cannot open
+`/platform/*` (redirects to `/platform/login`).
 
-## Live isolation test (Stage 9)
+**BIK tenant** — `/admin/login` loads → the tenant admin signs in → dashboard,
+locations, staff, Money & History, Susu customers/collectors/contributions/
+withdrawals/remittances/history load → MoMo and Susu are reachable because both
+are entitled → `/platform/dashboard` is unreachable with the tenant cookie.
 
-Create a clearly-marked verification tenant via `/platform/tenants/new`
-(name it e.g. "ZZ-VERIFY-DELETEME (Isolation Test)", MoMo+all or the module
-being tested, synthetic admin `verify-…@example.com`). Enroll a synthetic
-customer, then from the verification tenant's session attempt BIK's real
-customer/contribution/withdrawal/daily-account IDs — every attempt must be
-rejected ("not found"). Confirm BIK cannot see the test tenant's records.
-Then **suspend** the test tenant (records preserved, access blocked) — do not
-delete. Document it as a test record in the platform audit trail.
+**Isolation** — use the isolated test database, never production: create tenants
+A and B, then confirm A cannot read or modify B's customers, contributions,
+withdrawals and daily accounts, that search and CSV export stay tenant-scoped,
+that offline sync rejects a foreign `accountId`, and that a suspended tenant
+(`status != ACTIVE`) is denied by `getTenantContext`. Production itself must hold
+exactly one tenant.
 
 ## Rollback procedure
 
-1. **App only:** Render → rollback to the previous deploy (`a30d2aa`). The
-   additive DB structures stay; the old app ignores the new columns/tables and
-   tenant assignments. No data rollback is needed or wanted.
-2. **Data:** only if actual corruption is proven — `pg_restore` the Stage A
-   dump into a NEW database first, verify, then repoint. Never restore in place
-   over the live DB.
-3. Never run `prisma migrate reset`, `DROP DATABASE`, or reverse migrations.
+1. **App only:** Render → *Rollback* to the previous deploy. The schema stays; the
+   old client is column-explicit and ignores the new columns/tables.
+2. **Schema:** the tenant migration is additive, so no reverse migration is
+   needed. If an object must be removed, write a new forward migration — never
+   delete a migration file that has been applied.
+3. **Data:** there is no business data yet. Once records exist, take
+   `pg_dump --format=custom` from the direct host, verify with `pg_restore --list`,
+   and restore into a **new** Neon branch/database — never in place.
+4. Never run `prisma migrate reset`, `DROP DATABASE`, `--accept-data-loss`, or
+   force-push.
 
-## Known transitional note
+## Known transitional notes
 
-While both old and new app versions run, the Location unique constraint is
-per-tenant (`tenantId, code`). PostgreSQL treats NULLs as distinct, so two
-NULL-tenant rows could share a code between Stage B and Stage E. The window is
-minutes and the old single-business app is the only writer — acceptable; the
-backfill then re-establishes the invariant. Ensure Stage E follows Stage B
-promptly.
+- `tenantId` is intentionally **nullable** so the migration is safe on a live
+  database. Orphaned rows are prevented by the 19 foreign keys but *not* by
+  `NOT NULL`. Tightening to `NOT NULL` is a future migration, after the backfill
+  is confirmed and no code path inserts without a tenant.
+- Retention is `ON DELETE SET NULL` (Prisma's default for an optional relation).
+  Deleting a `BusinessTenant` row would therefore orphan its records rather than
+  delete them. Tenants must be suspended/archived, never deleted.
+- `Location.code` is now unique per tenant. PostgreSQL treats NULL tenants as
+  distinct, so two unassigned locations could share a code; no such rows exist.
+- `scripts/ensure-columns.js` is a legacy additive drift patcher and is **not**
+  part of the build or the release path.
