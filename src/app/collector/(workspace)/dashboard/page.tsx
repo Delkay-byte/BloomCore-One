@@ -286,10 +286,14 @@ export default function CollectorDashboardPage() {
       const authRes = await fetch("/api/auth/me?module=susu");
       const authUser = authRes.ok ? await authRes.json() : null;
       if (authUser?.userId) {
-        const userRes = await fetch(`/api/user/${authUser.userId}`);
+        // Profile and dashboard stats are independent — load them together
+        // instead of one after the other.
+        const [userRes, dashboardData] = await Promise.all([
+          fetch(`/api/user/${authUser.userId}`),
+          getCollectorDashboardStats(authUser.userId),
+        ]);
         const fullUser = userRes.ok ? await userRes.json() : null;
         setUser({ userId: authUser.userId, fullName: fullUser?.fullName || "" });
-        const dashboardData = await getCollectorDashboardStats(authUser.userId);
         setData(dashboardData as DashboardData | null);
       }
     } catch (err) { if (handleRedirect(err, setError, "Failed to load dashboard")) return;

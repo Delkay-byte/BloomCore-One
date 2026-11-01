@@ -5,10 +5,8 @@ import {
   getMomoSession,
   getSusuSession,
   getCustomerSession,
-  isSessionCurrent,
   clearAllSessions,
   readModuleCookie,
-  type JwtPayload,
   type ModuleName,
 } from "./auth";
 
@@ -105,13 +103,32 @@ export async function getTenantContext(
 
     if (!session?.userId) return null;
 
-    // Re-validate against the database (status + tokenVersion) — a cookie that
-    // was valid at login is not trusted on its own.
-    if (!(await isSessionCurrent(session))) return null;
-
-    // Customer portal sessions resolve a Customer, not a User.
+    // Re-validate against the database (status + tokenVersion) and read the
+    // user in ONE query — the session-currency check and the tenant chain
+    // need exactly the same row, so a separate isSessionCurrent() round-trip
+    // would only re-fetch it.
     if (session.role === "customer") {
-      return await getCustomerTenantContext(session);
+      // Customer sessions are validated against the Customer record, not User.
+      const customer = await db.customer.findUnique({
+        where: { id: session.userId },
+        select: {
+          id: true,
+          status: true,
+          tokenVersion: true,
+          portalEnabled: true,
+          tenantId: true,
+        },
+      });
+      if (
+        !customer ||
+        customer.status !== "active" ||
+        !customer.portalEnabled ||
+        (customer.tokenVersion ?? 0) !== (session.tokenVersion ?? 0)
+      ) {
+        return null;
+      }
+      if (!customer.tenantId) return null;
+      return await resolveCustomerTenant(customer.tenantId, customer.id);
     }
 
     const user = await db.user.findUnique({
@@ -120,12 +137,14 @@ export async function getTenantContext(
         id: true,
         role: true,
         status: true,
+        tokenVersion: true,
         tenantId: true,
         momoEnabled: true,
         susuEnabled: true,
       },
     });
     if (!user || user.status !== "active") return null;
+    if (user.tokenVersion !== (session.tokenVersion ?? 0)) return null;
 
     // No tenant assigned => not authorized for any tenant data. Fail closed.
     if (!user.tenantId) return null;
@@ -176,26 +195,10 @@ export async function getTenantContext(
   }
 }
 
-/** Customer portal variant: the tenant comes from the Customer record. */
-async function getCustomerTenantContext(
-  session: JwtPayload
-): Promise<TenantContext | null> {
-  const customer = await db.customer.findUnique({
-    where: { id: session.userId },
-    select: {
-      id: true,
-      status: true,
-      portalEnabled: true,
-      tenantId: true,
-    },
-  });
-  if (!customer || customer.status !== "active" || !customer.portalEnabled) {
-    return null;
-  }
-  if (!customer.tenantId) return null;
-
+/** Build the TenantContext from an already-verified tenant row (customer portal). */
+async function resolveCustomerTenant(tenantId: string, customerId: string): Promise<TenantContext | null> {
   const tenant = await db.businessTenant.findUnique({
-    where: { id: customer.tenantId },
+    where: { id: tenantId },
     select: {
       id: true,
       code: true,
@@ -215,7 +218,7 @@ async function getCustomerTenantContext(
     tenantName: tenant.name,
     momoEnabled: tenant.momoEnabled,
     susuEnabled: tenant.susuEnabled,
-    userId: customer.id,
+    userId: customerId,
     role: "customer",
     modules: ["susu"],
   };
