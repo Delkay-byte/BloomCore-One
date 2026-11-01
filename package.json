@@ -36,15 +36,16 @@
     "date-fns": "^4.4.0",
     "jose": "^6.2.10",
     "lucide-react": "^1.65.0",
-    "next": "16.3.2",
+    "next": "^16.4.3",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
+    "source-map-js": "^1.2.2",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
