@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "security/**"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   verify:
@@ -37,11 +38,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Tests
+      - name: Security dependency audit (critical only)
+        run: npm audit --audit-level=critical
+
+      - name: Tests (functional + security regression)
         run: npm test
         env:
           JWT_SECRET: ci-test-secret-not-for-production
           DATABASE_URL: file:../tests/test.db
+          # Turnstile is exercised with mocked responses in the test suite.
+          TURNSTILE_ENABLED: "false"
+          RATE_LIMIT_HMAC_SECRET: ci-rate-limit-key-not-for-production-32b
+          MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
       - name: Production build
         run: npm run build

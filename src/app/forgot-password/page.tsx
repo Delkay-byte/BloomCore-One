@@ -5,33 +5,38 @@ import { requestPasswordReset } from "@/lib/actions/password-recovery.actions";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
+import TurnstileWidget from "@/components/security/TurnstileWidget";
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [pilotToken, setPilotToken] = useState("");
   const [error, setError] = useState("");
+  const [challenge, setChallenge] = useState(0);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError("");
 
+    const formData = new FormData(e.currentTarget);
+    const email = String(formData.get("email") ?? "");
+    const token = formData.get("cf-turnstile-response");
+
     try {
-      const result = await requestPasswordReset(email);
+      const result = await requestPasswordReset(
+        email,
+        typeof token === "string" ? token : null
+      );
       if (result.success) {
         setSubmitted(true);
-        // Pilot mode: show the token since no email is configured yet
-        if (result._pilotToken) {
-          setPilotToken(result._pilotToken);
-        }
       } else {
         setError(result.error || "Something went wrong. Please try again.");
+        setChallenge((value) => value + 1);
       }
     } catch (err) {
       if (isRedirectError(err)) throw err;
       setError("Something went wrong. Please try again.");
+      setChallenge((value) => value + 1);
     } finally {
       setLoading(false);
     }
@@ -53,7 +58,7 @@ export default function ForgotPasswordPage() {
               </p>
 
               {error && (
-                <div className="banner banner-error mb-4 text-sm">
+                <div className="banner banner-error mb-4 text-sm" role="alert">
                   {error}
                 </div>
               )}
@@ -65,13 +70,14 @@ export default function ForgotPasswordPage() {
                     type="email"
                     id="email"
                     name="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email"
                     required
                     autoComplete="email"
                   />
                 </div>
+
+                <TurnstileWidget action="password_reset" resetSignal={challenge} />
+
                 <button
                   type="submit"
                   className="btn btn-primary w-full mt-2"
@@ -89,41 +95,17 @@ export default function ForgotPasswordPage() {
           ) : (
             <>
               <div className="text-center mb-6">
-                <p className="text-3xl mb-3">📧</p>
                 <h2 className="text-xl font-semibold mb-2">Check Your Email</h2>
                 <p className="text-sm text-slate-500">
                   If an account with this email exists, recovery instructions will be sent.
                 </p>
               </div>
 
-              {/* Pilot mode: show the recovery token directly */}
-              {pilotToken && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                  <p className="text-xs font-semibold text-yellow-800 mb-2">
-                    ⚠️ Pilot Mode — No Email Configured
-                  </p>
-                  <p className="text-xs text-yellow-700 mb-2">
-                    Copy this recovery token and paste it on the reset password page:
-                  </p>
-                  <div className="bg-white rounded border border-yellow-300 p-2 font-mono text-xs break-all">
-                    {pilotToken}
-                  </div>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(pilotToken);
-                    }}
-                    className="btn btn-secondary btn-sm w-full mt-2"
-                  >
-                    Copy Token
-                  </button>
-                </div>
-              )}
-
               <Link
                 href="/reset-password"
                 className="btn btn-primary w-full mt-4"
               >
-                Reset Password →
+                I have a recovery link
               </Link>
             </>
           )}

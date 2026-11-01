@@ -37,6 +37,10 @@ export async function cleanDatabase() {
   await prisma.businessTenant.deleteMany();
   await prisma.platformAuditLog.deleteMany();
   await prisma.platformSuperAdmin.deleteMany();
+  await prisma.sessionRecord.deleteMany();
+  await prisma.rateLimitCounter.deleteMany();
+  await prisma.authThrottle.deleteMany();
+  await prisma.turnstileTokenUse.deleteMany();
 }
 
 /**

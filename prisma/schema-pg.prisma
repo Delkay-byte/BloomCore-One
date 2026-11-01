@@ -4,8 +4,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   // Neon: runtime queries use the POOLED hostname (DATABASE_URL).
   // Schema administration (migrate / db push / introspect) uses the
   // UNPOOLED direct hostname (DIRECT_URL). DIRECT_URL is only required by
@@ -19,7 +19,7 @@ datasource db {
 
 model User {
   id                 String   @id @default(cuid())
-  tenantId String?
+  tenantId           String?
   email              String   @unique
   fullName           String
   phone              String?
@@ -29,82 +29,84 @@ model User {
   forcePasswordReset Boolean  @default(false)
   momoEnabled        Boolean  @default(false) // Module capability: MoMo worker
   susuEnabled        Boolean  @default(false) // Module capability: Susu collector
-  tokenVersion       Int      @default(0)     // Bumped to invalidate existing sessions
+  tokenVersion       Int      @default(0) // Bumped to invalidate existing sessions
   locationId         String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  location             Location?              @relation(fields: [locationId], references: [id])
-  dailyAccounts        DailyAccount[]
-  collector            Collector?
-  passwordResetTokens  PasswordResetToken[]
-  devices              DeviceEnrollment[]
-  recordedContributions Contribution[]        @relation("RecordedContributions")
-  receivedContributions Contribution[]        @relation("ReceivedContributions")
+  location              Location?            @relation(fields: [locationId], references: [id])
+  dailyAccounts         DailyAccount[]
+  collector             Collector?
+  passwordResetTokens   PasswordResetToken[]
+  devices               DeviceEnrollment[]
+  recordedContributions Contribution[]       @relation("RecordedContributions")
+  receivedContributions Contribution[]       @relation("ReceivedContributions")
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([role])
   @@index([status])
   @@index([locationId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model Location {
-  id          String   @id @default(cuid())
-  tenantId String?
-  name        String
-  code   String
-  description String?
-  address     String?
+  id           String   @id @default(cuid())
+  tenantId     String?
+  name         String
+  code         String
+  description  String?
+  address      String?
   contactPhone String?
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   users         User[]
   dailyAccounts DailyAccount[]
 
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
   @@index([status])
   @@index([code])
-  @@unique([tenantId, code])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model DailyAccount {
-  id                     String   @id @default(cuid())
-  tenantId String?
-  locationId             String
-  workerId               String
-  businessDate           DateTime
+  id           String   @id @default(cuid())
+  tenantId     String?
+  locationId   String
+  workerId     String
+  businessDate DateTime
 
-  openingMomoFloat       Decimal  @default(0)
-  openingCash            Decimal  @default(0)
-  totalCashIn            Decimal  @default(0)
-  totalCashOut           Decimal  @default(0)
-  totalCashReceived      Decimal  @default(0)
-  totalCashPaid          Decimal  @default(0)
-  commission             Decimal  @default(0)
-  otherIncome            Decimal  @default(0)
-  closingMomoFloat       Decimal  @default(0)
-  closingCash            Decimal  @default(0)
-  totalExpenses          Decimal  @default(0)
-  calculatedMomoVariance Decimal  @default(0)
-  calculatedCashVariance Decimal  @default(0)
+  openingMomoFloat       Decimal @default(0)
+  openingCash            Decimal @default(0)
+  totalCashIn            Decimal @default(0)
+  totalCashOut           Decimal @default(0)
+  totalCashReceived      Decimal @default(0)
+  totalCashPaid          Decimal @default(0)
+  commission             Decimal @default(0)
+  otherIncome            Decimal @default(0)
+  closingMomoFloat       Decimal @default(0)
+  closingCash            Decimal @default(0)
+  totalExpenses          Decimal @default(0)
+  calculatedMomoVariance Decimal @default(0)
+  calculatedCashVariance Decimal @default(0)
   reconciliationNote     String?
 
-  status                 String   @default("draft")
-  submittedAt            DateTime?
-  reviewedAt             DateTime?
-  reviewedBy             String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  status      String    @default("draft")
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  location Location @relation(fields: [locationId], references: [id])
-  worker   User     @relation(fields: [workerId], references: [id])
+  location Location  @relation(fields: [locationId], references: [id])
+  worker   User      @relation(fields: [workerId], references: [id])
   expenses Expense[]
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([locationId, businessDate])
   @@index([businessDate])
@@ -112,14 +114,12 @@ model DailyAccount {
   @@index([workerId])
   @@index([status])
   @@index([submittedAt])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model Expense {
   id             String   @id @default(cuid())
-  tenantId String?
+  tenantId       String?
   dailyAccountId String
   description    String
   amount         Decimal
@@ -127,15 +127,15 @@ model Expense {
 
   dailyAccount DailyAccount @relation(fields: [dailyAccountId], references: [id], onDelete: Cascade)
 
-  @@index([dailyAccountId])
-
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([dailyAccountId])
   @@index([tenantId])
 }
 
 model AuditLog {
   id         String   @id @default(cuid())
-  tenantId String?
+  tenantId   String?
   userId     String
   action     String
   entityType String
@@ -144,11 +144,11 @@ model AuditLog {
   ipAddress  String?
   createdAt  DateTime @default(now())
 
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
@@ -157,113 +157,115 @@ model AuditLog {
 // =====================
 
 model Customer {
-  id                String    @id @default(cuid())
-  tenantId String?
-  customerId        String    @unique // BIK-C-XXXXXX format, human-readable
-  fullName          String
-  phone             String?
-  email             String?   @unique
-  address           String?
-  status            String    @default("active") // active | inactive
-  registeredAt      DateTime  @default(now())
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id           String   @id @default(cuid())
+  tenantId     String?
+  customerId   String   @unique // BIK-C-XXXXXX format, human-readable
+  fullName     String
+  phone        String?
+  email        String?  @unique
+  address      String?
+  status       String   @default("active") // active | inactive
+  registeredAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Customer Portal
-  portalEnabled     Boolean   @default(false)
-  portalPasswordHash String?
+  portalEnabled            Boolean @default(false)
+  portalPasswordHash       String?
   forcePortalPasswordReset Boolean @default(false)
-  tokenVersion       Int      @default(0)     // Bumped to invalidate existing customer sessions
+  tokenVersion             Int     @default(0) // Bumped to invalidate existing customer sessions
 
-  accounts          SusuAccount[]
-  assignments       CollectorCustomerAssignment[]
+  accounts    SusuAccount[]
+  assignments CollectorCustomerAssignment[]
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([status])
   @@index([customerId])
   @@index([phone])
   @@index([email])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model SusuAccount {
   id                String   @id @default(cuid())
-  tenantId String?
+  tenantId          String?
   accountId         String   @unique // BIK-S-XXXXXX card number
   customerId        String
-  dailyContribution Decimal              // Customer's chosen daily contribution amount
+  dailyContribution Decimal // Customer's chosen daily contribution amount
   status            String   @default("active") // active | inactive | closed
   cardCustody       String   @default("customer") // customer | company | collector
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  customer          Customer                    @relation(fields: [customerId], references: [id])
-  cycles            SusuCycle[]
-  contributions     Contribution[]
-  withdrawals       Withdrawal[]
-  commissions       Commission[]
-  cardFees          CardFee[]
-  assignments       CollectorCustomerAssignment[]
+  customer      Customer                      @relation(fields: [customerId], references: [id])
+  cycles        SusuCycle[]
+  contributions Contribution[]
+  withdrawals   Withdrawal[]
+  commissions   Commission[]
+  cardFees      CardFee[]
+  assignments   CollectorCustomerAssignment[]
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([customerId])
   @@index([accountId])
   @@index([status])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model SusuCycle {
-  id                  String   @id @default(cuid())
-  tenantId String?
-  accountId           String
-  cycleNumber         Int                    // 1, 2, 3, ... per account
-  startDate           DateTime
-  endDate             DateTime
-  dailyContribution   Decimal                // Snapshot of contribution at cycle start
-  status              String   @default("active") // active | completed
-  commissionCharged   Boolean  @default(false) // Has first withdrawal commission been charged this cycle?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String   @id @default(cuid())
+  tenantId          String?
+  accountId         String
+  cycleNumber       Int // 1, 2, 3, ... per account
+  startDate         DateTime
+  endDate           DateTime
+  dailyContribution Decimal // Snapshot of contribution at cycle start
+  status            String   @default("active") // active | completed
+  commissionCharged Boolean  @default(false) // Has first withdrawal commission been charged this cycle?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  account         SusuAccount          @relation(fields: [accountId], references: [id])
-  contributions   Contribution[]
-  withdrawals     Withdrawal[]
-  commissions     Commission[]
+  account       SusuAccount    @relation(fields: [accountId], references: [id])
+  contributions Contribution[]
+  withdrawals   Withdrawal[]
+  commissions   Commission[]
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([accountId, cycleNumber])
   @@index([accountId])
   @@index([status])
   @@index([startDate])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model Contribution {
-  id              String   @id @default(cuid())
-  tenantId String?
-  accountId       String
-  cycleId         String
-  amount          Decimal               // Total amount collected in this event
-  collectionDate  DateTime
-  channel         String                // collector | direct_office
-  collectorId     String?               // Reference to Collector if collected via collector
-  recordedById    String                // User who recorded the payment
-  receivedById    String?               // Staff (User) who recorded/authorised the office payment (audit)
-  receivedByName  String?               // Free-text name of the staff who physically received the money
-  recordedByName  String?               // Free-text name of the person who recorded the payment (display)
-  referenceId     String   @unique      // Idempotency key - prevents duplicate submissions
-  notes           String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  tenantId       String?
+  accountId      String
+  cycleId        String
+  amount         Decimal // Total amount collected in this event
+  collectionDate DateTime
+  channel        String // collector | direct_office
+  collectorId    String? // Reference to Collector if collected via collector
+  recordedById   String // User who recorded the payment
+  receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
+  receivedByName String? // Free-text name of the staff who physically received the money
+  recordedByName String? // Free-text name of the person who recorded the payment (display)
+  referenceId    String   @unique // Idempotency key - prevents duplicate submissions
+  notes          String?
+  createdAt      DateTime @default(now())
 
-  account     SusuAccount            @relation(fields: [accountId], references: [id])
-  cycle       SusuCycle              @relation(fields: [cycleId], references: [id])
-  collector   Collector?             @relation(fields: [collectorId], references: [id])
-  recordedBy  User                   @relation("RecordedContributions", fields: [recordedById], references: [id])
-  receivedBy  User?                  @relation("ReceivedContributions", fields: [receivedById], references: [id])
+  account     SusuAccount              @relation(fields: [accountId], references: [id])
+  cycle       SusuCycle                @relation(fields: [cycleId], references: [id])
+  collector   Collector?               @relation(fields: [collectorId], references: [id])
+  recordedBy  User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
+  receivedBy  User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
   allocations ContributionAllocation[]
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([accountId])
   @@index([cycleId])
@@ -272,115 +274,113 @@ model Contribution {
   @@index([collectorId])
   @@index([receivedById])
   @@index([referenceId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model ContributionAllocation {
-  id              String   @id @default(cuid())
-  tenantId String?
-  contributionId  String
-  cycleDay        Int                // Which day in the cycle (1-31) this allocation covers
-  amount          Decimal            // Amount allocated to this day
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  tenantId       String?
+  contributionId String
+  cycleDay       Int // Which day in the cycle (1-31) this allocation covers
+  amount         Decimal // Amount allocated to this day
+  createdAt      DateTime @default(now())
 
   contribution Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
 
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
   @@index([contributionId])
   @@index([cycleDay])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model Withdrawal {
-  id              String   @id @default(cuid())
-  tenantId String?
-  accountId       String
-  cycleId         String
-  requestedAmount Decimal              // What the customer asked to withdraw
-  commissionAmount Decimal @default(0) // Commission deducted (one-day contribution if first withdrawal)
-  netAmount       Decimal              // Amount actually paid to customer
-  remainingBalance Decimal             // Balance left after withdrawal
-  status          String   @default("completed") // completed | pending | rejected
-  authorizedById  String               // Admin who authorized
-  referenceId     String   @unique     // Idempotency key
-  notes           String?
-  createdAt       DateTime @default(now())
+  id               String   @id @default(cuid())
+  tenantId         String?
+  accountId        String
+  cycleId          String
+  requestedAmount  Decimal // What the customer asked to withdraw
+  commissionAmount Decimal  @default(0) // Commission deducted (one-day contribution if first withdrawal)
+  netAmount        Decimal // Amount actually paid to customer
+  remainingBalance Decimal // Balance left after withdrawal
+  status           String   @default("completed") // completed | pending | rejected
+  authorizedById   String // Admin who authorized
+  referenceId      String   @unique // Idempotency key
+  notes            String?
+  createdAt        DateTime @default(now())
 
-  account   SusuAccount @relation(fields: [accountId], references: [id])
-  cycle     SusuCycle   @relation(fields: [cycleId], references: [id])
+  account SusuAccount @relation(fields: [accountId], references: [id])
+  cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([accountId])
   @@index([cycleId])
   @@index([createdAt])
   @@index([referenceId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model Commission {
-  id          String   @id @default(cuid())
-  tenantId String?
-  accountId   String
-  cycleId     String
-  amount      Decimal               // Equals one day's contribution
-  basis       String                // "one_day_contribution"
-  triggeredBy String                // "first_withdrawal"
+  id           String   @id @default(cuid())
+  tenantId     String?
+  accountId    String
+  cycleId      String
+  amount       Decimal // Equals one day's contribution
+  basis        String // "one_day_contribution"
+  triggeredBy  String // "first_withdrawal"
   recordedById String
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   account SusuAccount @relation(fields: [accountId], references: [id])
   cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
 
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
   @@index([accountId])
   @@index([cycleId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model CardFee {
-  id          String   @id @default(cuid())
-  tenantId String?
-  accountId   String
-  amount      Decimal  @default(10) // GH₵10 card fee
+  id           String   @id @default(cuid())
+  tenantId     String?
+  accountId    String
+  amount       Decimal  @default(10) // GH₵10 card fee
   recordedById String
-  notes       String?
-  createdAt   DateTime @default(now())
+  notes        String?
+  createdAt    DateTime @default(now())
 
   account SusuAccount @relation(fields: [accountId], references: [id])
 
-  @@index([accountId])
-
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([accountId])
   @@index([tenantId])
 }
 
 model Collector {
   id        String   @id @default(cuid())
-  tenantId String?
+  tenantId  String?
   userId    String   @unique
   status    String   @default("active") // active | inactive
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user          User                              @relation(fields: [userId], references: [id])
+  user          User                          @relation(fields: [userId], references: [id])
   assignments   CollectorCustomerAssignment[]
   contributions Contribution[]
   remittances   CollectorRemittance[]
 
-  @@index([status])
-
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([status])
   @@index([tenantId])
 }
 
 model CollectorCustomerAssignment {
   id           String    @id @default(cuid())
-  tenantId String?
+  tenantId     String?
   collectorId  String
   customerId   String
   accountId    String
@@ -388,40 +388,40 @@ model CollectorCustomerAssignment {
   unassignedAt DateTime?
   active       Boolean   @default(true)
 
-  collector   Collector    @relation(fields: [collectorId], references: [id])
-  customer    Customer     @relation(fields: [customerId], references: [id])
-  account     SusuAccount  @relation(fields: [accountId], references: [id])
+  collector Collector   @relation(fields: [collectorId], references: [id])
+  customer  Customer    @relation(fields: [customerId], references: [id])
+  account   SusuAccount @relation(fields: [accountId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([collectorId, accountId])
   @@index([collectorId])
   @@index([customerId])
   @@index([accountId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model CollectorRemittance {
-  id              String   @id @default(cuid())
-  tenantId String?
-  collectorId     String
-  expectedAmount  Decimal              // Sum of recorded collections
-  remittedAmount  Decimal              // Amount physically brought to office
-  variance        Decimal              // expected - remitted
-  status          String   @default("pending") // pending | reconciled | discrepancy
-  recordedById    String               // Admin who recorded
-  referenceId     String   @unique     // Idempotency key
-  notes           String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  tenantId       String?
+  collectorId    String
+  expectedAmount Decimal // Sum of recorded collections
+  remittedAmount Decimal // Amount physically brought to office
+  variance       Decimal // expected - remitted
+  status         String   @default("pending") // pending | reconciled | discrepancy
+  recordedById   String // Admin who recorded
+  referenceId    String   @unique // Idempotency key
+  notes          String?
+  createdAt      DateTime @default(now())
 
   collector Collector @relation(fields: [collectorId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([collectorId])
   @@index([status])
   @@index([createdAt])
   @@index([referenceId])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
@@ -430,21 +430,21 @@ model CollectorRemittance {
 // =====================
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  tenantId String?
+  id        String    @id @default(cuid())
+  tenantId  String?
   userId    String
-  tokenHash String   @unique // SHA-256 hash of the raw token — never store raw token
-  expiresAt DateTime              // Token expires after 15 minutes
-  usedAt    DateTime?             // Null until successfully used
-  createdAt DateTime @default(now())
+  tokenHash String    @unique // SHA-256 hash of the raw token — never store raw token
+  expiresAt DateTime // Token expires after 15 minutes
+  usedAt    DateTime? // Null until successfully used
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([userId])
   @@index([tokenHash])
   @@index([expiresAt])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
@@ -453,46 +453,48 @@ model PasswordResetToken {
 // =====================
 
 model DeviceEnrollment {
-  id           String   @id @default(cuid())
-  tenantId String?
+  id           String    @id @default(cuid())
+  tenantId     String?
   userId       String
-  deviceId     String   @unique // Client-generated unique device identifier
-  deviceName   String?          // Human-readable device label
-  module       String                 // "momo" | "susu"
-  status       String   @default("active") // active | revoked
+  deviceId     String    @unique // Client-generated unique device identifier
+  deviceName   String? // Human-readable device label
+  module       String // "momo" | "susu"
+  status       String    @default("active") // active | revoked
   lastSyncAt   DateTime?
-  authorizedAt DateTime @default(now()) // When last authorized (for offline timeout)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  authorizedAt DateTime  @default(now()) // When last authorized (for offline timeout)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([userId])
   @@index([deviceId])
   @@index([status])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
 model OfflineTransaction {
-  id              String   @id @default(cuid())
-  tenantId String?
-  deviceId        String
-  userId          String
-  type            String                 // "contribution" | "daily_account_draft"
-  idempotencyKey  String   @unique      // deviceId + UUID — server dedup key
-  payload         String                 // JSON-encrypted transaction data
-  status          String   @default("pending_sync") // pending_sync | syncing | synced | failed
-  retryCount      Int      @default(0)
-  maxRetries      Int      @default(5)
-  failureReason   String?
-  serverResult    String?                // JSON server response after sync
-  localTimestamp  DateTime @default(now()) // When created on device
-  syncStartedAt   DateTime?
-  syncedAt        DateTime?              // When server confirmed
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(cuid())
+  tenantId       String?
+  deviceId       String
+  userId         String
+  type           String // "contribution" | "daily_account_draft"
+  idempotencyKey String    @unique // deviceId + UUID — server dedup key
+  payload        String // JSON-encrypted transaction data
+  status         String    @default("pending_sync") // pending_sync | syncing | synced | failed
+  retryCount     Int       @default(0)
+  maxRetries     Int       @default(5)
+  failureReason  String?
+  serverResult   String? // JSON server response after sync
+  localTimestamp DateTime  @default(now()) // When created on device
+  syncStartedAt  DateTime?
+  syncedAt       DateTime? // When server confirmed
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([deviceId])
   @@index([userId])
@@ -500,8 +502,6 @@ model OfflineTransaction {
   @@index([status])
   @@index([type])
   @@index([createdAt])
-
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   @@index([tenantId])
 }
 
@@ -532,25 +532,25 @@ model BusinessTenant {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  users User[]
-  locations Location[]
-  dailyAccounts DailyAccount[]
-  expenses Expense[]
-  auditLogs AuditLog[]
-  customers Customer[]
-  susuAccounts SusuAccount[]
-  susuCycles SusuCycle[]
-  contributions Contribution[]
-  contributionAllocations ContributionAllocation[]
-  withdrawals Withdrawal[]
-  commissions Commission[]
-  cardFees CardFee[]
-  collectors Collector[]
+  users                        User[]
+  locations                    Location[]
+  dailyAccounts                DailyAccount[]
+  expenses                     Expense[]
+  auditLogs                    AuditLog[]
+  customers                    Customer[]
+  susuAccounts                 SusuAccount[]
+  susuCycles                   SusuCycle[]
+  contributions                Contribution[]
+  contributionAllocations      ContributionAllocation[]
+  withdrawals                  Withdrawal[]
+  commissions                  Commission[]
+  cardFees                     CardFee[]
+  collectors                   Collector[]
   collectorCustomerAssignments CollectorCustomerAssignment[]
-  collectorRemittances CollectorRemittance[]
-  passwordResetTokens PasswordResetToken[]
-  deviceEnrollments DeviceEnrollment[]
-  offlineTransactions OfflineTransaction[]
+  collectorRemittances         CollectorRemittance[]
+  passwordResetTokens          PasswordResetToken[]
+  deviceEnrollments            DeviceEnrollment[]
+  offlineTransactions          OfflineTransaction[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -600,4 +600,69 @@ model PlatformAuditLog {
   @@index([action])
   @@index([tenantId])
   @@index([createdAt])
+}
+
+// =====================
+// SECURITY CONTROLS
+// =====================
+// Persistent, database-backed abuse controls. These tables hold keyed HMAC
+// identifiers only — never raw email addresses, IP addresses or tokens.
+
+/// Fixed-window request counter shared by every application instance.
+model RateLimitCounter {
+  id              String   @id @default(cuid())
+  key             String   @unique // "<bucket>:<hmac>"
+  count           Int      @default(0)
+  windowStartedAt DateTime
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+/// Progressive failed-login state (1 min → 5 min → 15 min cooldowns).
+model AuthThrottle {
+  id              String    @id @default(cuid())
+  key             String    @unique // "<scope>:<hmac>"
+  failedCount     Int       @default(0)
+  stage           Int       @default(0)
+  windowStartedAt DateTime
+  lastFailedAt    DateTime
+  blockedUntil    DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([expiresAt])
+  @@index([blockedUntil])
+}
+
+/// Single-use ledger for Cloudflare Turnstile tokens (replay protection).
+model TurnstileTokenUse {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  usedAt    DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+/// Server-side session registry. A JWT is only accepted while its `jti` row
+/// exists, is unexpired and has not been revoked.
+model SessionRecord {
+  id            String    @id // JWT `jti`
+  subjectType   String // user | customer | platform
+  subjectId     String
+  tenantId      String?
+  ipHash        String?
+  userAgentHash String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?
+
+  @@index([subjectType, subjectId])
+  @@index([expiresAt])
 }

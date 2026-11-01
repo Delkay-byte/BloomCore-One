@@ -15,6 +15,8 @@ import {
   getSelectionUser,
   isSessionCurrent,
   createSelectionToken,
+  revokeAllUserSessions,
+  revokeSessionToken,
   SELECTION_COOKIE_NAME,
   type JwtPayload,
   type ModuleName,
@@ -24,7 +26,33 @@ import { createAuditLog } from "@/lib/audit";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { checkRateLimit } from "@/lib/rate-limit";
+import {
+  cooldownMessage,
+  GENERIC_LOGIN_ERROR,
+  guardLogin,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "@/lib/security/auth-guard";
+import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
+
+/**
+ * A valid bcrypt hash of a value nobody knows. Comparing against it for unknown
+ * accounts keeps the response time comparable to a real password check, which
+ * removes the clearest timing-based account-enumeration signal.
+ */
+const DUMMY_PASSWORD_HASH =
+  "$2b$12$Liry.nw.u149hj.S6S6JfexTBF7uu1EZY8StKjQTA39/jdAco3ZLK";
+
+async function verifyPasswordConstantTime(
+  password: string,
+  hash: string | null | undefined
+): Promise<boolean> {
+  if (!hash) {
+    await verifyPassword(password, DUMMY_PASSWORD_HASH);
+    return false;
+  }
+  return verifyPassword(password, hash);
+}
 
 export interface ActionResponse {
   success: boolean;
@@ -52,44 +80,67 @@ function dashboardPathFor(module: ModuleName): string {
 export async function login(
   formData: FormData
 ): Promise<ActionResponse | void> {
-  // Rate limiting: 5 attempts per 15 minutes per email account.
-  // Keyed on email only (not IP) so each account is independent.
-  const email = (formData.get("email") as string)?.trim();
+  const rawEmail = (formData.get("email") as string)?.trim() ?? "";
+  const password = (formData.get("password") as string) ?? "";
+  const turnstileToken =
+    (formData.get("cf-turnstile-response") as string) ??
+    (formData.get("turnstileToken") as string);
 
-  if (email) {
-    const rateLimitResult = checkRateLimit(`login:${email.toLowerCase()}`);
-    if (!rateLimitResult.allowed) {
-      return {
-        success: false,
-        error: "Too many login attempts for this account. Please try again in 15 minutes.",
-      };
-    }
-  }
-  const password = formData.get("password") as string;
+  // Per-IP limit + progressive cooldown + Turnstile, before any credential work.
+  const guard = await guardLogin({
+    identifier: rawEmail,
+    action: "login",
+    turnstileToken,
+  });
+  if (!guard.ok) return { success: false, error: guard.error };
 
+  const email = guard.identifier;
   const validated = loginSchema.safeParse({ email, password });
   if (!validated.success) {
-    return { success: false, error: "Invalid email or password" };
+    await recordLoginFailure(email, guard.ip, "login");
+    return { success: false, error: GENERIC_LOGIN_ERROR };
   }
 
   const user = await db.user.findUnique({
-    where: { email: email.toLowerCase() },
+    where: { email },
   });
 
-  if (!user) {
-    return { success: false, error: "Invalid email or password" };
-  }
-
-  if (user.status === "inactive") {
+  const valid = await verifyPasswordConstantTime(password, user?.passwordHash);
+  if (!user || !valid) {
+    const state = await recordLoginFailure(email, guard.ip, "login");
     return {
       success: false,
-      error: "Your account has been deactivated. Please contact the administrator.",
+      error: state.blocked
+        ? cooldownMessage(state.retryAfterSeconds)
+        : GENERIC_LOGIN_ERROR,
     };
   }
 
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    return { success: false, error: "Invalid email or password" };
+  // Account-state checks happen only after a correct password, so they cannot
+  // be used to enumerate accounts.
+  if (user.status !== "active") {
+    return {
+      success: false,
+      error: "Your account is not available. Please contact your administrator.",
+    };
+  }
+
+  await recordLoginSuccess(email, guard.ip, "login");
+
+  // Administrator login also passes through the MFA policy gate.
+  if (user.role === "admin") {
+    const mfaStep = await beginMfaStepIfRequired({
+      subjectType: "user",
+      subjectId: user.id,
+      module: "admin",
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      mfaEnabled: user.mfaEnabled,
+      forcePasswordReset: user.forcePasswordReset,
+      tokenVersion: user.tokenVersion,
+    });
+    if (mfaStep) redirect(`/mfa/${mfaStep}`);
   }
 
   const modules: ("momo" | "susu")[] = [];
@@ -155,6 +206,7 @@ async function buildSessionPayload(userId: string): Promise<JwtPayload> {
     role: user.role as "admin" | "worker" | "collector",
     modules,
     locationId: user.locationId ?? undefined,
+    tenantId: user.tenantId,
     forcePasswordReset: user.forcePasswordReset,
     tokenVersion: user.tokenVersion,
   };
@@ -245,13 +297,19 @@ export async function switchWorkspace(
 }
 
 export async function logout(): Promise<void> {
-  const sessions = [await getAdminSession(), await getMomoSession(), await getSusuSession()];
+  const sessions = [
+    await getAdminSession(),
+    await getMomoSession(),
+    await getSusuSession(),
+    await getCustomerSession(),
+  ];
   const active = sessions.find(Boolean);
   if (active) {
+    await revokeSessionToken(active, "logout");
     await createAuditLog({
       userId: active.userId,
       action: "auth.logout",
-      entityType: "user",
+      entityType: active.role === "customer" ? "customer" : "user",
       entityId: active.userId,
     });
   }
@@ -399,7 +457,9 @@ export async function changePassword(
     },
   });
 
-  // Re-issue THIS module's session with the new tokenVersion
+  // Re-issue THIS module's session with the new tokenVersion. All previous
+  // sessions (including any stolen cookie) are revoked server-side first.
+  await revokeAllUserSessions("user", session.userId, "password_changed");
   const refreshed = await buildSessionPayload(session.userId);
   await setModuleSession(context.module, refreshed);
 
@@ -432,27 +492,25 @@ const STAFF_GENERIC_ERROR = "Invalid email, phone or password.";
  */
 export async function resolveCustomerAuth(
   identifier: string,
-  password: string
+  password: string,
+  turnstileToken?: string | null
 ): Promise<{ payload: JwtPayload } | { error: string }> {
   if (!identifier || !password) {
-    return { error: "Customer ID, phone or email and password are required" };
+    return { error: CUSTOMER_GENERIC_ERROR };
   }
 
-  // Rate limiting: 5 attempts per 15 minutes per identifier.
-  const rateLimitResult = checkRateLimit(`customer_login:${identifier.toLowerCase()}`);
-  if (!rateLimitResult.allowed) {
-    return {
-      success: false,
-      error: "Too many login attempts. Please try again in 15 minutes.",
-    } as { error: string };
-  }
+  const guard = await guardLogin({
+    identifier,
+    action: "customer_login",
+    turnstileToken,
+  });
+  if (!guard.ok) return { error: guard.error };
 
   // Normalize Ghanaian phone formats so 024... and +233... match the same record.
   const phoneCandidates = normalizeGhanaPhone(identifier);
 
   const customer = await db.customer.findFirst({
     where: {
-      portalEnabled: true,
       OR: [
         { customerId: identifier },
         { email: identifier.toLowerCase() },
@@ -462,21 +520,57 @@ export async function resolveCustomerAuth(
     },
   });
 
-  if (!customer || customer.status !== "active" || !customer.portalPasswordHash) {
-    return { error: CUSTOMER_GENERIC_ERROR };
+  // A portal identifier must resolve to exactly one customer. Identical emails
+  // or phone numbers across tenants are ambiguous, so the request is refused
+  // rather than silently choosing one tenant's record.
+  if (customer) {
+    const matches = await db.customer.count({
+      where: {
+        OR: [
+          { customerId: identifier },
+          { email: identifier.toLowerCase() },
+          { phone: identifier },
+          ...(phoneCandidates.length ? [{ phone: { in: phoneCandidates } }] : []),
+        ],
+      },
+    });
+    if (matches !== 1) {
+      return { error: CUSTOMER_GENERIC_ERROR };
+    }
   }
 
-  const valid = await verifyPassword(password, customer.portalPasswordHash);
-  if (!valid) {
-    return { error: CUSTOMER_GENERIC_ERROR };
+  const valid = await verifyPasswordConstantTime(
+    password,
+    customer?.portalPasswordHash
+  );
+  if (!customer || !valid) {
+    const state = await recordLoginFailure(identifier, guard.ip, "customer_login");
+    return {
+      error: state.blocked
+        ? cooldownMessage(state.retryAfterSeconds)
+        : CUSTOMER_GENERIC_ERROR,
+    };
   }
+
+  if (
+    customer.status !== "active" ||
+    !customer.portalEnabled ||
+    !customer.portalPasswordHash
+  ) {
+    return {
+      error: "Your customer portal access is not available. Please contact the business.",
+    };
+  }
+
+  await recordLoginSuccess(identifier, guard.ip, "customer_login");
 
   const payload: JwtPayload = {
     userId: customer.id,
-    email: customer.email || `${customer.customerId}@bik-prestige.local`,
+    email: customer.email || `${customer.customerId}@bloomcore.local`,
     fullName: customer.fullName,
     role: "customer",
     modules: ["customer"],
+    tenantId: customer.tenantId,
     forcePasswordReset: customer.forcePortalPasswordReset ?? false,
     tokenVersion: customer.tokenVersion ?? 0,
   };
@@ -496,20 +590,19 @@ export async function resolveCustomerAuth(
 export async function resolveStaffAuth(
   identifier: string,
   password: string,
-  module: "momo" | "susu"
-): Promise<{ payload: JwtPayload } | { error: string }> {
+  module: "momo" | "susu",
+  turnstileToken?: string | null
+): Promise<{ payload: JwtPayload } | { error: string } | { mfa: "verify" | "enroll" }> {
   if (!identifier || !password) {
-    return { error: "Email or phone and password are required" };
+    return { error: STAFF_GENERIC_ERROR };
   }
 
-  // Rate limiting: 5 attempts per 15 minutes per identifier.
-  const rateLimitResult = checkRateLimit(`login:${identifier.toLowerCase()}`);
-  if (!rateLimitResult.allowed) {
-    return {
-      success: false,
-      error: "Too many login attempts for this account. Please try again in 15 minutes.",
-    } as { error: string };
-  }
+  const guard = await guardLogin({
+    identifier,
+    action: "login",
+    turnstileToken,
+  });
+  if (!guard.ok) return { error: guard.error };
 
   const phoneCandidates = normalizeGhanaPhone(identifier);
   const user = await db.user.findFirst({
@@ -521,15 +614,22 @@ export async function resolveStaffAuth(
     },
   });
 
-  if (!user) {
-    return { error: STAFF_GENERIC_ERROR };
+  const valid = await verifyPasswordConstantTime(password, user?.passwordHash);
+  if (!user || !valid) {
+    const state = await recordLoginFailure(identifier, guard.ip, "login");
+    return {
+      error: state.blocked
+        ? cooldownMessage(state.retryAfterSeconds)
+        : STAFF_GENERIC_ERROR,
+    };
   }
 
-  if (user.status === "inactive") {
+  // State and capability checks run only after correct credentials, so they
+  // are not an enumeration oracle.
+  if (user.status !== "active") {
     return {
-      success: false,
-      error: "Your account has been deactivated. Please contact the administrator.",
-    } as { error: string };
+      error: "Your account is not available. Please contact your administrator.",
+    };
   }
 
   // Admins must use the dedicated administrator login. Never grant an admin
@@ -538,17 +638,25 @@ export async function resolveStaffAuth(
     return { error: STAFF_GENERIC_ERROR };
   }
 
-  // Server-side capability check — the requested workspace must be in the
-  // account's real capabilities.
   const hasCapability = module === "momo" ? user.momoEnabled : user.susuEnabled;
   if (!hasCapability) {
     return { error: STAFF_GENERIC_ERROR };
   }
 
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    return { error: STAFF_GENERIC_ERROR };
-  }
+  await recordLoginSuccess(identifier, guard.ip, "login");
+
+  const mfaStep = await beginMfaStepIfRequired({
+    subjectType: "user",
+    subjectId: user.id,
+    module,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
+    mfaEnabled: user.mfaEnabled,
+    forcePasswordReset: user.forcePasswordReset,
+    tokenVersion: user.tokenVersion,
+  });
+  if (mfaStep) return { mfa: mfaStep };
 
   const payload: JwtPayload = {
     userId: user.id,
@@ -557,6 +665,7 @@ export async function resolveStaffAuth(
     role: module === "momo" ? "worker" : "collector",
     modules: [module],
     locationId: user.locationId ?? undefined,
+    tenantId: user.tenantId,
     forcePasswordReset: user.forcePasswordReset,
     tokenVersion: user.tokenVersion,
   };
@@ -579,8 +688,15 @@ export async function customerLogin(
 ): Promise<ActionResponse | void> {
   const identifier = (formData.get("identifier") as string)?.trim();
   const password = formData.get("password") as string;
+  const turnstileToken =
+    (formData.get("cf-turnstile-response") as string) ??
+    (formData.get("turnstileToken") as string);
 
-  const result = await resolveCustomerAuth(identifier ?? "", password ?? "");
+  const result = await resolveCustomerAuth(
+    identifier ?? "",
+    password ?? "",
+    turnstileToken
+  );
   if ("error" in result) return { success: false, error: result.error };
 
   await setModuleSession("customer", result.payload);
@@ -611,6 +727,9 @@ export async function unifiedLogin(
   const role = (formData.get("role") as string)?.trim();
   const identifier = (formData.get("identifier") as string)?.trim();
   const password = formData.get("password") as string;
+  const turnstileToken =
+    (formData.get("cf-turnstile-response") as string) ??
+    (formData.get("turnstileToken") as string);
 
   // The shared portal never processes the admin role.
   if (role === "admin" || !isNonAdminRole(role)) {
@@ -622,7 +741,11 @@ export async function unifiedLogin(
   }
 
   if (role === "customer") {
-    const result = await resolveCustomerAuth(identifier ?? "", password ?? "");
+    const result = await resolveCustomerAuth(
+      identifier ?? "",
+      password ?? "",
+      turnstileToken
+    );
     if ("error" in result) return { success: false, error: result.error };
 
     await setModuleSession("customer", result.payload);
@@ -636,8 +759,14 @@ export async function unifiedLogin(
 
   // momo | susu — server re-validates the requested workspace capability.
   const mod = role as "momo" | "susu";
-  const result = await resolveStaffAuth(identifier ?? "", password ?? "", mod);
+  const result = await resolveStaffAuth(
+    identifier ?? "",
+    password ?? "",
+    mod,
+    turnstileToken
+  );
   if ("error" in result) return { success: false, error: result.error };
+  if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
 
   await setModuleSession(mod, result.payload);
   await auditWorkspace(mod, result.payload.userId);
@@ -659,30 +788,53 @@ export async function unifiedLogin(
 export async function adminLogin(
   formData: FormData
 ): Promise<ActionResponse | void> {
-  const email = (formData.get("email") as string)?.trim();
-  const password = formData.get("password") as string;
+  const email = (formData.get("email") as string)?.trim() ?? "";
+  const password = (formData.get("password") as string) ?? "";
+  const turnstileToken =
+    (formData.get("cf-turnstile-response") as string) ??
+    (formData.get("turnstileToken") as string);
 
   if (!email || !password) {
-    return { success: false, error: "Email and password are required" };
+    return { success: false, error: GENERIC_LOGIN_ERROR };
   }
 
-  const rateLimitResult = checkRateLimit(`admin_login:${email.toLowerCase()}`);
-  if (!rateLimitResult.allowed) {
+  const guard = await guardLogin({
+    identifier: email,
+    action: "admin_login",
+    turnstileToken,
+  });
+  if (!guard.ok) return { success: false, error: guard.error };
+
+  const user = await db.user.findUnique({ where: { email: email.toLowerCase() } });
+  const valid = await verifyPasswordConstantTime(password, user?.passwordHash);
+  if (!user || !valid) {
+    const state = await recordLoginFailure(email, guard.ip, "admin_login");
     return {
       success: false,
-      error: "Too many login attempts for this account. Please try again in 15 minutes.",
+      error: state.blocked
+        ? cooldownMessage(state.retryAfterSeconds)
+        : GENERIC_LOGIN_ERROR,
     };
   }
 
-  const user = await db.user.findUnique({ where: { email: email.toLowerCase() } });
-  if (!user || user.status === "inactive" || user.role !== "admin") {
-    return { success: false, error: "Invalid email or password" };
+  if (user.status !== "active" || user.role !== "admin") {
+    return { success: false, error: GENERIC_LOGIN_ERROR };
   }
 
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    return { success: false, error: "Invalid email or password" };
-  }
+  await recordLoginSuccess(email, guard.ip, "admin_login");
+
+  const mfaStep = await beginMfaStepIfRequired({
+    subjectType: "user",
+    subjectId: user.id,
+    module: "admin",
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
+    mfaEnabled: user.mfaEnabled,
+    forcePasswordReset: user.forcePasswordReset,
+    tokenVersion: user.tokenVersion,
+  });
+  if (mfaStep) redirect(`/mfa/${mfaStep}`);
 
   const payload = await buildSessionPayload(user.id);
   await setModuleSession("admin", payload);
@@ -746,8 +898,14 @@ export async function customerChangePassword(
 
   // Re-issue customer session with the new tokenVersion so the temporary
   // password session is fully replaced and other sessions are invalidated.
+  await revokeAllUserSessions("customer", session.userId, "customer_password_changed");
   const refreshed = {
-    ...session,
+    userId: session.userId,
+    email: session.email,
+    fullName: session.fullName,
+    role: "customer" as const,
+    modules: ["customer" as const],
+    tenantId: session.tenantId,
     forcePasswordReset: false,
     tokenVersion: (session.tokenVersion ?? 0) + 1,
   };

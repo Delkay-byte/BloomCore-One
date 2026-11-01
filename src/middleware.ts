@@ -51,7 +51,7 @@ const PLATFORM_PUBLIC_ROUTES = ["/platform/login"];
 
 // Public routes (login, health check). "/workspace" is handled explicitly
 // above as a redirect-only entry point.
-const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/api/health", "/api/diag"];
+const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/mfa", "/api/health", "/api/diag"];
 const CUSTOMER_PUBLIC_ROUTES = ["/customer/login", "/customer/forgot-password"];
 // The dedicated administrator login must be reachable without any session.
 const ADMIN_PUBLIC_ROUTES = ["/admin/login"];

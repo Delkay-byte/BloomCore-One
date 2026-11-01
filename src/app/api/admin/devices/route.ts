@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getApiTenantContext } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 
 /**
  * GET /api/admin/devices
@@ -39,6 +40,7 @@ export async function GET() {
  * Revoke or reactivate a device owned by the authenticated tenant.
  */
 export async function PATCH(request: NextRequest) {
+  if (!isSameOriginRequest(request)) return crossOriginDenied();
   const ctx = await getApiTenantContext("admin");
   if (!ctx) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });

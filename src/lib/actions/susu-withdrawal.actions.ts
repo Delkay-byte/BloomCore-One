@@ -6,6 +6,8 @@ import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { formatCedi } from "@/lib/utils";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
 
 export interface ActionResponse {
   success: boolean;
@@ -38,17 +40,48 @@ export async function processWithdrawal(params: {
   accountId: string;
   requestedAmount: number;
   notes?: string;
+  idempotencyKey?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
 
-  const { accountId, requestedAmount, notes } = params;
+  const { accountId, requestedAmount, notes, idempotencyKey } = params;
 
-  if (requestedAmount <= 0) {
+  // Monetary validation: finite, positive, at most two decimal places.
+  if (
+    typeof requestedAmount !== "number" ||
+    !Number.isFinite(requestedAmount) ||
+    requestedAmount <= 0 ||
+    requestedAmount > 999999.99
+  ) {
     return {
       success: false,
-      error: "Withdrawal amount must be greater than 0",
+      error: "Enter a valid withdrawal amount greater than 0",
     };
   }
+  const amount = Math.round(requestedAmount * 100) / 100;
+  if (Math.abs(amount - requestedAmount) > 1e-9) {
+    return {
+      success: false,
+      error: "Withdrawal amount cannot have more than two decimal places",
+    };
+  }
+
+  const rate = await consumeRateLimit(
+    "finance:withdrawal",
+    ctx.userId,
+    RATE_LIMITS.financeMutation
+  );
+  if (!rate.allowed) {
+    return {
+      success: false,
+      error: "Too many withdrawal requests. Please wait and try again.",
+    };
+  }
+
+  const referenceId =
+    idempotencyKey && /^[A-Za-z0-9:_-]{8,120}$/.test(idempotencyKey)
+      ? `WDR-${idempotencyKey}`
+      : `WDR-${randomBytes(8).toString("hex")}`;
 
   // TENANT SCOPED account fetch.
   const account = await db.susuAccount.findFirst({
@@ -68,109 +101,154 @@ export async function processWithdrawal(params: {
   const cycle = account.cycles[0];
   const dailyContribution = Number(cycle.dailyContribution);
 
-  const cycleContributions = await db.contribution.findMany({
-    where: { cycleId: cycle.id, tenantId: ctx.tenantId },
-  });
-  const cycleWithdrawals = await db.withdrawal.findMany({
-    where: { cycleId: cycle.id, status: "completed", tenantId: ctx.tenantId },
-  });
-  const cycleCommissions = await db.commission.findMany({
-    where: { cycleId: cycle.id, tenantId: ctx.tenantId },
-  });
+  try {
+    const result = await db.$transaction(async (tx) => {
+      // Re-read the cycle inside the transaction and claim the commission in a
+      // single conditional update. Concurrent withdrawals cannot both charge it.
+      const cycleRow = await tx.susuCycle.findFirst({
+        where: { id: cycle.id, tenantId: ctx.tenantId },
+      });
+      if (!cycleRow || cycleRow.status !== "active") {
+        throw new Error("No active cycle found");
+      }
 
-  const totalContributed = cycleContributions.reduce(
-    (sum, c) => sum + Number(c.amount),
-    0
-  );
-  const totalWithdrawn = cycleWithdrawals.reduce(
-    (sum, w) => sum + Number(w.netAmount),
-    0
-  );
-  const totalCommissions = cycleCommissions.reduce(
-    (sum, c) => sum + Number(c.amount),
-    0
-  );
+      const cycleContributions = await tx.contribution.findMany({
+        where: { cycleId: cycle.id, tenantId: ctx.tenantId },
+      });
+      const cycleWithdrawals = await tx.withdrawal.findMany({
+        where: {
+          cycleId: cycle.id,
+          status: "completed",
+          tenantId: ctx.tenantId,
+        },
+      });
+      const cycleCommissions = await tx.commission.findMany({
+        where: { cycleId: cycle.id, tenantId: ctx.tenantId },
+      });
 
-  const currentBalance = calculateCycleBalance(
-    totalContributed,
-    totalWithdrawn,
-    totalCommissions
-  );
+      const totalContributed = cycleContributions.reduce(
+        (sum, c) => sum + Number(c.amount),
+        0
+      );
+      const totalWithdrawn = cycleWithdrawals.reduce(
+        (sum, w) => sum + Number(w.netAmount),
+        0
+      );
+      const totalCommissions = cycleCommissions.reduce(
+        (sum, c) => sum + Number(c.amount),
+        0
+      );
 
-  let commissionAmount = 0;
-  if (!cycle.commissionCharged) {
-    commissionAmount = dailyContribution;
-  }
+      const currentBalance = calculateCycleBalance(
+        totalContributed,
+        totalWithdrawn,
+        totalCommissions
+      );
 
-  const availableAfterCommission = currentBalance - commissionAmount;
+      let commissionAmount = 0;
+      let commissionClaimed = false;
+      if (!cycleRow.commissionCharged) {
+        const claimed = await tx.susuCycle.updateMany({
+          where: {
+            id: cycleRow.id,
+            tenantId: ctx.tenantId,
+            commissionCharged: false,
+          },
+          data: { commissionCharged: true },
+        });
+        if (claimed.count === 1) {
+          commissionAmount = dailyContribution;
+          commissionClaimed = true;
+          await tx.commission.create({
+            data: {
+              tenantId: ctx.tenantId,
+              accountId: account.id,
+              cycleId: cycleRow.id,
+              amount: commissionAmount,
+              basis: "one_day_contribution",
+              triggeredBy: "first_withdrawal",
+              recordedById: ctx.userId,
+            },
+          });
+        }
+      }
 
-  if (requestedAmount > availableAfterCommission) {
-    return {
-      success: false,
-      error: `Insufficient balance. Available: ${formatCedi(availableAfterCommission)}${commissionAmount > 0 ? ` (after ${formatCedi(commissionAmount)} commission)` : ""}`,
-    };
-  }
+      const availableAfterCommission = currentBalance - commissionAmount;
+      if (amount > availableAfterCommission) {
+        throw new Error(
+          `Insufficient balance. Available: ${formatCedi(
+            availableAfterCommission
+          )}${
+            commissionAmount > 0
+              ? ` (after ${formatCedi(commissionAmount)} commission)`
+              : ""
+          }`
+        );
+      }
 
-  const remainingBalance = availableAfterCommission - requestedAmount;
-  const referenceId = `WDR-${randomBytes(8).toString("hex")}`;
+      const remainingBalance = availableAfterCommission - amount;
 
-  const result = await db.$transaction(async (tx) => {
-    if (commissionAmount > 0) {
-      await tx.commission.create({
+      const withdrawal = await tx.withdrawal.create({
         data: {
           tenantId: ctx.tenantId,
           accountId: account.id,
-          cycleId: cycle.id,
-          amount: commissionAmount,
-          basis: "one_day_contribution",
-          triggeredBy: "first_withdrawal",
-          recordedById: ctx.userId,
+          cycleId: cycleRow.id,
+          requestedAmount: amount,
+          commissionAmount,
+          netAmount: amount,
+          remainingBalance,
+          status: "completed",
+          authorizedById: ctx.userId,
+          referenceId,
+          notes,
         },
       });
 
-      await tx.susuCycle.update({
-        where: { id: cycle.id },
-        data: { commissionCharged: true },
-      });
-    }
-
-    const withdrawal = await tx.withdrawal.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId: account.id,
-        cycleId: cycle.id,
-        requestedAmount,
+      return {
+        withdrawal,
         commissionAmount,
-        netAmount: requestedAmount,
-        remainingBalance,
-        status: "completed",
-        authorizedById: ctx.userId,
+        netAmount: amount,
+        commissionClaimed,
+      };
+    });
+
+    await createAuditLog({
+      userId: ctx.userId,
+      action: "susu.withdrawal_processed",
+      entityType: "withdrawal",
+      entityId: result.withdrawal.id,
+      details: {
+        accountId,
+        requestedAmount: result.withdrawal.requestedAmount,
+        commissionAmount: result.withdrawal.commissionAmount,
+        netAmount: result.withdrawal.netAmount,
+        remainingBalance: result.withdrawal.remainingBalance,
         referenceId,
-        notes,
       },
     });
 
-    return { withdrawal, commissionAmount, netAmount: requestedAmount };
-  });
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.withdrawal_processed",
-    entityType: "withdrawal",
-    entityId: result.withdrawal.id,
-    details: {
-      accountId,
-      requestedAmount: result.withdrawal.requestedAmount,
-      commissionAmount: result.withdrawal.commissionAmount,
-      netAmount: result.withdrawal.netAmount,
-      remainingBalance: result.withdrawal.remainingBalance,
-    },
-  });
-
-  revalidatePath("/susu/admin/withdrawals");
-  revalidatePath("/susu/admin/customers");
-  revalidatePath("/susu/admin");
-  return { success: true, data: result };
+    revalidatePath("/susu/admin/withdrawals");
+    revalidatePath("/susu/admin/customers");
+    revalidatePath("/susu/admin");
+    return { success: true, data: result };
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return {
+        success: false,
+        error: "This withdrawal was already processed.",
+      };
+    }
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Withdrawal could not be processed",
+    };
+  }
 }
 
 export async function getWithdrawals(params?: {

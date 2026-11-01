@@ -143,17 +143,24 @@ export async function saveDailyAccount(
     }
   }
 
+  const moneyField = (name: string): number => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.trim() === "") return Number.NaN;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : Number.NaN;
+  };
+
   const parsed = {
-    openingMomoFloat: parseFloat(formData.get("openingMomoFloat") as string) || 0,
-    openingCash: parseFloat(formData.get("openingCash") as string) || 0,
-    totalCashIn: parseFloat(formData.get("totalCashIn") as string) || 0,
-    totalCashOut: parseFloat(formData.get("totalCashOut") as string) || 0,
-    totalCashReceived: parseFloat(formData.get("totalCashReceived") as string) || 0,
-    totalCashPaid: parseFloat(formData.get("totalCashPaid") as string) || 0,
-    commission: parseFloat(formData.get("commission") as string) || 0,
-    otherIncome: parseFloat(formData.get("otherIncome") as string) || 0,
-    closingMomoFloat: parseFloat(formData.get("closingMomoFloat") as string) || 0,
-    closingCash: parseFloat(formData.get("closingCash") as string) || 0,
+    openingMomoFloat: moneyField("openingMomoFloat"),
+    openingCash: moneyField("openingCash"),
+    totalCashIn: moneyField("totalCashIn"),
+    totalCashOut: moneyField("totalCashOut"),
+    totalCashReceived: moneyField("totalCashReceived"),
+    totalCashPaid: moneyField("totalCashPaid"),
+    commission: moneyField("commission"),
+    otherIncome: moneyField("otherIncome"),
+    closingMomoFloat: moneyField("closingMomoFloat"),
+    closingCash: moneyField("closingCash"),
   };
 
   const validated = dailyAccountSchema.safeParse({
@@ -206,6 +213,20 @@ export async function saveDailyAccount(
         })),
       });
     }
+  });
+
+  await createAuditLog({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    action: "daily_account.updated",
+    entityType: "dailyAccount",
+    entityId: accountId,
+    details: {
+      totalExpenses,
+      momoVariance,
+      cashVariance,
+      expenseCount: expenses.length,
+    },
   });
 
   revalidatePath(`/worker/daily/${accountId}`);

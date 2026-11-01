@@ -1,15 +1,21 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { hashPassword, verifyPassword } from "@/lib/auth";
+import { hashPassword, revokeAllUserSessions } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { createHash, randomBytes } from "crypto";
+import { headers } from "next/headers";
+import { getClientIp } from "@/lib/security/client-ip";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
+import { verifyTurnstile } from "@/lib/security/turnstile";
+import { humanizeSeconds } from "@/lib/security/auth-guard";
+import { logSecurityEvent } from "@/lib/security/log";
+import { validatePasswordPolicy } from "@/lib/platform-auth";
 
 export interface ActionResponse {
   success: boolean;
   error?: string;
-  /** Only returned in pilot mode (no email) — the raw recovery token. */
-  _pilotToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -26,78 +32,102 @@ function generateToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/** Rate-limit key for forgot-password requests. */
-const resetRequestStore = new Map<string, { count: number; resetAt: number }>();
-const RESET_MAX = 5;
-const RESET_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-
-function checkResetRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = resetRequestStore.get(key);
-  if (!entry || now > entry.resetAt) {
-    resetRequestStore.set(key, { count: 1, resetAt: now + RESET_WINDOW_MS });
-    return true;
+async function currentIp(): Promise<string | null> {
+  try {
+    return getClientIp(await headers()).ip;
+  } catch {
+    return null;
   }
-  if (entry.count >= RESET_MAX) return false;
-  entry.count++;
-  return true;
 }
 
-// ---------------------------------------------------------------------------
-// 1. Request password reset
-// ---------------------------------------------------------------------------
-
 /**
- * Request a password reset for the given email.
- *
- * Always returns the same generic response regardless of whether the email
- * exists — prevents account enumeration.
- *
- * In the current pilot (no email provider), the raw token is returned in
- * `_pilotToken` so the admin/owner can manually provide it to the user.
- * This field will be removed once a real email channel is configured.
+ * Recovery requests are rate limited per IP and per identifier, and require a
+ * Turnstile token whenever Turnstile is enabled. The response is identical for
+ * every request so it cannot be used to enumerate accounts.
  */
 export async function requestPasswordReset(
-  email: string
+  email: string,
+  turnstileToken?: string | null
 ): Promise<ActionResponse> {
   const normalisedEmail = email.trim().toLowerCase();
+  const genericSuccess: ActionResponse = { success: true };
 
-  // Rate-limit: 5 requests per 15 minutes per email
-  if (!checkResetRateLimit(`reset:${normalisedEmail}`)) {
+  if (!normalisedEmail || normalisedEmail.length > 320) return genericSuccess;
+
+  const ip = await currentIp();
+
+  if (ip) {
+    const ipLimit = await consumeRateLimit(
+      "password_reset:ip",
+      ip,
+      RATE_LIMITS.passwordResetIp
+    );
+    if (!ipLimit.allowed) {
+      return {
+        success: false,
+        error: `Too many recovery requests. Please try again in ${humanizeSeconds(
+          ipLimit.retryAfterSeconds
+        )}.`,
+      };
+    }
+  }
+
+  const identifierLimit = await consumeRateLimit(
+    "password_reset:identifier",
+    normalisedEmail,
+    { limit: 3, windowMs: 15 * 60 * 1000 }
+  );
+  if (!identifierLimit.allowed) {
     return {
       success: false,
-      error: "Too many recovery requests. Please try again later.",
+      error: `Too many recovery requests. Please try again in ${humanizeSeconds(
+        identifierLimit.retryAfterSeconds
+      )}.`,
     };
   }
 
-  // Always return the same generic message — never reveal account existence
-  const genericSuccess = {
-    success: true as const,
-    error: undefined,
-  };
+  const turnstile = await verifyTurnstile({
+    token: turnstileToken,
+    action: "password_reset",
+    ip,
+  });
+  if (!turnstile.ok) {
+    logSecurityEvent({
+      event: "password_reset.turnstile_failed",
+      outcome: "blocked",
+      route: "password_reset",
+      ip,
+      reason: turnstile.reason,
+    });
+    return {
+      success: false,
+      error:
+        "Security verification failed. Please complete the challenge again and retry.",
+    };
+  }
 
   const user = await db.user.findUnique({
     where: { email: normalisedEmail },
   });
 
   if (!user || user.status !== "active") {
-    // Return generic success to prevent enumeration
+    // Same timing-independent response. No token is generated for an unknown
+    // account, but the caller cannot tell the difference.
     return genericSuccess;
   }
 
-  // Invalidate any previous unused tokens for this user
   await db.passwordResetToken.deleteMany({
     where: { userId: user.id, usedAt: null },
   });
 
-  // Generate raw token and store only its hash
   const rawToken = generateToken();
   const tokenHash = sha256(rawToken);
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
   await db.passwordResetToken.create({
     data: {
       userId: user.id,
+      tenantId: user.tenantId,
       tokenHash,
       expiresAt,
     },
@@ -105,64 +135,59 @@ export async function requestPasswordReset(
 
   await createAuditLog({
     userId: user.id,
+    tenantId: user.tenantId,
     action: "auth.password_recovery_requested",
     entityType: "user",
     entityId: user.id,
+    ipAddress: ip ?? undefined,
   });
 
-  // Pilot mode: return the raw token (no email configured yet)
-  // In production this would be sent via email and _pilotToken would be removed
-  return {
-    ...genericSuccess,
-    _pilotToken: rawToken,
-  };
+  /*
+   * No email provider is configured in this deployment. The raw token must
+   * NEVER be returned to the browser (that would be an account-takeover
+   * primitive). Delivery is an outstanding owner action documented in
+   * docs/security/PRODUCTION-SECURITY-ROLLOUT.md.
+   */
+  if (process.env.PASSWORD_RESET_DELIVERY === "console") {
+    console.warn(
+      "[SECURITY] Password reset token generated but no email channel is configured. " +
+        "Delivery is blocked until an email provider is integrated."
+    );
+  }
+
+  return genericSuccess;
 }
 
 // ---------------------------------------------------------------------------
-// 2. Verify recovery token
+// Verify recovery token
 // ---------------------------------------------------------------------------
 
-/**
- * Verify that a recovery token is valid (not expired, not used, matches user).
- * Returns the userId if valid, or an error message.
- */
 async function verifyRecoveryToken(
   token: string
 ): Promise<{ valid: true; userId: string } | { valid: false; error: string }> {
+  if (!token || token.length > 512) {
+    return { valid: false, error: "This recovery link is invalid or has expired." };
+  }
   const tokenHash = sha256(token);
 
   const record = await db.passwordResetToken.findUnique({
     where: { tokenHash },
   });
 
-  if (!record) {
-    return { valid: false, error: "This recovery link is invalid or has expired. Please request a new one." };
-  }
-
-  if (record.usedAt) {
-    return { valid: false, error: "This recovery link has already been used. Please request a new one." };
-  }
-
-  if (new Date() > record.expiresAt) {
-    return { valid: false, error: "This recovery link has expired. Please request a new one." };
+  if (!record || record.usedAt || new Date() > record.expiresAt) {
+    return {
+      valid: false,
+      error: "This recovery link is invalid or has expired. Please request a new one.",
+    };
   }
 
   return { valid: true, userId: record.userId };
 }
 
 // ---------------------------------------------------------------------------
-// 3. Complete password reset
+// Complete password reset
 // ---------------------------------------------------------------------------
 
-/**
- * Complete a password reset using a valid recovery token.
- *
- * - Verifies the token
- * - Applies the new password (with full policy validation)
- * - Increments tokenVersion (invalidates all existing sessions)
- * - Marks the recovery token as used
- * - Logs the event
- */
 export async function completePasswordReset(params: {
   token: string;
   newPassword: string;
@@ -170,36 +195,51 @@ export async function completePasswordReset(params: {
 }): Promise<ActionResponse> {
   const { token, newPassword, confirmPassword } = params;
 
-  // Validate passwords match
-  if (newPassword !== confirmPassword) {
+  const ip = await currentIp();
+  if (ip) {
+    const limit = await consumeRateLimit(
+      "password_reset_submit:ip",
+      ip,
+      RATE_LIMITS.passwordResetSubmitIp
+    );
+    if (!limit.allowed) {
+      return {
+        success: false,
+        error: `Too many reset attempts. Please try again in ${humanizeSeconds(
+          limit.retryAfterSeconds
+        )}.`,
+      };
+    }
+  }
+
+  if (!newPassword || newPassword !== confirmPassword) {
     return { success: false, error: "Passwords don't match" };
   }
 
-  // Validate password policy
-  if (newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
-  }
-  if (!/[A-Z]/.test(newPassword)) {
-    return { success: false, error: "Password must contain at least one uppercase letter" };
-  }
-  if (!/[0-9]/.test(newPassword)) {
-    return { success: false, error: "Password must contain at least one number" };
-  }
+  const policyError = validatePasswordPolicy(newPassword);
+  if (policyError) return { success: false, error: policyError };
 
-  // Verify the recovery token
   const tokenResult = await verifyRecoveryToken(token);
   if (!tokenResult.valid) {
     return { success: false, error: tokenResult.error };
   }
 
   const { userId } = tokenResult;
-
-  // Hash the new password
   const newHash = await hashPassword(newPassword);
 
-  // Use a transaction: update password + bump tokenVersion + mark token used
-  await db.$transaction(async (tx) => {
-    // Update password and bump tokenVersion (invalidates all sessions)
+  // The token is consumed and the password changed in one transaction. The
+  // conditional update ensures concurrent submissions cannot both succeed.
+  const consumed = await db.$transaction(async (tx) => {
+    const update = await tx.passwordResetToken.updateMany({
+      where: {
+        tokenHash: sha256(token),
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { usedAt: new Date() },
+    });
+    if (update.count !== 1) return false;
+
     await tx.user.update({
       where: { id: userId },
       data: {
@@ -208,21 +248,32 @@ export async function completePasswordReset(params: {
         tokenVersion: { increment: 1 },
       },
     });
-
-    // Mark the recovery token as used
-    const tokenHash = sha256(token);
-    await tx.passwordResetToken.update({
-      where: { tokenHash },
-      data: { usedAt: new Date() },
-    });
+    return true;
   });
 
-  // Audit the recovery
+  if (!consumed) {
+    return {
+      success: false,
+      error: "This recovery link has already been used. Please request a new one.",
+    };
+  }
+
+  await revokeAllUserSessions("user", userId, "password_reset");
+
   await createAuditLog({
     userId,
     action: "auth.password_recovery_completed",
     entityType: "user",
     entityId: userId,
+    ipAddress: ip ?? undefined,
+  });
+
+  logSecurityEvent({
+    event: "auth.password_reset_completed",
+    outcome: "success",
+    actorType: "user",
+    actorId: userId,
+    ip,
   });
 
   return { success: true };

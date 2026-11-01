@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getApiTenantContext, type TenantContext } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
+
+class SyncRejected extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
 
 /**
  * POST /api/offline/sync-contribution
@@ -16,6 +26,7 @@ import { createAuditLog } from "@/lib/audit";
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!isSameOriginRequest(request)) return crossOriginDenied();
     const body = await request.json();
     const { idempotencyKey, payload, deviceId } = body;
 
@@ -80,18 +91,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Idempotency — scoped to this tenant.
-    const existing = await db.offlineTransaction.findFirst({
-      where: { idempotencyKey, tenantId: ctx.tenantId },
+    // 3. Idempotency — the key is globally unique. A key owned by another
+    //    tenant or device is rejected instead of being silently reused.
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length > 200) {
+      return NextResponse.json(
+        { success: false, error: "Invalid idempotency key" },
+        { status: 400 }
+      );
+    }
+    const existing = await db.offlineTransaction.findUnique({
+      where: { idempotencyKey },
     });
-    if (existing && existing.status === "synced") {
-      return NextResponse.json({
-        success: true,
-        serverResult: existing.serverResult
-          ? JSON.parse(existing.serverResult)
-          : null,
-        message: "Transaction already processed",
-      });
+    if (existing) {
+      if (
+        existing.tenantId !== ctx.tenantId ||
+        existing.userId !== ctx.userId ||
+        existing.deviceId !== deviceId
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Transaction key is not available" },
+          { status: 409 }
+        );
+      }
+      if (existing.status === "synced") {
+        return NextResponse.json({
+          success: true,
+          serverResult: existing.serverResult
+            ? JSON.parse(existing.serverResult)
+            : null,
+          message: "Transaction already processed",
+        });
+      }
     }
 
     // 4. Parse payload
@@ -117,6 +147,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Invalid amount" },
         { status: 400 }
+      );
+    }
+
+    if (channel !== "collector" && channel !== "direct_office") {
+      return NextResponse.json(
+        { success: false, error: "Invalid collection channel" },
+        { status: 400 }
+      );
+    }
+
+    // A collector session may only file collector collections (and only for an
+    // assigned customer). Office collections require a tenant administrator.
+    if (channel !== "collector" && ctx.role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Not authorized for this collection channel" },
+        { status: 403 }
       );
     }
 
@@ -181,9 +227,98 @@ export async function POST(request: NextRequest) {
 
     const cycle = account.cycles[0];
     const dailyContribution = Number(cycle.dailyContribution);
+    if (!Number.isFinite(dailyContribution) || dailyContribution <= 0) {
+      return NextResponse.json(
+        { success: false, error: "Account has an invalid contribution rate" },
+        { status: 400 }
+      );
+    }
+
+    // Money is validated as a whole number of contribution days. A partial or
+    // fractional amount is rejected instead of being silently rounded, which
+    // previously credited more than the allocations represented.
+    const daysCovered = amount / dailyContribution;
+    if (
+      !Number.isInteger(daysCovered) ||
+      daysCovered < 1 ||
+      daysCovered > 31
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Amount must equal a whole number of contribution days",
+        },
+        { status: 400 }
+      );
+    }
+    const allocatedAmount =
+      Math.round(daysCovered * dailyContribution * 100) / 100;
+
+    // Reserve the idempotency key BEFORE moving money. A concurrent or replayed
+    // request then loses the unique-key race instead of double-crediting.
+    if (!existing) {
+      try {
+        await db.offlineTransaction.create({
+          data: {
+            tenantId: ctx.tenantId,
+            deviceId,
+            userId: ctx.userId,
+            type: "contribution",
+            idempotencyKey,
+            payload: JSON.stringify(txPayload),
+            status: "syncing",
+            retryCount: 0,
+            maxRetries: 5,
+            localTimestamp: new Date(),
+          },
+        });
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          return NextResponse.json(
+            { success: false, error: "Transaction is already being processed" },
+            { status: 409 }
+          );
+        }
+        throw error;
+      }
+    }
 
     // 7. Contribution + allocations, all stamped with the tenant.
     const result = await db.$transaction(async (tx) => {
+      const existingAllocations = await tx.contributionAllocation.findMany({
+        where: { contribution: { cycleId: cycle.id }, tenantId: ctx.tenantId },
+      });
+      const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
+
+      const allocations: {
+        tenantId: string;
+        contributionId: string;
+        cycleDay: number;
+        amount: number;
+      }[] = [];
+      for (let day = 1; day <= 31 && allocations.length < daysCovered; day++) {
+        if (!paidDays.has(day)) {
+          allocations.push({
+            tenantId: ctx.tenantId,
+            contributionId: "",
+            cycleDay: day,
+            amount: dailyContribution,
+          });
+        }
+      }
+
+      if (allocations.length < daysCovered) {
+        throw new SyncRejected(
+          400,
+          "This cycle does not have enough unpaid days for that amount"
+        );
+      }
+
       const contribution = await tx.contribution.create({
         data: {
           tenantId: ctx.tenantId,
@@ -199,61 +334,24 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const daysCovered = Math.floor(amount / dailyContribution);
-      const allocatedAmount = daysCovered * dailyContribution;
-
-      const existingAllocations = await tx.contributionAllocation.findMany({
-        where: { contribution: { cycleId: cycle.id }, tenantId: ctx.tenantId },
+      await tx.contributionAllocation.createMany({
+        data: allocations.map((allocation) => ({
+          ...allocation,
+          contributionId: contribution.id,
+        })),
       });
-      const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
-
-      const allocations: {
-        tenantId: string;
-        contributionId: string;
-        cycleDay: number;
-        amount: number;
-      }[] = [];
-      let daysAllocated = 0;
-      for (let day = 1; day <= 31 && daysAllocated < daysCovered; day++) {
-        if (!paidDays.has(day)) {
-          allocations.push({
-            tenantId: ctx.tenantId,
-            contributionId: contribution.id,
-            cycleDay: day,
-            amount: dailyContribution,
-          });
-          daysAllocated++;
-        }
-      }
-      if (allocations.length > 0) {
-        await tx.contributionAllocation.createMany({ data: allocations });
-      }
 
       return {
         contributionId: contribution.id,
-        daysAllocated,
+        daysAllocated: allocations.length,
         allocatedAmount: Number(allocatedAmount),
       };
     });
 
     // 8. Record the offline transaction as synced (tenant scoped)
-    await db.offlineTransaction.upsert({
+    await db.offlineTransaction.update({
       where: { idempotencyKey },
-      create: {
-        tenantId: ctx.tenantId,
-        deviceId,
-        userId: ctx.userId,
-        type: "contribution",
-        idempotencyKey,
-        payload: JSON.stringify(txPayload),
-        status: "synced",
-        retryCount: 0,
-        maxRetries: 5,
-        localTimestamp: new Date(),
-        syncedAt: new Date(),
-        serverResult: JSON.stringify(result),
-      },
-      update: {
+      data: {
         status: "synced",
         syncedAt: new Date(),
         serverResult: JSON.stringify(result),
@@ -290,6 +388,23 @@ export async function POST(request: NextRequest) {
       allocatedAmount: result.allocatedAmount,
     });
   } catch (err) {
+    if (err instanceof SyncRejected) {
+      return NextResponse.json(
+        { success: false, error: err.message },
+        { status: err.status }
+      );
+    }
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Transaction is already being processed" },
+        { status: 409 }
+      );
+    }
     console.error("[offline-sync]", err);
     return NextResponse.json(
       { success: false, error: "Internal server error" },

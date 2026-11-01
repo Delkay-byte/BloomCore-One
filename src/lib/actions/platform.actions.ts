@@ -11,8 +11,11 @@ import {
   getPlatformSession,
   hashPlatformPassword,
   requirePlatformAdmin,
+  revokePlatformSession,
   setPlatformSession,
   validatePasswordPolicy,
+  verifyPlatformToken,
+  PLATFORM_COOKIE,
   type PlatformSession,
 } from "@/lib/platform-auth";
 import {
@@ -20,8 +23,18 @@ import {
   getPlatformAuditLogs,
   PLATFORM_AUDIT_ACTIONS,
 } from "@/lib/platform-audit";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
-import { headers } from "next/headers";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import {
+  guardLogin,
+  recordLoginFailure,
+  recordLoginSuccess,
+  cooldownMessage,
+  GENERIC_LOGIN_ERROR,
+} from "@/lib/security/auth-guard";
+import { logSecurityEvent } from "@/lib/security/log";
+import { RATE_LIMITS } from "@/lib/security/config";
+import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
+import { headers, cookies } from "next/headers";
 
 export interface PlatformActionResponse {
   success: boolean;
@@ -85,30 +98,61 @@ async function auditPlatformEvent(
 export async function platformLogin(
   formData: FormData
 ): Promise<PlatformActionResponse | void> {
-  const email = (formData.get("email") as string)?.trim();
+  const email = (formData.get("email") as string)?.trim() ?? "";
   const password = (formData.get("password") as string) ?? "";
+  const turnstileToken =
+    (formData.get("cf-turnstile-response") as string) ??
+    (formData.get("turnstileToken") as string);
 
   if (!email || !password) {
-    return { success: false, error: "Email and password are required" };
+    return { success: false, error: GENERIC_LOGIN_ERROR };
   }
 
-  const rateLimitResult = checkRateLimit(`platform_login:${email.toLowerCase()}`);
-  if (!rateLimitResult.allowed) {
-    return {
-      success: false,
-      error: "Too many login attempts. Please try again in 15 minutes.",
-    };
-  }
+  const guard = await guardLogin({
+    identifier: email,
+    action: "platform_login",
+    turnstileToken,
+  });
+  if (!guard.ok) return { success: false, error: guard.error };
 
   const result = await authenticatePlatformAdmin(email, password);
   if (!result.ok) {
     // One generic failure message for all reasons — no account enumeration.
+    const state = await recordLoginFailure(
+      email,
+      guard.ip,
+      "platform_login"
+    );
     await auditPlatformEvent(null, PLATFORM_AUDIT_ACTIONS.PLATFORM_LOGIN_FAILED, {
-      details: { attemptedEmail: email.toLowerCase() },
-      ipAddress: await safeClientIp(),
+      details: { attempted: true },
+      ipAddress: guard.ip,
     });
-    return { success: false, error: "Invalid email or password" };
+    return {
+      success: false,
+      error: state.blocked
+        ? cooldownMessage(state.retryAfterSeconds)
+        : GENERIC_LOGIN_ERROR,
+    };
   }
+
+  await recordLoginSuccess(email, guard.ip, "platform_login");
+
+  const adminRow = await db.platformSuperAdmin.findUnique({
+    where: { id: result.admin.adminId },
+    select: { mfaEnabled: true },
+  });
+  const mfaStep = await beginMfaStepIfRequired({
+    subjectType: "platform",
+    subjectId: result.admin.adminId,
+    module: "platform",
+    email: result.admin.email,
+    fullName: result.admin.fullName,
+    role: "admin",
+    mfaEnabled: Boolean(adminRow?.mfaEnabled),
+    forcePasswordReset: result.admin.forcePasswordReset,
+    tokenVersion: result.tokenVersion,
+  });
+  if (mfaStep) redirect(`/mfa/${mfaStep}`);
 
   await setPlatformSession({
     adminId: result.admin.adminId,
@@ -134,6 +178,9 @@ export async function platformLogin(
 export async function platformLogout(): Promise<void> {
   const session = await getPlatformSession();
   if (session) {
+    const token = (await cookies()).get(PLATFORM_COOKIE)?.value;
+    const payload = token ? await verifyPlatformToken(token) : null;
+    await revokePlatformSession(payload, "platform_logout");
     await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_LOGOUT);
   }
   await clearPlatformSession();
@@ -202,10 +249,45 @@ export async function platformChangePassword(
 async function safeClientIp(): Promise<string | null> {
   try {
     const h = await headers();
-    return getClientIp(h);
+    const { getClientIp } = await import("@/lib/security/client-ip");
+    return getClientIp(h).ip;
   } catch {
     return null;
   }
+}
+
+/**
+ * Read-only platform screens still re-check the platform session. A layout
+ * redirect is not an authorization control for a server action that can be
+ * invoked directly.
+ */
+async function requirePlatformRead(): Promise<PlatformSession> {
+  const session = await getPlatformAdminOrNull();
+  if (!session) throw new Error("Not authenticated");
+  if (session.forcePasswordReset) throw new Error("Password change required");
+  return session;
+}
+
+/** Rate limit for platform-level mutations. */
+async function platformSensitiveAllowed(
+  session: PlatformSession,
+  scope: string
+): Promise<boolean> {
+  const result = await consumeRateLimit(
+    scope,
+    session.adminId,
+    RATE_LIMITS.adminSensitive
+  );
+  if (!result.allowed) {
+    logSecurityEvent({
+      event: "platform.sensitive_rate_limited",
+      outcome: "blocked",
+      actorType: "platform_admin",
+      actorId: session.adminId,
+      route: scope,
+    });
+  }
+  return result.allowed;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +295,7 @@ async function safeClientIp(): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 export async function getPlatformOverview() {
-  const session = await getPlatformSession();
+  const session = await requirePlatformRead();
 
   const [
     total,
@@ -298,7 +380,7 @@ export async function listTenants(options: {
   page?: number;
   limit?: number;
 }) {
-  await getPlatformAdminOrNull();
+  await requirePlatformRead();
 
   const page = Math.max(1, options.page ?? 1);
   const limit = Math.min(50, Math.max(1, options.limit ?? 20));
@@ -372,7 +454,7 @@ export async function listTenants(options: {
 }
 
 export async function getTenantDetail(tenantId: string) {
-  await getPlatformAdminOrNull();
+  await requirePlatformRead();
 
   const tenant = await db.businessTenant.findUnique({
     where: { id: tenantId },
@@ -456,6 +538,12 @@ export async function enrollTenant(
   input: EnrollTenantInput
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
+    return {
+      success: false,
+      error: "Too many administrative requests. Please wait and try again.",
+    };
+  }
 
   const name = input.name?.trim();
   const adminEmail = input.adminEmail?.trim().toLowerCase();
@@ -591,6 +679,12 @@ export async function setTenantStatus(
   reason?: string
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
+    return {
+      success: false,
+      error: "Too many administrative requests. Please wait and try again.",
+    };
+  }
 
   const tenant = await db.businessTenant.findUnique({ where: { id: tenantId } });
   if (!tenant) return { success: false, error: "Tenant not found" };
@@ -646,6 +740,12 @@ export async function updateTenantProfile(
   formData: FormData
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
+    return {
+      success: false,
+      error: "Too many administrative requests. Please wait and try again.",
+    };
+  }
 
   const tenant = await db.businessTenant.findUnique({ where: { id: tenantId } });
   if (!tenant) return { success: false, error: "Tenant not found" };
@@ -689,6 +789,12 @@ export async function updateTenantModules(
   susuEnabled: boolean
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
+    return {
+      success: false,
+      error: "Too many administrative requests. Please wait and try again.",
+    };
+  }
 
   const tenant = await db.businessTenant.findUnique({ where: { id: tenantId } });
   if (!tenant) return { success: false, error: "Tenant not found" };
@@ -735,6 +841,12 @@ export async function resetTenantAdminAccess(
   adminUserId: string
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
+    return {
+      success: false,
+      error: "Too many administrative requests. Please wait and try again.",
+    };
+  }
 
   const tenant = await db.businessTenant.findUnique({ where: { id: tenantId } });
   if (!tenant) return { success: false, error: "Tenant not found" };
@@ -784,7 +896,7 @@ export async function getPlatformAuditPage(options: {
   action?: string;
   tenantCode?: string;
 }) {
-  await getPlatformAdminOrNull();
+  await requirePlatformRead();
   const where: Record<string, unknown> = {};
   if (options.action) where.action = options.action;
   if (options.tenantCode) where.tenantCode = options.tenantCode.toUpperCase();

@@ -1,8 +1,16 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
+import { randomUUID } from "crypto";
 import { db } from "./db";
 import { redirect } from "next/navigation";
+import {
+  createSessionRecord,
+  isSessionRecordActive,
+  revokeAllSubjectSessions,
+  revokeSession,
+  touchSessionRecord,
+} from "./security/session-store";
 
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -83,8 +91,13 @@ export interface JwtPayload {
   modules?: ("momo" | "susu" | "customer")[];          // authorized business modules
   locationId?: string;
   collectorId?: string;
+  tenantId?: string | null;
   forcePasswordReset?: boolean;
   tokenVersion?: number;
+  /** Server-side session registry id. */
+  jti?: string;
+  /** Distinguishes session tokens from workspace-selection tokens. */
+  tokenUse?: "session" | "workspace-selection";
   /** Epoch seconds — when this token was issued (server-authoritative) */
   iat?: number;
   /** Epoch seconds — absolute expiry timestamp */
@@ -99,7 +112,13 @@ export interface SelectionPayload {
   email: string;
   fullName: string;
   modules: ("momo" | "susu")[];
+  jti?: string;
+  tokenUse?: "workspace-selection";
 }
+
+const JWT_ISSUER = "bloomcore-one";
+const SESSION_AUDIENCE = "bloomcore-one:session";
+const SELECTION_AUDIENCE = "bloomcore-one:workspace-selection";
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -128,24 +147,58 @@ export async function createToken(payload: JwtPayload): Promise<string> {
     iat: now,
     exp: absoluteExpiry,
     lastActivityAt: now,
+    jti: payload.jti ?? randomUUID(),
+    tokenUse: "session",
   } as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(now)
     .setExpirationTime(expiryString)
+    .setIssuer(JWT_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .sign(getJwtSecret());
 }
 
 export async function createSelectionToken(payload: SelectionPayload): Promise<string> {
-  return new SignJWT({ ...payload, kind: "workspace-selection" })
+  return new SignJWT({
+    ...payload,
+    kind: "workspace-selection",
+    jti: payload.jti ?? randomUUID(),
+    tokenUse: "workspace-selection",
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("15m")
+    .setIssuer(JWT_ISSUER)
+    .setAudience(SELECTION_AUDIENCE)
     .sign(getJwtSecret());
 }
 
+/**
+ * Verify a token. New tokens carry issuer/audience/use claims and are checked
+ * strictly. Pre-hardening tokens (no issuer) remain valid until their existing
+ * short expiry so a deploy does not sign every user out.
+ */
 export async function verifyToken<T = JwtPayload>(token: string): Promise<T | null> {
   try {
     const { payload } = await jwtVerify(token, getJwtSecret());
+    const claims = payload as Record<string, unknown>;
+    if (claims.iss !== undefined && claims.iss !== JWT_ISSUER) return null;
+    if (claims.aud !== undefined) {
+      const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+      const expected = [
+        SESSION_AUDIENCE,
+        SELECTION_AUDIENCE,
+        "bloomcore-one:platform",
+      ];
+      if (!audience.some((value) => expected.includes(value))) return null;
+    }
+    if (
+      claims.tokenUse !== undefined &&
+      claims.tokenUse !== "session" &&
+      claims.tokenUse !== "workspace-selection"
+    ) {
+      return null;
+    }
     return payload as unknown as T;
   } catch {
     return null;
@@ -206,6 +259,12 @@ export async function refreshLastActivity(payload: JwtPayload): Promise<string> 
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(iat)
     .setExpirationTime(expiryString)
+    .setIssuer(JWT_ISSUER)
+    .setAudience(
+      payload.tokenUse === "workspace-selection"
+        ? SELECTION_AUDIENCE
+        : SESSION_AUDIENCE
+    )
     .sign(getJwtSecret());
 }
 
@@ -224,11 +283,41 @@ async function setSessionCookie(name: string, token: string) {
     sameSite: "lax",
     path: "/",
     maxAge,
+    priority: "high",
   });
 }
 
 export async function setModuleSession(module: ModuleName, payload: JwtPayload) {
-  await setSessionCookie(SESSION_COOKIES[module], await createToken(payload));
+  const jti = payload.jti ?? randomUUID();
+  const token = await createToken({ ...payload, jti });
+  await createSessionRecord({
+    id: jti,
+    subjectType: payload.role === "customer" ? "customer" : "user",
+    subjectId: payload.userId,
+    tenantId: payload.tenantId ?? null,
+    expiresAt: new Date(
+      Date.now() + SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS * 1000
+    ),
+  });
+  await setSessionCookie(SESSION_COOKIES[module], token);
+}
+
+/** Revoke one session server-side (used by logout and account changes). */
+export async function revokeSessionToken(
+  payload: JwtPayload | null,
+  reason: string
+): Promise<void> {
+  if (!payload?.jti) return;
+  await revokeSession(payload.jti, reason);
+}
+
+/** Revoke every session belonging to an account. */
+export async function revokeAllUserSessions(
+  subjectType: "user" | "customer" | "platform",
+  subjectId: string,
+  reason: string
+): Promise<void> {
+  await revokeAllSubjectSessions(subjectType, subjectId, reason);
 }
 
 export async function setSelectionSession(token: string) {
@@ -291,10 +380,13 @@ export async function readModuleCookie(module: ModuleName): Promise<JwtPayload |
   if (scoped) {
     const payload = await verifyToken<JwtPayload>(scoped);
     if (!payload?.userId) return null;
+    if (payload.tokenUse === "workspace-selection") return null;
     const normalized = normalizePayload(payload);
     // Server-side session timing enforcement
     const status = validateSessionTiming(normalized);
     if (status !== "valid") return null;
+    // Server-side registry enforcement (revocation, logout, admin action).
+    if (!(await isSessionRecordActive(normalized.jti))) return null;
     return normalized;
   }
 
@@ -306,6 +398,7 @@ export async function readModuleCookie(module: ModuleName): Promise<JwtPayload |
   const normalized = normalizePayload(payload);
   const status = validateSessionTiming(normalized);
   if (status !== "valid") return null;
+  if (!(await isSessionRecordActive(normalized.jti))) return null;
   return normalized;
 }
 
@@ -346,6 +439,9 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
     const timingStatus = validateSessionTiming(payload);
     if (timingStatus !== "valid") return false;
 
+    // Revoked/logged-out sessions are rejected even if the JWT is still valid.
+    if (!(await isSessionRecordActive(payload.jti))) return false;
+
     // Customer sessions are validated against the Customer record, not User.
     if (payload.role === "customer") {
       const customer = await db.customer.findUnique({
@@ -384,12 +480,14 @@ export async function refreshSession(module: ModuleName): Promise<string | null>
   const status = validateSessionTiming(normalized);
   if (status !== "valid") return null;
   const newToken = await refreshLastActivity(normalized);
+  await touchSessionRecord(normalized.jti);
   cookieStore.set(name, newToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+    priority: "high",
   });
   return newToken;
 }
