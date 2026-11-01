@@ -105,8 +105,10 @@ export async function login(
 
   // Administrators sign into the administration module.
   if (user.role === "admin") {
-    await issueModuleSession(user.id, "admin");
-    redirect("/admin/dashboard");
+    const payload = await issueModuleSession(user.id, "admin");
+    redirect(
+      payload.forcePasswordReset ? "/admin/first-login" : "/admin/dashboard"
+    );
   }
 
   if (modules.length === 0) {
@@ -121,7 +123,7 @@ export async function login(
     const payload = await issueModuleSession(user.id, mod);
 
     if (payload.forcePasswordReset) {
-      redirect(`${settingsPathFor(mod)}?tab=password`);
+      redirect(firstLoginPathFor(mod));
     }
     redirect(dashboardPathFor(mod));
   }
@@ -137,8 +139,8 @@ export async function login(
   redirect("/select-workspace");
 }
 
-function settingsPathFor(module: ModuleName): string {
-  return `/${module === "admin" ? "admin" : module === "momo" ? "worker" : "collector"}/settings`;
+function firstLoginPathFor(module: ModuleName): string {
+  return `/${module === "admin" ? "admin" : module === "momo" ? "worker" : "collector"}/first-login`;
 }
 
 async function buildSessionPayload(userId: string): Promise<JwtPayload> {
@@ -329,12 +331,25 @@ export async function changePassword(
 ): Promise<ActionResponse> {
   // Determine which module session is making the request — identity always
   // comes from the authenticated session, never from browser-supplied IDs.
+  // The optional `module` field only SELECTS among cookies the browser already
+  // holds, so the first-login screen cannot change a different session's
+  // password when more than one is present.
+  const requestedModule = formData.get("module");
+  const moduleFilter: ModuleName | null =
+    requestedModule === "admin" ||
+    requestedModule === "momo" ||
+    requestedModule === "susu"
+      ? requestedModule
+      : null;
+
   const contexts: Array<{ module: ModuleName; user: JwtPayload | null }> = [
     { module: "admin", user: await getAdminSession() },
     { module: "momo", user: await getMomoSession() },
     { module: "susu", user: await getSusuSession() },
   ];
-  const context = contexts.find((c) => c.user !== null);
+  const context = contexts.find(
+    (c) => c.user !== null && (moduleFilter === null || c.module === moduleFilter)
+  );
   if (!context || !context.user) {
     return { success: false, error: "Not authenticated" };
   }
@@ -572,7 +587,7 @@ export async function customerLogin(
   await auditWorkspace("customer", result.payload.userId);
 
   if (result.payload.forcePasswordReset) {
-    redirect("/customer/settings?tab=password");
+    redirect("/customer/first-login");
   }
   redirect("/customer/dashboard");
 }
@@ -614,7 +629,7 @@ export async function unifiedLogin(
     await auditWorkspace("customer", result.payload.userId);
 
     if (result.payload.forcePasswordReset) {
-      redirect("/customer/settings?tab=password");
+      redirect("/customer/first-login");
     }
     redirect("/customer/dashboard");
   }
@@ -628,7 +643,7 @@ export async function unifiedLogin(
   await auditWorkspace(mod, result.payload.userId);
 
   if (result.payload.forcePasswordReset) {
-    redirect(`${settingsPathFor(mod)}?tab=password`);
+    redirect(firstLoginPathFor(mod));
   }
   redirect(dashboardPathFor(mod));
 }
@@ -674,7 +689,7 @@ export async function adminLogin(
   await auditWorkspace("admin", user.id);
 
   if (payload.forcePasswordReset) {
-    redirect("/admin/settings?tab=password");
+    redirect("/admin/first-login");
   }
   redirect("/admin/dashboard");
 }

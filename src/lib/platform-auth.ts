@@ -220,13 +220,14 @@ export async function requirePlatformAdmin(): Promise<PlatformSession> {
 }
 
 /**
- * Guard for every platform page EXCEPT the settings page: a first-login or
- * reset platform password must be changed before any other platform operation.
+ * Guard for every platform page EXCEPT the standalone first-login screen: a
+ * first-login or reset platform password must be changed before any other
+ * platform operation.
  */
 export async function requirePlatformPage(): Promise<PlatformSession> {
   const session = await requirePlatformAdmin();
   if (session.forcePasswordReset) {
-    redirect("/platform/settings?tab=password");
+    redirect("/platform/first-login");
   }
   return session;
 }

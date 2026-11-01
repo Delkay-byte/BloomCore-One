@@ -10,7 +10,11 @@ export const dynamic = "force-dynamic";
 export default async function AdminLoginPage() {
   const session = await getAdminSession();
   if (session && (await isSessionCurrent(session))) {
-    redirect("/admin/dashboard");
+    redirect(
+      session.forcePasswordReset
+        ? "/admin/first-login"
+        : "/admin/dashboard"
+    );
   }
   return <AdminLoginForm />;
 }

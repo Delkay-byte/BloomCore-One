@@ -77,7 +77,7 @@ function claimsMatchModule(claims: TokenClaims, module: keyof typeof SESSION_COO
  * tenant JWT can never be replayed as a platform session even if it were
  * somehow written into the platform cookie.
  */
-function isPlatformClaims(claims: TokenClaims | null): boolean {
+function isPlatformClaims(claims: TokenClaims | null): claims is TokenClaims {
   return Boolean(claims && claims.kind === "platform" && claims.adminId);
 }
 
@@ -119,7 +119,11 @@ export async function middleware(request: NextRequest) {
         request.cookies.get(PLATFORM_COOKIE)?.value
       );
       if (isPlatformClaims(existing) && pathname === "/platform/login") {
-        return redirectTo("/platform/dashboard");
+        return redirectTo(
+          existing.forcePasswordReset
+            ? "/platform/first-login"
+            : "/platform/dashboard"
+        );
       }
       return NextResponse.next();
     }
@@ -129,6 +133,17 @@ export async function middleware(request: NextRequest) {
     );
     if (!isPlatformClaims(platformClaims)) {
       return redirectTo("/platform/login");
+    }
+
+    // A first-login operator may only reach the standalone password screen.
+    // The console layout no longer redirects to a page it also wraps, so this
+    // path cannot loop.
+    if (platformClaims.forcePasswordReset) {
+      if (pathname !== "/platform/first-login") {
+        return redirectTo("/platform/first-login");
+      }
+    } else if (pathname === "/platform/first-login") {
+      return redirectTo("/platform/dashboard");
     }
 
     const r = NextResponse.next();
@@ -157,21 +172,28 @@ export async function middleware(request: NextRequest) {
   // nothing: every destination re-checks the session below.
   // ---------------------------------------------------------------------
   if (pathname === "/workspace") {
-    if (await readClaims(request.cookies.get(PLATFORM_COOKIE)?.value)) {
-      return redirectTo("/platform/dashboard");
+    const platformClaims = await readClaims(
+      request.cookies.get(PLATFORM_COOKIE)?.value
+    );
+    if (isPlatformClaims(platformClaims)) {
+      return redirectTo(
+        platformClaims.forcePasswordReset
+          ? "/platform/first-login"
+          : "/platform/dashboard"
+      );
     }
     for (const [mod, cookieName] of Object.entries(SESSION_COOKIES)) {
       const claims = await readClaims(request.cookies.get(cookieName)?.value);
       if (!claims) continue;
       if (claims.forcePasswordReset) {
         return redirectTo(
-          claims.role === "customer"
-            ? "/customer/settings?tab=password"
-            : mod === "admin"
-              ? "/admin/settings?tab=password"
-              : mod === "momo"
-                ? "/worker/settings?tab=password"
-                : "/collector/settings?tab=password"
+          mod === "admin"
+            ? "/admin/first-login"
+            : mod === "momo"
+              ? "/worker/first-login"
+              : mod === "susu"
+                ? "/collector/first-login"
+                : "/customer/first-login"
         );
       }
       return redirectTo(
@@ -223,12 +245,14 @@ export async function middleware(request: NextRequest) {
     if (customerClaims.role !== "customer") {
       return redirectTo("/login?role=customer");
     }
-    // First-login mandatory password change for customer
+    // First-login mandatory password change for customer. The standalone
+    // screen is outside the portal shell; every other customer page waits.
     if (customerClaims.forcePasswordReset) {
-      const settingsAllowed = pathname.startsWith("/customer/settings");
-      if (!settingsAllowed) {
-        return redirectTo("/customer/settings?tab=password");
+      if (!pathname.startsWith("/customer/first-login")) {
+        return redirectTo("/customer/first-login");
       }
+    } else if (pathname.startsWith("/customer/first-login")) {
+      return redirectTo("/customer/dashboard");
     }
     return res();
   }
@@ -284,16 +308,30 @@ export async function middleware(request: NextRequest) {
     return redirectTo("/login");
   }
 
-  // First-login mandatory password change: only module settings/logout allowed.
+  // First-login mandatory password change: only the standalone screen (and
+  // workspace selection) is reachable until the temporary password is replaced.
+  const firstLoginRoot =
+    pathModule === "admin"
+      ? "/admin/first-login"
+      : pathModule === "momo"
+        ? "/worker/first-login"
+        : "/collector/first-login";
+  const dashboardRoot =
+    pathModule === "admin"
+      ? "/admin/dashboard"
+      : pathModule === "momo"
+        ? "/worker/dashboard"
+        : "/collector/dashboard";
+
   if (claims.forcePasswordReset) {
-    const settingsRoot =
-      pathModule === "admin" ? "/admin/settings" : pathModule === "momo" ? "/worker/settings" : "/collector/settings";
     const allowed =
-      pathname.startsWith(settingsRoot) ||
+      pathname.startsWith(firstLoginRoot) ||
       pathname.startsWith("/select-workspace");
     if (!allowed) {
-      return redirectTo(`${settingsRoot}?tab=password`);
+      return redirectTo(firstLoginRoot);
     }
+  } else if (pathname === firstLoginRoot) {
+    return redirectTo(dashboardRoot);
   }
 
   return res();

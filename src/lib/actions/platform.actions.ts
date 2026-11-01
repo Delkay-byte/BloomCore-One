@@ -126,7 +126,7 @@ export async function platformLogin(
   });
 
   if (result.admin.forcePasswordReset) {
-    redirect("/platform/settings?tab=password");
+    redirect("/platform/first-login");
   }
   redirect("/platform/dashboard");
 }
@@ -195,6 +195,7 @@ export async function platformChangePassword(
 
   await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_PASSWORD_CHANGED);
   revalidatePath("/platform/settings");
+  revalidatePath("/platform/first-login");
   return { success: true };
 }
 

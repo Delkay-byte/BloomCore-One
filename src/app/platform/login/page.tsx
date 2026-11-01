@@ -10,7 +10,11 @@ export const dynamic = "force-dynamic";
 export default async function PlatformLoginPage() {
   const session = await getPlatformAdminOrNull();
   if (session) {
-    redirect(session.forcePasswordReset ? "/platform/settings?tab=password" : "/platform/dashboard");
+    redirect(
+      session.forcePasswordReset
+        ? "/platform/first-login"
+        : "/platform/dashboard"
+    );
   }
   return <PlatformLoginForm />;
 }

@@ -14,10 +14,13 @@ const DASHBOARD_BY_ROLE: Record<string, string> = {
 export default function ChangePasswordForm({
   onSuccess,
   dashboardPath,
+  module,
 }: {
   onSuccess?: () => void;
   /** Where to go after a successful change when no onSuccess handler is given. */
   dashboardPath?: string;
+  /** Bind the change to the settings page's module cookie. */
+  module?: "admin" | "momo" | "susu";
 }) {
   const router = useRouter();
   const [error, setError] = useState("");
@@ -44,6 +47,7 @@ export default function ChangePasswordForm({
     }
 
     try {
+      if (module) formData.set("module", module);
       const result = await changePassword(formData);
       if (result.success) {
         setSuccess("Password changed successfully");

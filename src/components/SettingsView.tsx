@@ -238,7 +238,7 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
         {/* Change Password Tab */}
         {activeTab === "password" && (
           <div className="p-6" role="tabpanel">
-            <ChangePasswordForm onSuccess={handlePasswordChanged} />
+            <ChangePasswordForm onSuccess={handlePasswordChanged} module={module} />
           </div>
         )}
 
