@@ -1,11 +1,13 @@
 # Render Deployment Blueprint — BloomCore One (Neon)
 # https://render.com/docs/blueprint-spec
 #
-# Scope: describes ONLY the Neon-backed service `bloomcore-one` (already created
-# manually in the Render dashboard, service id srv-dbihvrmgekts73fdcbj0; the
-# service was created as BIK-Prestige-Enterprise and renamed in place). Do not
-# run "New → Blueprint" against this branch unless the existing service is
-# first deleted, or a duplicate will be created.
+# Scope: describes the Neon-backed production service `bloomcore-one`
+# (srv-dbjalrk9v7es739ifkp0), created in the Render dashboard with this name so
+# its onrender.com hostname matches the product identity. The previous service
+# (srv-dbihvrmgekts73fdcbj0, now `bik-prestige-legacy`) is retained only as a
+# rollback target until the new host is confirmed. Do not run "New → Blueprint"
+# against this branch unless both services are first deleted, or a duplicate
+# will be created.
 #
 # Database schema is NEVER created or altered by a build. Provisioning the
 # schema is a separate, explicitly run operator step — see

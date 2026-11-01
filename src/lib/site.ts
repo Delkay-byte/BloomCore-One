@@ -34,7 +34,7 @@ export const FIRST_TENANT_NAME = "BIK Prestige Enterprise";
 export const FIRST_TENANT_CODE = "BIK-HQ-001";
 
 const TEMPORARY_DEPLOYMENT_URL =
-  "https://bik-prestige-enterprise-pcxi.onrender.com";
+  "https://bloomcore-one.onrender.com";
 
 function readEnv(value: string | undefined): string | null {
   const trimmed = value?.trim();

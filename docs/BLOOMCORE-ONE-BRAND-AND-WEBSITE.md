@@ -265,10 +265,10 @@ cannot act as a tenant user (and the reverse).
 
 | Variable | Purpose | Current state |
 | --- | --- | --- |
-| `SITE_URL` | Canonical public origin. Drives metadata base, sitemap, robots, Open Graph URLs | **Unset** — falls back to the temporary Render host `https://bik-prestige-enterprise-pcxi.onrender.com` |
-| `NEXT_PUBLIC_SITE_URL` | Client-visible fallback for the same origin | **Unset** |
-| `CONTACT_EMAIL` | Public enquiry email | **Unset** |
-| `CONTACT_PHONE` | Public enquiry telephone | **Unset** |
+| `SITE_URL` | Canonical public origin. Drives metadata base, sitemap, robots, Open Graph URLs | Set to the verified Render host `https://bloomcore-one.onrender.com` until a permanent domain is configured |
+| `NEXT_PUBLIC_SITE_URL` | Client-visible fallback for the same origin | Set to the same verified host |
+| `CONTACT_EMAIL` | Public enquiry email | Set on the Render service (never committed) |
+| `CONTACT_PHONE` | Public enquiry telephone and WhatsApp link | Set on the Render service (never committed) |
 
 ---
 
@@ -395,8 +395,8 @@ This branch is not yet promoted. When it is ready, follow
 
 ```bash
 git push origin feature/bloomcore-one-brand-public-site:main   # fast-forward only, never --force
-curl -s https://bik-prestige-enterprise-pcxi.onrender.com/api/health
-curl -s -o /dev/null -w '%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/api/health/ready
+curl -s https://bloomcore-one.onrender.com/api/health
+curl -s -o /dev/null -w '%{http_code}\n' https://bloomcore-one.onrender.com/api/health/ready
 ```
 
 The deployed commit SHA must equal the promoted `main` SHA.

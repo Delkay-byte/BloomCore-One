@@ -60,7 +60,7 @@ credentials or recovery information:
 
 > **Customer Portal**
 > Scan or visit the Customer Login link to view your savings.
-> `https://bik-prestige-enterprise-pcxi.onrender.com/login/customer`
+> `https://bloomcore-one.onrender.com/login/customer`
 
 ---
 

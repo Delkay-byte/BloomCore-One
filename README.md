@@ -91,7 +91,7 @@ node scripts/build-brand-raster.mjs
 ## Deployment
 
 Production runs on Render (web service `bloomcore-one`, service ID
-`srv-dbihvrmgekts73fdcbj0`) with a Neon PostgreSQL database. `main` is the
+`srv-dbjalrk9v7es739ifkp0`) with a Neon PostgreSQL database. `main` is the
 production branch and auto-deploys. The build command generates the
 PostgreSQL Prisma client before `next build`; database schema changes are
 applied with explicit `prisma migrate deploy` runs by the operator — never by

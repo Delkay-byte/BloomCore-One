@@ -1,6 +1,6 @@
-# BIK Prestige Enterprise — Multi-Tenant SaaS on Neon + Render
+# BloomCore One — Multi-Tenant SaaS on Neon + Render
 
-**Verified on 2026-10-31.** This document describes the multi-tenant SaaS
+**Verified on 2026-11-01.** This document describes the multi-tenant SaaS
 deployment: one Render web service, one Neon PostgreSQL database, a platform
 control plane and tenant-scoped business operations.
 
@@ -8,8 +8,9 @@ control plane and tenant-scoped business operations.
 |---|---|
 | GitHub repo | `https://github.com/Delkay-byte/BloomCore-One` (renamed in place from BIK-Prestige-Enterprise) |
 | Deployment branch | `main` |
-| Render service | `bloomcore-one` — `srv-dbihvrmgekts73fdcbj0` (Oregon, Free; renamed in place) |
-| Live URL | `https://bik-prestige-enterprise-pcxi.onrender.com` |
+| Render service | `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0` (Oregon, Free) |
+| Rollback service | `bik-prestige-legacy` — `srv-dbihvrmgekts73fdcbj0` (Oregon, Free; kept until the new host is confirmed, then deleted with owner approval) |
+| Live URL | `https://bloomcore-one.onrender.com` |
 | Neon project | `BIK Prestige` — database `neondb`, role `neondb_owner` |
 | Neon server | PostgreSQL 18.6, AWS `us-east-2` (Ohio) |
 | Prisma | 6.19.3 |
@@ -246,10 +247,10 @@ locations, staff and sample financial records.
 ## 8. Health checks and smoke tests
 
 ```bash
-curl -s https://bik-prestige-enterprise-pcxi.onrender.com/api/health
-curl -s -o - -w '\n%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/api/health/ready
-curl -s -o /dev/null -w '%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/platform/login
-curl -s -o /dev/null -w '%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/admin/login
+curl -s https://bloomcore-one.onrender.com/api/health
+curl -s -o - -w '\n%{http_code}\n' https://bloomcore-one.onrender.com/api/health/ready
+curl -s -o /dev/null -w '%{http_code}\n' https://bloomcore-one.onrender.com/platform/login
+curl -s -o /dev/null -w '%{http_code}\n' https://bloomcore-one.onrender.com/admin/login
 ```
 
 `/api/health` must report the deployed commit SHA — use it to prove a deploy,

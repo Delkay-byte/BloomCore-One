@@ -4,7 +4,7 @@
 **Executed:** 2026-10-31 · **Status:** DATABASE MIGRATED — MAIN PROMOTION PENDING
 **Production branch:** `main` · **Previous `main`:** `b88a10a`
 **Neon:** project `BIK Prestige`, database `neondb`, PostgreSQL 18.6, region `us-east-2`
-**Render:** `bloomcore-one` (`srv-dbihvrmgekts73fdcbj0`), Oregon, tracks `main`
+**Render:** `bloomcore-one` (`srv-dbjalrk9v7es739ifkp0`), Oregon, tracks `main`
 
 This runbook is now the record of an executed release, not a plan. The two-stage
 Phase 1 / Phase 2 split below is superseded: the whole foundation and the UI
@@ -132,9 +132,9 @@ git push origin promotion/multitenant-saas:main   # fast-forward only, never --f
 Then confirm the deployed SHA, not the deploy event:
 
 ```bash
-curl -s https://bik-prestige-enterprise-pcxi.onrender.com/api/health
+curl -s https://bloomcore-one.onrender.com/api/health
 # commit must equal the promoted main SHA
-curl -s -o /dev/null -w '%{http_code}\n' https://bik-prestige-enterprise-pcxi.onrender.com/api/health/ready
+curl -s -o /dev/null -w '%{http_code}\n' https://bloomcore-one.onrender.com/api/health/ready
 ```
 
 ## Stage 6 — Backfill verification SQL
