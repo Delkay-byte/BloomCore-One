@@ -1,4 +1,4 @@
-import { PRODUCT_NAME, PRODUCT_DESCRIPTOR } from "@/lib/site";
+import { PRODUCT_DESCRIPTOR } from "@/lib/site";
 
 /**
  * ============================================================================
@@ -112,7 +112,6 @@ export function BrandLockup({
           </span>
         ) : null}
       </span>
-      <span className="sr-only">{PRODUCT_NAME}</span>
     </span>
   );
 }

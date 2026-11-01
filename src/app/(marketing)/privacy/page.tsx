@@ -31,10 +31,10 @@ export default function PrivacyPage() {
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">Who is responsible</h2>
             <p>
-              {COMPANY_NAME}, a registered sole-proprietorship business in Ghana,
-              operates {PRODUCT_NAME}. Each business that uses the platform is
-              responsible for the accuracy of the records its own staff enter,
-              and for telling its own customers how their information is used.
+              {COMPANY_NAME}, a business based in Ghana, operates {PRODUCT_NAME}.
+              Each business that uses the platform is responsible for the
+              accuracy of the records its own staff enter, and for telling its
+              own customers how their information is used.
             </p>
           </div>
 

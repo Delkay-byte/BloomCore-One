@@ -30,8 +30,8 @@ export default function TermsPage() {
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">1. Who these terms are with</h2>
             <p>
-              {PRODUCT_NAME} is operated by {COMPANY_NAME}, a registered
-              sole-proprietorship business in {COMPANY_LOCATION}. These terms
+              {PRODUCT_NAME} is operated by {COMPANY_NAME}, a business based in{" "}
+              {COMPANY_LOCATION}. These terms
               apply to the business that has been enrolled on the platform
               (&quot;your business&quot;) and to the people your business
               authorises to use it.

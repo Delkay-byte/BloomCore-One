@@ -162,21 +162,30 @@ authentication side effects:
 | `/contact` | Demonstration request path |
 | `/privacy` | How data is actually handled (draft, see §9) |
 | `/terms` | Terms of service (draft, see §9) |
+| `/workspace` | Entry point for signed-in users: redirect-only, no content |
 
 Implementation notes:
 
 - The pages live in the route group `src/app/(marketing)/`. The former
   `src/app/page.tsx` was deleted, so the route group owns `/`.
-- The group has its own `not-found.tsx` and `error.tsx`, so a visitor who
-  mistypes a marketing URL never sees application wording or a link into a
-  signed-in workspace.
+- The group has its own `error.tsx`, so a failure on a marketing page never
+  shows application wording or a link into a signed-in workspace.
 - Public access is granted in `src/middleware.ts` by `isPublicMarketingRoute()`
   from `src/lib/public-routes.ts`. The check runs **after** the platform
   boundary and **before** every tenant rule, and matches only exact routes or
   sub-paths on a segment boundary. `/featuresecret` is not public.
-- Signing in is reached through the visible **Sign In** link, not by a root
-  redirect. `/` no longer sends a signed-in visitor to a dashboard; that change
-  is deliberate, because it is what makes the landing page genuinely public.
+- Signing in is reached through the visible **Sign In** link, which points at
+  `/workspace`. That URL is handled entirely in the middleware as a redirect:
+  a signed-in person goes straight to the workspace their session covers
+  (platform, admin, MoMo, Susu or customer), an anonymous visitor goes to
+  `/login`, and nobody ever sees content at that URL. Explicit per-role entry
+  points stay on `/access`, and `/login` keeps its role picker. `"/"` itself
+  stays genuinely public for every visitor, including signed-in ones.
+- A mistyped URL still follows the application's baseline rule: an anonymous
+  visitor is redirected to `/login` rather than shown a 404, because the
+  middleware deliberately requires a session for any route it does not
+  recognise. The neutral 404 page (`src/app/not-found.tsx`) renders for a
+  signed-in user who follows a dead link.
 - Shared building blocks are in `src/components/marketing/Sections.tsx`,
   `MarketingNav.tsx`, and `MarketingFooter.tsx`.
 
@@ -186,6 +195,11 @@ The public site describes only what the deployed application does. The site
 contains **no** invented numbers, customer logos, testimonials, certifications,
 security claims, regulatory claims, or performance statistics. Legal pages
 carry a visible draft notice until they are reviewed.
+
+The company is described as "a business based in Ghana". Its **legal form is
+not asserted anywhere** on the public site — no registration claim, business
+type, or registration number appears until the owner confirms it and asks for
+it to be published.
 
 ---
 
@@ -202,8 +216,9 @@ carry a visible draft notice until they are reviewed.
 | Workspace chooser (`/select-workspace`) | `AppBrand` plus the resolved tenant name |
 | Password recovery and reset screens | Product lockup and product wording |
 | Access page (`/access`) | Product wording, renamed QR download filenames |
-| Application errors and 404 | Product wording; the application error page links back to sign-in, not to the public landing page |
-| PWA manifest | BloomCore One name, forest theme colour, ivory background colour, new icons |
+| Application errors and 404 | Product wording; the error page links back to sign-in, the 404 links to the public home page and sign-in |
+| Sign-out confirmation | Product name, not a tenant name |
+| PWA manifest | BloomCore One name, forest theme colour, ivory background colour, new icons, `start_url` `/workspace` |
 | Browser tab / favicon / Apple icon | New vector assets |
 
 `EnvironmentBadge` (the internal deployment marker) is hidden on public
@@ -226,10 +241,11 @@ No authentication or tenancy behaviour was modified. Specifically unchanged:
 - The platform cookie, which remains outside `SESSION_COOKIES`.
 
 The only middleware edits are the addition of the marketing allowlist and the
-removal of the old root redirect. `tests/middleware-boundaries.test.ts` pins
-this behaviour: anonymous access to protected pages still redirects, forged
-cookies are still rejected, and a platform session still cannot act as a
-tenant user (and the reverse).
+addition of `/workspace` to the existing public-route list. `/workspace`
+renders nothing and exposes nothing — it only redirects. `tests/middleware-boundaries.test.ts`
+pins the important behaviour: anonymous access to protected pages still
+redirects, forged cookies are still rejected, and a platform session still
+cannot act as a tenant user (and the reverse).
 
 ---
 
@@ -342,6 +358,10 @@ No production database was touched.
    deployed platform. Confirm that the wording on `/features` and `/solutions`
    matches what you intend to sell.
 5. **Optionally publish a postal address** on `/contact`.
+6. **Optionally publish the company's legal form.** The site currently says
+   only "a business based in Ghana". If the registered form (for example sole
+   proprietorship) and registration number should appear, confirm the exact
+   wording first.
 
 ---
 
@@ -355,7 +375,8 @@ No production database was touched.
 | `src/components/brand/Brand.tsx` | `BrandMark` and `BrandLockup` |
 | `src/components/brand/AppBrand.tsx` | Tenant-aware application identity |
 | `src/components/marketing/` | Nav, footer, shared page sections |
-| `src/app/(marketing)/` | The seven public pages plus marketing 404 and error screens |
+| `src/app/(marketing)/` | The seven public pages plus the marketing error screen |
+| `src/app/not-found.tsx` | Neutral 404 for signed-in users who follow a dead link |
 | `src/app/sitemap.ts`, `src/app/robots.ts` | Search-engine files |
 | `public/branding/` | Generated brand assets |
 | `scripts/build-brand-assets.py` | SVG generator (wordmark outlines) |

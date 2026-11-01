@@ -99,7 +99,7 @@ export default function SelectWorkspacePage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="mb-4 flex justify-center">
-            <AppBrand tenantName={tenantName} markSize={34} />
+            <AppBrand tenantName={tenantName} markSize={34} href="/select-workspace" />
           </div>
           <h1 className="text-xl font-bold text-slate-900">Welcome back, {firstName}</h1>
           <p className="text-slate-500 mt-1">Where would you like to work?</p>

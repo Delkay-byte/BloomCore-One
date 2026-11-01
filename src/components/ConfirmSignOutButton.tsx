@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
 import { clearTabSession } from "@/components/TabSessionGuard";
 import { getPendingCount } from "@/lib/offline/store";
+import { PRODUCT_NAME } from "@/lib/site";
 
 /**
  * Sign-out button with an explicit confirmation step.
@@ -73,7 +74,8 @@ export default function ConfirmSignOutButton({
                   {pendingCount} collection{pendingCount !== 1 ? "s" : ""} waiting to sync
                 </h2>
                 <p className="text-sm text-gray-600 mt-2">
-                  Signing out now will not send them to BIK Prestige. Reconnect and sync before signing out where possible.
+                  Signing out now will not send them to {PRODUCT_NAME}. Reconnect
+                  and sync before signing out where possible.
                 </p>
                 <div className="flex gap-3 mt-6">
                   <button
@@ -100,7 +102,7 @@ export default function ConfirmSignOutButton({
                   Sign out?
                 </h2>
                 <p className="text-sm text-gray-600 mt-2">
-                  Are you sure you want to sign out of BIK Prestige Enterprise?
+                  Are you sure you want to sign out of {PRODUCT_NAME}?
                 </p>
                 <div className="flex gap-3 mt-6">
                   <button

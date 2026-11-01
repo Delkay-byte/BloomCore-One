@@ -18,8 +18,6 @@ import {
 import {
   COMPANY_LOCATION,
   COMPANY_NAME,
-  FIRST_TENANT_CODE,
-  FIRST_TENANT_NAME,
   PRODUCT_DESCRIPTOR,
   PRODUCT_NAME,
   PRODUCT_POSITIONING,
@@ -29,7 +27,7 @@ import { pageMetadata } from "@/lib/metadata";
 export const metadata = pageMetadata({
   path: "/about",
   title: "About",
-  description: `${PRODUCT_NAME} is a ${PRODUCT_DESCRIPTOR.toLowerCase()} built by ${COMPANY_NAME}, a registered sole-proprietorship business in ${COMPANY_LOCATION}.`,
+  description: `${PRODUCT_NAME} is a ${PRODUCT_DESCRIPTOR.toLowerCase()} built by ${COMPANY_NAME}, a business based in ${COMPANY_LOCATION}.`,
 });
 
 export default function AboutPage() {
@@ -53,8 +51,8 @@ export default function AboutPage() {
         <div className="grid gap-10 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
           <div className="space-y-5 text-base leading-relaxed text-ink">
             <p>
-              {COMPANY_NAME} is a registered sole-proprietorship business in{" "}
-              {COMPANY_LOCATION}. We build and operate {PRODUCT_NAME}, a{" "}
+              {COMPANY_NAME} is a business based in {COMPANY_LOCATION}. We build
+              and operate {PRODUCT_NAME}, a{" "}
               {PRODUCT_DESCRIPTOR.toLowerCase()} for businesses that handle money
               on behalf of customers.
             </p>
@@ -102,7 +100,7 @@ export default function AboutPage() {
       <Section tone="ivory">
         <SectionHeading
           eyebrow="How the product is structured"
-          title="One platform, many businesses, one first customer"
+          title="One platform, many businesses, one workspace each"
         />
         <div className="mt-10 grid gap-6 lg:grid-cols-3">
           <div className="rounded-card border border-line bg-white p-6">
@@ -127,13 +125,12 @@ export default function AboutPage() {
           <div className="rounded-card border border-line bg-white p-6">
             <Users size={21} className="text-brand-700" aria-hidden />
             <h3 className="mt-4 text-base font-semibold text-ink-deep">
-              {FIRST_TENANT_NAME}
+              Each business, one workspace
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-ink">
-              The first business running its operations on{" "}
-              {PRODUCT_NAME} (workspace {FIRST_TENANT_CODE}). {FIRST_TENANT_NAME}{" "}
-              is a customer of the platform with its own identity — it is not the
-              name of the software.
+              A business signs up for its own workspace, with its own name, its
+              own administrator and its own records. It is a customer of the
+              platform. It is never the name of the software.
             </p>
           </div>
         </div>
@@ -159,7 +156,7 @@ export default function AboutPage() {
             {
               icon: MapPin,
               title: "Say where we operate from",
-              body: `${COMPANY_NAME} is registered in ${COMPANY_LOCATION} and supports businesses directly.`,
+              body: `${COMPANY_NAME} operates from ${COMPANY_LOCATION} and supports businesses directly.`,
             },
             {
               icon: ShieldCheck,

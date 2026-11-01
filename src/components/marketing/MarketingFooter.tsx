@@ -7,6 +7,7 @@ import {
   COMPANY_NAME,
   LEGAL_ROUTES,
   PLATFORM_LOGIN_PATH,
+  PRODUCT_NAME,
   PUBLIC_ROUTES,
 } from "@/lib/site";
 
@@ -25,13 +26,12 @@ export default function MarketingFooter() {
           <div className="md:col-span-2">
             <BrandLockup size={38} descriptor />
             <p className="mt-4 max-w-sm text-sm text-ink">
-              A product by {COMPANY_NAME}. BloomCore One brings business
+              A product by {COMPANY_NAME}. {PRODUCT_NAME} brings business
               operations, collections, people and financial records together in
               one connected platform.
             </p>
             <p className="mt-3 text-sm text-ink-muted">
-              {COMPANY_NAME} is a registered sole-proprietorship business in{" "}
-              {COMPANY_LOCATION}.
+              {COMPANY_NAME} is a business based in {COMPANY_LOCATION}.
             </p>
           </div>
 
@@ -90,7 +90,7 @@ export default function MarketingFooter() {
 
         <div className="mt-10 flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-ink-muted">
-            © {year} {COMPANY_NAME}. BloomCore One™ is a product of{" "}
+            © {year} {COMPANY_NAME}. {PRODUCT_NAME}™ is a product of{" "}
             {COMPANY_NAME}. All rights reserved.
           </p>
           <Link

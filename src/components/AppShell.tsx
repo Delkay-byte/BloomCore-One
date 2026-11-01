@@ -86,7 +86,7 @@ export default function AppShell({
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-full w-64 bg-brand-900 z-50 flex flex-col transform transition-transform md:translate-x-0 ${
+        className={`focus-on-dark fixed left-0 top-0 h-full w-64 bg-brand-900 z-50 flex flex-col transform transition-transform md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >

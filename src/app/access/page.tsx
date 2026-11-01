@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { Footprints, Smartphone, UserRound } from "lucide-react";
 import { ACCESS_LINKS, type AccessLink } from "@/lib/access-links";
 import { BrandLockup } from "@/components/brand/Brand";
+import { PRODUCT_NAME } from "@/lib/site";
 
 const LINK_ICONS = { customer: UserRound, momo: Smartphone, susu: Footprints } as const;
 function LinkIcon({ link }: { link: AccessLink }) {
@@ -73,8 +74,8 @@ export default function AccessPage() {
   async function share(link: AccessLink) {
     try {
       await navigator.share({
-        title: `BloomCore One — ${link.title} Login`,
-        text: `Sign in to BloomCore One as ${link.title}.`,
+        title: `${PRODUCT_NAME} — ${link.title} Login`,
+        text: `Sign in to ${PRODUCT_NAME} as ${link.title}.`,
         url: fullUrl(link.shortPath),
       });
     } catch {

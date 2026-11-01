@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Info } from "lucide-react";
-import { BUSINESS_LOGIN_PATH } from "@/lib/site";
+import { BUSINESS_LOGIN_PATH, COMPANY_NAME, PRODUCT_NAME } from "@/lib/site";
 
 /** Shared, reusable building blocks for the public pages. */
 
@@ -210,14 +210,14 @@ export function StepList({
 }
 
 export function CtaBand({
-  title = "Ready to run your business on BloomCore One?",
-  body = "Tell us about your business and the operations you want to bring into one workspace. BloomCore Technologies reviews every request before a workspace is created.",
+  title = `Ready to run your business on ${PRODUCT_NAME}?`,
+  body = `Tell us about your business and the operations you want to bring into one workspace. ${COMPANY_NAME} reviews every request before a workspace is created.`,
 }: {
   title?: string;
   body?: string;
 }) {
   return (
-    <section className="bg-brand-800">
+    <section className="focus-on-dark bg-brand-800">
       <Container className="py-14 sm:py-16">
         <div className="flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-center">
           <div className="max-w-2xl">

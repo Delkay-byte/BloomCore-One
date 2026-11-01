@@ -49,6 +49,8 @@ const LEGACY_COOKIE = "bik-prestige-token";
 const PLATFORM_COOKIE = "bik-platform-session";
 const PLATFORM_PUBLIC_ROUTES = ["/platform/login"];
 
+// Public routes (login, health check). "/workspace" is handled explicitly
+// above as a redirect-only entry point.
 const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/api/health", "/api/diag"];
 const CUSTOMER_PUBLIC_ROUTES = ["/customer/login", "/customer/forgot-password"];
 // The dedicated administrator login must be reachable without any session.
@@ -144,6 +146,45 @@ export async function middleware(request: NextRequest) {
   // ---------------------------------------------------------------------
   if (isPublicMarketingRoute(pathname)) {
     return NextResponse.next();
+  }
+
+  // ---------------------------------------------------------------------
+  // WORKSPACE ENTRY POINT — "/workspace".
+  //
+  // The public landing page's Sign In link points here. A person with a valid
+  // session goes straight to the workspace that session covers; everyone else
+  // goes to the sign-in page. It is a redirect, never a page, so it exposes
+  // nothing: every destination re-checks the session below.
+  // ---------------------------------------------------------------------
+  if (pathname === "/workspace") {
+    if (await readClaims(request.cookies.get(PLATFORM_COOKIE)?.value)) {
+      return redirectTo("/platform/dashboard");
+    }
+    for (const [mod, cookieName] of Object.entries(SESSION_COOKIES)) {
+      const claims = await readClaims(request.cookies.get(cookieName)?.value);
+      if (!claims) continue;
+      if (claims.forcePasswordReset) {
+        return redirectTo(
+          claims.role === "customer"
+            ? "/customer/settings?tab=password"
+            : mod === "admin"
+              ? "/admin/settings?tab=password"
+              : mod === "momo"
+                ? "/worker/settings?tab=password"
+                : "/collector/settings?tab=password"
+        );
+      }
+      return redirectTo(
+        mod === "admin"
+          ? "/admin/dashboard"
+          : mod === "momo"
+            ? "/worker/dashboard"
+            : mod === "susu"
+              ? "/collector/dashboard"
+              : "/customer/dashboard"
+      );
+    }
+    return redirectTo("/login");
   }
 
   // Allow public routes (login, health check)

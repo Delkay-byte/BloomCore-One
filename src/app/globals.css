@@ -120,6 +120,14 @@ body {
   outline-offset: 2px;
 }
 
+/* On the forest surfaces the brand-600 ring only reaches 2.25:1, which is
+   below the 3:1 a focus indicator needs. Dark surfaces use the light gold
+   ring instead (8.2:1 on brand-900, 6.9:1 on brand-800). */
+.focus-on-dark :focus-visible,
+.focus-on-dark:focus-visible {
+  outline-color: var(--color-gold-300);
+}
+
 /* Respect reduced-motion preferences (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

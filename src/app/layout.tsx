@@ -6,6 +6,7 @@ import {
   PRODUCT_DESCRIPTOR,
   PRODUCT_NAME,
   PRODUCT_POSITIONING,
+  PRODUCT_TAGLINE,
   SITE_URL,
   absoluteUrl,
 } from "@/lib/site";
@@ -29,7 +30,7 @@ export const metadata: Metadata = {
         url: absoluteUrl("/branding/bloomcore-one-og.png"),
         width: 1200,
         height: 630,
-        alt: `${PRODUCT_NAME} — One platform. Clearer control.`,
+        alt: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
       },
     ],
   },

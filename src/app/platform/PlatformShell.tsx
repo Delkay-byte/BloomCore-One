@@ -83,7 +83,7 @@ export default function PlatformShell({
       {/* Sidebar — deliberately darker and quieter than the tenant shell so the
           platform control plane reads as a distinct, privileged surface. */}
       <aside
-        className={`fixed left-0 top-0 h-full w-64 bg-brand-950 z-50 flex flex-col transform transition-transform md:translate-x-0 ${
+        className={`focus-on-dark fixed left-0 top-0 h-full w-64 bg-brand-950 z-50 flex flex-col transform transition-transform md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >

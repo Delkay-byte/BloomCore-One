@@ -197,9 +197,9 @@ export default function ContactPage() {
             <p className="flex items-start gap-2 text-sm leading-relaxed text-ink-muted">
               <Building2 size={16} className="mt-0.5 flex-none" aria-hidden />
               <span>
-                {COMPANY_NAME} — registered sole-proprietorship business in{" "}
-                {COMPANY_LOCATION}. We do not use social media accounts for
-                enquiries, and none are linked here.
+                {COMPANY_NAME} — a business based in {COMPANY_LOCATION}. We do
+                not use social media accounts for enquiries, and none are linked
+                here.
               </span>
             </p>
           </div>
