@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Info,
   Mail,
+  MessageCircle,
   MessageSquare,
   Phone,
   ShieldCheck,
@@ -54,6 +55,15 @@ const mailtoHref = CONTACT_EMAIL
     )}`
   : null;
 
+/**
+ * WhatsApp deep link for the public enquiry number. Ghanaian numbers are
+ * stored locally ("0240064668"); wa.me needs international form without a
+ * plus sign, so a leading zero becomes the 233 country code.
+ */
+const whatsappHref = CONTACT_PHONE
+  ? `https://wa.me/${CONTACT_PHONE.replace(/[^0-9]/g, "").replace(/^0/, "233")}`
+  : null;
+
 export default function ContactPage() {
   return (
     <>
@@ -85,6 +95,15 @@ export default function ContactPage() {
                     >
                       <Mail size={16} aria-hidden />
                       Email {CONTACT_EMAIL}
+                    </a>
+                  ) : null}
+                  {CONTACT_PHONE ? (
+                    <a
+                      href={whatsappHref ?? `tel:${CONTACT_PHONE.replace(/\s+/g, "")}`}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-control border border-line-strong bg-[#25D366]/10 px-5 py-3 text-sm font-semibold text-ink hover:border-brand-300 hover:text-brand-700"
+                    >
+                      <MessageCircle size={16} aria-hidden />
+                      WhatsApp {CONTACT_PHONE}
                     </a>
                   ) : null}
                   {CONTACT_PHONE ? (

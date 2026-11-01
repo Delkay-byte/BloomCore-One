@@ -1,10 +1,11 @@
-# Render Deployment Blueprint — BIK Prestige Enterprise (Neon)
+# Render Deployment Blueprint — BloomCore One (Neon)
 # https://render.com/docs/blueprint-spec
 #
-# Scope: describes ONLY the Neon-backed service `BIK-Prestige-Enterprise`
-# (already created manually in the Render dashboard, service id
-# srv-dbihvrmgekts73fdcbj0). Do not run "New → Blueprint" against this branch
-# unless the existing service is first deleted, or a duplicate will be created.
+# Scope: describes ONLY the Neon-backed service `bloomcore-one` (already created
+# manually in the Render dashboard, service id srv-dbihvrmgekts73fdcbj0; the
+# service was created as BIK-Prestige-Enterprise and renamed in place). Do not
+# run "New → Blueprint" against this branch unless the existing service is
+# first deleted, or a duplicate will be created.
 #
 # Database schema is NEVER created or altered by a build. Provisioning the
 # schema is a separate, explicitly run operator step — see
@@ -12,7 +13,7 @@
 
 services:
   - type: web
-    name: BIK-Prestige-Enterprise
+    name: bloomcore-one
     runtime: node
     plan: free
     region: oregon

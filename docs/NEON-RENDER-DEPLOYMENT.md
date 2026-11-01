@@ -6,9 +6,9 @@ control plane and tenant-scoped business operations.
 
 | Item | Value |
 |---|---|
-| GitHub repo | `https://github.com/Delkay-byte/BIK-Prestige-Enterprise` |
+| GitHub repo | `https://github.com/Delkay-byte/BloomCore-One` (renamed in place from BIK-Prestige-Enterprise) |
 | Deployment branch | `main` |
-| Render service | `BIK-Prestige-Enterprise` — `srv-dbihvrmgekts73fdcbj0` (Oregon, Free) |
+| Render service | `bloomcore-one` — `srv-dbihvrmgekts73fdcbj0` (Oregon, Free; renamed in place) |
 | Live URL | `https://bik-prestige-enterprise-pcxi.onrender.com` |
 | Neon project | `BIK Prestige` — database `neondb`, role `neondb_owner` |
 | Neon server | PostgreSQL 18.6, AWS `us-east-2` (Ohio) |
@@ -25,7 +25,7 @@ control plane and tenant-scoped business operations.
 ```
 GitHub main
    |
-   +--> Render Web Service "BIK-Prestige-Enterprise" (Oregon, Free)
+   +--> Render Web Service "bloomcore-one" (Oregon, Free)
           Next.js 16 full server runtime: pages, server actions, API routes, middleware
           |
           | DATABASE_URL (Neon pooled host)  — application queries

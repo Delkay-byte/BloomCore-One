@@ -2,7 +2,7 @@
 
 **Builder:** BloomCore Technologies
 **Date:** 2026-10-30
-**Repository:** https://github.com/Delkay-byte/BIK-Prestige-Enterprise (app lives in `Momo module/`)
+**Repository:** https://github.com/Delkay-byte/BloomCore-One (app lives in `Momo module/`)
 
 ---
 

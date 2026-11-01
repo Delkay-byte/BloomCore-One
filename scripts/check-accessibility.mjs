@@ -36,7 +36,7 @@ const CHROME_FLAGS = [
   "--no-first-run",
   "--no-default-browser-check",
   "--remote-debugging-port=0",
-  "--user-data-dir=" + process.env.TEMP + "/opencode-chrome-a11y",
+  "--user-data-dir=" + process.env.TEMP + "/chrome-a11y-profile",
 ];
 
 async function main() {

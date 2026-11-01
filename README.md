@@ -1,65 +1,114 @@
-# MoMo Module — BIK Prestige Enterprise Platform
+# BloomCore One
 
-This directory contains the MoMo (Mobile Money) business management module and the Next.js application that serves the entire BIK Prestige Enterprise platform.
+**Business & Financial Operations Platform** — built and operated by
+[BloomCore Technologies](https://github.com/Delkay-byte/BloomCore-One).
+
+BloomCore One brings business operations, mobile-money (MoMo) accounts, Susu
+collections, people and financial records together in one connected platform.
+Businesses are enrolled onto the platform with their own isolated workspace;
+each workspace has its own users, customers, records and history.
+
+The first tenant on the platform is **BIK Prestige Enterprise** (`BIK-HQ-001`)
+— a customer of the platform with its own identity inside its own workspace.
+It is not the name of the product.
+
+## Modules
+
+| Module | Purpose |
+| --- | --- |
+| MoMo | Daily mobile-money accounts: locations, workers, the open → operate → reconcile → submit → review workflow, expenses, reports and CSV export |
+| Susu | Customer collections and contributions: collectors, daily contributions, cycles, withdrawals, remittances and statements |
+| Customer portal | Customers sign in to view their own statement, payments and withdrawals |
+| Platform console | BloomCore Technologies' control plane: enrol businesses, manage tenants, view the platform activity trail |
 
 ## Architecture
 
-The MoMo module is part of the BIK Prestige Enterprise platform. It shares authentication, audit logging, and database infrastructure with the Susu module via `shared/core/`.
-
-## Directory Structure
+- **Next.js (App Router)** application with server actions and route-level
+  middleware guards.
+- **PostgreSQL (Neon)** in production, **SQLite** for local development and
+  tests — selected by `DATABASE_URL` and the matching Prisma schema
+  (`prisma/schema-pg.prisma` in production, `prisma/schema.prisma` locally).
+- **Module-scoped sessions:** each module writes only its own signed,
+  http-only cookie. The platform console is one-way isolated from tenant
+  workspaces: platform sessions can never act as tenant users and vice versa.
+- **Tenant isolation:** every query is scoped to the signed-in user's tenant,
+  resolved server-side on every request.
+- **PWA:** installable, with an offline-capable collection flow for field
+  roles.
 
 ```
-Momo module/
-├── src/
-│   ├── app/                    # Next.js App Router pages
-│   │   ├── admin/              # Admin dashboard, MoMo management
-│   │   ├── worker/             # MoMo worker mobile UI
-│   │   ├── collector/          # Susu collector mobile UI
-│   │   ├── susu/               # Susu admin pages
-│   │   ├── login/              # Authentication
-│   │   ├── api/                # API routes
-│   │   └── layout.tsx          # Root layout
-│   ├── lib/
-│   │   ├── auth.ts             # Shared authentication
-│   │   ├── db.ts               # Prisma client
-│   │   ├── audit.ts            # Shared audit logging
-│   │   ├── utils.ts            # Shared utilities
-│   │   ├── validations.ts      # MoMo-specific Zod schemas
-│   │   └── actions/
-│   │       ├── auth.actions.ts           # Shared auth actions
-│   │       ├── daily-account.actions.ts  # MoMo daily accounts
-│   │       ├── location.actions.ts       # MoMo location management
-│   │       └── worker.actions.ts         # MoMo worker management
-│   └── middleware.ts            # Route protection
-├── prisma/
-│   ├── schema.prisma           # Combined MoMo + Susu schema
-│   ├── seed.ts                 # Development seed data
-│   └── dev.db                  # SQLite database
-└── public/
-    └── manifest.json           # PWA manifest
+src/
+  app/            Routes: marketing site, admin, worker, collector, customer, platform
+  components/     UI + brand components
+  lib/            Auth, tenancy, actions, offline store, site configuration
+  middleware.ts   Route protection (platform boundary → public marketing → tenant rules)
+prisma/           Prisma schemas (SQLite + PostgreSQL), migrations, seed
+public/branding/  BloomCore One brand assets (vector SVG + raster)
+scripts/          Asset generation, deployment and verification helpers
+tests/            Vitest suite (security, tenancy, workflows, boundaries)
 ```
 
-## MoMo Features
+## Brand
 
-- Location management (create, edit, activate/deactivate)
-- Worker management (create, edit, password reset)
-- Daily account workflow (open → operate → record → reconcile → submit → review)
-- Real-time reconciliation calculation
-- Expense recording
-- Report filtering and CSV export
-- Mobile-first worker interface
+- Product: **BloomCore One** — never renamed per tenant.
+- Parent business: **BloomCore Technologies**.
+- Palette: forest `#0E4D34`, gold `#C9A227`, ivory `#F6F5EC`, ink `#17211C`.
+- Typography: Noto Sans.
+- Assets and usage rules: `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md`.
+- The marketing site lives in `src/app/(marketing)/` and is public:
+  `/`, `/features`, `/solutions`, `/about`, `/contact`, `/privacy`, `/terms`.
 
-## Import Convention
+## Development
 
-MoMo actions are imported directly:
-
-```typescript
-import { createLocation } from "@/lib/actions/location.actions";
-import { createDailyAccount } from "@/lib/actions/daily-account.actions";
+```bash
+npm install
+npx prisma generate              # SQLite client for local dev/tests
+DATABASE_URL="file:./dev.db" npm run dev
 ```
 
-Susu actions are imported via the `@susu/*` path alias:
+The SQLite database file is created under `prisma/`. Seed it with:
 
-```typescript
-import { createCustomer } from "@susu/actions/susu-customer.actions";
+```bash
+npx tsx prisma/seed.ts
 ```
+
+## Verification
+
+```bash
+npm test            # full Vitest suite
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint
+npm run build       # production build
+```
+
+Asset regeneration (after a brand geometry change):
+
+```bash
+python scripts/build-brand-assets.py
+node scripts/build-brand-raster.mjs
+```
+
+## Deployment
+
+Production runs on Render (web service `bloomcore-one`, service ID
+`srv-dbihvrmgekts73fdcbj0`) with a Neon PostgreSQL database. `main` is the
+production branch and auto-deploys. The build command generates the
+PostgreSQL Prisma client before `next build`; database schema changes are
+applied with explicit `prisma migrate deploy` runs by the operator — never by
+a build. Full details: `docs/NEON-RENDER-DEPLOYMENT.md` and
+`PRODUCTION-RELEASE-RUNBOOK.md`.
+
+Public configuration (set in the Render dashboard, never in Git):
+
+| Variable | Purpose |
+| --- | --- |
+| `SITE_URL` / `NEXT_PUBLIC_SITE_URL` | Canonical public origin for metadata, sitemap and robots |
+| `CONTACT_EMAIL` / `CONTACT_PHONE` | Public enquiry channel shown on `/contact` |
+
+## Documentation
+
+- `docs/NEON-RENDER-DEPLOYMENT.md` — infrastructure and deployment
+- `PRODUCTION-RELEASE-RUNBOOK.md` — release/promotion process
+- `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md` — brand and public site
+- `docs/BRANCH-REVIEW-BLOOMCORE-ONE.md` — branch review record
+- `SECURITY.md` — security model and reporting

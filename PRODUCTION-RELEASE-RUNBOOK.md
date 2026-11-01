@@ -4,7 +4,7 @@
 **Executed:** 2026-10-31 · **Status:** DATABASE MIGRATED — MAIN PROMOTION PENDING
 **Production branch:** `main` · **Previous `main`:** `b88a10a`
 **Neon:** project `BIK Prestige`, database `neondb`, PostgreSQL 18.6, region `us-east-2`
-**Render:** `BIK-Prestige-Enterprise` (`srv-dbihvrmgekts73fdcbj0`), Oregon, tracks `main`
+**Render:** `bloomcore-one` (`srv-dbihvrmgekts73fdcbj0`), Oregon, tracks `main`
 
 This runbook is now the record of an executed release, not a plan. The two-stage
 Phase 1 / Phase 2 split below is superseded: the whole foundation and the UI
