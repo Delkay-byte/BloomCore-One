@@ -64,12 +64,33 @@ path. It requires the exact phrase `DELETE OFFLINE DATA`, and it fails closed:
   because the server outcome is unknown;
 - pending and failed records require an explicit loss acknowledgement;
 - an unreadable IndexedDB queue blocks deletion (it is never treated as empty);
-- the browser's `blocked` event is reported as an unsuccessful deletion, not as
-  success; the user is told to close other tabs/connections;
+- the signed-in tab broadcasts a close request and waits for every responsive
+  tab to acknowledge before issuing deletion; a tab that does not answer
+  prevents the request;
+- a browser `blocked` event is reported as **pending**, not success and not a
+  cancelled operation; the UI polls for the real completion and says so;
 - only the signed-in tenant/user database is targeted.
 
-`deleteDatabase()` resolves only after the browser confirms deletion. A blocked
-or failed request never reports success.
+`deleteDatabase()` resolves only after the browser's success event. A blocked
+request stays queued; the caller reports it as pending and must never show
+“deleted” until the database is actually gone.
+
+### 2.0.1 Deletion coordination
+
+`src/lib/offline/coordination.ts` uses
+`BroadcastChannel("bloomcore-offline-coordination-v1")`:
+
+1. probe for responsive tabs;
+2. broadcast `close` with the database name and a request id;
+3. each tab closes only that database's connections and acknowledges;
+4. the requester waits for all known peers (bounded timeout);
+5. if a known peer does not acknowledge, deletion is not started;
+6. this tab then closes its own connections and requests deletion.
+
+A frozen or suspended tab cannot acknowledge. If it still holds a connection the
+browser reports `blocked`; the UI then shows a pending state and polls until the
+request actually succeeds. No promise rejection is treated as cancellation of
+the browser's request.
 
 ## 2.1 Cross-tab account change
 
@@ -198,9 +219,9 @@ silently deletes it.
 5. Cross-tab invalidation depends on BroadcastChannel for immediate delivery.
    Browsers without it, or a tab that misses a signal, detect the change on the
    next focus/visibility event or 60-second check.
-6. A blocked IndexedDB delete is reported as failure even though the browser may
-   complete the delete later after all connections close. The UI never claims
-   success without the deletion event.
+6. A blocked IndexedDB delete is reported as pending, not success. The browser
+   may complete it later after all connections close; the UI polls and only
+   reports deletion when the database is actually gone.
 7. Same-origin developer tools can open IndexedDB directly. The guard prevents
    the application from rendering or synchronizing another user's records; it
    is not a defence against a compromised browser profile or device.

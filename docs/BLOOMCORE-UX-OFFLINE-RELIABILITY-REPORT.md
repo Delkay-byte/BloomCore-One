@@ -202,3 +202,42 @@ protects the application UI and sync path, not a compromised device.
 - `tests/pg-offline-idempotency.test.ts` — PostgreSQL: same payload + synced,
   changed amount/account/channel, changed payload before posting, timeout
   reconcile, cross-tenant key, reordered JSON, concurrent identical posts, 429.
+
+## 9. Authenticated staging security assessment
+
+A controlled internal assessment was performed on the separate branch
+`security/authenticated-pentest-2026-11` (from `a71cb1c`), using a local
+production-mode build and an isolated PostgreSQL staging database with MFA
+enforced. It is not an independent penetration test.
+
+### Fixed during the assessment
+
+1. **PT-01 High — static pages rendered only a skeleton.** Root/group
+   `loading.tsx` shells wrapped statically prerendered pages; the production
+   build hid the real page payload and never revealed it. Fixed in `484270f` by
+   removing the shells and adding a `Suspense` boundary around the customer
+   login redirect. Regression: `tests/production-rendering.test.ts`.
+2. **PT-02 High — IndexedDB deletion lifecycle.** A blocked delete rejected the
+   promise while the browser request stayed queued, and tabs were not
+   coordinated. Fixed in `a9d702e` with a BroadcastChannel close protocol,
+   pending-state reporting and tests for blocked/timeout/retry/scoped deletion.
+
+### Controls that resisted live probes
+
+Password-only access was refused before MFA; MFA verification was rate limited;
+recovery-code reuse was rejected; cross-tenant user, audit, device and financial
+access returned 404/403 with no posting; collector-to-admin and tenant-to-platform
+escalation was blocked; foreign-origin mutation returned 403; stored XSS was
+escaped; SQL injection returned no rows and no error; suspended accounts were
+rejected immediately; repeated offline keys produced one ledger row and a changed
+payload returned 409.
+
+### Evidence and results
+
+- `docs/security/PENTEST-2026-11-REPORT.md` — full report and confidence statement.
+- `docs/security/FINDINGS-REGISTER-2026-11.md` — PT findings and retest status.
+- `docs/security/dast/zap-auth-baseline.json` — authenticated passive ZAP
+  (0 FAIL / 8 WARN / 60 PASS). Unauthenticated baseline remains 0 FAIL / 7 WARN.
+- `docs/security/PENTEST-READINESS.md` — external test requirements.
+- No hosted staging service was provisioned (cost/credentials). No production
+  change, deployment or migration occurred.

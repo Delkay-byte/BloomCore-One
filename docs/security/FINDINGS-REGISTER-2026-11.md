@@ -117,3 +117,54 @@ do not.
 - The largest residual risks are the unencrypted-at-rest offline database on a
   compromised device (R-08), the Prisma CLI advisory (R-10) and the absence of
   remittance/daily-account corrections (R-09).
+
+---
+
+# Authenticated staging assessment — 2 November 2026
+
+**Branch:** `security/authenticated-pentest-2026-11` (from `a71cb1c`)
+**Environment:** local production-mode deployment with isolated PostgreSQL 16 (`bloomcore_staging`), MFA enforced, synthetic tenants A/B.
+**Not claimed:** independent penetration test, formal certification, active authenticated ZAP scan against financial endpoints.
+
+## New findings
+
+| ID | Severity | Area | Finding | Evidence | Status |
+|---|---|---|---|---|---|
+| PT-01 | High | Availability / release integrity | Route-level `loading.tsx` shells wrapped statically prerendered pages. Production HTML contained only the skeleton and a hidden page payload; navigation never revealed the page. `/`, `/admin/login`, `/susu/admin/customers` were affected. | Browser body `Loading content…`; hidden `S:0`; `window.__next_f.length === 0`; build showed `○ (Static)` for the affected routes | **Fixed** in `484270f` — removed root/group loading shells; static pages render; added `tests/production-rendering`. |
+| PT-02 | High | Offline data integrity | IndexedDB deletion rejected the promise on `blocked` while the browser request stayed queued, and tabs were not coordinated before deletion. Users could see "failed" and later loss. | `deleteDatabase` old `onblocked -> reject`; no cross-tab close protocol | **Fixed** in `a9d702e` — BroadcastChannel closure coordination, pending-state reporting, no false success, retest tests. |
+| PT-03 | Informational | Test environment | The first staging MFA key was 29 bytes, so encryption fell back to a development derivation during seeding; MFA verification failed. | `base64.b64decode` length 29; staging re-seed with a 32-byte key succeeded | **Environmental — corrected.** Staging setup now requires a 32-byte key and uses the same value for seed and runtime. |
+| PT-04 | Low | CSP | `script-src` still allows `'unsafe-inline'`; authenticated ZAP confirms the warning. | `zap-auth-baseline.json`, rule 10055 | **Accepted, documented** in `CSP-ASSESSMENT.md`. `'unsafe-eval'` is production-removed. |
+| PT-05 | Low | Caching | Static `_next` assets are cacheable; authenticated responses are `no-store`. ZAP reports both as informational. | ZAP rules 10049/10050 | **Accepted** — intended CDN behaviour for immutable assets. |
+
+## Controls that resisted live testing
+
+| Area | Probe | Result |
+|---|---|---|
+| Password-only MFA bypass | Login password, then request `/api/auth/me?module=admin` and `/admin/dashboard` before TOTP | `401`; dashboard `307` to MFA/login |
+| MFA rate limit | Repeated invalid verify attempts | "Too many verification attempts. Please wait 5 minute(s)" |
+| Recovery-code replay | Reuse a consumed recovery code | `Invalid verification code` |
+| Cross-tenant user IDOR | Tenant B admin requests Tenant A user id (`/api/user/:id`) | `404 User not found` |
+| Cross-tenant audit | Tenant B `/api/audit` | only Tenant B rows (`total: 0`) |
+| Cross-tenant device list | Tenant B `/api/admin/devices` | only Tenant B devices |
+| Cross-tenant offline sync | Tenant B device posts Tenant A account | `404 Account not found`; no posting |
+| Role escalation | Collector token to `/api/audit`, `/api/admin/devices`, admin `/api/auth/me`, `/admin/dashboard`, `/platform/dashboard` | `403 / 401 / 307` as appropriate |
+| Platform boundary | Tenant admin to `/platform/dashboard` | `307` to `/platform/login` |
+| CSRF / origin | Cross-origin POST to offline enroll | `403 Request origin is not allowed` |
+| Stored XSS | Customer name `<img src=x onerror=...>` | stored literally, rendered escaped (`&lt;img`), `window.__xss` unset |
+| SQL injection | `' OR 1=1--` customer search | no results, no SQL/Prisma error |
+| Suspended session | Minted admin session, account set inactive, `/api/auth/me` | `401 Not authenticated` |
+| Offline idempotency | Same key + same payload retry | first `200`, retry `200 already processed`, one ledger row |
+| Offline payload binding | Same key + changed amount | `409` |
+| Authenticated passive ZAP | Admin session injected for scan | 0 FAIL, 8 WARN, 60 PASS |
+
+## Potential / unverified
+
+- TOTP replay inside the same 30-second window was not conclusively exercised; the platform does not store a per-code consumed counter. Recorded as a potential hardening item, not a confirmed vulnerability.
+- Login password lockout was verified by automated tests, not by a live 5-attempt sequence.
+- Active authenticated ZAP scanning was **not** run: it would submit forms and risk financial mutations. Only passive authenticated scanning was performed.
+- Turnstile was disabled in staging (no staging keys); production enablement remains an owner action.
+
+## Environmental limitations
+
+- No hosted Render/Neon staging was created (cost/credentials). The assessment used a local production-mode build with isolated PostgreSQL. This is not a substitute for testing a deployed staging service; external-test setup requirements are in `PENTEST-READINESS.md`.
+- ZAP CLI cannot complete TOTP; a server-minted test session (JWT + `SessionRecord`) was used for passive authenticated scanning. The minting helper is not committed.
