@@ -17,6 +17,8 @@ import {
   registerOfflineConnection,
 } from "./scope";
 import { OfflineStorageError } from "@/lib/errors/friendly";
+// Register the cross-tab coordination handler wherever offline storage is used.
+import "./coordination";
 
 /**
  * Bump this when a new object store or index is added. Every opener in the
@@ -153,7 +155,7 @@ export async function openOfflineDatabase(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => {
-      registerOfflineConnection(request.result);
+      registerOfflineConnection(request.result, name);
       resolve(request.result);
     };
     request.onerror = () => reject(request.error);

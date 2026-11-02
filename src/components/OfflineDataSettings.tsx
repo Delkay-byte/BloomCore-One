@@ -6,6 +6,7 @@ import {
   DISCARD_CONFIRMATION,
   discardCurrentOfflineData,
   getOfflineStatus,
+  isCurrentOfflineDatabasePresent,
   type OfflineStatus,
 } from "@/lib/offline/session";
 import { syncPendingTransactions } from "@/lib/offline/sync";
@@ -66,6 +67,24 @@ export default function OfflineDataSettings() {
         setConfirmation("");
         setAcceptLoss(false);
         await refresh();
+      } else if (result.status === "blocked") {
+        // The browser request is still queued. Never call that success; poll
+        // until it actually completes or the wait budget expires.
+        setNotice(`${result.message} Checking again…`);
+        for (let attempt = 0; attempt < 15; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          if (!(await isCurrentOfflineDatabasePresent())) {
+            setNotice("The browser confirmed deletion after the other tabs closed.");
+            setConfirmOpen(false);
+            setConfirmation("");
+            setAcceptLoss(false);
+            await refresh();
+            return;
+          }
+        }
+        setNotice(
+          "Deletion is still pending in the browser. Close every other BloomCore One tab, then use Retry synchronization or reload this page to check again."
+        );
       }
     } finally {
       setBusy(false);

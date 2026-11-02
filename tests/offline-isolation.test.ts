@@ -18,9 +18,9 @@ import {
   clearOfflineScope,
   closeCurrentOfflineSession,
   deleteDatabase,
+  isDeletionPending,
   listOfflineDatabaseNames,
   offlineDatabaseName,
-  OfflineDeletionBlockedError,
   setOfflineScope,
 } from "@/lib/offline/scope";
 import {
@@ -185,7 +185,7 @@ describe("offline IndexedDB isolation", () => {
     expect(await getPendingTransactions()).toHaveLength(1);
   });
 
-  it("reports a blocked IndexedDB deletion as unsuccessful", async () => {
+  it("reports a blocked IndexedDB deletion as pending, never success", async () => {
     const fakeRequest = {
       onsuccess: null as null | (() => void),
       onerror: null as null | (() => void),
@@ -197,9 +197,30 @@ describe("offline IndexedDB isolation", () => {
       return fakeRequest as unknown as IDBOpenDBRequest;
     });
 
-    await expect(deleteDatabase("blocked-db")).rejects.toBeInstanceOf(
-      OfflineDeletionBlockedError
+    let blocked = false;
+    const deletion = deleteDatabase("blocked-db", {
+      onBlocked: () => {
+        blocked = true;
+      },
+    });
+    let settled = false;
+    deletion.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
     );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(blocked).toBe(true);
+    expect(settled).toBe(false);
+
+    // The browser may complete the request after other tabs close.
+    fakeRequest.onsuccess?.();
+    await deletion;
+    expect(isDeletionPending("blocked-db")).toBe(false);
   });
 
   it("does not report success when deletion is blocked", async () => {
@@ -217,9 +238,14 @@ describe("offline IndexedDB isolation", () => {
 
     const result = await discardCurrentOfflineData({
       confirmation: DISCARD_CONFIRMATION,
+      allowPendingLoss: true,
     });
     expect(result.deleted).toBe(false);
-    expect(result.message).toContain("did not complete");
+    expect(result.status).toBe("blocked");
+    expect(result.message.toLowerCase()).toContain("pending");
+
+    fakeRequest.onsuccess?.();
+    await new Promise((resolve) => setTimeout(resolve, 10));
   });
 
   it("deletes only the signed-in user's database and leaves another user untouched", async () => {

@@ -14,8 +14,9 @@ import {
   getOfflineScope,
   closeCurrentOfflineSession,
   offlineDatabaseName,
-  OfflineDeletionBlockedError,
+  isDatabasePresent,
 } from "./scope";
+import { coordinateDatabaseClosure } from "./coordination";
 import {
   getOfflineQueueSummary,
   getUnresolvedTransactions,
@@ -71,8 +72,16 @@ export function endOfflineSession(): void {
   closeCurrentOfflineSession();
 }
 
+export type DiscardStatus =
+  | "deleted"
+  | "blocked"
+  | "uncoordinated"
+  | "failed"
+  | "refused";
+
 export interface DiscardResult {
   deleted: boolean;
+  status: DiscardStatus;
   pending: number;
   syncing: number;
   failed: number;
@@ -101,8 +110,22 @@ export async function discardCurrentOfflineData(options: {
   if (options.confirmation !== DISCARD_CONFIRMATION) {
     return {
       deleted: false,
+      status: "refused",
       ...empty,
       message: `Type ${DISCARD_CONFIRMATION} to confirm.`,
+    };
+  }
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    // Coordination and deletion can still work offline, but a stale tab that
+    // cannot answer would leave the delete pending forever. Deletion is not an
+    // emergency; ask the user to reconnect so every tab can be told to close.
+    return {
+      deleted: false,
+      status: "refused",
+      ...empty,
+      message:
+        "Connect to the internet before deleting offline data so every open tab can close its database first.",
     };
   }
 
@@ -113,6 +136,7 @@ export async function discardCurrentOfflineData(options: {
     // An unreadable queue may contain financial records. Never guess zero.
     return {
       deleted: false,
+      status: "failed",
       ...empty,
       message:
         "The offline queue could not be read. Deletion was blocked to avoid losing unsynchronized records. Close other tabs and try again.",
@@ -127,6 +151,7 @@ export async function discardCurrentOfflineData(options: {
   if (syncing > 0) {
     return {
       deleted: false,
+      status: "refused",
       pending,
       syncing,
       failed,
@@ -138,6 +163,7 @@ export async function discardCurrentOfflineData(options: {
   if (unresolved > 0 && !options.allowPendingLoss) {
     return {
       deleted: false,
+      status: "refused",
       pending,
       syncing,
       failed,
@@ -146,16 +172,83 @@ export async function discardCurrentOfflineData(options: {
     };
   }
 
+  let scope;
   try {
-    const scope = await getOfflineScope();
-    closeCurrentOfflineSession();
-    // Delete only this user's current tenant scope. Other scopes may contain
-    // pending records that belong to a different tenant context and must not be
-    // destroyed by this action.
-    await deleteDatabase(offlineDatabaseName(scope));
+    scope = await getOfflineScope();
+  } catch {
+    return {
+      deleted: false,
+      status: "failed",
+      pending,
+      syncing,
+      failed,
+      unresolved,
+      message:
+        "The signed-in offline scope could not be confirmed. Deletion was blocked.",
+    };
+  }
 
+  // Delete only this user's current tenant scope. Other scopes may contain
+  // pending records that belong to a different tenant context.
+  const databaseName = offlineDatabaseName(scope);
+
+  if (!(await isDatabasePresent(databaseName))) {
+    // A previous request completed after it was reported as blocked.
     return {
       deleted: true,
+      status: "deleted",
+      pending,
+      syncing,
+      failed,
+      unresolved,
+      message: "Offline data is no longer present on this device.",
+    };
+  }
+
+  // Ask every responsive tab to close this database before issuing deletion.
+  const coordination = await coordinateDatabaseClosure(databaseName);
+  if (!coordination.coordinated) {
+    return {
+      deleted: false,
+      status: "uncoordinated",
+      pending,
+      syncing,
+      failed,
+      unresolved,
+      message: `${coordination.missing.length} open tab${coordination.missing.length === 1 ? " did" : "s did"} not confirm closure. Deletion was not started. Close other BloomCore One tabs, then retry.`,
+    };
+  }
+
+  closeCurrentOfflineSession();
+
+  let blocked = false;
+  const deletion = deleteDatabase(databaseName, {
+    onBlocked: () => {
+      blocked = true;
+    },
+  }).then(
+    () => "deleted" as const,
+    () => "failed" as const
+  );
+
+  // A blocked request stays queued in the browser. Report that pending state
+  // quickly instead of pretending it failed or waiting forever.
+  const early = await Promise.race([
+    deletion,
+    (async () => {
+      const deadline = Date.now() + 1_200;
+      while (Date.now() < deadline) {
+        if (blocked) return "blocked" as const;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return "pending" as const;
+    })(),
+  ]);
+
+  if (early === "deleted") {
+    return {
+      deleted: true,
+      status: "deleted",
       pending,
       syncing,
       failed,
@@ -164,18 +257,40 @@ export async function discardCurrentOfflineData(options: {
         ? "Offline data was deleted. The unsynchronized records were also removed."
         : "Offline data was deleted.",
     };
-  } catch (error) {
+  }
+
+  if (early === "failed") {
     return {
       deleted: false,
+      status: "failed",
       pending,
       syncing,
       failed,
       unresolved,
       message:
-        error instanceof OfflineDeletionBlockedError
-          ? "Deletion did not complete because the database is still open in another tab or connection. Close other BloomCore One tabs, then try again."
-          : "The offline data could not be deleted. Deletion was not confirmed; close other tabs and try again.",
+        "The offline data could not be deleted. The browser did not confirm deletion. Close other tabs and retry.",
     };
+  }
+
+  return {
+    deleted: false,
+    status: "blocked",
+    pending,
+    syncing,
+    failed,
+    unresolved,
+    message:
+      "The deletion request is still pending in the browser because another tab or connection holds the database open. It may complete after those tabs close. This page will check again; do not assume success until it confirms.",
+  };
+}
+
+/** Confirm whether this user's offline database still exists. */
+export async function isCurrentOfflineDatabasePresent(): Promise<boolean> {
+  try {
+    const scope = await getOfflineScope();
+    return isDatabasePresent(offlineDatabaseName(scope));
+  } catch {
+    return true;
   }
 }
 
