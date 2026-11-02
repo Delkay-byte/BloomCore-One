@@ -31,8 +31,10 @@ Rules:
 - Redirect checks and genuinely long operations keep their progress indicator.
 - `prefers-reduced-motion` disables the pulse globally.
 
-Route-level `loading.tsx` files exist for admin, Susu admin, collector,
-customer portal, worker, platform console and settings.
+Route-level `loading.tsx` shells are **not** used around statically prerendered
+pages: in a production build they hid the real page payload behind a static
+skeleton (PT-01). Initial client data loads use the in-page skeletons above.
+Only the dynamic Susu customer-detail route keeps a route-level skeleton.
 
 ## 2. Autofill and prefill
 

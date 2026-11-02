@@ -28,7 +28,7 @@ The working tree was clean at `0a5ba96`. The branch contains only application, t
 - `SkeletonPage` owns one `role="status"`, `aria-busy` and screen-reader announcement; nested shapes are `aria-hidden`.
 - Pulse animation is disabled by the existing `prefers-reduced-motion` rule.
 - Applied to admin dashboard/staff/workers/locations/reports/audit/history, Susu admin customers/collectors/contributions/withdrawals/history/remittances/reports, collector dashboard, all customer portal screens, worker daily account and settings.
-- Route-level `loading.tsx` added for admin, Susu admin, collector, customer portal, worker, platform console and settings.
+- Route-level `loading.tsx` shells were initially added for admin, Susu admin, collector, customer portal, worker, platform console and settings. They were removed in the security pass (PT-01): on statically prerendered pages they left the production build showing only a skeleton. In-page skeletons provide the loading state; only the dynamic customer-detail route keeps a route-level skeleton.
 - Single actions keep local button spinners. Content loaders no longer replace the page with a central spinner. Background refreshes keep existing content.
 
 ### 2.2 Autofill and prefill
