@@ -3,6 +3,19 @@ import { db } from "@/lib/db";
 import { getApiTenantContext, type TenantContext } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
+import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
+
+/**
+ * The online contribution action stores `CON-<key>` as its reference. The
+ * offline route uses the same convention so a request that timed out after the
+ * server committed is reconciled by the retry instead of posted twice.
+ */
+function contributionReference(idempotencyKey: string): string {
+  return idempotencyKey.startsWith("CON-")
+    ? idempotencyKey
+    : `CON-${idempotencyKey}`;
+}
 
 class SyncRejected extends Error {
   constructor(
@@ -45,6 +58,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
         { status: 401 }
+      );
+    }
+
+    // 1b. Persistent per-user rate limit. A queued batch is allowed to drain
+    //     (120 records/minute) while a runaway client or replay loop receives a
+    //     real 429 with Retry-After instead of hammering the ledger.
+    const rate = await consumeRateLimit(
+      "offline:sync",
+      ctx.userId,
+      RATE_LIMITS.offlineSync
+    );
+    if (!rate.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many synchronization attempts. Please wait and try again.",
+          retryAfterSeconds: rate.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": retryAfterSeconds(rate) },
+        }
       );
     }
 
@@ -289,7 +324,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 7. Contribution + allocations, all stamped with the tenant.
-    const result = await db.$transaction(async (tx) => {
+    let reconciled = false;
+    let result: {
+      contributionId: string;
+      daysAllocated: number;
+      allocatedAmount: number;
+    };
+    try {
+      result = await db.$transaction(async (tx) => {
       const existingAllocations = await tx.contributionAllocation.findMany({
         where: { contribution: { cycleId: cycle.id, reversedAt: null }, tenantId: ctx.tenantId },
       });
@@ -329,7 +371,7 @@ export async function POST(request: NextRequest) {
           channel,
           collectorId: effectiveCollectorId,
           recordedById: ctx.userId,
-          referenceId: idempotencyKey,
+          referenceId: contributionReference(idempotencyKey),
           notes,
         },
       });
@@ -346,7 +388,39 @@ export async function POST(request: NextRequest) {
         daysAllocated: allocations.length,
         allocatedAmount: Number(allocatedAmount),
       };
-    });
+      });
+    } catch (error) {
+      // The unique `referenceId` is the ledger's idempotency guard. If an
+      // earlier attempt posted the contribution but crashed before marking the
+      // local queue row, reconcile to that row instead of posting again.
+      const duplicate =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002";
+      if (!duplicate) throw error;
+
+      const existingContribution = await db.contribution.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          referenceId: { in: [contributionReference(idempotencyKey), idempotencyKey] },
+        },
+        include: { allocations: true },
+      });
+      if (!existingContribution || existingContribution.tenantId !== ctx.tenantId) {
+        throw error;
+      }
+
+      reconciled = true;
+      result = {
+        contributionId: existingContribution.id,
+        daysAllocated: existingContribution.allocations.length,
+        allocatedAmount: existingContribution.allocations.reduce(
+          (total, allocation) => total + Number(allocation.amount),
+          0
+        ),
+      };
+    }
 
     // 8. Record the offline transaction as synced (tenant scoped)
     await db.offlineTransaction.update({
@@ -364,28 +438,31 @@ export async function POST(request: NextRequest) {
       data: { lastSyncAt: new Date(), authorizedAt: new Date() },
     });
 
-    // 10. Audit
-    await createAuditLog({
-      userId: ctx.userId,
-      action: "susu.contribution_recorded",
-      entityType: "contribution",
-      entityId: result.contributionId,
-      details: {
-        accountId,
-        amount,
-        channel,
-        daysAllocated: result.daysAllocated,
-        idempotencyKey,
-        source: "offline_sync",
-        deviceId,
-      },
-    });
+    // 10. Audit (a reconciled retry already recorded the original posting)
+    if (!reconciled) {
+      await createAuditLog({
+        userId: ctx.userId,
+        action: "susu.contribution_recorded",
+        entityType: "contribution",
+        entityId: result.contributionId,
+        details: {
+          accountId,
+          amount,
+          channel,
+          daysAllocated: result.daysAllocated,
+          idempotencyKey,
+          source: "offline_sync",
+          deviceId,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
       contributionId: result.contributionId,
       daysAllocated: result.daysAllocated,
       allocatedAmount: result.allocatedAmount,
+      reconciled,
     });
   } catch (err) {
     if (err instanceof SyncRejected) {

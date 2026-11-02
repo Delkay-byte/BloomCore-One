@@ -104,30 +104,31 @@ export async function purgeLegacyOfflineDatabase(): Promise<void> {
   }
 }
 
-/** Remove the signed-in user's offline data (called on sign-out). */
-export async function clearCurrentOfflineData(): Promise<void> {
-  closeOfflineConnections();
+/** Names of every offline database on this device (all scopes). */
+export async function listOfflineDatabaseNames(): Promise<string[]> {
+  if (typeof indexedDB === "undefined") return [];
   try {
-    // Remove every offline scope on this device. On a shared device this is
-    // deliberately stronger than removing only the current user's data.
     const databases =
-      typeof indexedDB.databases === "function"
-        ? await indexedDB.databases()
-        : [];
-    const names = databases
+      typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+    return databases
       .map((entry) => entry.name)
       .filter((name): name is string =>
         Boolean(name && name.startsWith("bik-prestige-offline"))
       );
-    if (names.length === 0) {
-      const scope = cachedScope ?? (await getOfflineScope());
-      names.push(offlineDatabaseName(scope));
-    }
-    for (const name of names) {
-      await deleteDatabase(name);
-    }
   } catch {
-    // best effort
+    return [];
   }
+}
+
+/**
+ * End the current offline session without destroying records.
+ *
+ * Sign-out closes the user's database connections and clears the in-memory
+ * scope. Queued transactions and drafts stay in the database named for their
+ * tenant and user; the next account opens a different database. The same user
+ * reopens this one after authenticating again.
+ */
+export function closeCurrentOfflineSession(): void {
+  closeOfflineConnections();
   clearOfflineScope();
 }

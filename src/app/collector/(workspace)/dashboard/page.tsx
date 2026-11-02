@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, UserPlus, Wallet, X, RefreshCw, Info, CheckCircle2, PartyPopper, Clock } from "lucide-react";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getCollectorDashboardStats } from "@/lib/actions/susu-dashboard.actions";
 import { recordContribution } from "@/lib/actions/susu-contribution.actions";
@@ -10,8 +10,6 @@ import { formatCedi, getGreeting, getDailyQuote } from "@/lib/utils";
 import {
   addTransaction,
   getPendingTransactions,
-  getSyncedTransactions,
-  getFailedTransactions,
   cacheCustomers,
   type OfflineTransaction,
   type CachedCustomer,
@@ -19,6 +17,9 @@ import {
 import { getOrCreateDeviceId } from "@/lib/offline/device";
 import { getOfflineScope, setOfflineScope } from "@/lib/offline/scope";
 import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
+import { OfflineStorageError } from "@/lib/errors/friendly";
+import OfflineSyncStatus from "@/components/OfflineSyncStatus";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import CediAmount from "@/components/CediAmount";
 
 interface ToVisitCustomer {
@@ -114,6 +115,8 @@ export default function CollectorDashboardPage() {
   const [collectAmount, setCollectAmount] = useState("");
   const [collectNotes, setCollectNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // One key per collection attempt: reused online, offline and on retry.
+  const collectKeyRef = useRef<string | null>(null);
   const [success, setSuccess] = useState("");
 
   // Customer registration modal
@@ -311,28 +314,39 @@ export default function CollectorDashboardPage() {
       const amountNum = parseFloat(collectAmount);
       if (!amountNum || amountNum <= 0) { setCollectError("Enter a valid amount"); return; }
 
+      const idempotencyKey =
+        collectKeyRef.current ?? crypto.randomUUID();
+      collectKeyRef.current = idempotencyKey;
+
       // Try online first
       if (navigator.onLine) {
         try {
           const result = await recordContribution({
             accountId: recordingFor.accountId, amount: amountNum, channel: "collector",
             notes: collectNotes || undefined,
+            idempotencyKey,
           });
           if (result.success) {
+            collectKeyRef.current = null;
             const resultData = result.data as { daysAllocated: number };
             setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — ${resultData.daysAllocated} day(s) covered ✓`);
             setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
             loadData();
             return;
           }
-        } catch {
-          // Online failed — fall through to offline queue
+          // The server answered and rejected the record (validation, assignment,
+          // cycle rules). Do not queue a rejected record as if it were pending.
+          collectKeyRef.current = null;
+          setCollectError(result.error || "This collection could not be recorded.");
+          return;
+        } catch (err) {
+          if (handleRedirect(err, setCollectError, "Something went wrong. Please try again.")) return;
+          // A genuine network failure falls through to the offline queue.
         }
       }
 
-      // Offline: queue the transaction
+      // Offline: queue the transaction with the same key as the online attempt.
       if (offlineEnabled && deviceId) {
-        const idempotencyKey = `${deviceId}-${crypto.randomUUID()}`;
         const scope = await getOfflineScope().catch(() => null);
         const tx: OfflineTransaction = {
           id: crypto.randomUUID(),
@@ -357,8 +371,19 @@ export default function CollectorDashboardPage() {
           syncedAt: null,
           createdAt: new Date().toISOString(),
         };
-        await addTransaction(tx);
-        setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on device, will sync when online`);
+        try {
+          await addTransaction(tx);
+        } catch (err) {
+          const quota = err instanceof OfflineStorageError && err.code === "storage_full";
+          setCollectError(
+            quota
+              ? "This device has run out of storage for offline records. Synchronize or free space, then try again."
+              : "This device could not save the record. Keep this page open and try again."
+          );
+          return;
+        }
+        collectKeyRef.current = null;
+        setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on this device. Waiting to synchronize; not yet in the ledger.`);
         setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
         refreshPendingTxs();
       } else {
@@ -441,8 +466,14 @@ export default function CollectorDashboardPage() {
     return [...list].sort((a, b) => new Date(b.collectedAt).getTime() - new Date(a.collectedAt).getTime());
   }, [data, searchQuery]);
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
-  if (error && !data) return <div className="banner banner-error">{error}</div>;
+  if (loading) {
+    return (
+      <div className="px-1 py-2">
+        <SkeletonPage variant="dashboard" />
+      </div>
+    );
+  }
+  if (error && !data) return <div role="alert" className="banner banner-error">{error}</div>;
 
   const totalAssigned = data?.assignedCustomers || 0;
   const collected = data?.collectedToday.length || 0;
@@ -502,8 +533,10 @@ export default function CollectorDashboardPage() {
       </div>
 
       {/* Messages */}
-      {success && <div className="banner banner-success text-sm">✓ {success}</div>}
-      {error && <div className="banner banner-error text-sm">{error}</div>}
+      {success && <div role="status" className="banner banner-success text-sm">✓ {success}</div>}
+      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
+
+      {offlineEnabled && <OfflineSyncStatus />}
 
       {/* Pending Sync Banner */}
       {offlineEnabled && pendingTxs.length > 0 && (

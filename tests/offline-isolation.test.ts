@@ -14,11 +14,18 @@ import {
   getPendingTransactions,
 } from "@/lib/offline/store";
 import {
-  clearCurrentOfflineData,
   clearOfflineScope,
+  closeCurrentOfflineSession,
+  deleteDatabase,
+  listOfflineDatabaseNames,
   offlineDatabaseName,
   setOfflineScope,
 } from "@/lib/offline/scope";
+import {
+  DISCARD_CONFIRMATION,
+  discardCurrentOfflineData,
+  endOfflineSession,
+} from "@/lib/offline/session";
 import type { OfflineTransaction } from "@/lib/offline/store";
 
 function tx(id: string, userId: string): OfflineTransaction {
@@ -54,8 +61,11 @@ const customer = {
 
 describe("offline IndexedDB isolation", () => {
   beforeEach(async () => {
+    closeCurrentOfflineSession();
     setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
-    await clearCurrentOfflineData().catch(() => {});
+    for (const name of await listOfflineDatabaseNames()) {
+      await deleteDatabase(name).catch(() => {});
+    }
     clearOfflineScope();
   });
 
@@ -85,12 +95,40 @@ describe("offline IndexedDB isolation", () => {
     expect(await getPendingTransactions()).toHaveLength(1);
   });
 
-  it("deletes the current scope's data on sign-out", async () => {
+  it("preserves pending records when the session ends", async () => {
     setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
     await addTransaction(tx("tx-b", "user-a"));
     expect(await getPendingTransactions()).toHaveLength(1);
 
-    await clearCurrentOfflineData();
+    endOfflineSession();
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+
+    expect(await getPendingTransactions()).toHaveLength(1);
+  });
+
+  it("refuses explicit deletion while pending records exist", async () => {
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+    await addTransaction(tx("tx-c", "user-a"));
+
+    const refused = await discardCurrentOfflineData({
+      confirmation: DISCARD_CONFIRMATION,
+    });
+    expect(refused.deleted).toBe(false);
+    expect(refused.pending).toBe(1);
+
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+    expect(await getPendingTransactions()).toHaveLength(1);
+  });
+
+  it("deletes only when the user types the confirmation and accepts pending loss", async () => {
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+    await addTransaction(tx("tx-d", "user-a"));
+
+    const result = await discardCurrentOfflineData({
+      confirmation: DISCARD_CONFIRMATION,
+      allowPendingLoss: true,
+    });
+    expect(result.deleted).toBe(true);
 
     setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
     expect(await getPendingTransactions()).toHaveLength(0);

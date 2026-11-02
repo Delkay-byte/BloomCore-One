@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { closeCurrentOfflineSession } from "@/lib/offline/scope";
 
 const TAB_SESSION_KEY = "bik-tab-session";
 const TAB_SESSION_EVENT = "bik-tab-session-changed";
@@ -83,6 +84,10 @@ export default function TabSessionGuard({ children }: { children: React.ReactNod
 
 /** Mark the current tab as authenticated.  Call after successful login. */
 export function markTabAuthenticated() {
+  // A new authentication context must never inherit an in-memory offline
+  // scope from a previous account in this tab. Records on disk stay scoped and
+  // are reopened only after the same tenant/user authenticates again.
+  closeCurrentOfflineSession();
   try {
     sessionStorage.setItem(TAB_SESSION_KEY, "1");
     window.dispatchEvent(new Event(TAB_SESSION_EVENT));
