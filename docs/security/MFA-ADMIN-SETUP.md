@@ -1,6 +1,29 @@
 # MFA for Administrators
 
-## 1. What is implemented
+## 1. Policy: MFA is mandatory for every authenticated account
+
+Every account type must enrol: platform operators, business owners, tenant
+administrators, workers, agents, collectors and customer portal accounts.
+`MFA_ENFORCEMENT=enforce` makes enrolment a precondition for a normal session.
+
+- Login performs the password check, then creates a 5-minute challenge cookie.
+  No application session is issued until a TOTP or recovery code succeeds (or,
+  for an unenrolled account, enrolment is completed).
+- Sessions carry `amr = "pwd+mfa"`. While enforcement is on, middleware, all
+  server guards and `isSessionCurrent()` reject password-only sessions.
+- Existing accounts are redirected to `/mfa/enroll` at next sign-in.
+- Newly created accounts are forced through the same challenge before their
+  first password change and before any dashboard, customer or financial route.
+- Customer portal accounts use the same challenge flow against the `Customer`
+  table.
+- There is no alternative login, legacy session, offline route or
+  administrator action that bypasses the challenge. An administrator password
+  reset leaves MFA enabled (or requires separate MFA reset + re-enrolment).
+
+`MFA_ENFORCEMENT=optional` is only the controlled rollout state used before the
+operator has enrolled. It still forces verification for anyone already enrolled.
+
+## 2. What is implemented
 
 TOTP (RFC 6238, SHA-1, 6 digits, 30-second step) with:
 
@@ -27,8 +50,8 @@ helper is `beginMfaStepIfRequired` in `src/lib/security/mfa-login.ts`.
 
 | Value | Behaviour |
 |---|---|
-| `optional` (default) | Anyone who has enrolled must verify. Privileged users are not blocked if they have not enrolled. |
-| `enforce` | Platform operators and tenant administrators must enrol before a session is issued. |
+| `optional` | Anyone who has enrolled must verify. Unenrolled users are not blocked. Used only during the controlled rollout. |
+| `enforce` | Every account type must enrol before a session is issued. This is the required production end state. |
 
 The default is deliberately `optional` so a deploy cannot lock every
 administrator out. Enforcement is a deliberate owner action after enrolment.
@@ -50,6 +73,21 @@ administrator out. Enforcement is a deliberate owner action after enrolment.
 1. Sign in at `/platform/login`.
 2. Open `/platform/security/mfa`.
 3. Follow the same steps.
+
+### Existing BIK Prestige accounts
+
+Production currently contains one tenant, one tenant administrator and one
+platform operator; no workers, agents, collectors or customers exist yet. On the
+first sign-in after enforcement, each existing account is sent to
+`/mfa/enroll`, must scan the QR/code, confirm a 6-digit code, and save recovery
+codes before a session is issued.
+
+### New accounts and onboarding
+
+Worker, agent, collector and customer creation flows already set a temporary
+password and force a password change at first login. With enforcement on, the
+MFA challenge runs before that session is issued, so onboarding cannot complete
+without enrolment. No billing, subscription or role exception exists.
 
 ### Login with MFA
 

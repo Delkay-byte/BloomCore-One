@@ -8,9 +8,9 @@ import { setMfaChallenge } from "./mfa-challenge";
  * cycle with auth.actions.ts.
  */
 export async function beginMfaStepIfRequired(params: {
-  subjectType: "user" | "platform";
+  subjectType: "user" | "platform" | "customer";
   subjectId: string;
-  module: "admin" | "momo" | "susu" | "platform";
+  module: "admin" | "momo" | "susu" | "customer" | "platform";
   email: string;
   fullName: string;
   role: string;
@@ -18,9 +18,9 @@ export async function beginMfaStepIfRequired(params: {
   forcePasswordReset: boolean;
   tokenVersion: number;
 }): Promise<"verify" | "enroll" | null> {
-  const enforced =
-    mfaPolicy() === "enforce" &&
-    (params.subjectType === "platform" || params.role === "admin");
+  // Policy: when enforcement is on, EVERY account type must enrol. During the
+  // controlled rollout ("optional") already-enrolled accounts still verify.
+  const enforced = mfaPolicy() === "enforce";
 
   const mode = params.mfaEnabled ? "verify" : enforced ? "enroll" : null;
   if (!mode) return null;

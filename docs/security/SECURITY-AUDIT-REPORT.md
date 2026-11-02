@@ -121,3 +121,46 @@ change is in this branch and is covered by a test where a test was feasible.
 - Application-level audit logs are not tamper-proof storage.
 - `unsafe-inline` remains in `script-src` because Next.js hydration requires it;
   this is a documented CSP weakness, not an oversight.
+
+---
+
+# Phase 2 — completion audit (2 November 2026)
+
+This section records the work completed after the first release candidate.
+
+## New findings and fixes
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| P2-01 | Critical | Password recovery could not deliver codes (no email provider) and the previous public flow was removed without a replacement | Fixed with administrator-assisted, hashed, single-use, 30-minute recovery codes. `ADMIN-ASSISTED-RECOVERY.md`. |
+| P2-02 | High | MFA enforcement covered only administrators; workers, agents, collectors and customers could sign in with a password only | Every account type now passes the same challenge; `amr = pwd+mfa` is required on every guarded request while enforcing. |
+| P2-03 | High | PostgreSQL READ COMMITTED allowed two withdrawals to spend the same balance | Per-account transaction advisory lock; verified by `tests/pg-withdrawal-concurrency.test.ts` against PostgreSQL. |
+| P2-04 | High | Offline IndexedDB used one global database and cached the encryption key across users | Per-tenant/per-user databases, scoped device IDs, all offline databases deleted on sign-out, legacy database purged. Verified by `tests/offline-isolation.test.ts`. |
+| P2-05 | Medium | Staff/collector/customer/location status accepted arbitrary strings | Central status policy (`active`/`inactive`, active↔inactive only); server-side rejection and audit. `tests/staff-status.test.ts`. |
+| P2-06 | High | No auditable correction path for posted financial entries | Compensating reversal entries for withdrawals and contributions; originals preserved; unique `reversalOfId`; audit (`susu.withdrawal_reversed`, `susu.contribution_reversed`). |
+| P2-07 | Medium | Customer accounts had no MFA schema | Added to `Customer`; challenge flow supports customer portal accounts. |
+| P2-08 | Medium | `MFA_ENFORCEMENT=optional` would not satisfy the mandatory policy | Production rollout flips to `enforce`; every login path applies the challenge. |
+| P2-09 | Informational | CSP still allows `'unsafe-inline'` for scripts | Investigated. Next.js nonces require dynamic rendering and per-request headers for every route; static marketing pages would lose hydration without a broader refactor. Retained and documented rather than weakening/breaking the site. |
+| P2-10 | Informational | Login server actions return structured refusals, not literal HTTP 429 | Retained to avoid breaking authentication. Messages include the wait time. API routes use real status codes. Follow-up: migrate login to route handlers. |
+| P2-11 | Informational | `.env.pilot` is tracked | Contains only placeholders (`CHANGE_ME...`, template URL). No live secret found. No rotation required. |
+| P2-12 | Informational | Three high `npm audit --omit=dev` findings | All in `prisma` → `@prisma/config` → `deepmerge-ts` (CLI config parsing). Not reachable from runtime request handling. Fix requires Prisma 7; separate upgrade recommended. |
+
+## Turnstile
+
+Production has `TURNSTILE_ENABLED=true`, a 24-character site key, a 35-character
+secret and `TURNSTILE_ALLOWED_HOSTNAMES=bloomcore-one.onrender.com`. The
+implementation was verified locally with mocked Siteverify responses and the
+widget was verified in production after deployment. Token replay, wrong action,
+wrong hostname, missing token, timeout and missing keys all fail closed.
+
+## Remaining limitations
+
+1. Password-reset delivery still depends on an administrator; email delivery is a
+   future enhancement, not a release dependency.
+2. Reversals cover withdrawals and contributions. Remittance and daily-account
+   corrections remain manual audited operations.
+3. Two-factor recovery is administrator-assisted; there is no self-service
+   recovery without the authenticator or recovery codes.
+4. CSP `'unsafe-inline'` remains.
+5. Login forms do not emit literal 429 responses.
+6. No independent penetration test or DAST was performed.

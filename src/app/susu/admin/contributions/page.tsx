@@ -1,9 +1,10 @@
 "use client";
 import { Banknote, X } from "lucide-react";
 import { getContributions, recordContribution } from "@/lib/actions/susu-contribution.actions";
+import { reverseContribution } from "@/lib/actions/financial-reversal.actions";
 import { searchCustomers, searchStaff } from "@/lib/actions/susu-customer.actions";
 import { getCollectors } from "@/lib/actions/susu-collector.actions";
-import { formatCedi, formatDate, formatDateTime } from "@/lib/utils";
+import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
@@ -12,6 +13,8 @@ import SmartSearch from "@/components/SmartSearch";
 interface Contribution {
   id: string;
   amount: number;
+  reversedAt?: string | null;
+  reversalOfId?: string | null;
   collectionDate: Date;
   channel: string;
   notes?: string | null;
@@ -71,6 +74,20 @@ export default function SusuContributionsPage() {
   const [recordedById, setRecordedById] = useState("");
   const [recordedByName, setRecordedByName] = useState("");
 
+  async function handleReverse(c: Contribution) {
+    const reason = window.prompt(
+      "Reason for reversing this contribution (minimum 10 characters). The original entry is kept and a negative reversal entry is posted."
+    );
+    if (!reason) return;
+    const result = await reverseContribution({ contributionId: c.id, reason });
+    if (!result.success) {
+      setError(result.error || "Reversal failed");
+      return;
+    }
+    setSuccess("Contribution reversed. The original entry and the reversal are both in the audit trail.");
+    loadContributions();
+  }
+
   // Load current user and prefill Recorded By with the authenticated staff.
   // The field remains changeable to another authorized staff member.
   useEffect(() => {
@@ -92,14 +109,6 @@ export default function SusuContributionsPage() {
       }
     }
     loadCurrentUser();
-  }, []);
-
-  useEffect(() => {
-    loadContributions();
-  }, [page, channelFilter]);
-
-  useEffect(() => {
-    loadCollectors();
   }, []);
 
   async function loadContributions() {
@@ -125,6 +134,14 @@ export default function SusuContributionsPage() {
     } catch (err) { if (handleRedirect(err, setError, "Failed to load collectors")) return;
     }
   }
+
+  useEffect(() => {
+    loadContributions();
+  }, [page, channelFilter]);
+
+  useEffect(() => {
+    loadCollectors();
+  }, []);
 
   async function handleSearch(query: string) {
     setSearchQuery(query);
@@ -509,6 +526,8 @@ export default function SusuContributionsPage() {
                     <th>Channel</th>
                     <th>Received By</th>
                     <th>Recorded By</th>
+                    <th>Status</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -535,6 +554,22 @@ export default function SusuContributionsPage() {
                       </td>
                       <td className="text-sm">
                         {c.recordedByName || c.recordedBy?.fullName || "Not recorded"}
+                      </td>
+                      <td>
+                        <span className={`badge ${c.reversedAt ? "badge-orange" : "badge-green"}`}>
+                          {c.reversalOfId ? "reversal" : c.reversedAt ? "reversed" : "posted"}
+                        </span>
+                      </td>
+                      <td>
+                        {!c.reversedAt && !c.reversalOfId && (
+                          <button
+                            type="button"
+                            className="text-xs text-red-600 hover:text-red-700 underline"
+                            onClick={() => handleReverse(c)}
+                          >
+                            Reverse
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

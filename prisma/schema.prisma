@@ -170,10 +170,15 @@ model Customer {
   updatedAt    DateTime @updatedAt
 
   // Customer Portal
-  portalEnabled            Boolean @default(false)
+  portalEnabled            Boolean   @default(false)
   portalPasswordHash       String?
-  forcePortalPasswordReset Boolean @default(false)
-  tokenVersion             Int     @default(0) // Bumped to invalidate existing customer sessions
+  forcePortalPasswordReset Boolean   @default(false)
+  tokenVersion             Int       @default(0) // Bumped to invalidate existing customer sessions
+  mfaEnabled               Boolean   @default(false)
+  mfaSecret                String? // AES-256-GCM encrypted TOTP secret
+  mfaRecoveryCodes         String? // JSON array of SHA-256 recovery-code hashes
+  mfaEnrolledAt            DateTime?
+  mfaLastUsedAt            DateTime?
 
   accounts    SusuAccount[]
   assignments CollectorCustomerAssignment[]
@@ -242,7 +247,7 @@ model SusuCycle {
 }
 
 model Contribution {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   tenantId       String?
   accountId      String
   cycleId        String
@@ -254,9 +259,11 @@ model Contribution {
   receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
   receivedByName String? // Free-text name of the staff who physically received the money
   recordedByName String? // Free-text name of the person who recorded the payment (display)
-  referenceId    String   @unique // Idempotency key - prevents duplicate submissions
+  referenceId    String    @unique // Idempotency key - prevents duplicate submissions
   notes          String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
+  reversedAt     DateTime?
+  reversalOfId   String?   @unique // Original record when this row is a reversal
 
   account     SusuAccount              @relation(fields: [accountId], references: [id])
   cycle       SusuCycle                @relation(fields: [cycleId], references: [id])
@@ -295,19 +302,21 @@ model ContributionAllocation {
 }
 
 model Withdrawal {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   tenantId         String?
   accountId        String
   cycleId          String
   requestedAmount  Decimal // What the customer asked to withdraw
-  commissionAmount Decimal  @default(0) // Commission deducted (one-day contribution if first withdrawal)
+  commissionAmount Decimal   @default(0) // Commission deducted (one-day contribution if first withdrawal)
   netAmount        Decimal // Amount actually paid to customer
   remainingBalance Decimal // Balance left after withdrawal
-  status           String   @default("completed") // completed | pending | rejected
+  status           String    @default("completed") // completed | pending | rejected
   authorizedById   String // Admin who authorized
-  referenceId      String   @unique // Idempotency key
+  referenceId      String    @unique // Idempotency key
   notes            String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
+  reversedAt       DateTime?
+  reversalOfId     String?   @unique // Original record when this row is a reversal
 
   account SusuAccount @relation(fields: [accountId], references: [id])
   cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
@@ -669,5 +678,27 @@ model SessionRecord {
   revokedReason String?
 
   @@index([subjectType, subjectId])
+  @@index([expiresAt])
+}
+
+/// Administrator-issued, single-use account recovery code.
+/// Only the hash is stored; the plaintext code is shown once to the issuing
+/// administrator and is never returned by any read/API path.
+model AccountRecoveryRequest {
+  id              String    @id @default(cuid())
+  tenantId        String?
+  targetType      String // user | customer
+  targetId        String
+  requestedById   String
+  requestedByType String // platform | user
+  reason          String
+  codeHash        String    @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([targetType, targetId])
   @@index([expiresAt])
 }

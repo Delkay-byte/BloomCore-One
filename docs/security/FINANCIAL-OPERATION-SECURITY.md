@@ -77,15 +77,56 @@ change should use a decimal library or integer pesewas throughout.
   it is not cryptographic tamper-proof storage.
 - Platform actions write a separate `PlatformAuditLog`.
 
-## 5. Residual risks and owner decisions
+## 5. PostgreSQL concurrency strategy
 
-1. **Concurrent withdrawal balance.** The commission race is fixed, but two
-   withdrawals can still read the same balance under PostgreSQL read-committed
-   isolation. A per-account advisory lock, `SERIALIZABLE` transaction or a
-   balance ledger with a conditional debit is required for strict guarantees.
-2. **No reversal/void workflow.** Mistakes can only be corrected by a new
-   compensating entry or direct database work. A proper reversal action with
-   reason, authorization and audit is recommended before scale.
+Every withdrawal and contribution transaction begins with a transaction-scoped
+PostgreSQL advisory lock:
+
+```sql
+SELECT pg_advisory_xact_lock(hashtext($1))::text
+```
+
+`$1` is the account id. The lock is held until commit/rollback, so two
+simultaneous withdrawals for one account are serialised: the second re-reads the
+post-commit balance and is rejected if the funds are gone. SQLite serialises
+writers itself, so `lockAccountForUpdate` is a no-op there.
+
+The commission claim remains a conditional
+`updateMany({ where: { commissionCharged: false } })`, so even if the lock were
+removed the first-withdrawal commission can only be charged once.
+
+`tests/pg-withdrawal-concurrency.test.ts` runs against PostgreSQL and asserts:
+
+- two simultaneous 80.00 withdrawals against a 100.00 balance produce exactly
+  one posted withdrawal and a final balance of 10.00;
+- a replayed idempotency key posts once.
+
+## 6. Reversals and corrections
+
+Reversals are auditable compensating entries, never edits or deletes:
+
+- `reverseWithdrawal` marks the original `status = "reversed"` and posts a new
+  `Withdrawal` row with negative requested/net/commission amounts,
+  `status = "reversal"` and `reversalOfId` pointing at the original. A negative
+  `Commission` refunds the commission when one was charged.
+- `reverseContribution` marks the original `reversedAt` and posts a negative
+  `Contribution` with `channel = "reversal"` and `reversalOfId`.
+- `reversalOfId` is unique, so a second reversal fails at the database.
+- Original rows stay in place. Reports that sum the ledger net the two entries;
+  outstanding-day calculations exclude allocations belonging to a reversed
+  contribution.
+- Reversal requires a tenant Susu administrator, a reason of 10–500 characters,
+  persistent rate limiting, an advisory lock and an audit event
+  (`susu.withdrawal_reversed` / `susu.contribution_reversed`).
+- UI: **Reverse** action on the withdrawal and contribution lists.
+
+## 7. Residual risks and owner decisions
+
+1. **Concurrent withdrawal balance — fixed.** The per-account advisory lock was
+   verified against PostgreSQL; see section 5.
+2. **Reversal workflow — implemented for withdrawals and contributions.**
+   Remittances and daily-account adjustments still need the same treatment if
+   the business requires them; they remain manual corrections with audit.
 3. **Approval thresholds.** No business-specific limits (maximum withdrawal,
    dual approval, daily caps) exist. These are owner policy decisions and were
    intentionally not invented.

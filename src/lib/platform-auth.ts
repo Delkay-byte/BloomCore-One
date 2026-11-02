@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { hashPassword, verifyPassword, SESSION_POLICY } from "./auth";
+import { mfaPolicy } from "./security/config";
 import {
   createSessionRecord,
   isSessionRecordActive,
@@ -53,6 +54,7 @@ export interface PlatformJwtPayload {
   kind: "platform";
   jti?: string;
   tokenUse?: "platform";
+  amr?: "pwd" | "pwd+mfa";
   iss?: string;
   aud?: string | string[];
   forcePasswordReset?: boolean;
@@ -222,6 +224,7 @@ export async function getPlatformSession(): Promise<PlatformSession | null> {
     if (!payload) return null;
     if (!validatePlatformTiming(payload)) return null;
     if (!(await isSessionRecordActive(payload.jti))) return null;
+    if (mfaPolicy() === "enforce" && payload.amr !== "pwd+mfa") return null;
 
     const admin = await db.platformSuperAdmin.findUnique({
       where: { id: payload.adminId },

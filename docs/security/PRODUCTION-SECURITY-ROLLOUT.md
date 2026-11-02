@@ -144,3 +144,58 @@ Rollback / forward recovery:
 - Financial approval thresholds and reversal policy.
 - Formal log retention period and SIEM forwarding.
 - Independent penetration test before handling higher-value production data.
+
+---
+
+# Release record — 2 November 2026
+
+## Owner-configured secrets (verified present, values not read into logs)
+
+| Variable | Observation |
+|---|---|
+| `RATE_LIMIT_HMAC_SECRET` | present, 44 characters (base64 32 bytes) |
+| `MFA_ENCRYPTION_KEY` | present, 44 characters (base64 32 bytes) |
+| `TURNSTILE_ENABLED` | `true` |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | `bloomcore-one.onrender.com` |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | present, 24 characters |
+| `TURNSTILE_SECRET_KEY` | present, 35 characters |
+| `TRUSTED_PROXY_HEADERS` | `true` |
+| `JWT_SECRET` | present, unchanged |
+| `DATABASE_URL` / `DIRECT_URL` | present, Neon `neondb` (pooled/direct) |
+
+These were already configured by the owner and were not regenerated or
+overwritten.
+
+## Production backup
+
+- Timestamp: `2026-11-02T00:11:24Z`.
+- Source database: Neon `neondb` (the database behind `bloomcore-one`).
+- Method: logical NDJSON per table, gzip, 22 tables, 19 rows total.
+- Manifest with per-table counts and SHA-free row verification stored outside
+  the repository at
+  `%LOCALAPPDATA%\Temp\opencode\backups\bloomcore-20261102T001124Z` (not
+  committed; contains production personal data).
+- Verification: every table count matched the source at backup time and again
+  after restore into the isolated rehearsal database.
+
+## Isolated rehearsal
+
+- PostgreSQL database: `bloomcore_rehearsal_20261102` on the same Neon project
+  (separate database, not production).
+- Restored the verified backup into it.
+- Applied every migration with
+  `npx prisma migrate deploy --schema=prisma/schema-pg.prisma`.
+- Verified 1 tenant, 1 user, 1 platform operator, 5 tenant audit rows and 11
+  platform audit rows remained; security tables were added and empty.
+- PostgreSQL concurrency tests passed; see `SECURITY-TEST-RESULTS.md`.
+
+## Migrations added in phase 2
+
+1. `20261102_admin_recovery_and_customer_mfa`
+2. `20261102_financial_reversals`
+
+Both additive. No row is rewritten or deleted.
+
+## Production migration / deployment
+
+Recorded in the final delivery report after execution.

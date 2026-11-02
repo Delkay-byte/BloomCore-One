@@ -160,6 +160,7 @@ export async function platformLogin(
     fullName: result.admin.fullName,
     forcePasswordReset: result.admin.forcePasswordReset,
     tokenVersion: result.tokenVersion,
+    amr: "pwd",
   });
   await db.platformSuperAdmin.update({
     where: { id: result.admin.adminId },

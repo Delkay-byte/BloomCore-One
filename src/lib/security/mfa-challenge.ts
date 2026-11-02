@@ -18,7 +18,7 @@ export type MfaModule = "admin" | "momo" | "susu" | "customer" | "platform";
 export type MfaMode = "verify" | "enroll";
 
 export interface MfaChallenge {
-  subjectType: "user" | "platform";
+  subjectType: "user" | "platform" | "customer";
   subjectId: string;
   module: MfaModule;
   email: string;

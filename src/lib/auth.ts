@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { redirect } from "next/navigation";
+import { mfaPolicy } from "./security/config";
 import {
   createSessionRecord,
   isSessionRecordActive,
@@ -98,6 +99,8 @@ export interface JwtPayload {
   jti?: string;
   /** Distinguishes session tokens from workspace-selection tokens. */
   tokenUse?: "session" | "workspace-selection";
+  /** Authentication methods used for this session. */
+  amr?: "pwd" | "pwd+mfa";
   /** Epoch seconds — when this token was issued (server-authoritative) */
   iat?: number;
   /** Epoch seconds — absolute expiry timestamp */
@@ -382,6 +385,7 @@ export async function readModuleCookie(module: ModuleName): Promise<JwtPayload |
     if (!payload?.userId) return null;
     if (payload.tokenUse === "workspace-selection") return null;
     const normalized = normalizePayload(payload);
+    if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
     // Server-side session timing enforcement
     const status = validateSessionTiming(normalized);
     if (status !== "valid") return null;
@@ -398,6 +402,7 @@ export async function readModuleCookie(module: ModuleName): Promise<JwtPayload |
   const normalized = normalizePayload(payload);
   const status = validateSessionTiming(normalized);
   if (status !== "valid") return null;
+  if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
   if (!(await isSessionRecordActive(normalized.jti))) return null;
   return normalized;
 }
@@ -441,6 +446,9 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
 
     // Revoked/logged-out sessions are rejected even if the JWT is still valid.
     if (!(await isSessionRecordActive(payload.jti))) return false;
+
+    // Under enforcement, a password-only session is not enough.
+    if (mfaPolicy() === "enforce" && payload.amr !== "pwd+mfa") return false;
 
     // Customer sessions are validated against the Customer record, not User.
     if (payload.role === "customer") {

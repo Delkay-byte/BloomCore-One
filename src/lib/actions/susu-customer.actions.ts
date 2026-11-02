@@ -11,6 +11,7 @@ import {
 import { createAuditLog } from "@/lib/audit";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
+import { validateStatusTransition } from "@/lib/security/status";
 
 export interface ActionResponse {
   success: boolean;
@@ -241,9 +242,17 @@ export async function toggleCustomerStatus(
     return { success: false, error: "Customer not found" };
   }
 
+  const current = await db.customer.findFirst({
+    where: { id: customerId, tenantId: ctx.tenantId },
+    select: { status: true },
+  });
+  if (!current) return { success: false, error: "Customer not found" };
+  const check = validateStatusTransition(current.status, newStatus);
+  if (!check.ok) return { success: false, error: check.error };
+
   await db.customer.update({
     where: { id: customerId },
-    data: { status: newStatus },
+    data: { status: check.status },
   });
 
   await createAuditLog({

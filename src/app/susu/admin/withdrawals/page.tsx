@@ -4,6 +4,7 @@ import { CreditCard, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getWithdrawals, processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
+import { reverseWithdrawal } from "@/lib/actions/financial-reversal.actions";
 import { searchCustomers } from "@/lib/actions/susu-customer.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import ReauthDialog from "@/components/ReauthDialog";
@@ -17,6 +18,7 @@ interface WithdrawalRecord {
   remainingBalance: number;
   status: string;
   createdAt: Date;
+  reversalOfId?: string | null;
   notes?: string | null;
   account: {
     accountId: string;
@@ -101,6 +103,20 @@ export default function SusuWithdrawalsPage() {
 
     // Require reauthentication before withdrawal
     setShowReauth(true);
+  }
+
+  async function handleReverse(w: WithdrawalRecord) {
+    const reason = window.prompt(
+      "Reason for reversing this withdrawal (minimum 10 characters). The original entry is kept and a reversal entry is posted."
+    );
+    if (!reason) return;
+    const result = await reverseWithdrawal({ withdrawalId: w.id, reason });
+    if (!result.success) {
+      setError(result.error || "Reversal failed");
+      return;
+    }
+    setSuccess("Withdrawal reversed. The original entry and the reversal are both in the audit trail.");
+    loadWithdrawals();
   }
 
   async function executeWithdrawal() {
@@ -294,6 +310,8 @@ export default function SusuWithdrawalsPage() {
                     <th>Net Paid</th>
                     <th>Balance</th>
                     <th>Cycle</th>
+                    <th>Status</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -316,6 +334,22 @@ export default function SusuWithdrawalsPage() {
                       <td className="font-mono text-sm text-blue-600"><CediAmount amount={w.remainingBalance} /></td>
                       <td>
                         <span className="badge badge-blue">Cycle {w.cycle.cycleNumber}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${w.status === "completed" ? "badge-green" : "badge-orange"}`}>
+                          {w.status}
+                        </span>
+                      </td>
+                      <td>
+                        {w.status === "completed" && !w.reversalOfId && (
+                          <button
+                            type="button"
+                            className="text-xs text-red-600 hover:text-red-700 underline"
+                            onClick={() => handleReverse(w)}
+                          >
+                            Reverse
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

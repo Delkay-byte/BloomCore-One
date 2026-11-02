@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
     // 7. Contribution + allocations, all stamped with the tenant.
     const result = await db.$transaction(async (tx) => {
       const existingAllocations = await tx.contributionAllocation.findMany({
-        where: { contribution: { cycleId: cycle.id }, tenantId: ctx.tenantId },
+        where: { contribution: { cycleId: cycle.id, reversedAt: null }, tenantId: ctx.tenantId },
       });
       const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
 

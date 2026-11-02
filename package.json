@@ -19,7 +19,7 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "test:security": "vitest run tests/security-hardening.test.ts tests/financial-security.test.ts tests/tenant-isolation.test.ts"
+    "test:security": "vitest run tests/security-hardening.test.ts tests/financial-security.test.ts tests/admin-recovery.test.ts tests/offline-isolation.test.ts tests/staff-status.test.ts tests/tenant-isolation.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.9.1",
@@ -52,6 +52,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "fake-indexeddb": "^6.2.7",
     "tsx": "^4.23.12",
     "vitest": "^4.1.11"
   }

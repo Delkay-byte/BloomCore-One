@@ -24,7 +24,7 @@ import {
   setPlatformSession,
   getPlatformAdminOrNull,
 } from "@/lib/platform-auth";
-import { getAdminSession, verifyPassword } from "@/lib/auth";
+import { getAdminSession, setModuleSession, verifyPassword } from "@/lib/auth";
 
 /**
  * MFA server actions.
@@ -87,6 +87,28 @@ async function issueSessionFromChallenge(challenge: {
       fullName: admin.fullName,
       forcePasswordReset: admin.forcePasswordReset,
       tokenVersion: admin.tokenVersion,
+      amr: "pwd+mfa",
+    });
+    return;
+  }
+
+  if (challenge.module === "customer") {
+    const customer = await db.customer.findUnique({
+      where: { id: challenge.subjectId },
+    });
+    if (!customer || customer.status !== "active" || !customer.portalEnabled) {
+      throw new Error("Account unavailable");
+    }
+    await setModuleSession("customer", {
+      userId: customer.id,
+      email: customer.email || `${customer.customerId}@bloomcore.local`,
+      fullName: customer.fullName,
+      role: "customer",
+      modules: ["customer"],
+      tenantId: customer.tenantId,
+      forcePasswordReset: customer.forcePortalPasswordReset ?? false,
+      tokenVersion: customer.tokenVersion ?? 0,
+      amr: "pwd+mfa",
     });
     return;
   }
@@ -95,7 +117,7 @@ async function issueSessionFromChallenge(challenge: {
   if (!user || user.status !== "active") throw new Error("Account unavailable");
 
   const sessionModule = challenge.module as "admin" | "momo" | "susu";
-  await issueModuleSession(user.id, sessionModule);
+  await issueModuleSession(user.id, sessionModule, true);
 }
 
 /** Step 1 (enrolment mode): show the QR code for a fresh secret. */

@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { lockAccountForUpdate } from "@/lib/db-lock";
 
 export interface ActionResponse {
   success: boolean;
@@ -273,11 +274,12 @@ export async function recordContribution(params: {
 
   // ── 8. Financial transaction ────────────────────────────────────────
   const outcome = await db.$transaction(async (tx) => {
+    await lockAccountForUpdate(tx, account.id);
     // Re-check outstanding days inside the transaction so a concurrent
     // contribution cannot allocate the same day twice.
     const existingAllocations = await tx.contributionAllocation.findMany({
       where: {
-        contribution: { cycleId: cycle.id },
+        contribution: { cycleId: cycle.id, reversedAt: null },
         tenantId: ctx.tenantId,
       },
     });

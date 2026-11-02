@@ -19,7 +19,7 @@ import { logSecurityEvent } from "./log";
  * stored only as SHA-256 hashes and each code is removed on first use.
  */
 
-export type MfaSubjectType = "user" | "platform";
+export type MfaSubjectType = "user" | "platform" | "customer";
 
 interface MfaRow {
   mfaEnabled: boolean;
@@ -29,12 +29,30 @@ interface MfaRow {
 
 const ISSUER = "BloomCore One";
 
+function actorTypeFor(
+  subjectType: MfaSubjectType
+): "user" | "platform_admin" | "customer" {
+  if (subjectType === "platform") return "platform_admin";
+  if (subjectType === "customer") return "customer";
+  return "user";
+}
+
 async function loadSubject(
   subjectType: MfaSubjectType,
   subjectId: string
 ): Promise<MfaRow | null> {
   if (subjectType === "platform") {
     return db.platformSuperAdmin.findUnique({
+      where: { id: subjectId },
+      select: {
+        mfaEnabled: true,
+        mfaSecret: true,
+        mfaRecoveryCodes: true,
+      },
+    });
+  }
+  if (subjectType === "customer") {
+    return db.customer.findUnique({
       where: { id: subjectId },
       select: {
         mfaEnabled: true,
@@ -60,6 +78,8 @@ async function updateSubject(
 ): Promise<void> {
   if (subjectType === "platform") {
     await db.platformSuperAdmin.update({ where: { id: subjectId }, data });
+  } else if (subjectType === "customer") {
+    await db.customer.update({ where: { id: subjectId }, data });
   } else {
     await db.user.update({ where: { id: subjectId }, data });
   }
@@ -117,7 +137,12 @@ export async function confirmMfaEnrollment(params: {
     logSecurityEvent({
       event: "mfa.enrollment_failed",
       outcome: "failure",
-      actorType: params.subjectType === "platform" ? "platform_admin" : "user",
+      actorType:
+        params.subjectType === "platform"
+          ? "platform_admin"
+          : params.subjectType === "customer"
+            ? "customer"
+            : "user",
       actorId: params.subjectId,
     });
     return null;
@@ -134,7 +159,7 @@ export async function confirmMfaEnrollment(params: {
   logSecurityEvent({
     event: "mfa.enrolled",
     outcome: "success",
-    actorType: params.subjectType === "platform" ? "platform_admin" : "user",
+    actorType: actorTypeFor(params.subjectType),
     actorId: params.subjectId,
   });
 
@@ -170,7 +195,12 @@ export async function verifyMfaCode(params: {
     logSecurityEvent({
       event: "mfa.verify_failed",
       outcome: "failure",
-      actorType: params.subjectType === "platform" ? "platform_admin" : "user",
+      actorType:
+        params.subjectType === "platform"
+          ? "platform_admin"
+          : params.subjectType === "customer"
+            ? "customer"
+            : "user",
       actorId: params.subjectId,
     });
     return { ok: false, usedRecoveryCode: false };
@@ -184,7 +214,7 @@ export async function verifyMfaCode(params: {
   logSecurityEvent({
     event: "mfa.recovery_code_used",
     outcome: "success",
-    actorType: params.subjectType === "platform" ? "platform_admin" : "user",
+    actorType: actorTypeFor(params.subjectType),
     actorId: params.subjectId,
   });
   return { ok: true, usedRecoveryCode: true };
@@ -208,7 +238,7 @@ export async function disableMfa(params: {
   logSecurityEvent({
     event: "mfa.disabled",
     outcome: "success",
-    actorType: params.subjectType === "platform" ? "platform_admin" : "user",
+    actorType: actorTypeFor(params.subjectType),
     actorId: params.subjectId,
   });
   return true;

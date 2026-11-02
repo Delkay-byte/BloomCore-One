@@ -9,7 +9,13 @@
  * larger capacity, and better suitability for financial data queues.
  */
 
-const DB_NAME = "bik-prestige-offline";
+import {
+  getOfflineScope,
+  offlineDatabaseName,
+  purgeLegacyOfflineDatabase,
+  registerOfflineConnection,
+} from "./scope";
+
 const DB_VERSION = 1;
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -20,6 +26,7 @@ export type SyncStatus = "pending_sync" | "syncing" | "synced" | "failed";
 export interface OfflineTransaction {
   id: string;
   deviceId: string;
+  tenantId?: string;
   userId: string;
   type: TransactionType;
   idempotencyKey: string;
@@ -47,14 +54,15 @@ export interface CachedCustomer {
 
 // ── Encryption ─────────────────────────────────────────────────────────
 
-let cryptoKey: CryptoKey | null = null;
+const cryptoKeys = new Map<string, CryptoKey>();
 
 /**
  * Derive an AES-GCM key from a passphrase using PBKDF2.
  * The passphrase is derived from the user's session data.
  */
 async function getOrCreateKey(passphrase: string): Promise<CryptoKey> {
-  if (cryptoKey) return cryptoKey;
+  const cached = cryptoKeys.get(passphrase);
+  if (cached) return cached;
 
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -65,7 +73,7 @@ async function getOrCreateKey(passphrase: string): Promise<CryptoKey> {
     ["deriveKey"]
   );
 
-  cryptoKey = await crypto.subtle.deriveKey(
+  const derived = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: encoder.encode("bik-prestige-offline-salt"),
@@ -78,7 +86,8 @@ async function getOrCreateKey(passphrase: string): Promise<CryptoKey> {
     ["encrypt", "decrypt"]
   );
 
-  return cryptoKey;
+  cryptoKeys.set(passphrase, derived);
+  return derived;
 }
 
 export async function encryptData(data: string, passphrase: string): Promise<string> {
@@ -104,9 +113,12 @@ export async function decryptData(encryptedBase64: string, passphrase: string): 
 
 // ── IndexedDB Operations ───────────────────────────────────────────────
 
-function openDB(): Promise<IDBDatabase> {
+async function openDB(): Promise<IDBDatabase> {
+  await purgeLegacyOfflineDatabase();
+  const scope = await getOfflineScope();
+  const name = offlineDatabaseName(scope);
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(name, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("transactions")) {
@@ -115,13 +127,18 @@ function openDB(): Promise<IDBDatabase> {
         store.createIndex("type", "type", { unique: false });
         store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
         store.createIndex("createdAt", "createdAt", { unique: false });
+        store.createIndex("userId", "userId", { unique: false });
+        store.createIndex("tenantId", "tenantId", { unique: false });
       }
       if (!db.objectStoreNames.contains("customers")) {
         const store = db.createObjectStore("customers", { keyPath: "accountId" });
         store.createIndex("lastSynced", "lastSynced", { unique: false });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      registerOfflineConnection(request.result);
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
   });
 }

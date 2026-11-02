@@ -8,6 +8,7 @@ import { randomBytes } from "crypto";
 import { formatCedi } from "@/lib/utils";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { lockAccountForUpdate } from "@/lib/db-lock";
 
 export interface ActionResponse {
   success: boolean;
@@ -103,6 +104,9 @@ export async function processWithdrawal(params: {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      // Serialise balance changes for this account on PostgreSQL.
+      await lockAccountForUpdate(tx, account.id);
+
       // Re-read the cycle inside the transaction and claim the commission in a
       // single conditional update. Concurrent withdrawals cannot both charge it.
       const cycleRow = await tx.susuCycle.findFirst({

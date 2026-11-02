@@ -17,6 +17,7 @@ import {
   type CachedCustomer,
 } from "@/lib/offline/store";
 import { getOrCreateDeviceId } from "@/lib/offline/device";
+import { getOfflineScope, setOfflineScope } from "@/lib/offline/scope";
 import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
 import CediAmount from "@/components/CediAmount";
 
@@ -177,6 +178,9 @@ export default function CollectorDashboardPage() {
       const authRes = await fetch("/api/auth/me?module=susu");
       const authUser = authRes.ok ? await authRes.json() : null;
       if (!authUser?.userId) return;
+      if (authUser.tenant?.id) {
+        setOfflineScope({ tenantId: authUser.tenant.id, userId: authUser.userId });
+      }
       const dashboardData = (await getCollectorDashboardStats(authUser.userId)) as DashboardData | null;
       const toVisit = dashboardData?.toVisit || [];
       const customers: CachedCustomer[] = toVisit.map((c) => ({
@@ -329,9 +333,11 @@ export default function CollectorDashboardPage() {
       // Offline: queue the transaction
       if (offlineEnabled && deviceId) {
         const idempotencyKey = `${deviceId}-${crypto.randomUUID()}`;
+        const scope = await getOfflineScope().catch(() => null);
         const tx: OfflineTransaction = {
           id: crypto.randomUUID(),
           deviceId,
+          tenantId: scope?.tenantId,
           userId: user?.userId || "",
           type: "contribution",
           idempotencyKey,

@@ -41,6 +41,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
+import {
+  reverseContribution,
+  reverseWithdrawal,
+} from "@/lib/actions/financial-reversal.actions";
 
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
 
@@ -166,5 +170,88 @@ describe("financial operation security", () => {
     });
     expect(audit).toHaveLength(2);
     expect(audit[0].tenantId).toBe(tenant.id);
+  });
+
+  it("reverses a withdrawal without deleting the original and blocks duplicates", async () => {
+    const tenant = await createTestTenant();
+    const admin = await createTestAdmin({ tenantId: tenant.id });
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "R2");
+    await seedBalance(tenant.id, account.id, cycle.id, 100, admin.id);
+    await setAdminSession(admin);
+
+    const withdrawal = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "reverse-key-0001",
+    });
+    expect(withdrawal.success).toBe(true);
+    const original = await prisma.withdrawal.findFirstOrThrow({
+      where: { accountId: account.id, status: "completed" },
+    });
+
+    const reversal = await reverseWithdrawal({
+      withdrawalId: original.id,
+      reason: "Customer disputed the payout; cash returned to the office.",
+    });
+    expect(reversal.success).toBe(true);
+
+    const duplicate = await reverseWithdrawal({
+      withdrawalId: original.id,
+      reason: "Attempt to reverse the same withdrawal twice.",
+    });
+    expect(duplicate.success).toBe(false);
+
+    const rows = await prisma.withdrawal.findMany({
+      where: { accountId: account.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].status).toBe("reversed");
+    expect(rows[1].reversalOfId).toBe(original.id);
+    expect(Number(rows[1].netAmount)).toBe(-20);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "susu.withdrawal_reversed", entityId: original.id },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit?.tenantId).toBe(tenant.id);
+  });
+
+  it("reverses a contribution with a compensating entry and excludes its days", async () => {
+    const tenant = await createTestTenant();
+    const admin = await createTestAdmin({ tenantId: tenant.id });
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "R3");
+    await seedBalance(tenant.id, account.id, cycle.id, 100, admin.id);
+    await setAdminSession(admin);
+
+    const original = await prisma.contribution.findFirstOrThrow({
+      where: { accountId: account.id },
+    });
+    const reversal = await reverseContribution({
+      contributionId: original.id,
+      reason: "Contribution was recorded against the wrong customer account.",
+    });
+    expect(reversal.success).toBe(true);
+
+    const duplicate = await reverseContribution({
+      contributionId: original.id,
+      reason: "Duplicate reversal attempt should be rejected.",
+    });
+    expect(duplicate.success).toBe(false);
+
+    const rows = await prisma.contribution.findMany({
+      where: { accountId: account.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+    expect(Number(rows[1].amount)).toBe(-100);
+    expect(rows[0].reversedAt).not.toBeNull();
+
+    // No spendable balance remains and no days are outstanding-paid.
+    const spend = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 10,
+    });
+    expect(spend.success).toBe(false);
   });
 });

@@ -127,21 +127,22 @@ export async function login(
 
   await recordLoginSuccess(email, guard.ip, "login");
 
-  // Administrator login also passes through the MFA policy gate.
-  if (user.role === "admin") {
-    const mfaStep = await beginMfaStepIfRequired({
-      subjectType: "user",
-      subjectId: user.id,
-      module: "admin",
-      email: user.email,
-      fullName: user.fullName,
-      role: user.role,
-      mfaEnabled: user.mfaEnabled,
-      forcePasswordReset: user.forcePasswordReset,
-      tokenVersion: user.tokenVersion,
-    });
-    if (mfaStep) redirect(`/mfa/${mfaStep}`);
-  }
+  // Every account type passes through the MFA policy gate, including the
+  // legacy shared-login action.
+  const mfaModule: "admin" | "momo" | "susu" =
+    user.role === "admin" ? "admin" : user.momoEnabled ? "momo" : "susu";
+  const mfaStep = await beginMfaStepIfRequired({
+    subjectType: "user",
+    subjectId: user.id,
+    module: mfaModule,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
+    mfaEnabled: user.mfaEnabled,
+    forcePasswordReset: user.forcePasswordReset,
+    tokenVersion: user.tokenVersion,
+  });
+  if (mfaStep) redirect(`/mfa/${mfaStep}`);
 
   const modules: ("momo" | "susu")[] = [];
   if (user.momoEnabled) modules.push("momo");
@@ -213,10 +214,18 @@ async function buildSessionPayload(userId: string): Promise<JwtPayload> {
 }
 
 /** Issue a fresh JWT for `userId` into the given module's cookie. */
-export async function issueModuleSession(userId: string, module: ModuleName): Promise<JwtPayload> {
+export async function issueModuleSession(
+  userId: string,
+  module: ModuleName,
+  mfaVerified = false
+): Promise<JwtPayload> {
   const payload = await buildSessionPayload(userId);
-  await setModuleSession(module, payload);
-  return payload;
+  const withAmr: JwtPayload = {
+    ...payload,
+    amr: mfaVerified ? "pwd+mfa" : "pwd",
+  };
+  await setModuleSession(module, withAmr);
+  return withAmr;
 }
 
 export async function selectWorkspace(
@@ -261,10 +270,12 @@ export async function switchWorkspace(
 
   let userId: string | null = null;
   let sourceModule: ModuleName | null = null;
+  let sourceAmr: JwtPayload["amr"] = "pwd";
   for (const [mod, session] of sources) {
     if (session && (await isSessionCurrent(session))) {
       userId = session.userId;
       sourceModule = mod;
+      sourceAmr = session.amr;
       break;
     }
   }
@@ -282,7 +293,7 @@ export async function switchWorkspace(
     return { success: false, error: "You are not authorized for this module." };
   }
 
-  await setModuleSession(target, payload);
+  await setModuleSession(target, { ...payload, amr: sourceAmr });
   await clearModuleSession(sourceModule);
 
   await createAuditLog({
@@ -460,7 +471,10 @@ export async function changePassword(
   // Re-issue THIS module's session with the new tokenVersion. All previous
   // sessions (including any stolen cookie) are revoked server-side first.
   await revokeAllUserSessions("user", session.userId, "password_changed");
-  const refreshed = await buildSessionPayload(session.userId);
+  const refreshed = {
+    ...(await buildSessionPayload(session.userId)),
+    amr: session.amr,
+  };
   await setModuleSession(context.module, refreshed);
 
   await createAuditLog({
@@ -494,7 +508,7 @@ export async function resolveCustomerAuth(
   identifier: string,
   password: string,
   turnstileToken?: string | null
-): Promise<{ payload: JwtPayload } | { error: string }> {
+): Promise<{ payload: JwtPayload } | { error: string } | { mfa: "verify" | "enroll" }> {
   if (!identifier || !password) {
     return { error: CUSTOMER_GENERIC_ERROR };
   }
@@ -563,6 +577,19 @@ export async function resolveCustomerAuth(
   }
 
   await recordLoginSuccess(identifier, guard.ip, "customer_login");
+
+  const mfaStep = await beginMfaStepIfRequired({
+    subjectType: "customer",
+    subjectId: customer.id,
+    module: "customer",
+    email: customer.email || customer.customerId,
+    fullName: customer.fullName,
+    role: "customer",
+    mfaEnabled: customer.mfaEnabled,
+    forcePasswordReset: customer.forcePortalPasswordReset ?? false,
+    tokenVersion: customer.tokenVersion ?? 0,
+  });
+  if (mfaStep) return { mfa: mfaStep };
 
   const payload: JwtPayload = {
     userId: customer.id,
@@ -698,6 +725,7 @@ export async function customerLogin(
     turnstileToken
   );
   if ("error" in result) return { success: false, error: result.error };
+  if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
 
   await setModuleSession("customer", result.payload);
   await auditWorkspace("customer", result.payload.userId);
@@ -747,6 +775,7 @@ export async function unifiedLogin(
       turnstileToken
     );
     if ("error" in result) return { success: false, error: result.error };
+    if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
 
     await setModuleSession("customer", result.payload);
     await auditWorkspace("customer", result.payload.userId);
@@ -908,6 +937,7 @@ export async function customerChangePassword(
     tenantId: session.tenantId,
     forcePasswordReset: false,
     tokenVersion: (session.tokenVersion ?? 0) + 1,
+    amr: session.amr,
   };
   await setModuleSession("customer", refreshed);
 

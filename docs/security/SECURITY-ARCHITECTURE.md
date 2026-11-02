@@ -32,7 +32,11 @@ Middleware alone is never the authorization control.
 - Unknown accounts perform a dummy bcrypt comparison so timing does not reveal
   existence (`verifyPasswordConstantTime`).
 - Sessions: HS256 JWT signed with `JWT_SECRET`, `iss=bloomcore-one`,
-  audience per token type (`session`, `workspace-selection`, `platform`).
+  audience per token type (`session`, `workspace-selection`, `platform`), and
+  `amr` recording password-only vs password+MFA authentication.
+- MFA is mandatory for every account type once `MFA_ENFORCEMENT=enforce`.
+  Password-only sessions are rejected by middleware, every server guard and
+  `isSessionCurrent()`.
 - Every new JWT carries `jti`; `SessionRecord` is the server-side registry.
   A token whose record is missing, expired or revoked is rejected.
 - Cookies: `HttpOnly`, `Secure` in production, `SameSite=Lax` (tenant) or
@@ -62,8 +66,9 @@ Middleware alone is never the authorization control.
 | Progressive login cooldown | `AuthThrottle` | HMAC of identifier and identifier+IP |
 | Turnstile single-use ledger | `TurnstileTokenUse` | SHA-256 of the token |
 | Session revocation | `SessionRecord` | JWT `jti` |
+| Administrator recovery | `AccountRecoveryRequest` | SHA-256 of a 16-character code |
 
-Both tables are shared by every application instance and survive restarts.
+All tables are shared by every application instance and survive restarts.
 Expired rows are cleaned opportunistically and by the deployment operator
 (`docs/security/INCIDENT-RESPONSE-RUNBOOK.md`).
 
@@ -108,7 +113,17 @@ Two schemas must stay in sync:
 The security migration is additive:
 `prisma/migrations/20261101_security_hardening/migration.sql`.
 
-## 8. What the architecture does not provide
+## 8. Offline storage
+
+IndexedDB is partitioned as
+`bik-prestige-offline:v2:<tenantId>:<userId>`. The scope is resolved from
+`/api/auth/me`, never from browser input. Device identifiers live inside the
+scoped database. Sign-out closes every connection and deletes all
+`bik-prestige-offline*` databases; the pre-hardening global database is purged
+on first use. Server-side tenant/user/device checks remain authoritative during
+sync.
+
+## 9. What the architecture does not provide
 
 - Application-level audit logs are append-only by convention, not by
   cryptographic proof or database permissions.

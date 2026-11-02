@@ -158,6 +158,16 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
             {module === "admin" && (
               <button
                 type="button"
+                onClick={() => router.push("/admin/recovery")}
+                className="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              >
+                <ShieldCheck size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />
+                Recovery
+              </button>
+            )}
+            {module === "admin" && (
+              <button
+                type="button"
                 role="tab"
                 aria-selected={activeTab === "devices"}
                 onClick={() => setActiveTab("devices")}
