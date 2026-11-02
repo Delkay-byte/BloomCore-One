@@ -3,15 +3,20 @@ import type { NextConfig } from "next";
 /**
  * Security headers for BIK Prestige Enterprise.
  *
- * CSP is kept in report-only mode initially to avoid breaking the
- * application.  Once validated, enforce via Content-Security-Policy.
+ * CSP is enforced. `script-src` keeps `'unsafe-inline'` because the App Router
+ * hydrates through inline bootstrap scripts; moving to a nonce requires every
+ * page (including the statically generated marketing pages) to become
+ * dynamically rendered. That trade-off is documented in
+ * docs/security/CSP-ASSESSMENT.md and is deliberately not taken here.
  *
- * Note: Next.js inline scripts for hydration require 'unsafe-inline'
- * in script-src.  This is documented as an accepted exception.
+ * `'unsafe-eval'` is development-only: React needs it for enhanced debugging,
+ * while production React/Next.js do not use `eval`.
  */
+const isDev = process.env.NODE_ENV === "development";
+
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com", // Next.js hydration + Turnstile
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com`, // Next.js hydration + Turnstile
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tailwind + Google Fonts
   "img-src 'self' data: blob:",
   "font-src 'self' https://fonts.gstatic.com data:",
