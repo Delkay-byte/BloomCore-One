@@ -20,8 +20,10 @@ administrators, workers, agents, collectors and customer portal accounts.
   administrator action that bypasses the challenge. An administrator password
   reset leaves MFA enabled (or requires separate MFA reset + re-enrolment).
 
-`MFA_ENFORCEMENT=optional` is only the controlled rollout state used before the
-operator has enrolled. It still forces verification for anyone already enrolled.
+`MFA_ENFORCEMENT=optional` was the controlled rollout state. Production is now
+set to `enforce`; existing accounts will be sent to `/mfa/enroll` at their next
+successful password check. `optional` never bypasses verification for an account
+that has already enrolled.
 
 ## 2. What is implemented
 

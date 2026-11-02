@@ -198,4 +198,25 @@ Both additive. No row is rewritten or deleted.
 
 ## Production migration / deployment
 
-Recorded in the final delivery report after execution.
+- Production migration applied: `2026-11-02T00:44Z` (approximately).
+  Prisma reported all migrations applied, including:
+  `20261101_security_hardening`, `20261102_admin_recovery_and_customer_mfa`,
+  `20261102_financial_reversals`.
+- Data verification after migration: 1 tenant, 1 user, 1 platform operator,
+  5 tenant audit rows, 11 platform audit rows. No rows lost or rewritten.
+- New tables confirmed: `RateLimitCounter`, `AuthThrottle`,
+  `TurnstileTokenUse`, `SessionRecord`, `AccountRecoveryRequest`.
+- New columns confirmed: `User.mfaEnabled`, `PlatformSuperAdmin.mfaEnabled`,
+  `Customer.mfaEnabled`, `Contribution.reversalOfId`,
+  `Withdrawal.reversalOfId`.
+- First deploy (`db50104`) failed at TypeScript because the PostgreSQL Prisma
+  schema lacked the MFA fields. Fixed in `c7df779` (schema only; the database
+  migration already had the columns).
+- Live deploy: `dep-dbju02m417fc73bc1otg` at commit `c7df779`; then CSP fix
+  `9ddeefd` (live `dep-dbju7fh42hec73e33if0`).
+- `MFA_ENFORCEMENT` set to `enforce` and the service redeployed.
+- Health: 200. Readiness: 200, database ok.
+- Turnstile: widget rendered with the production key; a real token was verified
+  server-side and consumed exactly once.
+- CSP: Google Fonts and the Turnstile connection probe allow-listed; no
+  remaining top-level CSP errors. `'unsafe-inline'` remains.

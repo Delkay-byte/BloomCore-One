@@ -113,3 +113,32 @@ runners. No assertion was weakened.
 - Load testing beyond the automated race assertions.
 - A real Cloudflare token in the automated suite; the live widget was checked
   manually against production after deployment.
+
+## 6. Production verification (2 November 2026)
+
+| Check | Result |
+|---|---|
+| `https://bloomcore-one.onrender.com/api/health` | 200, `commit c7df779` (later `9ddeefd`) |
+| `/api/health/ready` | 200, `database: "ok"` |
+| Security headers | CSP, HSTS, COOP, CORP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy present |
+| Turnstile widget | Rendered with the production site key; produced an 837-character token; status "Security check complete." |
+| Turnstile server verification | A real token was accepted, recorded once in `TurnstileTokenUse`, and the login action returned the generic credential error |
+| Wrong password | `Invalid email, phone or password.`; throttle rows advanced; no account disclosure |
+| `/api/auth/me` unauthenticated | 401 |
+| `/api/audit` unauthenticated | 403 |
+| `/api/offline/sync-contribution` without session/Origin | 403 (fail closed) |
+| `/platform/dashboard` unauthenticated | 307 → `/platform/login` |
+| `/admin/dashboard` unauthenticated | 307 → `/login` |
+| Production DB counts after migration | 1 tenant, 1 user, 1 platform operator, 5 tenant audit rows, 11 platform audit rows — unchanged |
+
+The first production build failed because `prisma/schema-pg.prisma` was missing
+the MFA columns that had been added to the SQLite schema. The PostgreSQL client
+therefore failed type-checking. The schema was corrected; the database migration
+had already created the columns. A CSP issue also blocked Google Fonts and a
+Turnstile data: probe; the policy was corrected and redeployed as `9ddeefd`.
+
+MFA enforcement was switched to `enforce` in Render and the service was
+redeployed. Existing accounts (one tenant administrator and one platform
+operator) will be required to enrol at their next sign-in. Their credentials
+were not available to the release operator, so the authenticated enrolment step
+was covered by automated tests rather than a live login.
