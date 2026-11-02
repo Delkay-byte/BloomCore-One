@@ -371,6 +371,7 @@ export interface OfflineQueueSummary {
   syncing: number;
   synced: number;
   failed: number;
+  unresolved: number;
   lastSuccessfulSyncAt: string | null;
   failedRecords: Array<{
     id: string;
@@ -381,10 +382,29 @@ export interface OfflineQueueSummary {
   }>;
 }
 
+/**
+ * Every record whose financial outcome is not yet acknowledged by the server.
+ *
+ * This is deliberately the union of pending, syncing and failed. A queue read
+ * error propagates: callers must never treat an unreadable queue as empty.
+ */
+export async function getUnresolvedTransactions(): Promise<OfflineTransaction[]> {
+  const all = await getAllTransactions();
+  return all.filter(
+    (record) =>
+      record.status === "pending_sync" ||
+      record.status === "syncing" ||
+      record.status === "failed"
+  );
+}
+
 /** One read for the offline status panel and the sign-out safeguard. */
 export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
   const all = await getAllTransactions();
   const synced = all.filter((t) => t.status === "synced");
+  const pending = all.filter((t) => t.status === "pending_sync").length;
+  const syncing = all.filter((t) => t.status === "syncing").length;
+  const failed = all.filter((t) => t.status === "failed").length;
   const lastSuccessfulSyncAt =
     synced
       .map((t) => t.syncedAt)
@@ -393,10 +413,11 @@ export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
       .at(-1) ?? null;
 
   return {
-    pending: all.filter((t) => t.status === "pending_sync").length,
-    syncing: all.filter((t) => t.status === "syncing").length,
+    pending,
+    syncing,
     synced: synced.length,
-    failed: all.filter((t) => t.status === "failed").length,
+    failed,
+    unresolved: pending + syncing + failed,
     lastSuccessfulSyncAt,
     failedRecords: all
       .filter((t) => t.status === "failed")

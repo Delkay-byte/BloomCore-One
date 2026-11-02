@@ -4,6 +4,8 @@
 **Target:** local production build of this branch (`next start`, isolated test database)
 **Tool:** `ghcr.io/zaproxy/zaproxy:stable` `zap-baseline.py`
 **Mode:** unauthenticated baseline, 1-minute spider, 2-minute passive limit, `-I`
+**Report:** rerun after the offline-integrity/cross-tab corrective changes; the
+unauthenticated surface and result set were unchanged (0 FAIL / 7 WARN / 61 PASS).
 **Raw reports:** `zap-baseline.html`, `zap-baseline.json` (this directory)
 
 ## Result

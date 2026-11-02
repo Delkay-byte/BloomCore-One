@@ -95,8 +95,8 @@ The working tree was clean at `0a5ba96`. The branch contains only application, t
 |---|---|
 | `npm run typecheck` | Pass |
 | `npm run lint` | Pass — 0 errors, 71 warnings (mostly pre-existing) |
-| `npm test` (`vitest run`) | **25 files, 308 tests passed** |
-| PostgreSQL integration (`vitest --config vitest.pg.config.ts`, isolated PostgreSQL 16) | **3 files, 18 tests passed** |
+| `npm test` (`vitest run`) | **27 files, 328 tests passed** |
+| PostgreSQL integration (`vitest --config vitest.pg.config.ts`, isolated PostgreSQL 16) | **3 files, 25 tests passed** |
 | `npm run build` | Pass — 65/65 pages generated |
 | `npm audit --audit-level=critical` | No critical finding |
 | `npm audit --omit=dev` | 3 high (Prisma CLI `deepmerge-ts` path), accepted |
@@ -118,3 +118,87 @@ New tests cover skeleton structure and reduced motion, autocomplete and financia
 - No OWASP certification or formal compliance is claimed.
 - No destructive test or high-volume scan was run against production.
 - No production data, secret or service was modified.
+
+## 8. Corrective review — offline integrity and cross-tab isolation
+
+This section records the follow-up pass after the first UX/offline review. No
+schema change or dependency change was required.
+
+### 8.1 Payload-bound idempotency
+
+- `src/lib/offline/payload.ts` validates and canonicalizes a contribution
+  (fixed key order, explicit null optionals, trimmed notes) and computes a
+  SHA-256 digest.
+- The sync route normalizes the request before consulting the stored key, then
+  compares the digest for every state: `pending_sync`, `syncing`, `failed` and
+  `synced`.
+- A changed amount, account, channel, notes or collector returns HTTP 409. A
+  completed result is returned only for the exact original instruction.
+- Ownership checks (tenant, user, device) still run before the payload compare.
+- A concurrent identical request that loses the unique-key race re-reads the
+  reserved row and continues only when owner and digest match. The unique
+  `Contribution.referenceId` still guarantees one posting.
+- Existing rows that stored raw client JSON normalize to the same digest, so no
+  data migration or nullable column was needed.
+
+### 8.2 Deletion fails closed
+
+- Unresolved means `pending_sync` + `syncing` + `failed`.
+- A `syncing` record blocks deletion even with loss acknowledgement.
+- A queue read error blocks deletion; it is never treated as zero.
+- `deleteDatabase()` rejects on `onblocked`; the UI reports that deletion did
+  not complete and asks the user to close other tabs.
+- Only the authenticated tenant/user database is targeted.
+- Sign-out still preserves every unresolved record.
+
+### 8.3 Cross-tab account isolation
+
+- Login/logout broadcast `{ type: "session-changed" }` on
+  `BroadcastChannel("bloomcore-one-session-v1")`. No identity data is sent.
+- Receiving tabs close IndexedDB connections and the in-memory scope, then
+  revalidate `/api/auth/me` for their module and compare the server `userId`
+  with the identity verified for that tab.
+- A changed identity clears the per-tab session and leaves the page before any
+  cached customer, draft or pending transaction can render.
+- Revalidation failure (including offline) fails closed with a "Session check
+  required" panel; content is hidden until the server confirms.
+- Focus/visibility and a 60-second interval cover browsers without
+  BroadcastChannel or a missed signal. sessionStorage storage events are not
+  used for cross-tab signalling.
+
+### 8.4 Two-tab browser verification
+
+Performed against a local build with two collector accounts (A and B) in one
+browser, sharing the collector cookie:
+
+1. Tab 1 signed in as A and loaded the collector dashboard; a pending offline
+   record was created in A's scoped IndexedDB database.
+2. Tab 2 signed in as B on the same origin, replacing the shared cookie and
+   broadcasting the signal.
+3. Tab 1 cleared its identity/flag, left the dashboard and did not render A's
+   data. A's database still existed with the pending record; B's separate
+   database was empty.
+4. Tab 1 signed in as A again and verified the A identity; A's queue remained
+   intact. Tab 2 was invalidated symmetrically when A replaced the cookie.
+5. Offline transition: with `/api/auth/me` made unreachable, a session signal
+   caused Tab 1 to show "Session check required", close offline access and hide
+   dashboard content. Restoring connectivity and choosing "Check again"
+   returned the verified same-user dashboard.
+
+Browser limits are documented in `docs/OFFLINE-RELIABILITY.md` §8: cookie changes
+made outside the application are detected on the next focus/interval check, and
+same-origin developer tools can still open IndexedDB directly. The guard
+protects the application UI and sync path, not a compromised device.
+
+### 8.5 Added tests
+
+- `tests/offline-payload.test.ts` — canonical ordering, optional-field
+  normalization, digest differences, legacy JSON, invalid payloads, key format.
+- `tests/cross-tab-session.test.ts` — identity transitions, BroadcastChannel
+  use, no storage-event dependency, non-sensitive signal, sign-out safety.
+- `tests/offline-isolation.test.ts` — failed/syncing/deletion blocks, unreadable
+  queue, blocked delete, scoped deletion, sign-out preservation of all
+  unresolved states.
+- `tests/pg-offline-idempotency.test.ts` — PostgreSQL: same payload + synced,
+  changed amount/account/channel, changed payload before posting, timeout
+  reconcile, cross-tenant key, reordered JSON, concurrent identical posts, 429.

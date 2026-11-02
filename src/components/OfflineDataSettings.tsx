@@ -81,7 +81,11 @@ export default function OfflineDataSettings() {
     );
   }
 
-  const pending = (status?.summary.pending ?? 0) + (status?.summary.failed ?? 0);
+  const pending = status?.summary.pending ?? 0;
+  const syncing = status?.summary.syncing ?? 0;
+  const failed = status?.summary.failed ?? 0;
+  const unresolved = pending + syncing + failed;
+  const removalBlocked = syncing > 0;
 
   return (
     <section className="space-y-4 border-t border-line pt-6" aria-labelledby="offline-data-title">
@@ -92,13 +96,18 @@ export default function OfflineDataSettings() {
             Offline records on this device
           </h3>
           <p className="mt-1 text-sm text-slate-600">
-            {pending > 0
-              ? `${pending} record${pending === 1 ? "" : "s"} are waiting to reach the server. They are stored only on this device.`
+            {unresolved > 0
+              ? `${unresolved} unresolved record${unresolved === 1 ? "" : "s"}: ${pending} waiting, ${syncing} synchronizing, ${failed} failed.`
               : "No records are waiting to synchronize."}
             {status?.summary.lastSuccessfulSyncAt
               ? ` Last confirmed ${new Date(status.summary.lastSuccessfulSyncAt).toLocaleString("en-GB")}.`
               : ""}
           </p>
+          {failed > 0 && (
+            <p className="mt-1 text-xs text-red-700">
+              Failed records are kept for review. They are not in the central ledger.
+            </p>
+          )}
         </div>
       </div>
 
@@ -117,7 +126,7 @@ export default function OfflineDataSettings() {
         >
           <RefreshCw size={14} className={busy ? "animate-spin" : ""} aria-hidden /> Retry synchronization
         </button>
-        {!confirmOpen && (
+        {!confirmOpen && !removalBlocked && (
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
@@ -128,12 +137,19 @@ export default function OfflineDataSettings() {
         )}
       </div>
 
+      {removalBlocked && (
+        <p className="text-sm text-amber-800" role="status">
+          {syncing} record{syncing === 1 ? " is" : "s are"} being synchronized. Removal stays
+          blocked until the server answers.
+        </p>
+      )}
+
       {confirmOpen && (
         <div className="rounded-control border border-red-200 bg-red-50 p-4 space-y-3">
           <p className="text-sm text-red-900">
             This permanently removes this account&apos;s offline database from this device.
-            {pending > 0
-              ? ` ${pending} unsynchronized record${pending === 1 ? "" : "s"} will be lost.`
+            {unresolved > 0
+              ? ` ${unresolved} unresolved record${unresolved === 1 ? "" : "s"} (${pending} waiting, ${failed} failed) will be lost.`
               : ""}
           </p>
           <label className="block text-sm font-medium text-red-900">
@@ -146,7 +162,7 @@ export default function OfflineDataSettings() {
               className="mt-1 w-full"
             />
           </label>
-          {pending > 0 && (
+          {unresolved > 0 && (
             <label className="flex items-start gap-2 text-sm text-red-900">
               <input
                 type="checkbox"
@@ -154,7 +170,7 @@ export default function OfflineDataSettings() {
                 onChange={(event) => setAcceptLoss(event.target.checked)}
                 className="mt-0.5"
               />
-              I understand these unsynchronized records will be permanently lost.
+              I understand these unresolved records will be permanently lost.
             </label>
           )}
           <div className="flex gap-2">
@@ -165,7 +181,7 @@ export default function OfflineDataSettings() {
               disabled={
                 busy ||
                 confirmation !== DISCARD_CONFIRMATION ||
-                (pending > 0 && !acceptLoss)
+                (unresolved > 0 && !acceptLoss)
               }
             >
               {busy ? "Removing…" : "Remove offline data"}

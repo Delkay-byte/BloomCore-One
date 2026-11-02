@@ -80,13 +80,44 @@ export async function getOfflineScope(): Promise<OfflineScope> {
   return pendingScope;
 }
 
-/** Delete a database, resolving even when it never existed. */
+/** Raised when another tab/connection prevents IndexedDB from being deleted. */
+export class OfflineDeletionBlockedError extends Error {
+  constructor(public databaseName: string) {
+    super(
+      "The offline database is still open in another tab or connection. Close other BloomCore One tabs and try again."
+    );
+    this.name = "OfflineDeletionBlockedError";
+  }
+}
+
+/**
+ * Delete a database, resolving only when the browser confirms deletion.
+ *
+ * `blocked` means another tab/connection still holds the database open. It is
+ * reported as a failure, never as success: the data still exists until the
+ * browser actually completes the delete request.
+ */
 export function deleteDatabase(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    let settled = false;
     const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-    request.onblocked = () => resolve();
+    request.onsuccess = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    request.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(request.error ?? new Error("IndexedDB deletion failed"));
+    };
+    request.onblocked = () => {
+      if (settled) return;
+      settled = true;
+      // Do not keep the request alive pretending it may still finish. The
+      // caller must report that deletion did not complete.
+      reject(new OfflineDeletionBlockedError(name));
+    };
   });
 }
 

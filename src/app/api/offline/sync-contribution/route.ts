@@ -5,6 +5,11 @@ import { createAuditLog } from "@/lib/audit";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import {
+  idempotencyKeyIsValid,
+  normalizeContributionPayload,
+  payloadDigestForStored,
+} from "@/lib/offline/payload";
 
 /**
  * The online contribution action stores `CON-<key>` as its reference. The
@@ -126,14 +131,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Idempotency — the key is globally unique. A key owned by another
-    //    tenant or device is rejected instead of being silently reused.
-    if (typeof idempotencyKey !== "string" || idempotencyKey.length > 200) {
+    // 3. Idempotency key format. The key is globally unique and immutable.
+    if (!idempotencyKeyIsValid(idempotencyKey)) {
       return NextResponse.json(
         { success: false, error: "Invalid idempotency key" },
         { status: 400 }
       );
     }
+
+    // 4. Normalize and validate the payload BEFORE consulting the stored key.
+    //    An existing key may only ever return or continue the exact original
+    //    instruction. Validation also runs first so a malformed retry can never
+    //    be mistaken for a match.
+    let rawPayload: unknown;
+    try {
+      rawPayload = JSON.parse(payload);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Invalid transaction payload" },
+        { status: 400 }
+      );
+    }
+
+    const normalized = normalizeContributionPayload(rawPayload);
+    if (!normalized.ok) {
+      return NextResponse.json(
+        { success: false, error: normalized.error },
+        { status: 400 }
+      );
+    }
+
+    const { accountId, amount, channel, notes } = normalized.payload;
+
+    // 5. Bind the key to the original normalized payload. The check runs for
+    //    every state (pending, syncing, failed, synced), so a changed payload is
+    //    never processed under an existing key and never receives the original
+    //    success result. Ownership is checked first so a foreign key never
+    //    reveals whether its payload matches.
     const existing = await db.offlineTransaction.findUnique({
       where: { idempotencyKey },
     });
@@ -148,48 +182,74 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
+
+      const storedDigest = payloadDigestForStored(existing.payload);
+      if (!storedDigest || storedDigest !== normalized.hash) {
+        await createAuditLog({
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          action: "offline.sync_rejected",
+          entityType: "offline_transaction",
+          entityId: existing.id,
+          details: {
+            reason: "Idempotency key reused with a different payload",
+            idempotencyKey,
+            deviceId,
+          },
+        });
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "This transaction key was already used for a different transaction.",
+          },
+          { status: 409 }
+        );
+      }
+
       if (existing.status === "synced") {
+        let storedResult: unknown = null;
+        if (existing.serverResult) {
+          try {
+            storedResult = JSON.parse(existing.serverResult);
+          } catch {
+            storedResult = null;
+          }
+        }
+
+        // A crash between the ledger commit and the queue update can leave a
+        // synced row without a stored result. Reconcile from the unique ledger
+        // reference instead of returning an empty success.
+        if (!storedResult) {
+          const posted = await db.contribution.findFirst({
+            where: {
+              tenantId: ctx.tenantId,
+              referenceId: contributionReference(idempotencyKey),
+            },
+            include: { allocations: true },
+          });
+          if (posted) {
+            storedResult = {
+              contributionId: posted.id,
+              daysAllocated: posted.allocations.length,
+              allocatedAmount: posted.allocations.reduce(
+                (total, allocation) => total + Number(allocation.amount),
+                0
+              ),
+            };
+            await db.offlineTransaction.update({
+              where: { idempotencyKey },
+              data: { serverResult: JSON.stringify(storedResult) },
+            });
+          }
+        }
+
         return NextResponse.json({
           success: true,
-          serverResult: existing.serverResult
-            ? JSON.parse(existing.serverResult)
-            : null,
+          serverResult: storedResult,
           message: "Transaction already processed",
         });
       }
-    }
-
-    // 4. Parse payload
-    let txPayload: {
-      accountId: string;
-      amount: number;
-      channel: string;
-      notes?: string;
-      collectorId?: string;
-    };
-    try {
-      txPayload = JSON.parse(payload);
-    } catch {
-      return NextResponse.json(
-        { success: false, error: "Invalid transaction payload" },
-        { status: 400 }
-      );
-    }
-
-    const { accountId, amount, channel, notes } = txPayload;
-
-    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-      return NextResponse.json(
-        { success: false, error: "Invalid amount" },
-        { status: 400 }
-      );
-    }
-
-    if (channel !== "collector" && channel !== "direct_office") {
-      return NextResponse.json(
-        { success: false, error: "Invalid collection channel" },
-        { status: 400 }
-      );
     }
 
     // A collector session may only file collector collections (and only for an
@@ -300,7 +360,7 @@ export async function POST(request: NextRequest) {
             userId: ctx.userId,
             type: "contribution",
             idempotencyKey,
-            payload: JSON.stringify(txPayload),
+            payload: normalized.canonical,
             status: "syncing",
             retryCount: 0,
             maxRetries: 5,
@@ -314,12 +374,29 @@ export async function POST(request: NextRequest) {
           "code" in error &&
           (error as { code?: string }).code === "P2002"
         ) {
-          return NextResponse.json(
-            { success: false, error: "Transaction is already being processed" },
-            { status: 409 }
-          );
+          // A concurrent identical request reserved the key first. It is safe
+          // to continue only when the raced row has the same owner and the same
+          // canonical payload; the unique ledger reference still guarantees one
+          // posting. Anything else is rejected.
+          const raced = await db.offlineTransaction.findUnique({
+            where: { idempotencyKey },
+          });
+          const racedDigest = raced ? payloadDigestForStored(raced.payload) : null;
+          if (
+            !raced ||
+            raced.tenantId !== ctx.tenantId ||
+            raced.userId !== ctx.userId ||
+            raced.deviceId !== deviceId ||
+            racedDigest !== normalized.hash
+          ) {
+            return NextResponse.json(
+              { success: false, error: "Transaction is already being processed" },
+              { status: 409 }
+            );
+          }
+        } else {
+          throw error;
         }
-        throw error;
       }
     }
 

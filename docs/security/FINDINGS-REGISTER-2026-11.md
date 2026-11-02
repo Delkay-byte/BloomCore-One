@@ -25,6 +25,9 @@ Severity reflects exploitability in this codebase with the deployed controls
 | R-10 | High | Dependency | `prisma → @prisma/config → deepmerge-ts < 8.0.0` stack-exhaustion advisory. CLI-only path; not reachable from request handling. Fix requires Prisma 7 (breaking). | `npm audit --omit=dev` | **Accepted, tracked.** No uncontrolled Prisma 7 migration in this branch. |
 | R-11 | Informational | Draft storage | Local drafts minimize secrets and expire, but may contain customer PII. | `src/lib/offline/drafts.ts` | **Accepted, documented.** |
 | R-12 | Informational | Login 429 | Login remains a server action; refusals are structured, not HTTP 429. | auth actions | **Partially fixed** (API surface only). Documented in `HTTP-429-AND-RATE-LIMITS.md`. |
+| R-13 | High | Idempotency payload binding | The offline sync route checked key ownership but returned/continued an existing key without proving the retry carried the same transaction. A changed amount, account or channel could reuse the key. | `api/offline/sync-contribution/route.ts` | **Fixed** — payload normalized and validated before the key lookup; SHA-256 canonical digest compared for every state; mismatch returns 409; identical retries reconcile. No schema change. Tests: `offline-payload`, `pg-offline-idempotency`. |
+| R-14 | High | Deletion fail-open | Explicit deletion counted only `pending_sync` and treated an unreadable queue as empty. A failed/syncing record could be erased, and a blocked delete was reported as success. | `lib/offline/session.ts`, `scope.ts` | **Fixed** — pending + syncing + failed all block; syncing cannot be acknowledged away; read errors block; `onblocked` rejects and the UI reports failure. Tests: `offline-isolation`. |
+| R-15 | Medium | Cross-tab account switch | A second login in another tab changed the shared cookie while an old tab kept rendering the previous user's authenticated shell and could access the old offline scope. | `components/TabSessionGuard.tsx` | **Fixed** — BroadcastChannel session signal, server identity revalidation, offline-scope close, per-tab flag clear and fail-closed blocked state. Two-tab online/offline scenario verified in a real browser; unit tests in `cross-tab-session`. |
 
 ## 2. Previously reported findings — current status
 
@@ -66,8 +69,10 @@ Severity reflects exploitability in this codebase with the deployed controls
 | File uploads | No upload surface in this application. |
 | Rate limiting | Persistent DB counters, HMAC keys, fail-closed; new sync budget. |
 | Business logic | Whole-day contribution validation, withdrawal balance lock, commission claim, reversal uniqueness. |
-| Financial integrity | PostgreSQL concurrency and idempotency tests. |
-| Offline synchronization | Claiming, retry, stale recovery, partial batches, 401/429 handling. |
+| Financial integrity | PostgreSQL concurrency and idempotency tests, including payload-bound key reuse. |
+| Offline synchronization | Claiming, retry, stale recovery, partial batches, 401/429 handling, canonical payload binding. |
+| Offline deletion | Fail-closed counts, active-sync block, unreadable-queue block, blocked-delete failure reporting. |
+| Cross-tab session | BroadcastChannel signal, server identity revalidation, offline-scope closure, fail-closed offline state. |
 | Error disclosure | Central sanitizer; boundaries never render exception text. |
 | Audit integrity | Application-level append-only records; not cryptographic. |
 | Sensitive data exposure | No tokens/passwords/secrets in logs or drafts; error payloads sanitized. |

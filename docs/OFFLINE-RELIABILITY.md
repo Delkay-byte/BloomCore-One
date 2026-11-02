@@ -57,9 +57,46 @@ The sign-out dialog distinguishes:
 - It never offers a "delete everything" action.
 
 Collector **Settings → Offline records on this device** is the only destructive
-path. It requires the exact phrase `DELETE OFFLINE DATA`, and when pending
-records exist it additionally requires an explicit loss acknowledgement. It
-targets only the signed-in user's scope.
+path. It requires the exact phrase `DELETE OFFLINE DATA`, and it fails closed:
+
+- pending, syncing and failed records are all counted as unresolved;
+- a record currently `syncing` blocks deletion even with acknowledgement,
+  because the server outcome is unknown;
+- pending and failed records require an explicit loss acknowledgement;
+- an unreadable IndexedDB queue blocks deletion (it is never treated as empty);
+- the browser's `blocked` event is reported as an unsuccessful deletion, not as
+  success; the user is told to close other tabs/connections;
+- only the signed-in tenant/user database is targeted.
+
+`deleteDatabase()` resolves only after the browser confirms deletion. A blocked
+or failed request never reports success.
+
+## 2.1 Cross-tab account change
+
+Cookies are shared by every tab on the origin. Login and logout broadcast a
+non-sensitive `{ type: "session-changed" }` signal on `BroadcastChannel`
+`bloomcore-one-session-v1`. No user id, tenant, token or personal data is sent.
+
+On a signal the receiving tab:
+
+1. closes its IndexedDB connections and clears the in-memory offline scope;
+2. revalidates `/api/auth/me` for the route's module;
+3. compares the server `userId` with the identity it verified for this tab;
+4. closes the per-tab session and leaves the page when the identity changed;
+5. fails closed (content hidden, "Session check required") when revalidation
+   cannot complete, including while offline;
+6. reopens the same user's scoped database only after the same identity is
+   verified again.
+
+`focus`/`visibilitychange` and a 60-second check provide a fallback when
+`BroadcastChannel` is unavailable or a signal is missed. The guard does not use
+sessionStorage storage events for cross-tab communication.
+
+Browser limits: if a cookie is changed outside this application (for example by
+developer tools or another origin writing the cookie), detection waits for the
+next focus/interval check. Same-origin script with device control can still open
+IndexedDB directly; scoping and the guard protect the application UI and sync
+path, not a compromised device.
 
 ## 3. Synchronization lifecycle
 
@@ -91,12 +128,27 @@ pending_sync ──claim──> syncing ──server ok──> synced
 - Online contributions and withdrawals also accept a client key; the admin and
   collector forms retain it across retries and clear it only after the server
   answers.
-- The server reserves the key in `OfflineTransaction` before moving money, so a
-  concurrent duplicate loses the unique-key race.
+- **The key is bound to the original normalized payload.** The server validates
+  and canonicalizes the payload first (fixed key order, explicit nulls, trimmed
+  notes), computes a SHA-256 digest, and compares it with the digest of the
+  stored original before any success result or ledger action. The check runs for
+  pending, syncing, failed and synced rows.
+- Same key + materially changed amount, account, channel, notes or collector
+  returns HTTP 409. A completed transaction's result is never returned for a
+  different payload, and a changed payload is never processed under an existing
+  key.
+- Property order and omitted optional fields do not create a mismatch. Legacy
+  rows that stored raw client JSON normalize to the same digest.
+- Ownership (tenant, user, device) is checked before the payload comparison, so
+  a foreign key never reveals whether its payload matches.
+- The server reserves the key in `OfflineTransaction` before moving money. A
+  concurrent identical request that loses the unique-key race re-reads the row;
+  it continues only when owner and digest match.
 - `Contribution.referenceId` is unique. The offline route uses the same
   `CON-<key>` convention as the online action, and a unique-constraint collision
   is reconciled to the existing contribution instead of posting again.
-- Keys are tenant/user/device checked before reuse; a foreign key returns 409.
+- No schema change was required: the normalized payload is stored in the
+  existing `OfflineTransaction.payload` column and compared by digest.
 
 ## 5. Retention
 
@@ -143,3 +195,12 @@ silently deletes it.
    administrator-controlled device reset; there is no self-service export.
 4. Local form drafts minimize sensitive data but may contain customer PII. They
    expire after seven days and are removed on successful submission.
+5. Cross-tab invalidation depends on BroadcastChannel for immediate delivery.
+   Browsers without it, or a tab that misses a signal, detect the change on the
+   next focus/visibility event or 60-second check.
+6. A blocked IndexedDB delete is reported as failure even though the browser may
+   complete the delete later after all connections close. The UI never claims
+   success without the deletion event.
+7. Same-origin developer tools can open IndexedDB directly. The guard prevents
+   the application from rendering or synchronizing another user's records; it
+   is not a defence against a compromised browser profile or device.

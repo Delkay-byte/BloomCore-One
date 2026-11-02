@@ -39,6 +39,7 @@ vi.mock("@/lib/security/same-origin", () => ({
 import { POST } from "@/app/api/offline/sync-contribution/route";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { normalizeContributionPayload } from "@/lib/offline/payload";
 
 const prisma = new PrismaClient();
 
@@ -130,6 +131,39 @@ function payload(accountId: string, amount = 20) {
   return JSON.stringify({ accountId, amount, channel: "direct_office" });
 }
 
+/** Persist the same canonical payload the route reserves for a new key. */
+async function reserveKey(input: {
+  idempotencyKey: string;
+  deviceId: string;
+  accountId: string;
+  amount?: number;
+  channel?: "collector" | "direct_office";
+  status?: string;
+  userId: string;
+  tenantId: string;
+}) {
+  const normalized = normalizeContributionPayload({
+    accountId: input.accountId,
+    amount: input.amount ?? 20,
+    channel: input.channel ?? "direct_office",
+  });
+  if (!normalized.ok) throw new Error("test payload invalid");
+  return prisma.offlineTransaction.create({
+    data: {
+      tenantId: input.tenantId,
+      deviceId: input.deviceId,
+      userId: input.userId,
+      type: "contribution",
+      idempotencyKey: input.idempotencyKey,
+      payload: normalized.canonical,
+      status: input.status ?? "syncing",
+      retryCount: 0,
+      maxRetries: 5,
+      localTimestamp: new Date(),
+    },
+  });
+}
+
 describe("offline sync on PostgreSQL", () => {
   beforeEach(async () => {
     await resetDatabase();
@@ -160,6 +194,273 @@ describe("offline sync on PostgreSQL", () => {
       where: { idempotencyKey: body.idempotencyKey },
     });
     expect(queued?.status).toBe("synced");
+  });
+
+  it("rejects the same key with a changed amount", async () => {
+    const { account } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-amount-${Date.now()}`;
+
+    expect(
+      (
+        await POST(
+          requestFor({
+            idempotencyKey: key,
+            payload: payload(account.id, 20),
+            deviceId: device.deviceId,
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const changed = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: payload(account.id, 30),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(changed.status).toBe(409);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
+  });
+
+  it("rejects the same key with a changed account", async () => {
+    const { account, tenant } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-account-${Date.now()}`;
+
+    expect(
+      (
+        await POST(
+          requestFor({
+            idempotencyKey: key,
+            payload: payload(account.id),
+            deviceId: device.deviceId,
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const customer = await prisma.customer.create({
+      data: {
+        tenantId: tenant.id,
+        customerId: `PG-C-OTHER-${Date.now()}`,
+        fullName: "Other Customer",
+        status: "active",
+      },
+    });
+    const otherAccount = await prisma.susuAccount.create({
+      data: {
+        tenantId: tenant.id,
+        accountId: `PG-S-OTHER-${Date.now()}`,
+        customerId: customer.id,
+        dailyContribution: 10,
+        status: "active",
+      },
+    });
+    await prisma.susuCycle.create({
+      data: {
+        tenantId: tenant.id,
+        accountId: otherAccount.id,
+        cycleNumber: 1,
+        startDate: new Date("2026-11-01T00:00:00Z"),
+        endDate: new Date("2026-11-30T23:59:59Z"),
+        dailyContribution: 10,
+        status: "active",
+      },
+    });
+
+    const changed = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: payload(otherAccount.id),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(changed.status).toBe(409);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
+  });
+
+  it("rejects the same key with a changed channel", async () => {
+    const { account } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-channel-${Date.now()}`;
+
+    expect(
+      (
+        await POST(
+          requestFor({
+            idempotencyKey: key,
+            payload: payload(account.id),
+            deviceId: device.deviceId,
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const changed = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: JSON.stringify({
+          accountId: account.id,
+          amount: 20,
+          channel: "collector",
+        }),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(changed.status).toBe(409);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
+  });
+
+  it("rejects a changed payload while the original is still unposted", async () => {
+    const { account, admin, tenant } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-early-change-${Date.now()}`;
+    await reserveKey({
+      idempotencyKey: key,
+      deviceId: device.deviceId,
+      accountId: account.id,
+      amount: 20,
+      userId: admin.id,
+      tenantId: tenant.id,
+    });
+
+    const changed = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: payload(account.id, 30),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(changed.status).toBe(409);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(0);
+  });
+
+  it("reconciles the exact same payload after an interrupted attempt", async () => {
+    const { account, admin, tenant } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-timeout-${Date.now()}`;
+    await reserveKey({
+      idempotencyKey: key,
+      deviceId: device.deviceId,
+      accountId: account.id,
+      amount: 20,
+      userId: admin.id,
+      tenantId: tenant.id,
+    });
+
+    const retry = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: payload(account.id, 20),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).success).toBe(true);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
+    expect(
+      (await prisma.offlineTransaction.findUnique({ where: { idempotencyKey: key } }))?.status
+    ).toBe("synced");
+  });
+
+  it("rejects an idempotency key owned by another tenant", async () => {
+    const { account } = await seed();
+    const firstDevice = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-tenant-${Date.now()}`;
+
+    expect(
+      (
+        await POST(
+          requestFor({
+            idempotencyKey: key,
+            payload: payload(account.id),
+            deviceId: firstDevice.deviceId,
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const otherTenant = await prisma.businessTenant.create({
+      data: {
+        code: `PG-OTHER-${Date.now()}`,
+        name: "Other Tenant",
+        status: "ACTIVE",
+        susuEnabled: true,
+        onboardingStatus: "COMPLETED",
+      },
+    });
+    const otherAdmin = await prisma.user.create({
+      data: {
+        tenantId: otherTenant.id,
+        email: `pg-tenant-${Date.now()}@example.com`,
+        fullName: "Other Tenant Admin",
+        role: "admin",
+        status: "active",
+        passwordHash: "not-used",
+        susuEnabled: true,
+      },
+    });
+    const otherDevice = await prisma.deviceEnrollment.create({
+      data: {
+        tenantId: otherTenant.id,
+        userId: otherAdmin.id,
+        deviceId: `pg-device-tenant-${Date.now()}`,
+        module: "susu",
+        status: "active",
+        authorizedAt: new Date(),
+      },
+    });
+    state.userId = otherAdmin.id;
+    state.tenantId = otherTenant.id;
+
+    const foreign = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: payload(account.id),
+        deviceId: otherDevice.deviceId,
+      })
+    );
+    expect(foreign.status).toBe(409);
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
+  });
+
+  it("accepts an identical payload when JSON property order differs", async () => {
+    const { account } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const key = `offline-order-${Date.now()}`;
+
+    expect(
+      (
+        await POST(
+          requestFor({
+            idempotencyKey: key,
+            payload: JSON.stringify({
+              accountId: account.id,
+              amount: 20,
+              channel: "direct_office",
+            }),
+            deviceId: device.deviceId,
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const reordered = await POST(
+      requestFor({
+        idempotencyKey: key,
+        payload: JSON.stringify({
+          channel: "direct_office",
+          amount: 20,
+          accountId: account.id,
+        }),
+        deviceId: device.deviceId,
+      })
+    );
+    expect(reordered.status).toBe(200);
+    expect((await reordered.json()).message).toBe("Transaction already processed");
+    expect(await prisma.contribution.count({ where: { referenceId: `CON-${key}` } })).toBe(1);
   });
 
   it("allows only one posting when two identical requests race", async () => {

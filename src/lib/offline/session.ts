@@ -14,10 +14,11 @@ import {
   getOfflineScope,
   closeCurrentOfflineSession,
   offlineDatabaseName,
+  OfflineDeletionBlockedError,
 } from "./scope";
 import {
   getOfflineQueueSummary,
-  getPendingTransactions,
+  getUnresolvedTransactions,
   pruneSyncedTransactions,
   recoverStaleSyncing,
   type OfflineQueueSummary,
@@ -73,6 +74,9 @@ export function endOfflineSession(): void {
 export interface DiscardResult {
   deleted: boolean;
   pending: number;
+  syncing: number;
+  failed: number;
+  unresolved: number;
   message: string;
 }
 
@@ -81,34 +85,64 @@ export const DISCARD_CONFIRMATION = "DELETE OFFLINE DATA";
 /**
  * Deliberately destroy the signed-in user's offline database.
  *
- * Requires the exact confirmation phrase. When pending financial records exist,
- * a second explicit acknowledgement is required; otherwise the operation is
- * refused so ordinary cleanup cannot destroy unposted business records.
+ * Fails closed:
+ * - an unreadable queue blocks deletion (it is never treated as empty);
+ * - a record actively syncing blocks deletion while its outcome is unknown;
+ * - pending and failed records require an explicit loss acknowledgement.
+ *
+ * Requires the exact confirmation phrase.
  */
 export async function discardCurrentOfflineData(options: {
   confirmation: string;
   allowPendingLoss?: boolean;
 }): Promise<DiscardResult> {
+  const empty = { pending: 0, syncing: 0, failed: 0, unresolved: 0 };
+
   if (options.confirmation !== DISCARD_CONFIRMATION) {
     return {
       deleted: false,
-      pending: 0,
+      ...empty,
       message: `Type ${DISCARD_CONFIRMATION} to confirm.`,
     };
   }
 
-  let pending = 0;
+  let unresolvedRecords;
   try {
-    pending = (await getPendingTransactions()).length;
+    unresolvedRecords = await getUnresolvedTransactions();
   } catch {
-    pending = 0;
+    // An unreadable queue may contain financial records. Never guess zero.
+    return {
+      deleted: false,
+      ...empty,
+      message:
+        "The offline queue could not be read. Deletion was blocked to avoid losing unsynchronized records. Close other tabs and try again.",
+    };
   }
 
-  if (pending > 0 && !options.allowPendingLoss) {
+  const pending = unresolvedRecords.filter((record) => record.status === "pending_sync").length;
+  const syncing = unresolvedRecords.filter((record) => record.status === "syncing").length;
+  const failed = unresolvedRecords.filter((record) => record.status === "failed").length;
+  const unresolved = unresolvedRecords.length;
+
+  if (syncing > 0) {
     return {
       deleted: false,
       pending,
-      message: `${pending} record${pending === 1 ? " is" : "s are"} still waiting to synchronize. Synchronize first, or explicitly confirm that these records will be lost.`,
+      syncing,
+      failed,
+      unresolved,
+      message: `${syncing} record${syncing === 1 ? " is" : "s are"} being synchronized. Wait for the server to answer, then try again. Deletion is blocked while the outcome is unknown.`,
+    };
+  }
+
+  if (unresolved > 0 && !options.allowPendingLoss) {
+    return {
+      deleted: false,
+      pending,
+      syncing,
+      failed,
+      unresolved,
+      message: `${unresolved} unresolved record${unresolved === 1 ? "" : "s"} (${pending} pending, ${failed} failed) are stored only on this device. Synchronize first, or explicitly confirm that these records will be lost.`,
     };
   }
 
@@ -123,15 +157,24 @@ export async function discardCurrentOfflineData(options: {
     return {
       deleted: true,
       pending,
-      message: pending
+      syncing,
+      failed,
+      unresolved,
+      message: unresolved
         ? "Offline data was deleted. The unsynchronized records were also removed."
         : "Offline data was deleted.",
     };
-  } catch {
+  } catch (error) {
     return {
       deleted: false,
       pending,
-      message: "The offline data could not be deleted. Close other tabs and try again.",
+      syncing,
+      failed,
+      unresolved,
+      message:
+        error instanceof OfflineDeletionBlockedError
+          ? "Deletion did not complete because the database is still open in another tab or connection. Close other BloomCore One tabs, then try again."
+          : "The offline data could not be deleted. Deletion was not confirmed; close other tabs and try again.",
     };
   }
 }
