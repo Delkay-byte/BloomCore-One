@@ -118,7 +118,7 @@ runners. No assertion was weakened.
 
 | Check | Result |
 |---|---|
-| `https://bloomcore-one.onrender.com/api/health` | 200, `commit c7df779` (later `9ddeefd`) |
+| `https://bloomcore-one.onrender.com/api/health` | 200, `commit ef22c5c` |
 | `/api/health/ready` | 200, `database: "ok"` |
 | Security headers | CSP, HSTS, COOP, CORP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy present |
 | Turnstile widget | Rendered with the production site key; produced an 837-character token; status "Security check complete." |

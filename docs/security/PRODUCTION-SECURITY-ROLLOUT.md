@@ -212,8 +212,10 @@ Both additive. No row is rewritten or deleted.
 - First deploy (`db50104`) failed at TypeScript because the PostgreSQL Prisma
   schema lacked the MFA fields. Fixed in `c7df779` (schema only; the database
   migration already had the columns).
-- Live deploy: `dep-dbju02m417fc73bc1otg` at commit `c7df779`; then CSP fix
-  `9ddeefd` (live `dep-dbju7fh42hec73e33if0`).
+- Live deploy after the build fix: `dep-dbju02m417fc73bc1otg` at `c7df779`.
+- CSP fix `9ddeefd` deployed as `dep-dbju7fh42hec73e33if0`.
+- Final release record and documentation deploy: `ef22c5c`
+  (`dep-dbju93nb9u1s73c5jebg`).
 - `MFA_ENFORCEMENT` set to `enforce` and the service redeployed.
 - Health: 200. Readiness: 200, database ok.
 - Turnstile: widget rendered with the production key; a real token was verified
