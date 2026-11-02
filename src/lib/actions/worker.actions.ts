@@ -10,6 +10,7 @@ import {
 import { createWorkerSchema, editWorkerSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
+import { validateStatusTransition } from "@/lib/security/status";
 
 export interface ActionResponse {
   success: boolean;
@@ -275,9 +276,17 @@ export async function toggleWorkerStatus(
     return { success: false, error: "Worker not found" };
   }
 
+  const current = await db.user.findFirst({
+    where: { id: workerId, tenantId: ctx.tenantId },
+    select: { status: true },
+  });
+  if (!current) return { success: false, error: "Worker not found" };
+  const check = validateStatusTransition(current.status, newStatus);
+  if (!check.ok) return { success: false, error: check.error };
+
   const worker = await db.user.update({
     where: { id: workerId },
-    data: { status: newStatus, tokenVersion: { increment: 1 } },
+    data: { status: check.status, tokenVersion: { increment: 1 } },
     select: { fullName: true },
   });
 

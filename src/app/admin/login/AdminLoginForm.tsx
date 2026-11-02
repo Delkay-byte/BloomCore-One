@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { adminLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
+import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
@@ -18,6 +19,7 @@ const WORKSPACE_POINTS = [
 export default function AdminLoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState(0);
 
   const [passwordReset] = useState(() => {
     if (typeof window !== "undefined") {
@@ -34,6 +36,7 @@ export default function AdminLoginForm() {
       const result = await adminLogin(formData);
       if (result && !result.success) {
         setError(result.error || "Login failed");
+        setChallenge((value) => value + 1);
       }
     } catch (err) {
       if (isRedirectError(err)) throw err;
@@ -175,6 +178,7 @@ export default function AdminLoginForm() {
                     </Link>
                   </div>
                 </div>
+                <TurnstileWidget action="admin_login" resetSignal={challenge} />
                 <button type="submit" className="btn btn-primary w-full" disabled={loading}>
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">

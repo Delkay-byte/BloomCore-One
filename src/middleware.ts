@@ -12,6 +12,7 @@ if (!JWT_SECRET_RAW) {
   );
 }
 const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_RAW);
+const MFA_ENFORCED = process.env.MFA_ENFORCEMENT === "enforce";
 
 /**
  * Module-scoped session architecture (see src/lib/auth.ts):
@@ -51,7 +52,7 @@ const PLATFORM_PUBLIC_ROUTES = ["/platform/login"];
 
 // Public routes (login, health check). "/workspace" is handled explicitly
 // above as a redirect-only entry point.
-const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/api/health", "/api/diag"];
+const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/mfa", "/recover-account", "/api/health", "/api/diag"];
 const CUSTOMER_PUBLIC_ROUTES = ["/customer/login", "/customer/forgot-password"];
 // The dedicated administrator login must be reachable without any session.
 const ADMIN_PUBLIC_ROUTES = ["/admin/login"];
@@ -62,6 +63,12 @@ interface TokenClaims {
   forcePasswordReset?: boolean;
   kind?: string;
   adminId?: string;
+  amr?: "pwd" | "pwd+mfa";
+}
+
+/** Sessions created before MFA verification are refused while enforcing. */
+function missingMfa(claims: TokenClaims | null): boolean {
+  return MFA_ENFORCED && claims?.amr !== "pwd+mfa";
 }
 
 function claimsMatchModule(claims: TokenClaims, module: keyof typeof SESSION_COOKIES): boolean {
@@ -133,6 +140,9 @@ export async function middleware(request: NextRequest) {
     );
     if (!isPlatformClaims(platformClaims)) {
       return redirectTo("/platform/login");
+    }
+    if (missingMfa(platformClaims)) {
+      return redirectTo("/platform/login?reason=mfa_required");
     }
 
     // A first-login operator may only reach the standalone password screen.
@@ -245,6 +255,9 @@ export async function middleware(request: NextRequest) {
     if (customerClaims.role !== "customer") {
       return redirectTo("/login?role=customer");
     }
+    if (missingMfa(customerClaims)) {
+      return redirectTo("/login?role=customer&reason=mfa_required");
+    }
     // First-login mandatory password change for customer. The standalone
     // screen is outside the portal shell; every other customer page waits.
     if (customerClaims.forcePasswordReset) {
@@ -306,6 +319,9 @@ export async function middleware(request: NextRequest) {
 
   if (!claims || !claimsMatchModule(claims, pathModule)) {
     return redirectTo("/login");
+  }
+  if (missingMfa(claims)) {
+    return redirectTo("/login?reason=mfa_required");
   }
 
   // First-login mandatory password change: only the standalone screen (and

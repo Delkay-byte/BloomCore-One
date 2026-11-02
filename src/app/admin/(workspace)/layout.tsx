@@ -46,9 +46,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     });
   }
 
+  // TabSessionGuard gates the whole shell: a copied workspace URL opened in a
+  // new tab shows only a loading state before being sent to the login page.
   return (
-    <>
-      <TabSessionGuard />
+    <TabSessionGuard>
       <AppShell
         sections={visibleSections()}
         subtitle="Business Management"
@@ -56,6 +57,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       >
         {children}
       </AppShell>
-    </>
+    </TabSessionGuard>
   );
 }

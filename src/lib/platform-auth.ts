@@ -1,8 +1,15 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { randomUUID } from "crypto";
 import { db } from "./db";
 import { hashPassword, verifyPassword, SESSION_POLICY } from "./auth";
+import { mfaPolicy } from "./security/config";
+import {
+  createSessionRecord,
+  isSessionRecordActive,
+  revokeSession,
+} from "./security/session-store";
 
 /**
  * ============================================================================
@@ -36,6 +43,8 @@ import { hashPassword, verifyPassword, SESSION_POLICY } from "./auth";
 export const PLATFORM_COOKIE = "bik-platform-session";
 /** Short-lived cookie marking a completed platform login challenge. */
 const PLATFORM_LOGIN_KIND = "platform";
+const PLATFORM_ISSUER = "bloomcore-one";
+const PLATFORM_AUDIENCE = "bloomcore-one:platform";
 
 export interface PlatformJwtPayload {
   /** PlatformSuperAdmin.id */
@@ -43,6 +52,11 @@ export interface PlatformJwtPayload {
   email: string;
   fullName: string;
   kind: "platform";
+  jti?: string;
+  tokenUse?: "platform";
+  amr?: "pwd" | "pwd+mfa";
+  iss?: string;
+  aud?: string | string[];
   forcePasswordReset?: boolean;
   tokenVersion?: number;
   iat?: number;
@@ -109,10 +123,14 @@ async function createPlatformToken(
     iat: now,
     exp,
     lastActivityAt: now,
+    jti: payload.jti ?? randomUUID(),
+    tokenUse: "platform",
   } as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(now)
     .setExpirationTime(`${minutes}m`)
+    .setIssuer(PLATFORM_ISSUER)
+    .setAudience(PLATFORM_AUDIENCE)
     .sign(getJwtSecret());
 }
 
@@ -126,6 +144,12 @@ export async function verifyPlatformToken(
     // stops a tenant JWT from being accepted on the platform boundary.
     if (p.kind !== PLATFORM_LOGIN_KIND) return null;
     if (!p.adminId) return null;
+    if (p.iss !== undefined && p.iss !== PLATFORM_ISSUER) return null;
+    if (p.aud !== undefined) {
+      const audience = Array.isArray(p.aud) ? p.aud : [p.aud];
+      if (!audience.includes(PLATFORM_AUDIENCE)) return null;
+    }
+    if (p.tokenUse !== undefined && p.tokenUse !== "platform") return null;
     return p;
   } catch {
     return null;
@@ -136,9 +160,19 @@ export async function setPlatformSession(
   payload: Omit<PlatformJwtPayload, "kind">
 ): Promise<void> {
   const cookieStore = await cookies();
+  const jti = payload.jti ?? randomUUID();
   const token = await createPlatformToken({
     ...payload,
+    jti,
     kind: PLATFORM_LOGIN_KIND,
+  });
+  await createSessionRecord({
+    id: jti,
+    subjectType: "platform",
+    subjectId: payload.adminId,
+    expiresAt: new Date(
+      Date.now() + PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS * 1000
+    ),
   });
   cookieStore.set(PLATFORM_COOKIE, token, {
     httpOnly: true,
@@ -146,7 +180,17 @@ export async function setPlatformSession(
     sameSite: "strict", // stricter than tenant cookies: cross-site never needs this
     path: "/",
     maxAge: PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+    priority: "high",
   });
+}
+
+/** Revoke the current platform session server-side. */
+export async function revokePlatformSession(
+  payload: PlatformJwtPayload | null,
+  reason: string
+): Promise<void> {
+  if (!payload?.jti) return;
+  await revokeSession(payload.jti, reason);
 }
 
 export async function clearPlatformSession(): Promise<void> {
@@ -179,6 +223,8 @@ export async function getPlatformSession(): Promise<PlatformSession | null> {
     const payload = await verifyPlatformToken(token);
     if (!payload) return null;
     if (!validatePlatformTiming(payload)) return null;
+    if (!(await isSessionRecordActive(payload.jti))) return null;
+    if (mfaPolicy() === "enforce" && payload.amr !== "pwd+mfa") return null;
 
     const admin = await db.platformSuperAdmin.findUnique({
       where: { id: payload.adminId },
@@ -254,7 +300,14 @@ export async function authenticatePlatformAdmin(
   const admin = await db.platformSuperAdmin.findUnique({
     where: { email: normalized },
   });
-  if (!admin) return { ok: false, reason: "not_found" };
+  if (!admin) {
+    // Comparable work for unknown accounts: no timing oracle.
+    await verifyPassword(
+      password,
+      "$2b$12$Liry.nw.u149hj.S6S6JfexTBF7uu1EZY8StKjQTA39/jdAco3ZLK"
+    );
+    return { ok: false, reason: "not_found" };
+  }
 
   const valid = await verifyPlatformPassword(password, admin.passwordHash);
   if (!valid) return { ok: false, reason: "invalid" };

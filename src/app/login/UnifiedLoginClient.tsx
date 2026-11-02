@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { unifiedLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
+import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { markTabAuthenticated } from "@/components/TabSessionGuard";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
@@ -64,6 +65,7 @@ export default function UnifiedLoginClient({
   const [invalidAdmin, setInvalidAdmin] = useState(requested === "admin");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState(0);
 
   // Surface the "password reset successful" notice from the ?reason deep link.
   const passwordReset = sp.reason === "password_reset";
@@ -79,6 +81,7 @@ export default function UnifiedLoginClient({
       if (result && !result.success) {
         if (result.adminLogin) setInvalidAdmin(true);
         setError(result.error || "Login failed");
+        setChallenge((value) => value + 1);
       }
     } catch (err) {
       if (isRedirectError(err)) throw err;
@@ -229,6 +232,8 @@ export default function UnifiedLoginClient({
                   </Link>
                 </div>
               </div>
+
+              <TurnstileWidget action="login" resetSignal={challenge} />
 
               <button
                 type="submit"

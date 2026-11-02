@@ -207,7 +207,9 @@ describe("Platform authentication", () => {
     expect(await getTenantContext("customer")).toBeNull();
   });
 
-  it("rate limits repeated platform login failures", async () => {
+  // bcrypt cost 12 is deliberately expensive; six verification attempts exceed
+  // the default 5s test budget on slower CI runners.
+  it("rate limits repeated platform login failures", { timeout: 30000 }, async () => {
     const admin = await createPlatformAdmin();
     const fd = () => {
       const f = new FormData();

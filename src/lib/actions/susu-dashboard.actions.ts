@@ -251,7 +251,7 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
       });
     } else {
       const allocations = await db.contributionAllocation.findMany({
-        where: { tenantId, contribution: { cycleId: cycle.id } },
+        where: { tenantId, contribution: { cycleId: cycle.id, reversedAt: null } },
       });
       const paidDays = new Set(allocations.map((a) => a.cycleDay));
       const outstandingDays: number[] = [];

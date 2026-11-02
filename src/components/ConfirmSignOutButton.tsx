@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
 import { clearTabSession } from "@/components/TabSessionGuard";
 import { getPendingCount } from "@/lib/offline/store";
+import { clearCurrentOfflineData } from "@/lib/offline/scope";
 import { PRODUCT_NAME } from "@/lib/site";
 
 /**
@@ -46,6 +47,7 @@ export default function ConfirmSignOutButton({
     setBusy(true);
     try {
       clearTabSession();
+      await clearCurrentOfflineData();
       await logout();
     } finally {
       setBusy(false);

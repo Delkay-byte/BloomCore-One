@@ -10,6 +10,9 @@ import {
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
+import { lockAccountForUpdate } from "@/lib/db-lock";
 
 export interface ActionResponse {
   success: boolean;
@@ -57,6 +60,8 @@ export async function recordContribution(params: {
   recordedById?: string;
   recordedByName?: string;
   notes?: string;
+  /** Client-generated retry key. The same key never records twice. */
+  idempotencyKey?: string;
 }): Promise<ActionResponse> {
   const {
     accountId,
@@ -68,6 +73,7 @@ export async function recordContribution(params: {
     recordedById: clientRecordedById,
     recordedByName,
     notes,
+    idempotencyKey,
   } = params;
 
   // ── 1. Authenticate + resolve tenant ────────────────────────────────
@@ -80,6 +86,12 @@ export async function recordContribution(params: {
     return {
       success: false,
       error: "Contribution amount must be greater than 0",
+    };
+  }
+  if (amount > 999999.99 || Math.abs(Math.round(amount * 100) / 100 - amount) > 1e-9) {
+    return {
+      success: false,
+      error: "Enter a valid contribution amount (maximum two decimal places)",
     };
   }
 
@@ -191,6 +203,28 @@ export async function recordContribution(params: {
 
   const cycle = account.cycles[0];
   const dailyContribution = Number(cycle.dailyContribution);
+  if (!Number.isFinite(dailyContribution) || dailyContribution <= 0) {
+    return { success: false, error: "Account has an invalid contribution rate" };
+  }
+  const daysCovered = amount / dailyContribution;
+  if (!Number.isInteger(daysCovered) || daysCovered < 1 || daysCovered > 31) {
+    return {
+      success: false,
+      error: "Amount must equal a whole number of contribution days",
+    };
+  }
+
+  const rate = await consumeRateLimit(
+    "finance:contribution",
+    ctx.userId,
+    RATE_LIMITS.financeMutation
+  );
+  if (!rate.allowed) {
+    return {
+      success: false,
+      error: "Too many contribution requests. Please wait and try again.",
+    };
+  }
 
   // ── 6. Receiver for direct_office ───────────────────────────────────
   let effectiveReceivedById: string | null = null;
@@ -233,10 +267,34 @@ export async function recordContribution(params: {
   }
 
   // ── 7. Idempotency key ──────────────────────────────────────────────
-  const referenceId = `CON-${randomBytes(8).toString("hex")}`;
+  const referenceId =
+    idempotencyKey && /^[A-Za-z0-9:_-]{8,120}$/.test(idempotencyKey)
+      ? `CON-${idempotencyKey}`
+      : `CON-${randomBytes(8).toString("hex")}`;
 
   // ── 8. Financial transaction ────────────────────────────────────────
-  const result = await db.$transaction(async (tx) => {
+  const outcome = await db.$transaction(async (tx) => {
+    await lockAccountForUpdate(tx, account.id);
+    // Re-check outstanding days inside the transaction so a concurrent
+    // contribution cannot allocate the same day twice.
+    const existingAllocations = await tx.contributionAllocation.findMany({
+      where: {
+        contribution: { cycleId: cycle.id, reversedAt: null },
+        tenantId: ctx.tenantId,
+      },
+    });
+    const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
+
+    const daysToAllocate: number[] = [];
+    for (let day = 1; day <= 31 && daysToAllocate.length < daysCovered; day++) {
+      if (!paidDays.has(day)) daysToAllocate.push(day);
+    }
+    if (daysToAllocate.length < daysCovered) {
+      throw new Error(
+        "This cycle does not have enough unpaid days for that amount"
+      );
+    }
+
     const contribution = await tx.contribution.create({
       data: {
         tenantId: ctx.tenantId,
@@ -255,48 +313,45 @@ export async function recordContribution(params: {
       },
     });
 
-    const daysCovered = Math.floor(amount / dailyContribution);
-    const allocatedAmount = daysCovered * dailyContribution;
+    const allocatedAmount =
+      Math.round(daysCovered * dailyContribution * 100) / 100;
 
-    const existingAllocations = await tx.contributionAllocation.findMany({
-      where: {
-        contribution: { cycleId: cycle.id },
+    await tx.contributionAllocation.createMany({
+      data: daysToAllocate.map((day) => ({
         tenantId: ctx.tenantId,
-      },
+        contributionId: contribution.id,
+        cycleDay: day,
+        amount: dailyContribution,
+      })),
     });
-    const paidDays = new Set(existingAllocations.map((a) => a.cycleDay));
-
-    const allocations: {
-      tenantId: string;
-      contributionId: string;
-      cycleDay: number;
-      amount: number;
-    }[] = [];
-    let daysAllocated = 0;
-
-    for (let day = 1; day <= 31 && daysAllocated < daysCovered; day++) {
-      if (!paidDays.has(day)) {
-        allocations.push({
-          tenantId: ctx.tenantId,
-          contributionId: contribution.id,
-          cycleDay: day,
-          amount: dailyContribution,
-        });
-        daysAllocated++;
-      }
-    }
-
-    if (allocations.length > 0) {
-      await tx.contributionAllocation.createMany({ data: allocations });
-    }
 
     return {
       contribution,
-      daysAllocated,
+      daysAllocated: daysToAllocate.length,
       allocatedAmount,
-      totalDaysPaid: paidDays.size + daysAllocated,
+      totalDaysPaid: paidDays.size + daysToAllocate.length,
     };
-  });
+  }).then((value) => ({ ok: true as const, value }))
+    .catch((error: unknown) => ({ ok: false as const, error }));
+
+  if (!outcome.ok) {
+    const code =
+      typeof outcome.error === "object" &&
+      outcome.error !== null &&
+      "code" in outcome.error
+        ? (outcome.error as { code?: string }).code
+        : undefined;
+    return {
+      success: false,
+      error:
+        code === "P2002"
+          ? "This contribution was already recorded."
+          : outcome.error instanceof Error
+            ? outcome.error.message
+            : "Contribution could not be recorded",
+    };
+  }
+  const result = outcome.value;
 
   // ── 9. Audit ────────────────────────────────────────────────────────
   await createAuditLog({

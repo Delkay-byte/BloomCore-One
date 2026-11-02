@@ -11,6 +11,7 @@ import {
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
+import { validateStatusTransition } from "@/lib/security/status";
 
 export interface ActionResponse {
   success: boolean;
@@ -252,15 +253,22 @@ export async function toggleCollectorStatus(
   if (!collector) {
     return { success: false, error: "Collector not found" };
   }
+  const current = await db.user.findFirst({
+    where: { id: collector.userId, tenantId: ctx.tenantId },
+    select: { status: true },
+  });
+  if (!current) return { success: false, error: "Collector not found" };
+  const check = validateStatusTransition(current.status, newStatus);
+  if (!check.ok) return { success: false, error: check.error };
 
   await db.$transaction(async (tx) => {
     await tx.collector.update({
       where: { id: collectorId },
-      data: { status: newStatus },
+      data: { status: check.status },
     });
     await tx.user.update({
       where: { id: collector.userId },
-      data: { status: newStatus, tokenVersion: { increment: 1 } },
+      data: { status: check.status, tokenVersion: { increment: 1 } },
     });
   });
 

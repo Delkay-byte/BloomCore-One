@@ -65,7 +65,12 @@ export default function AdminDashboardPage() {
     try {
       const authRes = await fetch("/api/auth/me?module=admin");
       const authUser = authRes.ok ? await authRes.json() : null;
-      if (authUser?.userId) {
+      // /api/auth/me already carries the session's fullName — no second
+      // request to /api/user/[id] is needed (it used to serialize in front
+      // of the stats fetches and stretch the whole dashboard load).
+      if (authUser?.fullName) {
+        setUserName(authUser.fullName);
+      } else if (authUser?.userId) {
         const userRes = await fetch(`/api/user/${authUser.userId}`);
         const fullUser = userRes.ok ? await userRes.json() : null;
         if (fullUser?.fullName) setUserName(fullUser.fullName);

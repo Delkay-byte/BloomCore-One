@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getAnyAuthUser,
   refreshSession,
+  isSessionCurrent,
   SESSION_COOKIES,
   SESSION_POLICY,
   type ModuleName,
@@ -20,6 +21,9 @@ import {
 export async function GET() {
   const user = await getAnyAuthUser();
   if (!user) {
+    return NextResponse.json({ authenticated: false }, { status: 401 });
+  }
+  if (!(await isSessionCurrent(user))) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
@@ -44,6 +48,9 @@ export async function GET() {
 export async function POST() {
   const user = await getAnyAuthUser();
   if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  if (!(await isSessionCurrent(user))) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 

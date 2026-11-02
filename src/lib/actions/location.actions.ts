@@ -5,6 +5,7 @@ import { requireTenantAdminMomo, assertTenantEntity } from "@/lib/tenant";
 import { locationSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
+import { validateStatusTransition } from "@/lib/security/status";
 
 export interface ActionResponse {
   success: boolean;
@@ -132,9 +133,17 @@ export async function toggleLocationStatus(
     return { success: false, error: "Location not found" };
   }
 
+  const existing = await db.location.findFirst({
+    where: { id: locationId, tenantId: ctx.tenantId },
+    select: { status: true },
+  });
+  if (!existing) return { success: false, error: "Location not found" };
+  const check = validateStatusTransition(existing.status, newStatus);
+  if (!check.ok) return { success: false, error: check.error };
+
   const location = await db.location.update({
     where: { id: locationId },
-    data: { status: newStatus },
+    data: { status: check.status },
   });
 
   await createAuditLog({

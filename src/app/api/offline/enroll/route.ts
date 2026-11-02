@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getApiTenantContext } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 
 /**
  * POST /api/offline/enroll
@@ -18,6 +19,7 @@ import { createAuditLog } from "@/lib/audit";
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!isSameOriginRequest(request)) return crossOriginDenied();
     const { deviceId, module: mod, deviceName } = await request.json();
 
     if (!deviceId || !mod) {
@@ -66,14 +68,16 @@ export async function POST(request: NextRequest) {
     }
 
     const device = existing
-      ? await db.deviceEnrollment.update({
-          where: { id: existing.id },
-          data: {
-            status: "active",
-            lastSyncAt: new Date(),
-            authorizedAt: new Date(),
-          },
-        })
+      ? existing.userId === effective.userId
+        ? await db.deviceEnrollment.update({
+            where: { id: existing.id },
+            data: {
+              status: "active",
+              lastSyncAt: new Date(),
+              authorizedAt: new Date(),
+            },
+          })
+        : null
       : await db.deviceEnrollment.create({
           data: {
             tenantId: effective.tenantId,
@@ -85,6 +89,13 @@ export async function POST(request: NextRequest) {
             authorizedAt: new Date(),
           },
         });
+
+    if (!device) {
+      return NextResponse.json(
+        { error: "Device is enrolled to another user" },
+        { status: 409 }
+      );
+    }
 
     await createAuditLog({
       userId: effective.userId,

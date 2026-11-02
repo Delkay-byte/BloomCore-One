@@ -5,6 +5,7 @@ import { hashPassword } from "@/lib/auth";
 import { requireTenantAdminMomo, requireTenantAdminSusu, assertTenantEntity } from "@/lib/tenant";
 import { createStaffSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
+import { validateStatusTransition } from "@/lib/security/status";
 import { revalidatePath } from "next/cache";
 
 export interface ActionResponse {
@@ -158,6 +159,17 @@ export async function updateStaff(
     return { success: false, error: "Please enter a valid email" };
   }
 
+  const targetForStatus = await db.user.findFirst({
+    where: { id: staffId, tenantId: ctx.tenantId },
+    select: { status: true },
+  });
+  if (!targetForStatus) {
+    return { success: false, error: "Staff member not found" };
+  }
+  const statusCheck = validateStatusTransition(targetForStatus.status, raw.status);
+  if (!statusCheck.ok) return { success: false, error: statusCheck.error };
+  raw.status = statusCheck.status;
+
   const existing = await db.user.findFirst({
     where: { email: raw.email, id: { not: staffId } },
   });
@@ -216,9 +228,12 @@ export async function toggleStaffStatus(
     return { success: false, error: "Staff member not found" };
   }
 
+  const check = validateStatusTransition(target.status, newStatus);
+  if (!check.ok) return { success: false, error: check.error };
+
   const user = await db.user.update({
     where: { id: staffId },
-    data: { status: newStatus, tokenVersion: { increment: 1 } },
+    data: { status: check.status, tokenVersion: { increment: 1 } },
     select: { fullName: true, role: true },
   });
 
@@ -227,7 +242,7 @@ export async function toggleStaffStatus(
       where: { userId: staffId, tenantId: ctx.tenantId },
     });
     if (collector) {
-      const desired = newStatus === "active" ? "active" : "inactive";
+      const desired = check.status === "active" ? "active" : "inactive";
       if (collector.status !== desired) {
         await db.collector.update({
           where: { id: collector.id },
@@ -239,7 +254,7 @@ export async function toggleStaffStatus(
 
   await createAuditLog({
     userId: ctx.userId,
-    action: `user.staff_${newStatus === "active" ? "activated" : "deactivated"}`,
+    action: `user.staff_${check.status === "active" ? "activated" : "deactivated"}`,
     entityType: "user",
     entityId: staffId,
     details: { fullName: user.fullName, role: user.role },

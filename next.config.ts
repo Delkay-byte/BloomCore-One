@@ -11,15 +11,17 @@ import type { NextConfig } from "next";
  */
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js hydration needs unsafe-inline
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com", // Next.js hydration + Turnstile
   "style-src 'self' 'unsafe-inline'",                   // Tailwind + inline styles
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self'",
+  "connect-src 'self' https://challenges.cloudflare.com",
+  "frame-src https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
-].join('; ');
+  "object-src 'none'",
+].join("; ");
 
 const securityHeaders = [
   {
@@ -35,21 +37,25 @@ const securityHeaders = [
     value: "strict-origin-when-cross-origin",
   },
   {
-    key: "X-XSS-Protection",
-    value: "1; mode=block",
-  },
-  {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=()",
+    value:
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
   },
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
   },
-  // CSP in report-only mode first — switch to enforcement once validated
   {
-    key: "Content-Security-Policy-Report-Only",
+    key: "Content-Security-Policy",
     value: csp,
+  },
+  {
+    key: "Cross-Origin-Opener-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "Cross-Origin-Resource-Policy",
+    value: "same-origin",
   },
   {
     key: "X-Permitted-Cross-Domain-Policies",
@@ -90,12 +96,12 @@ const nextConfig: NextConfig = {
       },
       // Protected pages: no browser caching
       {
-        source: "/(admin|worker|collector|settings|change-password)/:path*",
+        source: "/(admin|worker|collector|platform|settings|change-password|mfa)/:path*",
         headers: sensitiveHeaders,
       },
       // API routes: no caching of authenticated responses
       {
-        source: "/api/(auth|user|audit)/:path*",
+        source: "/api/(auth|user|audit|admin)/:path*",
         headers: sensitiveHeaders,
       },
     ];

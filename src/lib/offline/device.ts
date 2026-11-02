@@ -7,6 +7,13 @@
  * approved offline architecture).
  */
 
+import {
+  getOfflineScope,
+  offlineDatabaseName,
+  purgeLegacyOfflineDatabase,
+  registerOfflineConnection,
+} from "./scope";
+
 const DEVICE_ID_KEY = "bik-device-id";
 
 /**
@@ -97,16 +104,21 @@ export async function getDeviceId(): Promise<string | null> {
   }
 }
 
-function openIDB(): Promise<IDBDatabase> {
+async function openIDB(): Promise<IDBDatabase> {
+  await purgeLegacyOfflineDatabase();
+  const scope = await getOfflineScope();
+  const request = indexedDB.open(offlineDatabaseName(scope), 1);
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("bik-prestige-offline", 1);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      registerOfflineConnection(request.result);
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
   });
 }

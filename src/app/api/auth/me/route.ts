@@ -4,6 +4,7 @@ import {
   getMomoSession,
   getSusuSession,
   getCustomerSession,
+  isSessionCurrent,
 } from "@/lib/auth";
 import { getTenantContext } from "@/lib/tenant";
 
@@ -39,6 +40,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  // Re-validate against the database (status, tokenVersion, revocation).
+  if (!(await isSessionCurrent(user))) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 

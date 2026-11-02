@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Smartphone, UserRound } from "lucide-react";
+import { KeyRound, ShieldCheck, Smartphone, UserRound } from "lucide-react";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -145,6 +145,26 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
             >
               <KeyRound size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />Change Password
             </button>
+            {module === "admin" && (
+              <button
+                type="button"
+                onClick={() => router.push("/admin/security/mfa")}
+                className="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              >
+                <ShieldCheck size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />
+                Two-factor
+              </button>
+            )}
+            {module === "admin" && (
+              <button
+                type="button"
+                onClick={() => router.push("/admin/recovery")}
+                className="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              >
+                <ShieldCheck size={15} className="inline mr-1.5 -mt-0.5" aria-hidden />
+                Recovery
+              </button>
+            )}
             {module === "admin" && (
               <button
                 type="button"

@@ -4,12 +4,14 @@ import { useState } from "react";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
+import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { isRedirectError } from "@/lib/errors";
 import { BrandLockup } from "@/components/brand/Brand";
 
 export default function PlatformLoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState(0);
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -18,6 +20,7 @@ export default function PlatformLoginForm() {
       const result = await platformLogin(formData);
       if (result && !result.success) {
         setError(result.error || "Login failed");
+        setChallenge((value) => value + 1);
       }
     } catch (err) {
       if (isRedirectError(err)) throw err;
@@ -76,6 +79,7 @@ export default function PlatformLoginForm() {
                 autoComplete="current-password"
               />
             </div>
+            <TurnstileWidget action="platform_login" resetSignal={challenge} />
             <button type="submit" className="btn btn-primary w-full" disabled={loading}>
               {loading ? (
                 <>

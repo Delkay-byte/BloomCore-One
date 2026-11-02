@@ -36,17 +36,23 @@ export default function WorkerDashboardPage() {
       const authUser: UserInfo | null = authRes.ok ? await authRes.json() : null;
 
       if (authUser?.userId) {
-        const userRes = await fetch(`/api/user/${authUser.userId}`);
+        // User profile and daily accounts are independent — load them together
+        // instead of one after the other.
+        const [userRes, accountsData] = await Promise.all([
+          fetch(`/api/user/${authUser.userId}`),
+          getWorkerDailyAccounts(),
+        ]);
         const fullUser: FullUser | null = userRes.ok ? await userRes.json() : null;
         if (fullUser) {
           setUserName(fullUser.fullName);
           setLocationName(fullUser.location?.name || "");
           setLocationId(fullUser.locationId || "");
         }
+        setAccounts(accountsData as unknown as DailyAccount[]);
+      } else {
+        const accountsData = await getWorkerDailyAccounts();
+        setAccounts(accountsData as unknown as DailyAccount[]);
       }
-
-      const accountsData = await getWorkerDailyAccounts();
-      setAccounts(accountsData as unknown as DailyAccount[]);
     } catch (err) { if (handleRedirect(err, setError, "Failed to load dashboard")) return; }
     finally { setLoading(false); }
   }

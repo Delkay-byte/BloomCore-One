@@ -18,7 +18,8 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:security": "vitest run tests/security-hardening.test.ts tests/financial-security.test.ts tests/admin-recovery.test.ts tests/offline-isolation.test.ts tests/staff-status.test.ts tests/tenant-isolation.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.9.1",
@@ -36,20 +37,22 @@
     "date-fns": "^4.4.0",
     "jose": "^6.2.10",
     "lucide-react": "^1.65.0",
-    "next": "16.3.2",
+    "next": "^16.4.3",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
+    "source-map-js": "^1.2.2",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "fake-indexeddb": "^6.2.7",
     "tsx": "^4.23.12",
     "vitest": "^4.1.11"
   }

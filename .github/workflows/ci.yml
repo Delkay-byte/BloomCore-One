@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "security/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Prepare test database (SQLite)
+        run: npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: file:../tests/test.db
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Security dependency audit (critical only)
+        run: npm audit --audit-level=critical
+
+      - name: Tests (functional + security regression)
+        run: npm test
+        env:
+          JWT_SECRET: ci-test-secret-not-for-production
+          DATABASE_URL: file:../tests/test.db
+          # Turnstile is exercised with mocked responses in the test suite.
+          TURNSTILE_ENABLED: "false"
+          RATE_LIMIT_HMAC_SECRET: ci-rate-limit-key-not-for-production-32b
+          MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Production build
+        run: npm run build
+        env:
+          # The build itself never uses real secrets; middleware requires the
+          # variable to exist. Real secrets live only in Render's environment.
+          JWT_SECRET: ci-test-secret-not-for-production
+          DATABASE_URL: file:../tests/test.db

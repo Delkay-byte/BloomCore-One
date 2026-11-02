@@ -39,6 +39,23 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # Security hardening (add values in the Render dashboard, never in Git).
+      - key: RATE_LIMIT_HMAC_SECRET
+        sync: false
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      - key: MFA_ENFORCEMENT
+        value: "optional"
+      - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_ENABLED
+        value: "false"
+      - key: TURNSTILE_ALLOWED_HOSTNAMES
+        value: "bloomcore-one.onrender.com"
+      - key: TRUSTED_PROXY_HEADERS
+        value: "true"
       - key: NEXTAUTH_URL
         sync: false
       - key: SESSION_IDLE_TIMEOUT_SECONDS
