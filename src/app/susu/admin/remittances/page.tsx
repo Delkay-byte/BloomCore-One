@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonTable } from "@/components/ui/Skeletons";
 
 import { Landmark, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -128,13 +129,13 @@ export default function SusuRemittancesPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
@@ -200,9 +201,7 @@ export default function SusuRemittancesPage() {
       {/* Remittances List */}
       <div className="card">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="spinner"></div>
-          </div>
+          <SkeletonTable rows={8} columns={6} />
         ) : remittances.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Landmark size={36} /></p>

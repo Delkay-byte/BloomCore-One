@@ -179,12 +179,12 @@ export default function UnifiedLoginClient({
             </h2>
 
             {passwordReset && (
-              <div className="banner banner-success mb-4 text-sm">
+              <div role="status" className="banner banner-success mb-4 text-sm">
                 ✓ Password reset successful. Please sign in with your new password.
               </div>
             )}
             {error && (
-              <div className="banner banner-error mb-4 text-sm">
+              <div role="alert" className="banner banner-error mb-4 text-sm">
                 {error}
               </div>
             )}

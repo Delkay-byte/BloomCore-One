@@ -173,7 +173,7 @@ export default function MoMoHistoryPage() {
       />
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>

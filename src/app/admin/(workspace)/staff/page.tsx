@@ -1,7 +1,12 @@
 "use client";
+import { useOptimisticAction } from "@/hooks/useOptimisticAction";
+import { useToast } from "@/components/ui/Toast";
+import { SkeletonPage } from "@/components/ui/Skeletons";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getStaff, createStaff, toggleStaffStatus } from "@/lib/actions/staff.actions";
 import { formatDate } from "@/lib/utils";
@@ -38,11 +43,19 @@ export default function StaffPage() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const createDraft = useFormDraft(createFormRef, {
+    draftKey: "admin-staff:new",
+    workflow: "admin.staff.create",
+    enabled: showForm,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const toast = useToast();
+  const optimistic = useOptimisticAction();
 
   useEffect(() => { loadData(); }, []);
 
@@ -66,6 +79,7 @@ export default function StaffPage() {
       if (result.success) {
         setSuccess("Staff member created. Share the temporary password securely — they must change it on first login.");
         setShowForm(false);
+        await createDraft.clearDraft();
         loadData();
       } else {
         setError(result.error || "Failed to create staff member");
@@ -79,13 +93,22 @@ export default function StaffPage() {
 
   async function handleToggleStatus(staffId: string, currentStatus: string) {
     const newStatus = currentStatus === "active" ? "inactive" : "active";
-    try {
-      const result = await toggleStaffStatus(staffId, newStatus);
-      if (result.success) loadData();
-      else setError(result.error || "Failed to update status");
-    } catch {
-      setError("An unexpected error occurred");
-    }
+    const flip = (status: string) =>
+      setStaff((list) =>
+        list.map((member) => (member.id === staffId ? { ...member, status } : member))
+      );
+    // Safe, reversible change: the row updates immediately and rolls back if
+    // the server refuses it.
+    await optimistic.run({
+      apply: () => flip(newStatus),
+      rollback: () => flip(currentStatus),
+      action: () => toggleStaffStatus(staffId, newStatus),
+      onSuccess: () => toast.push("success", "Staff status updated."),
+      onError: (message) => {
+        setError(message);
+        toast.push("error", message);
+      },
+    });
   }
 
   const filtered = staff.filter((s) => {
@@ -106,13 +129,7 @@ export default function StaffPage() {
     return true;
   });
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <SkeletonPage variant="table" />;
 
   return (
     <div>
@@ -130,13 +147,13 @@ export default function StaffPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button>
         </div>
@@ -145,19 +162,19 @@ export default function StaffPage() {
       {showForm && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Add Staff Member</h2>
-          <form action={handleCreate}>
+          <form ref={createFormRef} action={handleCreate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
-                <input type="text" name="fullName" placeholder="Enter full name" required />
+                <input type="text" name="fullName" autoComplete="name" placeholder="Enter full name" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Email *</label>
-                <input type="email" name="email" placeholder="staff@example.com" required />
+                <input type="email" name="email" autoComplete="email" placeholder="staff@example.com" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input type="tel" name="phone" placeholder="+233 XX XXX XXXX" />
+                <input type="tel" name="phone" autoComplete="tel" placeholder="+233 XX XXX XXXX" />
               </div>
               <div className="form-group">
                 <label className="form-label">Temporary Password *</label>
@@ -185,7 +202,15 @@ export default function StaffPage() {
                 </select>
               </div>
             </div>
-            <div className="flex gap-3 mt-4">
+<div className="mb-3">
+              <DraftIndicator
+                status={createDraft.status}
+                lastSavedAt={createDraft.lastSavedAt}
+                onDiscard={createDraft.clearDraft}
+                onAcknowledge={createDraft.acknowledgeRestored}
+              />
+            </div>
+                        <div className="flex gap-3 mt-4">
               <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {submitting ? "Creating..." : "Create Staff Member"}
               </button>

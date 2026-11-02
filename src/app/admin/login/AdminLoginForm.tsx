@@ -131,13 +131,13 @@ export default function AdminLoginForm() {
               </p>
 
               {passwordReset && (
-                <div className="banner banner-success mt-6 flex items-start gap-2 text-sm" role="status">
+                <div role="status" className="banner banner-success mt-6 flex items-start gap-2 text-sm">
                   <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
                   Password reset successful. Sign in with your new password.
                 </div>
               )}
               {error && (
-                <div className="banner banner-error mt-6 text-sm" role="alert">
+                <div role="alert" className="banner banner-error mt-6 text-sm">
                   {error}
                 </div>
               )}

@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import { ClipboardList, X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
@@ -234,12 +235,7 @@ export default function SusuCustomerDetailPage() {
     }
   }
 
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
+  if (loading) return <SkeletonPage variant="detail" />;
   if (!customer)
     return (
       <div className="text-center py-20">
@@ -403,13 +399,13 @@ export default function SusuCustomerDetailPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>

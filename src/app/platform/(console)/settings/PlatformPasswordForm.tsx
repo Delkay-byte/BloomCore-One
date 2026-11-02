@@ -34,7 +34,7 @@ export default function PlatformPasswordForm() {
   return (
     <form action={handleSubmit} className="space-y-4 max-w-sm">
       {error && (
-        <div className="banner banner-error" role="alert">
+        <div role="alert" className="banner banner-error">
           {error}
         </div>
       )}

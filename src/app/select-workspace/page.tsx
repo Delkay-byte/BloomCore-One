@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -84,8 +85,10 @@ export default function SelectWorkspacePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="spinner"></div>
+      <div className="min-h-screen bg-slate-50 px-4 py-10">
+        <div className="mx-auto w-full max-w-md space-y-4">
+          <SkeletonPage variant="list" />
+        </div>
       </div>
     );
   }
@@ -106,7 +109,7 @@ export default function SelectWorkspacePage() {
         </div>
 
         {error && (
-          <div className="banner banner-error mb-4 text-sm text-center">
+          <div role="alert" className="banner banner-error mb-4 text-sm text-center">
             {error}
           </div>
         )}

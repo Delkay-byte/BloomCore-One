@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -71,7 +72,7 @@ export default function WorkerDetailPage() {
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setSubmitting(false); setShowReauth(false); setPendingResetData(null); }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="detail" />;
   if (!worker) return <div className="text-center py-20"><p className="text-slate-500">Worker not found</p><button onClick={() => router.push("/admin/workers")} className="btn btn-primary mt-4">Back to Workers</button></div>;
 
   return (
@@ -87,17 +88,17 @@ export default function WorkerDetailPage() {
         </div>
       </div>
 
-      {error && <div className="banner banner-error mb-4">{error}</div>}
-      {success && <div className="banner banner-success mb-4">{success}</div>}
+      {error && <div role="alert" className="banner banner-error mb-4">{error}</div>}
+      {success && <div role="status" className="banner banner-success mb-4">{success}</div>}
 
       {editing && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Edit Worker</h2>
           <form action={handleUpdate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="form-group"><label className="form-label">Full Name *</label><input type="text" name="fullName" defaultValue={worker.fullName} required /></div>
-              <div className="form-group"><label className="form-label">Email *</label><input type="email" name="email" defaultValue={worker.email} required /></div>
-              <div className="form-group"><label className="form-label">Phone</label><input type="tel" name="phone" defaultValue={worker.phone || ""} /></div>
+              <div className="form-group"><label className="form-label">Full Name *</label><input type="text" name="fullName" autoComplete="name" defaultValue={worker.fullName} required /></div>
+              <div className="form-group"><label className="form-label">Email *</label><input type="email" name="email" autoComplete="email" defaultValue={worker.email} required /></div>
+              <div className="form-group"><label className="form-label">Phone</label><input type="tel" name="phone" autoComplete="tel" defaultValue={worker.phone || ""} /></div>
               <div className="form-group"><label className="form-label">Location *</label><select name="locationId" defaultValue={worker.location?.id || ""} required><option value="">Select a location</option>{locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name} ({loc.code})</option>)}</select></div>
               <div className="form-group"><label className="form-label">Status</label><select name="status" defaultValue={worker.status}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
               <div className="form-group md:col-span-2">

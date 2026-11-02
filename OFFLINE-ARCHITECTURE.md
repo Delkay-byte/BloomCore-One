@@ -1,8 +1,14 @@
 # OFFLINE ARCHITECTURE — BIK Prestige Enterprise
 
-> **Status: DESIGN ONLY — Not implemented**
-> This document describes the architecture for future secure offline financial operations.
-> Internet connection is currently required for all financial operations.
+> **Status: PARTIALLY IMPLEMENTED**
+> Susu collector contributions can be queued offline and synchronized with
+> idempotency. Pending records are preserved across sign-out and account
+> switching. See `docs/OFFLINE-RELIABILITY.md` for the implemented behaviour,
+> guarantees and limitations. Sections below remain the original design target
+> and are marked where they are not yet built.
+>
+> Internet connection is still required for MoMo daily-account financial
+> postings and for all administrative financial operations.
 
 ---
 
@@ -286,10 +292,13 @@ For offline customer viewing:
 
 ## 12. Current Pilot Policy
 
-Until offline implementation is complete:
+> **Susu collector contributions may be recorded offline and synchronized when
+> connectivity returns. They are not in the central ledger until the server
+> acknowledges them.**
 
-> **Internet connection is required for all financial operations.**
+> **MoMo daily accounts, withdrawals, reversals, remittances and all
+> administrative financial operations still require a connection.**
 
-The PWA manifest and service worker exist for caching static assets only. They do NOT provide offline financial capability.
-
-Do not claim offline functionality until Phase 4 is complete and verified.
+The PWA manifest and service worker cache static assets. Offline financial
+capability is limited to the Susu collector contribution queue described in
+`docs/OFFLINE-RELIABILITY.md`. Do not claim broader offline support.

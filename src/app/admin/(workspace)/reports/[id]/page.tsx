@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -45,7 +46,7 @@ export default function ReportDetailPage() {
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setReviewing(false); }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="detail" />;
   if (!account) return <div className="text-center py-20"><p className="text-slate-500">Report not found</p><button onClick={() => router.push("/admin/reports")} className="btn btn-primary mt-4">Back to Reports</button></div>;
 
   const momoVariance = Number(account.calculatedMomoVariance);
@@ -68,8 +69,8 @@ export default function ReportDetailPage() {
         </div>
       </div>
 
-      {error && <div className="banner banner-error mb-4">{error}</div>}
-      {success && <div className="banner banner-success mb-4">{success}</div>}
+      {error && <div role="alert" className="banner banner-error mb-4">{error}</div>}
+      {success && <div role="status" className="banner banner-success mb-4">{success}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="card"><div className="text-sm text-slate-500">Business Date</div><div className="font-medium">{formatDate(account.businessDate)}</div></div>

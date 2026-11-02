@@ -1,8 +1,13 @@
 "use client";
+import { useOptimisticAction } from "@/hooks/useOptimisticAction";
+import { useToast } from "@/components/ui/Toast";
+import { SkeletonPage } from "@/components/ui/Skeletons";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 import { X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getLocations, createLocation, toggleLocationStatus } from "@/lib/actions/location.actions";
 import { locationSchema } from "@/lib/validations";
 
@@ -16,12 +21,20 @@ export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const createDraft = useFormDraft(createFormRef, {
+    draftKey: "admin-location:new",
+    workflow: "admin.location.create",
+    enabled: showForm,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState("all");
   const handleRedirect = useRedirectHandler();
+  const toast = useToast();
+  const optimistic = useOptimisticAction();
 
   useEffect(() => { loadLocations(); }, []);
 
@@ -50,7 +63,7 @@ export default function LocationsPage() {
 
     try {
       const result = await createLocation(formData);
-      if (result.success) { setSuccess("Location created successfully"); setShowForm(false); loadLocations(); }
+      if (result.success) { setSuccess("Location created successfully"); setShowForm(false); await createDraft.clearDraft(); loadLocations(); }
       else setError(result.error || "Failed to create location");
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; }
     finally { setSubmitting(false); }
@@ -58,11 +71,20 @@ export default function LocationsPage() {
 
   async function handleToggleStatus(locationId: string, currentStatus: string) {
     const newStatus = currentStatus === "active" ? "inactive" : "active";
-    try {
-      const result = await toggleLocationStatus(locationId, newStatus);
-      if (result.success) loadLocations();
-      else setError(result.error || "Failed to update location");
-    } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; }
+    const flip = (status: string) =>
+      setLocations((list) =>
+        list.map((location) => (location.id === locationId ? { ...location, status } : location))
+      );
+    await optimistic.run({
+      apply: () => flip(newStatus),
+      rollback: () => flip(currentStatus),
+      action: () => toggleLocationStatus(locationId, newStatus),
+      onSuccess: () => toast.push("success", "Location status updated."),
+      onError: (message) => {
+        setError(message);
+        toast.push("error", message);
+      },
+    });
   }
 
   const filteredLocations = locations.filter((loc) => {
@@ -71,7 +93,7 @@ export default function LocationsPage() {
     return true;
   });
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="table" />;
 
   return (
     <div>
@@ -85,37 +107,45 @@ export default function LocationsPage() {
         </button>
       </div>
 
-      {error && <div className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
-      {success && <div className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
+      {error && <div role="alert" className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
+      {success && <div role="status" className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
 
       {showForm && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Create New Location</h2>
-          <form action={handleCreate}>
+          <form ref={createFormRef} action={handleCreate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Location Name *</label>
-                <input type="text" name="name" placeholder="e.g. BIK Prestige - Accra Central" required />
+                <input type="text" name="name" autoComplete="organization" placeholder="e.g. BIK Prestige - Accra Central" required />
                 {formErrors.name && <p className="error-text">{formErrors.name}</p>}
               </div>
               <div className="form-group">
                 <label className="form-label">Location Code *</label>
-                <input type="text" name="code" placeholder="e.g. ACC-001" required />
+                <input type="text" name="code" autoComplete="off" placeholder="e.g. ACC-001" required />
                 {formErrors.code && <p className="error-text">{formErrors.code}</p>}
                 <p className="form-hint">Unique code. Letters, numbers, hyphens only.</p>
               </div>
               <div className="form-group">
                 <label className="form-label">Address</label>
-                <input type="text" name="address" placeholder="Street address" />
+                <input type="text" name="address" autoComplete="street-address" placeholder="Street address" />
               </div>
               <div className="form-group">
                 <label className="form-label">Contact Phone</label>
-                <input type="tel" name="contactPhone" placeholder="+233 XX XXX XXXX" />
+                <input type="tel" name="contactPhone" autoComplete="tel" placeholder="+233 XX XXX XXXX" />
               </div>
               <div className="form-group md:col-span-2">
                 <label className="form-label">Description</label>
                 <textarea id="description" name="description" rows={2} placeholder="Brief description" />
               </div>
+            </div>
+            <div className="mb-3">
+              <DraftIndicator
+                status={createDraft.status}
+                lastSavedAt={createDraft.lastSavedAt}
+                onDiscard={createDraft.clearDraft}
+                onAcknowledge={createDraft.acknowledgeRestored}
+              />
             </div>
             <div className="flex gap-3 mt-4">
               <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? "Creating..." : "Create Location"}</button>

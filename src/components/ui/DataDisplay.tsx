@@ -131,40 +131,15 @@ export function NoResults({ hint }: { hint?: string }) {
 }
 
 /* ---------------------------------------------------------------------------
- * Skeletons
+ * Skeletons — implementation lives in Skeletons.tsx. Re-exported here so the
+ * existing imports keep working while every screen moves to the shared set.
  * ------------------------------------------------------------------------- */
 
-export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
-  return <div className={`skeleton ${className}`} aria-hidden />;
-}
-
-/** Standard page-level loading skeleton: header + 3 stat cards + table rows. */
-export function PageSkeleton() {
-  return (
-    <div className="space-y-6" role="status" aria-label="Loading">
-      <div className="space-y-2">
-        <Skeleton className="h-7 w-56" />
-        <Skeleton className="h-4 w-80" />
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-72 rounded-xl" />
-    </div>
-  );
-}
-
-export function TableSkeleton({ rows = 5 }: { rows?: number }) {
-  return (
-    <div className="space-y-3 p-1" role="status" aria-label="Loading">
-      {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className={`h-10 ${i % 2 ? "w-full" : "w-[97%]"}`} />
-      ))}
-    </div>
-  );
-}
+export {
+  Skeleton,
+  SkeletonTable as TableSkeleton,
+  SkeletonPage as PageSkeleton,
+} from "./Skeletons";
 
 /* ---------------------------------------------------------------------------
  * Page header — consistent title/description/primary-action placement.

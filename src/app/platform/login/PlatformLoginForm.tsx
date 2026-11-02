@@ -52,7 +52,7 @@ export default function PlatformLoginForm() {
           </p>
 
           {error && (
-            <div className="banner banner-error mb-4" role="alert">
+            <div role="alert" className="banner banner-error mb-4">
               {error}
             </div>
           )}

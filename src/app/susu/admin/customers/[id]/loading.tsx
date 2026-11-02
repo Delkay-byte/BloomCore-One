@@ -1,7 +1,9 @@
+import { SkeletonPage } from "@/components/ui/Skeletons";
+
 export default function CustomerDetailLoading() {
   return (
-    <div className="flex items-center justify-center py-20">
-      <div className="spinner"></div>
+    <div className="px-4 py-6 sm:px-6">
+      <SkeletonPage variant="detail" />
     </div>
   );
 }

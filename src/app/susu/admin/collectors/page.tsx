@@ -1,7 +1,10 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 
 import { Footprints, X } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getCollectors,
@@ -32,6 +35,12 @@ export default function SusuCollectorsPage() {
   const [locations, setLocations] = useState<LocationOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const createDraft = useFormDraft(createFormRef, {
+    draftKey: "susu-collector:new",
+    workflow: "susu.collector.create",
+    enabled: showForm,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +73,7 @@ export default function SusuCollectorsPage() {
       if (result.success) {
         setSuccess("Temporary password created — the collector must change it after first login.");
         setShowForm(false);
+        await createDraft.clearDraft();
         loadCollectors();
       } else {
         setError(result.error || "Failed to create collector");
@@ -119,12 +129,7 @@ export default function SusuCollectorsPage() {
     }
   }
 
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
+  if (loading) return <SkeletonPage variant="table" />;
 
   return (
     <div>
@@ -139,13 +144,13 @@ export default function SusuCollectorsPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
@@ -163,19 +168,19 @@ export default function SusuCollectorsPage() {
       {showForm && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Register New Collector</h2>
-          <form action={handleCreate}>
+          <form ref={createFormRef} action={handleCreate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
-                <input type="text" name="fullName" placeholder="Collector name" required />
+                <input type="text" name="fullName" autoComplete="name" placeholder="Collector name" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Email *</label>
-                <input type="email" name="email" placeholder="collector@example.com" required />
+                <input type="email" name="email" autoComplete="email" placeholder="collector@example.com" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input type="tel" name="phone" placeholder="+233 XX XXX XXXX" />
+                <input type="tel" name="phone" autoComplete="tel" placeholder="+233 XX XXX XXXX" />
               </div>
               <div className="form-group">
                 <label className="form-label">Temporary Password *</label>
@@ -183,7 +188,15 @@ export default function SusuCollectorsPage() {
                 <p className="form-hint">Temporary password created — the user must change this password after first login.</p>
               </div>
             </div>
-            <div className="flex gap-3 mt-4">
+<div className="mb-3">
+              <DraftIndicator
+                status={createDraft.status}
+                lastSavedAt={createDraft.lastSavedAt}
+                onDiscard={createDraft.clearDraft}
+                onAcknowledge={createDraft.acknowledgeRestored}
+              />
+            </div>
+                        <div className="flex gap-3 mt-4">
               <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {submitting ? "Creating..." : "Create Collector"}
               </button>

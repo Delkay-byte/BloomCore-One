@@ -111,7 +111,7 @@ export default function AdminDashboardPage() {
   }
   if (error) {
     return (
-      <div className="banner banner-error" role="alert">
+      <div role="alert" className="banner banner-error">
         {error}
       </div>
     );

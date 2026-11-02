@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -73,7 +74,7 @@ export default function WorkerDashboardPage() {
     finally { setCreating(false); }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="dashboard" />;
 
   const todayAccount = accounts.find((a) => new Date(a.businessDate).toISOString().split("T")[0] === getTodayString());
 
@@ -85,7 +86,7 @@ export default function WorkerDashboardPage() {
         <p className="text-sm text-green-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
       </div>
 
-      {error && <div className="banner banner-error text-sm">{error}</div>}
+      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
 
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h2 className="text-lg font-semibold mb-4">Today&apos;s Account</h2>

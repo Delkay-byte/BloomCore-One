@@ -96,8 +96,8 @@ export default function MfaSettings() {
         )}
       </div>
 
-      {message && <div className="banner banner-success text-sm" role="status">{message}</div>}
-      {error && <div className="banner banner-error text-sm" role="alert">{error}</div>}
+      {message && <div role="status" className="banner banner-success text-sm">{message}</div>}
+      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
 
       {qr && (
         <div className="rounded-lg border border-slate-200 p-4">
