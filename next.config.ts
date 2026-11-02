@@ -12,10 +12,10 @@ import type { NextConfig } from "next";
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com", // Next.js hydration + Turnstile
-  "style-src 'self' 'unsafe-inline'",                   // Tailwind + inline styles
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tailwind + Google Fonts
   "img-src 'self' data: blob:",
-  "font-src 'self'",
-  "connect-src 'self' https://challenges.cloudflare.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "connect-src 'self' https://challenges.cloudflare.com https://*.challenges.cloudflare.com data: blob:",
   "frame-src https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
