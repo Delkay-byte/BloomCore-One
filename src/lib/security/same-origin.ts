@@ -17,14 +17,44 @@ function configuredOrigins(): string[] {
     .filter(Boolean);
 }
 
+function expectedOrigins(request: NextRequest): Set<string> {
+  const origins = new Set<string>();
+  try {
+    origins.add(new URL(request.url).origin);
+  } catch {
+    // Fall through to configured/proxy origins.
+  }
+  for (const value of [process.env.NEXTAUTH_URL, process.env.APP_URL]) {
+    if (!value) continue;
+    try {
+      origins.add(new URL(value).origin);
+    } catch {
+      // Ignore malformed configuration; it cannot widen the allow-list.
+    }
+  }
+  // Render terminates TLS at its proxy and forwards the public host/proto.
+  // Only trust these headers when explicitly configured for a trusted proxy.
+  if (process.env.TRUSTED_PROXY_HEADERS === "true") {
+    const host = request.headers.get("x-forwarded-host");
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    if (host && /^[a-z0-9.:-]+$/i.test(host) && (proto === "https" || proto === "http")) {
+      origins.add(`${proto}://${host}`);
+    }
+    const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME;
+    if (renderHost) origins.add(`https://${renderHost}`);
+  }
+  return origins;
+}
+
 export function isSameOriginRequest(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
-  const expected = new URL(request.url).origin;
+  const allowed = expectedOrigins(request);
 
   if (origin) {
-    if (origin === expected) return true;
     try {
-      return configuredOrigins().includes(new URL(origin).origin);
+      const normalized = new URL(origin).origin;
+      if (allowed.has(normalized)) return true;
+      return configuredOrigins().includes(normalized);
     } catch {
       return false;
     }
