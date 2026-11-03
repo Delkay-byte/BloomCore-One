@@ -12,7 +12,7 @@ PostgreSQL 16 container, Chromium via Playwright.
 | CI | PASS | GitHub Actions run on PR #3 head |
 | Lint | PASS (0 errors, 78 warnings) | `npm run lint` |
 | Unit/integration tests | PASS — 42 files, 424 tests | `npm test` |
-| PostgreSQL tests | PASS — 6 files, 31 tests | `vitest --config vitest.pg.config.ts` |
+| PostgreSQL tests | PASS — 6 files, 32 tests | `vitest --config vitest.pg.config.ts` |
 | Browser E2E | PASS — 19 tests | `playwright test` |
 | Production build | PASS | `npm run build` |
 | Dependency audit | 0 critical, 6 high, 19 moderate (dev toolchain) | `npm audit` |

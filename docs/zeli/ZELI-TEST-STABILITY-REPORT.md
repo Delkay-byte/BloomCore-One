@@ -36,7 +36,7 @@ Five consecutive full-suite runs:
 | 5 | 424/424 passed | 93.47s |
 
 An earlier five-run validation before the commerce/provider feature also passed
-387/387 each time. Post-feature suite: 42 files, 424 tests passed.
+387/387 each time. Post-feature suite: 42 files, 424 tests passed. PostgreSQL: 32/32. Browser E2E: 19/19.
 
 PostgreSQL suite is run separately (`vitest.pg.config.ts`), not in parallel with
 SQLite tests. Browser tests remain a separate Playwright run.
