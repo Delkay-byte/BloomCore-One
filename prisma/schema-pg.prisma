@@ -18,27 +18,27 @@ datasource db {
 // =====================
 
 model User {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   tenantId           String?
-  email              String   @unique
+  email              String    @unique
   fullName           String
   phone              String?
-  role               String   @default("worker") // admin | worker | collector (primary role)
-  status             String   @default("active")
+  role               String    @default("worker") // admin | worker | collector (primary role)
+  status             String    @default("active")
   passwordHash       String
-  forcePasswordReset Boolean  @default(false)
-  momoEnabled        Boolean  @default(false) // Module capability: MoMo worker
-  susuEnabled        Boolean  @default(false) // Module capability: Susu collector
-  tokenVersion       Int      @default(0) // Bumped to invalidate existing sessions
-  mfaEnabled         Boolean  @default(false)
+  forcePasswordReset Boolean   @default(false)
+  momoEnabled        Boolean   @default(false) // Module capability: MoMo worker
+  susuEnabled        Boolean   @default(false) // Module capability: Susu collector
+  tokenVersion       Int       @default(0) // Bumped to invalidate existing sessions
+  mfaEnabled         Boolean   @default(false)
   mfaSecret          String? // AES-256-GCM encrypted TOTP secret
   mfaRecoveryCodes   String? // JSON array of SHA-256 recovery-code hashes
   mfaEnrolledAt      DateTime?
   mfaLastUsedAt      DateTime?
   mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
   locationId         String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   location              Location?            @relation(fields: [locationId], references: [id])
   dailyAccounts         DailyAccount[]
@@ -101,20 +101,20 @@ model DailyAccount {
   calculatedCashVariance Decimal @default(0)
   reconciliationNote     String?
 
-  status      String    @default("draft")
-  submittedAt DateTime?
-  reviewedAt  DateTime?
-  reviewedBy  String?
-  correctedAt   DateTime?
-  correctedById String?
+  status           String    @default("draft")
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  correctedAt      DateTime?
+  correctedById    String?
   correctionReason String?
-  revisionCount Int      @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  revisionCount    Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  location Location  @relation(fields: [locationId], references: [id])
-  worker   User      @relation(fields: [workerId], references: [id])
-  expenses Expense[]
+  location  Location               @relation(fields: [locationId], references: [id])
+  worker    User                   @relation(fields: [workerId], references: [id])
+  expenses  Expense[]
   revisions DailyAccountRevision[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -259,7 +259,7 @@ model SusuCycle {
 }
 
 model Contribution {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   tenantId       String?
   accountId      String
   cycleId        String
@@ -271,11 +271,11 @@ model Contribution {
   receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
   receivedByName String? // Free-text name of the staff who physically received the money
   recordedByName String? // Free-text name of the person who recorded the payment (display)
-  referenceId    String   @unique // Idempotency key - prevents duplicate submissions
+  referenceId    String    @unique // Idempotency key - prevents duplicate submissions
   notes          String?
-  createdAt      DateTime @default(now())
-  reversedAt      DateTime?
-  reversalOfId    String?  @unique // Original record when this row is a reversal
+  createdAt      DateTime  @default(now())
+  reversedAt     DateTime?
+  reversalOfId   String?   @unique // Original record when this row is a reversal
 
   account     SusuAccount              @relation(fields: [accountId], references: [id])
   cycle       SusuCycle                @relation(fields: [cycleId], references: [id])
@@ -314,21 +314,21 @@ model ContributionAllocation {
 }
 
 model Withdrawal {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   tenantId         String?
   accountId        String
   cycleId          String
   requestedAmount  Decimal // What the customer asked to withdraw
-  commissionAmount Decimal  @default(0) // Commission deducted (one-day contribution if first withdrawal)
+  commissionAmount Decimal   @default(0) // Commission deducted (one-day contribution if first withdrawal)
   netAmount        Decimal // Amount actually paid to customer
   remainingBalance Decimal // Balance left after withdrawal
-  status           String   @default("completed") // completed | pending | rejected
+  status           String    @default("completed") // completed | pending | rejected
   authorizedById   String // Admin who authorized
-  referenceId      String   @unique // Idempotency key
+  referenceId      String    @unique // Idempotency key
   notes            String?
-  createdAt        DateTime @default(now())
-  reversedAt      DateTime?
-  reversalOfId    String?  @unique // Original record when this row is a reversal
+  createdAt        DateTime  @default(now())
+  reversedAt       DateTime?
+  reversalOfId     String?   @unique // Original record when this row is a reversal
 
   account SusuAccount @relation(fields: [accountId], references: [id])
   cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
@@ -423,20 +423,20 @@ model CollectorCustomerAssignment {
 }
 
 model CollectorRemittance {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   tenantId       String?
   collectorId    String
   expectedAmount Decimal // Sum of recorded collections
   remittedAmount Decimal // Amount physically brought to office
   variance       Decimal // expected - remitted
-  status         String   @default("pending") // pending | reconciled | discrepancy
+  status         String    @default("pending") // pending | reconciled | discrepancy
   recordedById   String // Admin who recorded
-  referenceId    String   @unique // Idempotency key
+  referenceId    String    @unique // Idempotency key
   notes          String?
   reversedAt     DateTime?
   reversedById   String?
   reversalReason String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   collector Collector @relation(fields: [collectorId], references: [id])
 
@@ -596,6 +596,10 @@ model BusinessTenant {
   passwordResetTokens          PasswordResetToken[]
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
+  zeliEntitlements             ZeliEntitlement[]
+  zeliAnalyticsDaily           ZeliAnalyticsDaily[]
+  zeliAnalyticsRefreshes       ZeliAnalyticsRefresh[]
+  zeliEntitlementEvents        ZeliEntitlementEvent[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -747,22 +751,22 @@ model AccountRecoveryRequest {
 /// A private assistant conversation. Ownership is tenant + authenticated user;
 /// no cross-tenant or cross-user lookup is permitted.
 model ZeliConversation {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  userId       String
-  userType     String    @default("user") // user | customer | platform
-  title        String    @default("New conversation")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
-  messages     ZeliMessage[]
+  id        String        @id @default(cuid())
+  tenantId  String?
+  userId    String
+  userType  String        @default("user") // user | customer | platform
+  title     String        @default("New conversation")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime?
+  messages  ZeliMessage[]
 
   @@index([tenantId, userId, updatedAt])
   @@index([deletedAt])
 }
 
 model ZeliMessage {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   conversationId String
   role           String // user | assistant
   content        String
@@ -771,7 +775,7 @@ model ZeliMessage {
   provider       String?
   model          String?
   feedback       String? // helpful | unhelpful
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime @default(now())
 
   conversation ZeliConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -790,4 +794,134 @@ model ZeliUsage {
 
   @@unique([tenantId, userId, day])
   @@index([day])
+}
+
+// =====================
+// ZELI BUSINESS INTELLIGENCE
+// =====================
+
+/// A tenant's Zeli Business Intelligence entitlement. This is the single
+/// subscription/entitlement record for the product feature: there is no second
+/// billing architecture. Platform administrators manage it with an audited,
+/// reason-bearing workflow; tenant administrators can read access but cannot
+/// grant it to themselves.
+model ZeliEntitlement {
+  id            String    @id @default(cuid())
+  tenantId      String
+  featureKey    String    @default("zeli_analytics")
+  status        String    @default("active") // active | suspended | revoked
+  source        String    @default("manual") // manual | subscription
+  reason        String?
+  startsAt      DateTime  @default(now())
+  expiresAt     DateTime?
+  grantedById   String?
+  grantedByType String? // platform
+  suspendedAt   DateTime?
+  revokedAt     DateTime?
+  revokedById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant BusinessTenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  events ZeliEntitlementEvent[]
+
+  @@unique([tenantId, featureKey])
+  @@index([tenantId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// Append-only entitlement history. Every grant, suspension, revocation,
+/// reactivation and expiry sweep is recorded with a mandatory reason.
+model ZeliEntitlementEvent {
+  id             String    @id @default(cuid())
+  entitlementId  String?
+  tenantId       String
+  featureKey     String    @default("zeli_analytics")
+  action         String // granted | activated | suspended | revoked | expired
+  previousStatus String?
+  status         String
+  reason         String
+  actorId        String?
+  actorType      String // platform | system
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  entitlement ZeliEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+  tenant      BusinessTenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([entitlementId, createdAt])
+}
+
+/// Tenant-scoped daily analytics aggregate. Rows are derived from authoritative
+/// financial records and are rebuilt for a requested range, never edited by a
+/// browser. The unique key makes repeated refresh idempotent: a duplicate event
+/// updates the same row instead of double-counting.
+model ZeliAnalyticsDaily {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  businessDate       String // YYYY-MM-DD (UTC bucket)
+  scope              String   @default("all") // "all" or a location id
+  contributions      Decimal  @default(0)
+  contributionCount  Int      @default(0)
+  withdrawals        Decimal  @default(0)
+  withdrawalCount    Int      @default(0)
+  commissions        Decimal  @default(0)
+  remittances        Decimal  @default(0)
+  remittanceVariance Decimal  @default(0)
+  remittanceCount    Int      @default(0)
+  expenses           Decimal  @default(0)
+  expenseCount       Int      @default(0)
+  cashIncome         Decimal  @default(0)
+  transactionCount   Int      @default(0)
+  activeCustomers    Int      @default(0)
+  newCustomers       Int      @default(0)
+  refreshedAt        DateTime @default(now())
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, scope, businessDate])
+  @@index([tenantId, businessDate])
+  @@index([tenantId, scope, businessDate])
+}
+
+/// Refresh bookkeeping for a tenant/scope/range. Used for freshness labels,
+/// retry visibility and operational health. It stores no financial values.
+model ZeliAnalyticsRefresh {
+  id          String   @id @default(cuid())
+  tenantId    String
+  scope       String   @default("all")
+  rangeStart  String
+  rangeEnd    String
+  status      String   @default("ok") // ok | failed
+  rowCount    Int      @default(0)
+  durationMs  Int      @default(0)
+  error       String?
+  refreshedAt DateTime @default(now())
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, scope, rangeStart, rangeEnd])
+  @@index([tenantId, refreshedAt])
+}
+
+/// Privacy gateway decision log. It records that a payload was allowed or
+/// denied and why, with only allow-list category names and counts. It never
+/// stores payload values, customer records or prompts.
+model ZeliProviderGatewayEvent {
+  id                   String   @id @default(cuid())
+  tenantId             String?
+  provider             String
+  decision             String // allowed | denied
+  reason               String
+  policyVersion        String
+  payloadCategories    String? // JSON array of allow-listed metric names
+  observationCount     Int?
+  suppressedGroupCount Int?
+  createdAt            DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([decision])
 }

@@ -103,12 +103,20 @@ export default function TabSessionGuard({ children }: { children: React.ReactNod
     getServerSnapshot
   );
   const [verification, setVerification] = useState<Verification>("pending");
+  // sessionStorage is not available during server rendering. Wait for the
+  // client store to hydrate before deciding the tab is unauthenticated;
+  // otherwise a normal full-page load would race the hydration and redirect an
+  // already-authenticated tab to /login.
+  const [hydrated, setHydrated] = useState(false);
   const [notice, setNotice] = useState("");
   const lastChecked = useRef(0);
   const inFlight = useRef(false);
   const mounted = useRef(true);
 
-  const allowed = pathname === "/admin/login" || tabAuthenticated;
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  const allowed = pathname === "/admin/login" || (hydrated && tabAuthenticated);
   const sessionModule = moduleForPath(pathname);
 
   const verify = useCallback(
@@ -232,11 +240,12 @@ export default function TabSessionGuard({ children }: { children: React.ReactNod
   }, [allowed, verify]);
 
   useEffect(() => {
+    if (!hydrated) return;
     if (!allowed) {
       // This tab never completed a login — redirect before rendering anything.
       router.replace("/login");
     }
-  }, [allowed, router]);
+  }, [allowed, hydrated, router]);
 
   if (!allowed) {
     return (
