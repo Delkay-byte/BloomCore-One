@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireTenantAdmin } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { assertZeliAvailable } from "@/lib/zeli/availability";
 import { randomBytes } from "crypto";
 import {
   cancelZeliSubscription,
@@ -23,6 +24,7 @@ export async function startZeliCheckout(
   planCode: string
 ): Promise<BillingActionResponse<{ authorizationUrl: string }>> {
   try {
+    await assertZeliAvailable();
     const ctx = await requireTenantAdmin();
     const code = String(planCode ?? "").trim();
     if (!/^[a-z0-9][a-z0-9_-]{2,60}$/i.test(code)) {
@@ -145,6 +147,7 @@ export async function startZeliTrial(
   planCode: string
 ): Promise<BillingActionResponse<{ trialEndsAt: string }>> {
   try {
+    await assertZeliAvailable();
     const ctx = await requireTenantAdmin();
     const plan = await db.zeliPlan.findUnique({ where: { code: planCode } });
     if (!plan || plan.status !== "active" || !plan.isPublic || plan.trialDays <= 0) {

@@ -16,6 +16,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
   const [tenantName, setTenantName] = useState<string | null>(null);
+  const [zeliEnabled, setZeliEnabled] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,6 +24,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelled && data?.tenant?.name) setTenantName(data.tenant.name);
+        if (!cancelled) setZeliEnabled(Boolean(data?.tenant?.zeliEnabled));
       })
       .catch(() => undefined);
     return () => {
@@ -47,7 +49,9 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
                 <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-50">
                   <button onClick={() => { router.push("/worker/dashboard"); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard size={15} className="inline mr-2 -mt-0.5" aria-hidden />Dashboard</button>
-                  <button onClick={() => { router.push("/zeli"); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"><Sparkles size={15} className="inline mr-2 -mt-0.5" aria-hidden />Zeli Assistant</button>
+                  {zeliEnabled && (
+                    <button onClick={() => { router.push("/zeli"); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"><Sparkles size={15} className="inline mr-2 -mt-0.5" aria-hidden />Zeli Assistant</button>
+                  )}
                   <button onClick={() => { router.push("/worker/settings"); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"><Settings size={15} className="inline mr-2 -mt-0.5" aria-hidden />Settings</button>
                   <hr className="my-1" />
                   <ConfirmSignOutButton

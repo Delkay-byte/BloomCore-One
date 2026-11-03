@@ -2,6 +2,8 @@ import { requireTenantAdmin } from "@/lib/tenant";
 import { getZeliAnalyticsDashboard } from "@/lib/actions/zeli-analytics.actions";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 import { getZeliSubscriptionSummary } from "@/lib/actions/zeli-billing.actions";
+import { getZeliAvailability } from "@/lib/zeli/availability";
+import ZeliUnavailable from "@/components/zeli/ZeliUnavailable";
 import type { PeriodPreset } from "@/lib/zeli/intelligence/period";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +26,10 @@ export default async function ZeliAnalyticsPage({
   }>;
 }) {
   await requireTenantAdmin();
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) {
+    return <ZeliUnavailable reason={availability.reason} />;
+  }
   const params = await searchParams;
   const period = (params.period || "this_month") as PeriodPreset;
   const result = await getZeliAnalyticsDashboard({

@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/tenant";
 import { runZeliTurn, ZeliUsageError } from "@/lib/zeli/service";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 import type { ZeliIdentity } from "@/lib/zeli/types";
+import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
 
 async function identity(): Promise<ZeliIdentity | null> {
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
@@ -26,6 +27,8 @@ async function identity(): Promise<ZeliIdentity | null> {
  * Generation is server-side; the client cannot choose a provider, tenant or tool.
  */
 export async function POST(request: NextRequest) {
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) return zeliUnavailableResponse();
   if (!isSameOriginRequest(request)) return crossOriginDenied();
   const who = await identity();
   if (!who) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });

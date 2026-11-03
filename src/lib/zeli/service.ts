@@ -3,6 +3,7 @@ import { getZeliProvider } from "./provider";
 import { buildZeliContext, sourcesFor } from "./tools";
 import type { ZeliIdentity, ZeliSource, ZeliToolOutcome } from "./types";
 import { ProviderUnavailableError } from "./mock-provider";
+import { assertZeliAvailable } from "./availability";
 import {
   answerAdminBusinessQuestion,
   unsupportedAnswer,
@@ -104,6 +105,7 @@ export async function runZeliTurn(params: {
   conversationId: string;
   question: string;
 }): Promise<ZeliTurnResult> {
+  await assertZeliAvailable();
   const question = params.question.trim();
   if (question.length < 1 || question.length > 4000) {
     throw new ZeliUsageError("Enter a question between 1 and 4000 characters.");

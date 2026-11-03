@@ -11,6 +11,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // module must not see — or be invited into — that module's navigation.
   const [modules, setModules] = useState<{ momo: boolean; susu: boolean } | null>(null);
   const [analytics, setAnalytics] = useState(false);
+  const [zeliEnabled, setZeliEnabled] = useState(true);
   // The business's own name, shown beside the BloomCore One identity so a
   // tenant administrator always sees which workspace they are working in.
   const [tenantName, setTenantName] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           setModules({ momo: !!data.tenant.momoEnabled, susu: !!data.tenant.susuEnabled });
           setTenantName(data.tenant.name ?? null);
           setAnalytics(Boolean(data.tenant.zeliAnalytics));
+          setZeliEnabled(Boolean(data.tenant.zeliEnabled));
         } else {
           setModules({ momo: true, susu: true });
         }
@@ -52,7 +54,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       .map((section) => ({
         ...section,
         items: section.items.filter(
-          (item) => item.href !== "/admin/zeli-analytics" || analytics
+          (item) =>
+            (item.href !== "/admin/zeli-analytics" || analytics) &&
+            (item.href !== "/zeli" || zeliEnabled)
         ),
       }))
       .filter((section) => section.items.length > 0);

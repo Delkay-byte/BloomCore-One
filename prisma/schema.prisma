@@ -1068,3 +1068,15 @@ model ZeliProviderUsage {
   @@index([decision, createdAt])
   @@index([provider, createdAt])
 }
+
+/// Entire-Zeli master switch. Separate from the external-AI provider control.
+/// A missing row is treated as unavailable (fail closed); the migration inserts
+/// an enabled row so existing installations preserve availability.
+model ZeliAvailability {
+  id          String   @id @default("global")
+  enabled     Boolean  @default(true)
+  reason      String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

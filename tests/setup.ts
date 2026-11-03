@@ -62,6 +62,11 @@ export async function cleanDatabase() {
     prisma.authThrottle.deleteMany(),
     prisma.turnstileTokenUse.deleteMany(),
   ]);
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "Test default" },
+    update: { enabled: true, reason: "Test default" },
+  });
 }
 
 /**

@@ -149,6 +149,12 @@ async function main() {
     });
   }
 
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "Staging default" },
+    update: { enabled: true, reason: "Staging default" },
+  });
+
   const platformEmail = "platform@staging.bloomcore.test";
   await prisma.platformSuperAdmin.upsert({
     where: { email: platformEmail },

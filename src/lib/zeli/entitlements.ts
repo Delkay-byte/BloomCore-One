@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { getTenantContext, requireTenantAdmin, type TenantContext } from "@/lib/tenant";
+import { assertZeliAvailable } from "./availability";
 
 /**
  * Zeli Business Intelligence entitlement.
@@ -144,6 +145,11 @@ export async function getZeliAnalyticsAccess(
  * unless the caller is a tenant administrator with a live entitlement.
  */
 export async function getApiZeliAnalyticsContext(): Promise<TenantContext | null> {
+  try {
+    await assertZeliAvailable();
+  } catch {
+    return null;
+  }
   const ctx = await getTenantContext("admin");
   if (!ctx || ctx.role !== "admin") return null;
   const access = await getZeliAnalyticsAccess(ctx);
@@ -157,6 +163,7 @@ export async function getApiZeliAnalyticsContext(): Promise<TenantContext | null
  * screen. No analytics query runs before this resolves.
  */
 export async function requireZeliAnalyticsContext(): Promise<TenantContext> {
+  await assertZeliAvailable();
   const ctx = await requireTenantAdmin();
   const access = await getZeliAnalyticsAccess(ctx);
   if (!access.allowed) {

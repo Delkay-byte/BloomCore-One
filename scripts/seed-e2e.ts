@@ -289,6 +289,12 @@ async function main() {
     },
   });
 
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "E2E default" },
+    update: { enabled: true, reason: "E2E default" },
+  });
+
   await prisma.platformSuperAdmin.create({
     data: {
       id: "e2e-platform-admin",

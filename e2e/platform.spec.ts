@@ -25,7 +25,7 @@ test.describe("Platform Zeli control centre", () => {
     await expect(page.getByTestId("zeli-entitlement-panel")).toBeVisible();
     await expect(page.getByText("No Zeli Analytics entitlement exists.")).toBeVisible();
 
-    await page.locator("textarea").first().fill("Approved paid pilot pending owner sign-off");
+    await page.getByTestId("zeli-entitlement-panel").locator("textarea").first().fill("Approved paid pilot pending owner sign-off");
     await page.getByRole("button", { name: "Grant entitlement" }).click();
     await expect(page.getByText("Entitlement granted recorded.")).toBeVisible();
     await expect(page.getByText("granted", { exact: true }).first()).toBeVisible();
@@ -34,7 +34,7 @@ test.describe("Platform Zeli control centre", () => {
     await expect(history.getByText("approved paid pilot", { exact: false })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
-    await page.locator("textarea").first().fill("Pilot ended and access must close immediately");
+    await page.getByTestId("zeli-entitlement-panel").locator("textarea").first().fill("Pilot ended and access must close immediately");
     await page.getByRole("button", { name: "Revoke" }).click();
     await expect(page.getByText("Entitlement revoke recorded.")).toBeVisible();
     await expect(history.getByText("revoked", { exact: true }).first()).toBeVisible();
@@ -87,5 +87,48 @@ test.describe("Platform Zeli commerce and provider controls", () => {
     await page.goto("/admin/zeli-analytics/upgrade");
     await expect(page.getByText("Analytics is not enabled for this business")).toBeVisible();
     await expect(page.getByText("Subscription checkout is not configured yet.", { exact: false })).toBeVisible();
+  });
+});
+
+test.describe("Global Zeli availability master switch", () => {
+  test("disables all tenant Zeli surfaces and re-enables them", async ({ page }) => {
+    await loginPlatform(page);
+    await page.goto("/platform/zeli");
+    const panel = page.getByTestId("zeli-availability");
+    await expect(panel.getByText("Global Zeli Availability")).toBeVisible();
+    await panel.locator("textarea").fill("E2E entire Zeli maintenance window");
+    page.once("dialog", (dialog) => dialog.accept());
+    await panel.getByRole("button", { name: "Disable Zeli" }).click();
+    await expect(panel.getByText("ZELI OFF")).toBeVisible();
+
+    // Tenant-facing surfaces are unavailable while platform controls remain.
+    await page.context().clearCookies();
+    await page.goto("/admin/login");
+    await page.locator("#email").fill("e2e-admin-a@test.local");
+    await page.locator("#password").fill("E2ePass123!");
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await page.waitForURL(/\/admin\/dashboard/);
+    await page.evaluate(() => sessionStorage.setItem("bik-tab-session", "1"));
+    await page.goto("/zeli");
+    await expect(page.getByText("Zeli is temporarily unavailable")).toBeVisible();
+    await page.goto("/admin/zeli-analytics");
+    await expect(page.getByText("Zeli is temporarily unavailable")).toBeVisible();
+    const exportResponse = await page.request.get("/api/zeli/analytics/export?period=this_month");
+    expect(exportResponse.status()).toBe(503);
+
+    // Platform admin can still access controls and restore service.
+    await page.context().clearCookies();
+    await page.goto("/platform/login");
+    await page.locator("#email").fill("e2e-platform@test.local");
+    await page.locator("#password").fill("E2ePass123!");
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await page.waitForURL(/\/platform\/dashboard/);
+    await page.goto("/platform/zeli");
+    const panelAgain = page.getByTestId("zeli-availability");
+    await expect(panelAgain.getByText("ZELI OFF")).toBeVisible();
+    await panelAgain.locator("textarea").fill("E2E maintenance complete and verified");
+    page.once("dialog", (dialog) => dialog.accept());
+    await panelAgain.getByRole("button", { name: "Enable Zeli" }).click();
+    await expect(panelAgain.getByText("ZELI ON")).toBeVisible();
   });
 });

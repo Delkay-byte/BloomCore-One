@@ -13,6 +13,8 @@ import {
   paymentProviderStatus,
 } from "@/lib/payments/zeli-subscriptions";
 import CheckoutPlans from "./CheckoutPlans";
+import { getZeliAvailability } from "@/lib/zeli/availability";
+import ZeliUnavailable from "@/components/zeli/ZeliUnavailable";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,10 @@ export default async function ZeliAnalyticsUpgradePage({
   searchParams: Promise<{ reason?: string }>;
 }) {
   const ctx = await requireTenantAdmin();
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) {
+    return <ZeliUnavailable reason={availability.reason} />;
+  }
   const params = await searchParams;
   const entitlement = await getZeliEntitlement(ctx.tenantId);
   const access = evaluateZeliAccess({ role: ctx.role, entitlement });

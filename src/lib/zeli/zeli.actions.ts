@@ -9,6 +9,7 @@ import {
   ZeliUsageError,
 } from "@/lib/zeli/service";
 import type { ZeliIdentity } from "@/lib/zeli/types";
+import { getZeliAvailability, UNAVAILABLE_MESSAGE } from "@/lib/zeli/availability";
 
 export interface ZeliActionResponse<T = unknown> {
   success: boolean;
@@ -17,6 +18,7 @@ export interface ZeliActionResponse<T = unknown> {
 }
 
 async function resolveIdentity(): Promise<ZeliIdentity | null> {
+  if (!(await getZeliAvailability()).enabled) return null;
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
     const ctx = await getTenantContext(moduleName);
     if (ctx) {
@@ -69,6 +71,8 @@ export async function getZeliBootstrap(): Promise<
     role: string;
   }>
 > {
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) return { success: false, error: UNAVAILABLE_MESSAGE };
   const identity = await resolveIdentity();
   if (!identity) return { success: false, error: "Not authenticated" };
   return {

@@ -61,6 +61,11 @@ export async function cleanDatabase() {
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
   await prisma.businessTenant.deleteMany();
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "Test default" },
+    update: { enabled: true, reason: "Test default" },
+  });
 }
 
 export function refId(prefix: string) { return `${prefix}-TEST-${randomBytes(4).toString("hex")}`; }
