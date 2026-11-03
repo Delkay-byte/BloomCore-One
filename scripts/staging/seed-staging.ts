@@ -11,6 +11,7 @@
  *   STAGING_SEED_PASSWORD=<strong temporary password>
  */
 import { randomBytes } from "crypto";
+import { writeFileSync } from "fs";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
@@ -168,8 +169,17 @@ async function main() {
     update: { status: "active", forcePasswordReset: true },
   });
 
-  console.log("STAGING SEED COMPLETE — deliver these out of band, never commit them:");
-  console.log(JSON.stringify({ password, platformEmail, accounts }, null, 2));
+  const outputFile = process.env.STAGING_SEED_OUTPUT_FILE;
+  const payload = JSON.stringify({ password, platformEmail, accounts }, null, 2);
+  if (outputFile) {
+    writeFileSync(outputFile, payload, { encoding: "utf8", mode: 0o600 });
+    console.log("STAGING SEED COMPLETE. Credentials written to the operator-specified secure file.");
+    console.log(`Accounts: ${accounts.length}; platform admin: ${platformEmail}`);
+  } else {
+    // Never print passwords to a shared log. The operator must supply a secure
+    // output file (outside the repository) or deliver credentials out of band.
+    console.log("STAGING SEED COMPLETE. Set STAGING_SEED_OUTPUT_FILE to receive credentials.");
+  }
 }
 
 main()

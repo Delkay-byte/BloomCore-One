@@ -11,9 +11,9 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Typecheck | PASS | `npm run typecheck` |
 | CI | PASS | GitHub Actions run on PR #3 head |
 | Lint | PASS (0 errors, 78 warnings) | `npm run lint` |
-| Unit/integration tests | PASS — 42 files, 424 tests | `npm test` |
+| Unit/integration tests | PASS — 44 files, 435 tests | `npm test` |
 | PostgreSQL tests | PASS — 6 files, 32 tests | `vitest --config vitest.pg.config.ts` |
-| Browser E2E | PASS — 19 tests | `playwright test` |
+| Browser E2E | PASS — 20 tests | `playwright test` |
 | Production build | PASS | `npm run build` |
 | Dependency audit | 0 critical, 6 high, 19 moderate (dev toolchain) | `npm audit` |
 | Migration verification | PASS (10 migrations) | `prisma migrate deploy` against PostgreSQL 16 |
@@ -84,6 +84,11 @@ PostgreSQL 16 container, Chromium via Playwright.
   locked, synthetic environment permission, emergency stop override.
 - `zeli-commerce-actions.test.ts` (5): platform plan management, mandatory reason,
   invalid price/currency, no seeded price, tenant exclusion.
+- `zeli-availability.test.ts` (6): missing row, immediate toggle, all roles,
+  chat API 503, export 503, analytics action denial.
+- `zeli-availability-actions.test.ts` (5): platform-only authorization,
+  mandatory reason, previous/new audit, provider-control independence, Paystack
+  webhook unaffected.
 - `zeli-advanced-insights.test.ts` (3): dormant accounts, contribution
   consistency, reporting gaps, collector concentration, rich recommendations.
 

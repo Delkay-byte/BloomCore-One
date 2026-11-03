@@ -11,7 +11,7 @@ not deployment.
 | Security closeout | READY | PR #1 merged to `main` (`1d0645c`); daily-account correction screen included. |
 | Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
 | Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
-| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging review pending. |
+| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging deployment/verification recorded separately. |
 | Subscription entitlements | READY WITH LIMITATIONS | Paystack checkout, webhook lifecycle and manual overrides implemented; test-key configuration required. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
 | External provider readiness | READY WITH LIMITATIONS | Adapter, three-state control and synthetic mode implemented; production locked; no key/live probe locally. |
@@ -76,3 +76,11 @@ Do not deploy until:
 4. Owner approves production deployment explicitly.
 5. `prisma migrate deploy` is run by the operator against the approved database.
 6. Staging, privacy and penetration-test approvals are recorded.
+
+## Global availability addendum
+
+- Entire-Zeli master switch implemented and enforced server-side.
+- Separate from external-AI mode and DeepSeek emergency stop.
+- Migration preserves ON for existing installations; missing/error fails closed.
+- Subscription/payment lifecycle remains operational while Zeli is OFF.
+- Browser and action tests cover OFF/ON and cross-role denial.
