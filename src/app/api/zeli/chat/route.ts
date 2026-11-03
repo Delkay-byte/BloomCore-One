@@ -5,15 +5,15 @@ import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-orig
 import type { ZeliIdentity } from "@/lib/zeli/types";
 
 async function identity(): Promise<ZeliIdentity | null> {
-  for (const module of ["admin", "momo", "susu", "customer"] as const) {
-    const ctx = await getTenantContext(module);
+  for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
+    const ctx = await getTenantContext(moduleName);
     if (ctx) {
       return {
         userId: ctx.userId,
         fullName: "",
         role: ctx.role as ZeliIdentity["role"],
         tenantId: ctx.tenantId,
-        module,
+        module: moduleName,
       };
     }
   }
