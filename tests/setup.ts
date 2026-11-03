@@ -32,14 +32,6 @@ export async function cleanDatabase() {
   await prisma.passwordResetToken.deleteMany();
   await prisma.offlineTransaction.deleteMany();
   await prisma.deviceEnrollment.deleteMany();
-  await prisma.zeliProviderGatewayEvent.deleteMany();
-  await prisma.zeliAnalyticsDaily.deleteMany();
-  await prisma.zeliAnalyticsRefresh.deleteMany();
-  await prisma.zeliEntitlementEvent.deleteMany();
-  await prisma.zeliEntitlement.deleteMany();
-  await prisma.zeliMessage.deleteMany();
-  await prisma.zeliConversation.deleteMany();
-  await prisma.zeliUsage.deleteMany();
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
   await prisma.businessTenant.deleteMany();

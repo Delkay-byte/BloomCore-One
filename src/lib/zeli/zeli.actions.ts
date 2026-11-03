@@ -17,15 +17,15 @@ export interface ZeliActionResponse<T = unknown> {
 }
 
 async function resolveIdentity(): Promise<ZeliIdentity | null> {
-  for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
-    const ctx = await getTenantContext(moduleName);
+  for (const module of ["admin", "momo", "susu", "customer"] as const) {
+    const ctx = await getTenantContext(module);
     if (ctx) {
       return {
         userId: ctx.userId,
         fullName: "",
         role: ctx.role as ZeliIdentity["role"],
         tenantId: ctx.tenantId,
-        module: moduleName,
+        module,
       };
     }
   }

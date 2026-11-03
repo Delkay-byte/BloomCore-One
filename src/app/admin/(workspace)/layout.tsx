@@ -10,7 +10,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // /api/auth/me), never from a browser flag. A business not enrolled for a
   // module must not see — or be invited into — that module's navigation.
   const [modules, setModules] = useState<{ momo: boolean; susu: boolean } | null>(null);
-  const [analytics, setAnalytics] = useState(false);
   // The business's own name, shown beside the BloomCore One identity so a
   // tenant administrator always sees which workspace they are working in.
   const [tenantName, setTenantName] = useState<string | null>(null);
@@ -24,7 +23,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         if (data?.tenant) {
           setModules({ momo: !!data.tenant.momoEnabled, susu: !!data.tenant.susuEnabled });
           setTenantName(data.tenant.name ?? null);
-          setAnalytics(Boolean(data.tenant.zeliAnalytics));
         } else {
           setModules({ momo: true, susu: true });
         }
@@ -38,24 +36,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // Until the entitlement resolves, show non-module navigation only — the
   // server actions reject disabled modules anyway (fail closed).
   function visibleSections(): NavSection[] {
-    const base =
-      !modules
-        ? navSections.filter((s) => !s.title || s.title === "Administration")
-        : navSections.filter((s) => {
-            if (s.title === "MoMo") return modules.momo;
-            if (s.title === "Susu") return modules.susu;
-            return true;
-          });
-    // Zeli Analytics appears only for a tenant administrator with a live
-    // entitlement. The server still denies direct URL/API access.
-    return base
-      .map((section) => ({
-        ...section,
-        items: section.items.filter(
-          (item) => item.href !== "/admin/zeli-analytics" || analytics
-        ),
-      }))
-      .filter((section) => section.items.length > 0);
+    if (!modules) {
+      return navSections.filter((s) => !s.title || s.title === "Administration");
+    }
+    return navSections.filter((s) => {
+      if (s.title === "MoMo") return modules.momo;
+      if (s.title === "Susu") return modules.susu;
+      return true;
+    });
   }
 
   // TabSessionGuard gates the whole shell: a copied workspace URL opened in a

@@ -20,8 +20,8 @@ export class ProviderUnavailableError extends Error {
 
 /** Deterministic local provider used in development, tests and provider-disabled mode. */
 export class MockZeliProvider implements ZeliProvider {
-  name = "internal";
-  model = "rule-based";
+  name = "mock";
+  model = "deterministic-local";
 
   available() {
     return { ok: true as const };

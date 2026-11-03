@@ -7,10 +7,6 @@ import {
   isSessionCurrent,
 } from "@/lib/auth";
 import { getTenantContext } from "@/lib/tenant";
-import {
-  evaluateZeliAccess,
-  getZeliEntitlement,
-} from "@/lib/zeli/entitlements";
 
 /**
  * Return the authenticated user for the given module.
@@ -68,12 +64,6 @@ export async function GET(request: NextRequest) {
             : "customer";
 
   const tenant = await getTenantContext(resolvedModule);
-  // Navigation is rendered from server-resolved entitlements, never from a
-  // browser flag. The value is informational; every page and action re-checks.
-  const entitlement = tenant ? await getZeliEntitlement(tenant.tenantId) : null;
-  const analyticsAccess = tenant
-    ? evaluateZeliAccess({ role: tenant.role, entitlement })
-    : null;
 
   return NextResponse.json({
     ...user,
@@ -85,7 +75,6 @@ export async function GET(request: NextRequest) {
           momoEnabled: tenant.momoEnabled,
           susuEnabled: tenant.susuEnabled,
           modules: tenant.modules,
-          zeliAnalytics: Boolean(analyticsAccess?.allowed),
         }
       : null,
   });

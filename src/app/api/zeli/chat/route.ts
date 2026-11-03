@@ -5,15 +5,15 @@ import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-orig
 import type { ZeliIdentity } from "@/lib/zeli/types";
 
 async function identity(): Promise<ZeliIdentity | null> {
-  for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
-    const ctx = await getTenantContext(moduleName);
+  for (const module of ["admin", "momo", "susu", "customer"] as const) {
+    const ctx = await getTenantContext(module);
     if (ctx) {
       return {
         userId: ctx.userId,
         fullName: "",
         role: ctx.role as ZeliIdentity["role"],
         tenantId: ctx.tenantId,
-        module: moduleName,
+        module,
       };
     }
   }
@@ -57,12 +57,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // The answer is already complete. Send it once: there is deliberately no
-  // artificial "typing" animation that would imply a live model is thinking.
   const encoder = new TextEncoder();
+  const chunks = result.text.match(/[\s\S]{1,24}/g) ?? [result.text];
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(result.text));
+    async start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+        await new Promise((resolve) => setTimeout(resolve, 12));
+      }
       controller.close();
     },
   });
@@ -73,9 +75,6 @@ export async function POST(request: NextRequest) {
       "cache-control": "no-store",
       "x-zeli-provider": result.provider,
       "x-zeli-provider-available": String(result.providerAvailable),
-      "x-zeli-provider-kind": "internal-deterministic",
-      "x-zeli-external-ai": "disabled",
-      "x-zeli-intent": result.intent,
     },
   });
 }

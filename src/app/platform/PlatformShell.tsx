@@ -10,7 +10,6 @@ import {
   LifeBuoy,
   LogOut,
   Settings,
-  Sparkles,
   UserPlus,
 } from "lucide-react";
 import { platformLogout } from "@/lib/actions/platform.actions";
@@ -22,7 +21,6 @@ const navItems = [
   { href: "/platform/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/platform/tenants", label: "Businesses", icon: Building2 },
   { href: "/platform/tenants/new", label: "Enroll Business", icon: UserPlus },
-  { href: "/platform/zeli", label: "Zeli", icon: Sparkles },
   { href: "/platform/audit", label: "Activity History", icon: FileClock },
   { href: "/platform/recovery", label: "Account Recovery", icon: LifeBuoy },
   { href: "/platform/settings", label: "Platform Settings", icon: Settings },
