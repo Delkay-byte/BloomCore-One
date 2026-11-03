@@ -1,36 +1,26 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
+import ErrorView from "@/components/ui/ErrorView";
 
 export default function CustomerDetailError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry?: () => void;
 }) {
   useEffect(() => {
-    console.error("Customer detail page error:", error);
+    console.error("[CUSTOMER DETAIL ERROR]", error);
   }, [error]);
 
   return (
-    <div className="min-h-[50vh] flex items-center justify-center px-4">
-      <div className="text-center max-w-md">
-        <p className="text-4xl mb-4">⚠️</p>
-        <h2 className="text-xl font-semibold text-slate-900 mb-2">Unable to load customer</h2>
-        <p className="text-slate-500 mb-6">
-          Something went wrong while loading this customer&apos;s information.
-        </p>
-        <div className="flex gap-3 justify-center">
-          <button onClick={reset} className="btn btn-primary">
-            Reload
-          </button>
-          <Link href="/susu/admin/customers" className="btn btn-secondary">
-            Back to Customers
-          </Link>
-        </div>
-      </div>
-    </div>
+    <ErrorView
+      title="Unable to load customer"
+      message="We couldn't load this customer's information. No records were changed. Try again, or go back to the customer list."
+      onRetry={retry}
+      backHref="/susu/admin/customers"
+      backLabel="Back to customers"
+    />
   );
 }

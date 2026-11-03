@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonTable } from "@/components/ui/Skeletons";
 import { Banknote, X } from "lucide-react";
 import { getContributions, recordContribution } from "@/lib/actions/susu-contribution.actions";
 import { reverseContribution } from "@/lib/actions/financial-reversal.actions";
@@ -6,7 +7,9 @@ import { searchCustomers, searchStaff } from "@/lib/actions/susu-customer.action
 import { getCollectors } from "@/lib/actions/susu-collector.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useObjectDraft } from "@/hooks/useObjectDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import SmartSearch from "@/components/SmartSearch";
 
@@ -73,6 +76,33 @@ export default function SusuContributionsPage() {
   const [receivedByName, setReceivedByName] = useState("");
   const [recordedById, setRecordedById] = useState("");
   const [recordedByName, setRecordedByName] = useState("");
+  // Reused across retries so a timed-out request cannot record twice.
+  const contributionKeyRef = useRef<string | null>(null);
+
+  // Financial draft: fields are preserved locally, but nothing is submitted
+  // automatically. The user must still review and press Record Contribution.
+  const contributionDraft = useObjectDraft({
+    draftKey: "susu-contribution:new",
+    workflow: "susu.contribution.create",
+    enabled: showForm,
+    value: {
+      selectedCustomer, amount, channel, notes, selectedCollector,
+      receivedById, receivedByName, recordedById, recordedByName, searchQuery,
+    },
+    restore: (draft) => {
+      const value = draft as Record<string, unknown>;
+      if (value.selectedCustomer) setSelectedCustomer(value.selectedCustomer as CustomerSearchResult);
+      if (typeof value.amount === "string") setAmount(value.amount);
+      if (value.channel === "collector" || value.channel === "direct_office") setChannel(value.channel);
+      if (typeof value.notes === "string") setNotes(value.notes);
+      if (typeof value.selectedCollector === "string") setSelectedCollector(value.selectedCollector);
+      if (typeof value.receivedById === "string") setReceivedById(value.receivedById);
+      if (typeof value.receivedByName === "string") setReceivedByName(value.receivedByName);
+      if (typeof value.recordedById === "string") setRecordedById(value.recordedById);
+      if (typeof value.recordedByName === "string") setRecordedByName(value.recordedByName);
+      if (typeof value.searchQuery === "string") setSearchQuery(value.searchQuery);
+    },
+  });
 
   async function handleReverse(c: Contribution) {
     const reason = window.prompt(
@@ -184,11 +214,16 @@ export default function SusuContributionsPage() {
     setError("");
     setSuccess("");
 
+    const idempotencyKey =
+      contributionKeyRef.current ?? crypto.randomUUID();
+    contributionKeyRef.current = idempotencyKey;
+
     try {
       const result = await recordContribution({
         accountId: account.id,
         amount: amountNum,
         channel,
+        idempotencyKey,
         collectorId: channel === "collector" ? selectedCollector : undefined,
         receivedById: channel === "direct_office" ? receivedById : undefined,
         receivedByName: channel === "direct_office" ? receivedByName : undefined,
@@ -198,6 +233,7 @@ export default function SusuContributionsPage() {
       });
 
       if (result.success) {
+        contributionKeyRef.current = null;
         const collectorName = collectors.find((c) => c.id === selectedCollector)?.user?.fullName || "";
         const receivedByDisplay = channel === "direct_office" ? receivedByName : collectorName;
         setSuccess(
@@ -220,12 +256,17 @@ export default function SusuContributionsPage() {
           setRecordedById("");
           setRecordedByName("");
         }
+        await contributionDraft.clearDraft();
         loadContributions();
       } else {
+        // The server answered (validation, permission or duplicate). A new
+        // attempt may safely use a new key; a duplicate already posted once.
+        contributionKeyRef.current = null;
         setError(result.error || "Failed to record contribution");
       }
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return;
-      setError("An unexpected error occurred");
+      // Network failure: keep the same key so a retry reconciles the original.
+      setError("We couldn't confirm the result. Retry to check the same transaction.");
     } finally {
       setSubmitting(false);
     }
@@ -292,13 +333,13 @@ export default function SusuContributionsPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
@@ -453,6 +494,14 @@ export default function SusuContributionsPage() {
               />
             </div>
           </div>
+          <div className="mb-3">
+            <DraftIndicator
+              status={contributionDraft.status}
+              lastSavedAt={contributionDraft.lastSavedAt}
+              onDiscard={contributionDraft.clearDraft}
+              onAcknowledge={contributionDraft.acknowledgeRestored}
+            />
+          </div>
           <div className="flex gap-3 mt-4">
             <button
               onClick={handleRecord}
@@ -505,9 +554,7 @@ export default function SusuContributionsPage() {
       {/* Contributions List */}
       <div className="card">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="spinner"></div>
-          </div>
+          <SkeletonTable rows={8} columns={6} />
         ) : contributions.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Banknote size={36} /></p>

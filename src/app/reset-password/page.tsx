@@ -62,7 +62,7 @@ export default function ResetPasswordPage() {
               </p>
 
               {error && (
-                <div className="banner banner-error mb-4 text-sm">
+                <div role="alert" className="banner banner-error mb-4 text-sm">
                   {error}
                 </div>
               )}

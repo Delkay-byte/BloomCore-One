@@ -180,6 +180,8 @@ export const RATE_LIMITS = {
   adminSensitive: { limit: 30, windowMs: 10 * 60 * 1000 },
   /** Financial mutations, per subject. */
   financeMutation: { limit: 60, windowMs: 10 * 60 * 1000 },
+  /** Offline queue drain, per user. Leaves room for a normal route batch. */
+  offlineSync: { limit: 120, windowMs: 60 * 1000 },
   /** Expensive public endpoints (health/readiness excluded), per IP. */
   publicExpensive: { limit: 30, windowMs: 10 * 60 * 1000 },
 } as const;

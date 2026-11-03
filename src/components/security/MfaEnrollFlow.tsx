@@ -85,7 +85,7 @@ export default function MfaEnrollFlow() {
               </p>
 
               {error && (
-                <div className="banner banner-error mb-4 text-sm" role="alert">
+                <div role="alert" className="banner banner-error mb-4 text-sm">
                   {error}
                 </div>
               )}

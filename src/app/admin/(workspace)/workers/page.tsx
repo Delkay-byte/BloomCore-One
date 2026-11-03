@@ -1,7 +1,12 @@
 "use client";
+import { useOptimisticAction } from "@/hooks/useOptimisticAction";
+import { useToast } from "@/components/ui/Toast";
+import { SkeletonPage } from "@/components/ui/Skeletons";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 
 import { Users, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getWorkers, createWorker, toggleWorkerStatus } from "@/lib/actions/worker.actions";
 import { getActiveLocations } from "@/lib/actions/location.actions";
@@ -20,10 +25,18 @@ export default function WorkersPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const createDraft = useFormDraft(createFormRef, {
+    draftKey: "admin-worker:new",
+    workflow: "admin.worker.create",
+    enabled: showForm,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState("all");
+  const toast = useToast();
+  const optimistic = useOptimisticAction();
 
   useEffect(() => { loadData(); }, []);
 
@@ -38,15 +51,27 @@ export default function WorkersPage() {
     setSubmitting(true); setError(""); setSuccess("");
     try {
       const result = await createWorker(formData);
-      if (result.success) { setSuccess("Temporary password created — the worker must change it after first login. Share these credentials securely."); setShowForm(false); loadData(); }
+      if (result.success) { setSuccess("Temporary password created — the worker must change it after first login. Share these credentials securely."); setShowForm(false); await createDraft.clearDraft(); loadData(); }
       else setError(result.error || "Failed to create worker");
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setSubmitting(false); }
   }
 
   async function handleToggleStatus(workerId: string, currentStatus: string) {
     const newStatus = currentStatus === "active" ? "inactive" : "active";
-    try { const result = await toggleWorkerStatus(workerId, newStatus); if (result.success) loadData(); else setError(result.error || "Failed to update worker"); }
-    catch { setError("An unexpected error occurred"); }
+    const flip = (status: string) =>
+      setWorkers((list) =>
+        list.map((worker) => (worker.id === workerId ? { ...worker, status } : worker))
+      );
+    await optimistic.run({
+      apply: () => flip(newStatus),
+      rollback: () => flip(currentStatus),
+      action: () => toggleWorkerStatus(workerId, newStatus),
+      onSuccess: () => toast.push("success", "Worker status updated."),
+      onError: (message) => {
+        setError(message);
+        toast.push("error", message);
+      },
+    });
   }
 
   const filteredWorkers = workers.filter((w) => {
@@ -55,7 +80,7 @@ export default function WorkersPage() {
     return true;
   });
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="table" />;
 
   return (
     <div>
@@ -64,22 +89,30 @@ export default function WorkersPage() {
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">{showForm ? "Cancel" : "+ Add Worker"}</button>
       </div>
 
-      {error && <div className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
-      {success && <div className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
+      {error && <div role="alert" className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
+      {success && <div role="status" className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
 
       {showForm && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Create New Worker</h2>
-          <form action={handleCreate}>
+          <form ref={createFormRef} action={handleCreate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="form-group"><label className="form-label">Full Name *</label><input type="text" name="fullName" placeholder="Enter full name" required /></div>
-              <div className="form-group"><label className="form-label">Email *</label><input type="email" name="email" placeholder="worker@example.com" required /></div>
-              <div className="form-group"><label className="form-label">Phone</label><input type="tel" name="phone" placeholder="+233 XX XXX XXXX" /></div>
+              <div className="form-group"><label className="form-label">Full Name *</label><input type="text" name="fullName" autoComplete="name" placeholder="Enter full name" required /></div>
+              <div className="form-group"><label className="form-label">Email *</label><input type="email" name="email" autoComplete="email" placeholder="worker@example.com" required /></div>
+              <div className="form-group"><label className="form-label">Phone</label><input type="tel" name="phone" autoComplete="tel" placeholder="+233 XX XXX XXXX" /></div>
               <div className="form-group"><label className="form-label">Temporary Password *</label><PasswordInput name="password" placeholder="Min 8 chars, 1 uppercase, 1 number" required autoComplete="new-password" /><p className="form-hint">Temporary password created — the user must change this password after first login.</p></div>
               <div className="form-group"><label className="form-label">Assigned Location *</label><select name="locationId" required><option value="">Select a location</option>{locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name} ({loc.code})</option>)}</select></div>
               <div className="form-group"><label className="form-label">Status</label><select name="status" defaultValue="active"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
             </div>
-            <div className="flex gap-3 mt-4">
+<div className="mb-3">
+              <DraftIndicator
+                status={createDraft.status}
+                lastSavedAt={createDraft.lastSavedAt}
+                onDiscard={createDraft.clearDraft}
+                onAcknowledge={createDraft.acknowledgeRestored}
+              />
+            </div>
+                        <div className="flex gap-3 mt-4">
               <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? "Creating..." : "Create Worker"}</button>
               <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
             </div>

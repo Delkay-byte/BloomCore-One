@@ -31,10 +31,22 @@ export async function cleanDatabase() {
   await prisma.customer.deleteMany();
   await prisma.collector.deleteMany();
   await prisma.expense.deleteMany();
+  await prisma.dailyAccountRevision.deleteMany();
   await prisma.dailyAccount.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
+  await prisma.offlineTransaction.deleteMany();
+  await prisma.deviceEnrollment.deleteMany();
+  await prisma.sessionRecord.deleteMany();
+  await prisma.accountRecoveryRequest.deleteMany();
+  await prisma.rateLimitCounter.deleteMany();
+  await prisma.authThrottle.deleteMany();
+  await prisma.turnstileTokenUse.deleteMany();
+  await prisma.platformAuditLog.deleteMany();
+  await prisma.platformSuperAdmin.deleteMany();
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
+  await prisma.businessTenant.deleteMany();
 }
 
 export function refId(prefix: string) { return `${prefix}-TEST-${randomBytes(4).toString("hex")}`; }

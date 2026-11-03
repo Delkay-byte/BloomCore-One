@@ -131,7 +131,7 @@ export default function FirstLoginPasswordForm({
             </div>
 
             {error && (
-              <div className="banner banner-error mt-5 text-sm" role="alert">
+              <div role="alert" className="banner banner-error mt-5 text-sm">
                 {error}
               </div>
             )}

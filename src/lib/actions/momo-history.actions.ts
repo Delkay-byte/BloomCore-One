@@ -5,6 +5,7 @@ import { requireTenantAdminMomo } from "@/lib/tenant";
 
 export interface MoMoHistoryRecord {
   id: string;
+  dailyAccountId: string;
   date: Date;
   businessDate: Date;
   locationName: string;
@@ -109,6 +110,7 @@ export async function getMoMoHistory(params?: {
     const locName = account.location.name;
     const workName = account.worker.fullName;
     const base = {
+      dailyAccountId: account.id,
       date: account.createdAt,
       businessDate: account.businessDate,
       locationName: locName,

@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -113,13 +114,7 @@ export default function StaffDetailPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <SkeletonPage variant="detail" />;
 
   if (!staff) {
     return (
@@ -163,13 +158,13 @@ export default function StaffDetailPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button>
         </div>
@@ -183,15 +178,15 @@ export default function StaffDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
-                <input type="text" name="fullName" defaultValue={staff.fullName} required />
+                <input type="text" name="fullName" autoComplete="name" defaultValue={staff.fullName} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Email *</label>
-                <input type="email" name="email" defaultValue={staff.email} required />
+                <input type="email" name="email" autoComplete="email" defaultValue={staff.email} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input type="tel" name="phone" defaultValue={staff.phone || ""} />
+                <input type="tel" name="phone" autoComplete="tel" defaultValue={staff.phone || ""} />
               </div>
               <div className="form-group">
                 <label className="form-label">Status</label>

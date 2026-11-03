@@ -138,8 +138,8 @@ export default function AdminRecoveryPanel() {
         </div>
       </form>
 
-      {error && <div className="banner banner-error text-sm" role="alert">{error}</div>}
-      {message && <div className="banner banner-success text-sm" role="status">{message}</div>}
+      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
+      {message && <div role="status" className="banner banner-success text-sm">{message}</div>}
 
       {result && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">

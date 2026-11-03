@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/utils";
 import { isRedirectError } from "@/lib/errors";
+import { SkeletonCardList } from "@/components/ui/Skeletons";
 
 interface DeviceData {
   id: string;
@@ -113,9 +114,7 @@ export default function OfflineDevicesSettings() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="spinner"></div>
-        </div>
+        <SkeletonCardList items={3} />
       ) : devices.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           <p className="text-4xl mb-2">📱</p>

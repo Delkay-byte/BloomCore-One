@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonTable } from "@/components/ui/Skeletons";
 
 import { Landmark, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -6,6 +7,7 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getRemittances,
   recordRemittance,
+  reverseRemittance,
   getCollectors,
 } from "@/lib/actions/susu-collector.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
@@ -18,6 +20,8 @@ interface RemittanceRecord {
   variance: number;
   status: string;
   notes?: string | null;
+  reversedAt?: Date | null;
+  reversalReason?: string | null;
   createdAt: Date;
   collector: { user: { fullName: string } };
 }
@@ -115,6 +119,25 @@ export default function SusuRemittancesPage() {
     }
   }
 
+  async function handleReverse(record: RemittanceRecord) {
+    const reason = window.prompt(
+      "Reason for reversing this remittance (minimum 10 characters). The original record is kept and removed from active cash-handover totals."
+    );
+    if (!reason) return;
+    setError("");
+    setSuccess("");
+    const result = await reverseRemittance({
+      remittanceId: record.id,
+      reason,
+    });
+    if (!result.success) {
+      setError(result.error || "The remittance could not be reversed.");
+      return;
+    }
+    setSuccess("Remittance reversed. The original record remains in history.");
+    loadRemittances();
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -128,13 +151,13 @@ export default function SusuRemittancesPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
@@ -200,9 +223,7 @@ export default function SusuRemittancesPage() {
       {/* Remittances List */}
       <div className="card">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="spinner"></div>
-          </div>
+          <SkeletonTable rows={8} columns={6} />
         ) : remittances.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><Landmark size={36} /></p>
@@ -220,6 +241,7 @@ export default function SusuRemittancesPage() {
                     <th>Amount Handed In</th>
                     <th>Difference</th>
                     <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -246,6 +268,19 @@ export default function SusuRemittancesPage() {
                         >
                           {r.status === "reconciled" ? "Matches" : r.status === "discrepancy" ? "Short" : r.status}
                         </span>
+                      </td>
+                      <td>
+                        {r.reversedAt ? (
+                          <span className="text-xs text-slate-500">Reversed</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleReverse(r)}
+                            className="btn btn-secondary btn-sm"
+                          >
+                            Reverse
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

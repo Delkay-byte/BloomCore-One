@@ -1,7 +1,10 @@
 "use client";
+import { SkeletonTable } from "@/components/ui/Skeletons";
 
 import { CreditCard, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useObjectDraft } from "@/hooks/useObjectDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getWithdrawals, processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
 import { reverseWithdrawal } from "@/lib/actions/financial-reversal.actions";
@@ -57,6 +60,24 @@ export default function SusuWithdrawalsPage() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showReauth, setShowReauth] = useState(false);
+  // Reused across retries so a timed-out withdrawal cannot post twice.
+  const withdrawalKeyRef = useRef<string | null>(null);
+
+  // Financial draft. It never posts automatically and is cleared only after
+  // the server confirms the withdrawal.
+  const withdrawalDraft = useObjectDraft({
+    draftKey: "susu-withdrawal:new",
+    workflow: "susu.withdrawal.create",
+    enabled: showForm,
+    value: { selectedCustomer, withdrawAmount, notes, searchQuery },
+    restore: (draft) => {
+      const value = draft as Record<string, unknown>;
+      if (value.selectedCustomer) setSelectedCustomer(value.selectedCustomer as CustomerSearchResult);
+      if (typeof value.withdrawAmount === "string") setWithdrawAmount(value.withdrawAmount);
+      if (typeof value.notes === "string") setNotes(value.notes);
+      if (typeof value.searchQuery === "string") setSearchQuery(value.searchQuery);
+    },
+  });
 
   useEffect(() => {
     loadWithdrawals();
@@ -131,14 +152,20 @@ export default function SusuWithdrawalsPage() {
     setError("");
     setSuccess("");
 
+    const idempotencyKey =
+      withdrawalKeyRef.current ?? crypto.randomUUID();
+    withdrawalKeyRef.current = idempotencyKey;
+
     try {
       const result = await processWithdrawal({
         accountId: account.id,
         requestedAmount: amountNum,
         notes: notes || undefined,
+        idempotencyKey,
       });
 
       if (result.success) {
+        withdrawalKeyRef.current = null;
         const data = result.data as { commissionAmount: number; netAmount: number };
         setSuccess(
           `Withdrawal processed: ${formatCedi(amountNum)}${data.commissionAmount > 0 ? ` (commission: ${formatCedi(data.commissionAmount)})` : ""}`
@@ -148,12 +175,14 @@ export default function SusuWithdrawalsPage() {
         setSearchQuery("");
         setWithdrawAmount("");
         setNotes("");
+        await withdrawalDraft.clearDraft();
         loadWithdrawals();
       } else {
+        withdrawalKeyRef.current = null;
         setError(result.error || "Failed to process withdrawal");
       }
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return;
-      setError("An unexpected error occurred");
+      setError("We couldn't confirm the result. Retry to check the same withdrawal.");
     } finally {
       setSubmitting(false);
       setShowReauth(false);
@@ -173,13 +202,13 @@ export default function SusuWithdrawalsPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
         </div>
@@ -265,6 +294,14 @@ export default function SusuWithdrawalsPage() {
               />
             </div>
           </div>
+          <div className="mb-3">
+            <DraftIndicator
+              status={withdrawalDraft.status}
+              lastSavedAt={withdrawalDraft.lastSavedAt}
+              onDiscard={withdrawalDraft.clearDraft}
+              onAcknowledge={withdrawalDraft.acknowledgeRestored}
+            />
+          </div>
           <div className="flex gap-3 mt-4">
             <button
               onClick={handleProcessWithdrawal}
@@ -289,9 +326,7 @@ export default function SusuWithdrawalsPage() {
       {/* Withdrawals List */}
       <div className="card">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="spinner"></div>
-          </div>
+          <SkeletonTable rows={8} columns={6} />
         ) : withdrawals.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><CreditCard size={36} /></p>

@@ -66,6 +66,41 @@ export function totpCode(secret: string, now: number = Date.now()): string {
   return hotp(base32Decode(secret), Math.floor(now / 1000 / STEP_SECONDS));
 }
 
+export function totpStep(now: number = Date.now()): number {
+  return Math.floor(now / 1000 / STEP_SECONDS);
+}
+
+/**
+ * Return the matched time step, or null. Constant-time per candidate.
+ * The window allows ±N steps for normal clock drift.
+ */
+export function verifyTotpStep(
+  secret: string,
+  code: string,
+  now: number = Date.now(),
+  window = 1
+): number | null {
+  const normalized = code.replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(normalized)) return null;
+  const counter = totpStep(now);
+  let key: Buffer;
+  try {
+    key = base32Decode(secret);
+  } catch {
+    return null;
+  }
+  for (let offset = -window; offset <= window; offset += 1) {
+    const step = counter + offset;
+    const expected = hotp(key, step);
+    const left = Buffer.from(expected);
+    const right = Buffer.from(normalized);
+    if (left.length === right.length && timingSafeEqual(left, right)) {
+      return step;
+    }
+  }
+  return null;
+}
+
 /** Verify a code with a ±1 step window, in constant time. */
 export function verifyTotp(
   secret: string,

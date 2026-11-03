@@ -3,8 +3,10 @@ node_modules
 # Environment variables — NEVER commit secrets
 .env
 .env.local
+.env.pilot
 .env.pilot.local
 !.env.example
+!.env.pilot.example
 
 # Build output
 .next

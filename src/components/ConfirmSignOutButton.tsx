@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
+import { LogOut, RefreshCw, ShieldAlert } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
 import { clearTabSession } from "@/components/TabSessionGuard";
-import { getPendingCount } from "@/lib/offline/store";
-import { clearCurrentOfflineData } from "@/lib/offline/scope";
+import { getOfflineQueueSummary, type OfflineQueueSummary } from "@/lib/offline/store";
+import { syncBeforeSignOut, endOfflineSession } from "@/lib/offline/session";
 import { PRODUCT_NAME } from "@/lib/site";
 
 /**
  * Sign-out button with an explicit confirmation step.
- * If there are pending offline transactions, shows a warning before sign-out.
+ *
+ * Pending offline records are never deleted on sign-out. If the device is
+ * online the user can synchronize first; records that still cannot be sent stay
+ * in this user's isolated local database and are resumed when the same user
+ * signs in again on this device.
  */
 export default function ConfirmSignOutButton({
   className = "",
@@ -23,37 +27,71 @@ export default function ConfirmSignOutButton({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [step, setStep] = useState<"confirm" | "offline-warning">("confirm");
+  const [checking, setChecking] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [summary, setSummary] = useState<OfflineQueueSummary | null>(null);
+  const [notice, setNotice] = useState("");
 
   async function handleClick() {
-    // Check for pending offline transactions before showing dialog
+    setNotice("");
+    setOpen(true);
+    setChecking(true);
     try {
-      const count = await getPendingCount();
-      setPendingCount(count);
-      if (count > 0) {
-        setStep("offline-warning");
+      setSummary(await getOfflineQueueSummary());
+    } catch {
+      setSummary(null);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function trySync() {
+    setSyncing(true);
+    setNotice("");
+    try {
+      const result = await syncBeforeSignOut();
+      setSummary(await getOfflineQueueSummary());
+      if (result.pending === 0 && result.failed === 0) {
+        setNotice("All records synchronized. You can sign out now.");
+      } else if (result.offline) {
+        setNotice("Still offline. The records stay safely on this device.");
       } else {
-        setStep("confirm");
+        setNotice(
+          `${result.pending + result.failed} record${result.pending + result.failed === 1 ? "" : "s"} still need attention. They stay on this device.`
+        );
       }
     } catch {
-      // IndexedDB may not be available — show normal confirm
-      setStep("confirm");
+      setNotice("Synchronization could not run. The records stay on this device.");
+    } finally {
+      setSyncing(false);
     }
-    setOpen(true);
   }
 
   async function confirmSignOut() {
     setBusy(true);
     try {
       clearTabSession();
-      await clearCurrentOfflineData();
+      // Best effort: sync what can be synced, then close local access. Pending
+      // records are deliberately retained on disk.
+      await syncBeforeSignOut().catch(() => null);
+      endOfflineSession();
       await logout();
     } finally {
       setBusy(false);
       setOpen(false);
     }
   }
+
+  const pending = (summary?.pending ?? 0) + (summary?.failed ?? 0);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy && !syncing) setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, busy, syncing]);
 
   return (
     <>
@@ -69,63 +107,84 @@ export default function ConfirmSignOutButton({
           aria-modal="true"
           aria-labelledby="signout-title"
         >
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-            {step === "offline-warning" ? (
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 id="signout-title" className="text-lg font-semibold text-gray-900">
+              {checking
+                ? "Checking offline records…"
+                : pending > 0
+                  ? `${pending} record${pending === 1 ? "" : "s"} not yet synchronized`
+                  : "Sign out?"}
+            </h2>
+
+            {checking ? (
+              <p className="text-sm text-gray-600 mt-2">Reading this device&apos;s offline queue.</p>
+            ) : pending > 0 ? (
               <>
-                <h2 id="signout-title" className="text-lg font-semibold text-gray-900">
-                  {pendingCount} collection{pendingCount !== 1 ? "s" : ""} waiting to sync
-                </h2>
                 <p className="text-sm text-gray-600 mt-2">
-                  Signing out now will not send them to {PRODUCT_NAME}. Reconnect
-                  and sync before signing out where possible.
+                  These records are stored safely on this device for your account.
+                  Signing out will <strong>not</strong> delete them. Sign in again on
+                  this device as the same user to synchronize.
                 </p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="btn btn-secondary flex-1"
-                    disabled={busy}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={confirmSignOut}
-                    className="btn btn-danger flex-1"
-                    disabled={busy}
-                  >
-                    {busy ? "Signing out..." : "Sign Out Anyway"}
-                  </button>
+                <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+                  <ShieldAlert size={16} className="inline mr-1.5 -mt-0.5" aria-hidden />
+                  They are not in {PRODUCT_NAME}&apos;s central ledger until synchronization
+                  succeeds. Do not clear this browser&apos;s site data.
                 </div>
+                {summary && summary.failed > 0 && (
+                  <p className="text-xs text-red-700 mt-2">
+                    {summary.failed} record{summary.failed === 1 ? "" : "s"} need attention
+                    after repeated failures. They are kept for review.
+                  </p>
+                )}
               </>
             ) : (
-              <>
-                <h2 id="signout-title" className="text-lg font-semibold text-gray-900">
-                  Sign out?
-                </h2>
-                <p className="text-sm text-gray-600 mt-2">
-                  Are you sure you want to sign out of {PRODUCT_NAME}?
-                </p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="btn btn-secondary flex-1"
-                    disabled={busy}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={confirmSignOut}
-                    className="btn btn-danger flex-1"
-                    disabled={busy}
-                  >
-                    {busy ? "Signing out..." : "Sign Out"}
-                  </button>
-                </div>
-              </>
+              <p className="text-sm text-gray-600 mt-2">
+                Are you sure you want to sign out of {PRODUCT_NAME}?
+              </p>
             )}
+
+            {notice && (
+              <p className="text-sm text-slate-700 mt-3" role="status">
+                {notice}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-2 mt-6">
+              {pending > 0 && (
+                <button
+                  type="button"
+                  onClick={trySync}
+                  className="btn btn-primary w-full"
+                  disabled={busy || syncing || checking}
+                >
+                  {syncing ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" aria-hidden /> Synchronizing…
+                    </>
+                  ) : (
+                    "Synchronize now"
+                  )}
+                </button>
+              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="btn btn-secondary flex-1"
+                  disabled={busy || syncing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmSignOut}
+                  className={`btn flex-1 ${pending > 0 ? "btn-danger" : "btn-primary"}`}
+                  disabled={busy || syncing || checking}
+                >
+                  {busy ? "Signing out…" : pending > 0 ? "Sign out and keep records" : "Sign Out"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

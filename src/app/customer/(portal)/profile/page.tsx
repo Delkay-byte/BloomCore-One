@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useEffect, useState } from "react";
 import { getCustomerProfile } from "@/lib/actions/susu-customer.actions";
@@ -52,13 +53,7 @@ export default function CustomerProfilePage() {
     loadProfile();
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner" />
-      </div>
-    );
-  }
+  if (loading) return <SkeletonPage variant="detail" />;
 
   if (error || !data) {
     return (

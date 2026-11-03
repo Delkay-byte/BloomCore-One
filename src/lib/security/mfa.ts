@@ -8,6 +8,7 @@ import {
   hashRecoveryCode,
   otpauthUrl,
   verifyTotp,
+  verifyTotpStep,
 } from "./totp";
 import { logSecurityEvent } from "./log";
 
@@ -171,11 +172,43 @@ export interface MfaVerification {
   usedRecoveryCode: boolean;
 }
 
+/**
+ * Atomically claim a TOTP time step. The conditional update is the concurrency
+ * guard: across instances and PostgreSQL connections, only one request can move
+ * mfaLastTotpStep forward to this step. A replay of the same or an older step
+ * matches zero rows and is rejected.
+ */
+async function claimTotpStep(
+  subjectType: MfaSubjectType,
+  subjectId: string,
+  step: number,
+  now: number
+): Promise<boolean> {
+  const where = {
+    id: subjectId,
+    OR: [{ mfaLastTotpStep: null }, { mfaLastTotpStep: { lt: step } }],
+  };
+  const data = { mfaLastTotpStep: step, mfaLastUsedAt: new Date(now) };
+
+  if (subjectType === "platform") {
+    const result = await db.platformSuperAdmin.updateMany({ where, data });
+    return result.count === 1;
+  }
+  if (subjectType === "customer") {
+    const result = await db.customer.updateMany({ where, data });
+    return result.count === 1;
+  }
+  const result = await db.user.updateMany({ where, data });
+  return result.count === 1;
+}
+
 /** Verify a TOTP code or a single-use recovery code. */
 export async function verifyMfaCode(params: {
   subjectType: MfaSubjectType;
   subjectId: string;
   code: string;
+  /** Injectable clock for deterministic tests. */
+  now?: number;
 }): Promise<MfaVerification> {
   const row = await loadSubject(params.subjectType, params.subjectId);
   if (!row?.mfaEnabled || !row.mfaSecret) return { ok: false, usedRecoveryCode: false };
@@ -183,10 +216,20 @@ export async function verifyMfaCode(params: {
   const secret = decryptSecret(row.mfaSecret);
   if (!secret) return { ok: false, usedRecoveryCode: false };
 
-  if (verifyTotp(secret, params.code)) {
-    await updateSubject(params.subjectType, params.subjectId, {
-      mfaLastUsedAt: new Date(),
-    });
+  const now = params.now ?? Date.now();
+  const step = verifyTotpStep(secret, params.code, now);
+  if (step !== null) {
+    const claimed = await claimTotpStep(params.subjectType, params.subjectId, step, now);
+    if (!claimed) {
+      logSecurityEvent({
+        event: "mfa.totp_replay_rejected",
+        outcome: "blocked",
+        actorType: actorTypeFor(params.subjectType),
+        actorId: params.subjectId,
+        reason: "TOTP time step already consumed",
+      });
+      return { ok: false, usedRecoveryCode: false };
+    }
     return { ok: true, usedRecoveryCode: false };
   }
 
@@ -209,7 +252,7 @@ export async function verifyMfaCode(params: {
   // Recovery code is consumed in the same write that records the new list.
   await updateSubject(params.subjectType, params.subjectId, {
     mfaRecoveryCodes: recovery.remaining,
-    mfaLastUsedAt: new Date(),
+    mfaLastUsedAt: new Date(now),
   });
   logSecurityEvent({
     event: "mfa.recovery_code_used",

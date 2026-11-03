@@ -56,7 +56,7 @@ export default function RecoverAccountPage() {
               </p>
 
               {error && (
-                <div className="banner banner-error mb-4 text-sm" role="alert">{error}</div>
+                <div role="alert" className="banner banner-error mb-4 text-sm">{error}</div>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">

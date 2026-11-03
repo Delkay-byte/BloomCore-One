@@ -18,23 +18,42 @@ export interface OfflineScope {
 let cachedScope: OfflineScope | null = null;
 let pendingScope: Promise<OfflineScope> | null = null;
 let legacyPurged = false;
-const openConnections = new Set<IDBDatabase>();
+const openConnections = new Map<string, Set<IDBDatabase>>();
+const pendingDeletions = new Map<string, Promise<void>>();
 
-/** Track an open IndexedDB connection so sign-out can close it before delete. */
-export function registerOfflineConnection(db: IDBDatabase): void {
-  openConnections.add(db);
-  db.onclose = () => openConnections.delete(db);
+/** Track an open IndexedDB connection so sign-out/deletion can close it. */
+export function registerOfflineConnection(
+  db: IDBDatabase,
+  databaseName: string
+): void {
+  let set = openConnections.get(databaseName);
+  if (!set) {
+    set = new Set();
+    openConnections.set(databaseName, set);
+  }
+  set.add(db);
+  db.onclose = () => {
+    set?.delete(db);
+    if (set?.size === 0) openConnections.delete(databaseName);
+  };
 }
 
-export function closeOfflineConnections(): void {
-  for (const db of openConnections) {
-    try {
-      db.close();
-    } catch {
-      // ignore
+export function closeOfflineConnections(databaseName?: string): void {
+  const names = databaseName
+    ? [databaseName]
+    : Array.from(openConnections.keys());
+  for (const name of names) {
+    const set = openConnections.get(name);
+    if (!set) continue;
+    for (const db of set) {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
     }
+    openConnections.delete(name);
   }
-  openConnections.clear();
 }
 
 export function setOfflineScope(scope: OfflineScope): void {
@@ -80,14 +99,58 @@ export async function getOfflineScope(): Promise<OfflineScope> {
   return pendingScope;
 }
 
-/** Delete a database, resolving even when it never existed. */
-export function deleteDatabase(name: string): Promise<void> {
-  return new Promise((resolve, reject) => {
+/**
+ * Delete a database. Resolves only on the browser's success event.
+ *
+ * `blocked` means the request is still queued in the browser, not that it was
+ * cancelled or rejected: another tab/connection holds the database open. The
+ * request remains live and may complete later. `onBlocked` reports that pending
+ * state so the UI never claims deletion finished.
+ */
+export function deleteDatabase(
+  name: string,
+  options: { onBlocked?: () => void } = {}
+): Promise<void> {
+  const existing = pendingDeletions.get(name);
+  if (existing) return existing;
+
+  const deletion = new Promise<void>((resolve, reject) => {
     const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-    request.onblocked = () => resolve();
+    request.onsuccess = () => {
+      pendingDeletions.delete(name);
+      resolve();
+    };
+    request.onerror = () => {
+      pendingDeletions.delete(name);
+      reject(request.error ?? new Error("IndexedDB deletion failed"));
+    };
+    request.onblocked = () => {
+      // Do NOT reject: the browser has not cancelled the request. Report the
+      // pending state and keep waiting for success/error.
+      options.onBlocked?.();
+    };
   });
+
+  pendingDeletions.set(name, deletion);
+  return deletion;
+}
+
+/** True while a delete request for this database is still live in the browser. */
+export function isDeletionPending(name: string): boolean {
+  return pendingDeletions.has(name);
+}
+
+/** Confirm whether the database still exists (used after a blocked request). */
+export async function isDatabasePresent(name: string): Promise<boolean> {
+  if (typeof indexedDB === "undefined") return false;
+  try {
+    const databases =
+      typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+    return databases.some((entry) => entry.name === name);
+  } catch {
+    // Unknown is not "absent": fail closed.
+    return true;
+  }
 }
 
 /**
@@ -104,30 +167,31 @@ export async function purgeLegacyOfflineDatabase(): Promise<void> {
   }
 }
 
-/** Remove the signed-in user's offline data (called on sign-out). */
-export async function clearCurrentOfflineData(): Promise<void> {
-  closeOfflineConnections();
+/** Names of every offline database on this device (all scopes). */
+export async function listOfflineDatabaseNames(): Promise<string[]> {
+  if (typeof indexedDB === "undefined") return [];
   try {
-    // Remove every offline scope on this device. On a shared device this is
-    // deliberately stronger than removing only the current user's data.
     const databases =
-      typeof indexedDB.databases === "function"
-        ? await indexedDB.databases()
-        : [];
-    const names = databases
+      typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+    return databases
       .map((entry) => entry.name)
       .filter((name): name is string =>
         Boolean(name && name.startsWith("bik-prestige-offline"))
       );
-    if (names.length === 0) {
-      const scope = cachedScope ?? (await getOfflineScope());
-      names.push(offlineDatabaseName(scope));
-    }
-    for (const name of names) {
-      await deleteDatabase(name);
-    }
   } catch {
-    // best effort
+    return [];
   }
+}
+
+/**
+ * End the current offline session without destroying records.
+ *
+ * Sign-out closes the user's database connections and clears the in-memory
+ * scope. Queued transactions and drafts stay in the database named for their
+ * tenant and user; the next account opens a different database. The same user
+ * reopens this one after authenticating again.
+ */
+export function closeCurrentOfflineSession(): void {
+  closeOfflineConnections();
   clearOfflineScope();
 }

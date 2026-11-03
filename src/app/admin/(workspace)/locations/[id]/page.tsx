@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -50,7 +51,7 @@ export default function LocationDetailPage() {
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="spinner"></div></div>;
+  if (loading) return <SkeletonPage variant="detail" />;
   if (!location) return <div className="text-center py-20"><p className="text-slate-500">Location not found</p><button onClick={() => router.push("/admin/locations")} className="btn btn-primary mt-4">Back to Locations</button></div>;
 
   return (
@@ -68,18 +69,18 @@ export default function LocationDetailPage() {
         </div>
       </div>
 
-      {error && <div className="banner banner-error mb-4">{error}</div>}
-      {success && <div className="banner banner-success mb-4">{success}</div>}
+      {error && <div role="alert" className="banner banner-error mb-4">{error}</div>}
+      {success && <div role="status" className="banner banner-success mb-4">{success}</div>}
 
       {editing ? (
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Edit Location</h2>
           <form action={handleUpdate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="form-group"><label className="form-label">Location Name *</label><input type="text" name="name" defaultValue={location.name} required /></div>
+              <div className="form-group"><label className="form-label">Location Name *</label><input type="text" name="name" autoComplete="organization" defaultValue={location.name} required /></div>
               <div className="form-group"><label className="form-label">Location Code *</label><input type="text" name="code" defaultValue={location.code} required /></div>
-              <div className="form-group"><label className="form-label">Address</label><input type="text" name="address" defaultValue={location.address || ""} /></div>
-              <div className="form-group"><label className="form-label">Contact Phone</label><input type="tel" name="contactPhone" defaultValue={location.contactPhone || ""} /></div>
+              <div className="form-group"><label className="form-label">Address</label><input type="text" name="address" autoComplete="street-address" defaultValue={location.address || ""} /></div>
+              <div className="form-group"><label className="form-label">Contact Phone</label><input type="tel" name="contactPhone" autoComplete="tel" defaultValue={location.contactPhone || ""} /></div>
               <div className="form-group md:col-span-2"><label className="form-label">Description</label><textarea name="description" rows={2} defaultValue={location.description || ""} /></div>
               <div className="form-group"><label className="form-label">Status</label><select name="status" defaultValue={location.status}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
             </div>

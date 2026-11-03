@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
@@ -62,13 +63,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
     return "Good evening";
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="spinner" />
-      </div>
-    );
-  }
+  if (loading) return <SkeletonPage variant="dashboard" />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">

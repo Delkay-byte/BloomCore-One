@@ -233,6 +233,202 @@ export async function saveDailyAccount(
   return { success: true };
 }
 
+/**
+ * Administrative correction of a submitted/reviewed daily account.
+ *
+ * The live row keeps its unique (location, date) identity and receives the
+ * corrected figures. Before the change, an immutable DailyAccountRevision
+ * snapshot preserves the exact prior financial values, expenses, status and
+ * review metadata, plus the author, timestamp and mandatory reason. A
+ * conditional update on revisionCount and a unique (account, version) index
+ * make concurrent corrections fail cleanly instead of overwriting each other.
+ *
+ * This is a revision model, not a negative entry: no balance is adjusted by
+ * appending a synthetic transaction.
+ */
+export async function correctDailyAccount(
+  accountId: string,
+  formData: FormData,
+  reasonInput: string
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+
+  const reason = reasonInput?.trim() ?? "";
+  if (reason.length < 10 || reason.length > 500) {
+    return {
+      success: false,
+      error: "Enter a correction reason of at least 10 characters.",
+    };
+  }
+
+  const account = await db.dailyAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
+    include: { expenses: true },
+  });
+  if (!account) return { success: false, error: "Daily account not found" };
+  if (account.status !== "submitted" && account.status !== "reviewed") {
+    return {
+      success: false,
+      error: "Only submitted or reviewed daily accounts can be corrected.",
+    };
+  }
+
+  let expenses: { description: string; amount: number }[] = [];
+  const expensesJson = formData.get("expenses") as string;
+  if (expensesJson) {
+    try {
+      expenses = JSON.parse(expensesJson);
+    } catch {
+      return { success: false, error: "Invalid expense data" };
+    }
+  }
+
+  const moneyField = (name: string): number => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.trim() === "") return Number.NaN;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : Number.NaN;
+  };
+
+  const parsed = {
+    openingMomoFloat: moneyField("openingMomoFloat"),
+    openingCash: moneyField("openingCash"),
+    totalCashIn: moneyField("totalCashIn"),
+    totalCashOut: moneyField("totalCashOut"),
+    totalCashReceived: moneyField("totalCashReceived"),
+    totalCashPaid: moneyField("totalCashPaid"),
+    commission: moneyField("commission"),
+    otherIncome: moneyField("otherIncome"),
+    closingMomoFloat: moneyField("closingMomoFloat"),
+    closingCash: moneyField("closingCash"),
+  };
+
+  const validated = dailyAccountSchema.safeParse({
+    ...parsed,
+    businessDate: account.businessDate.toISOString(),
+    expenses,
+  });
+  if (!validated.success) {
+    return { success: false, error: validated.error.issues[0].message };
+  }
+
+  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const { momoVariance, cashVariance } = calculateReconciliation({
+    ...parsed,
+    totalExpenses,
+  });
+  const version = account.revisionCount + 1;
+
+  const snapshot = {
+    status: account.status,
+    submittedAt: account.submittedAt?.toISOString() ?? null,
+    reviewedAt: account.reviewedAt?.toISOString() ?? null,
+    reviewedBy: account.reviewedBy ?? null,
+    reconciliationNote: account.reconciliationNote ?? null,
+    openingMomoFloat: Number(account.openingMomoFloat),
+    openingCash: Number(account.openingCash),
+    totalCashIn: Number(account.totalCashIn),
+    totalCashOut: Number(account.totalCashOut),
+    totalCashReceived: Number(account.totalCashReceived),
+    totalCashPaid: Number(account.totalCashPaid),
+    commission: Number(account.commission),
+    otherIncome: Number(account.otherIncome),
+    closingMomoFloat: Number(account.closingMomoFloat),
+    closingCash: Number(account.closingCash),
+    totalExpenses: Number(account.totalExpenses),
+    calculatedMomoVariance: Number(account.calculatedMomoVariance),
+    calculatedCashVariance: Number(account.calculatedCashVariance),
+    expenses: account.expenses.map((expense) => ({
+      description: expense.description,
+      amount: Number(expense.amount),
+    })),
+  };
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.dailyAccountRevision.create({
+        data: {
+          tenantId: ctx.tenantId,
+          dailyAccountId: accountId,
+          version,
+          snapshot: JSON.stringify(snapshot),
+          reason,
+          correctedById: ctx.userId,
+        },
+      });
+
+      const updated = await tx.dailyAccount.updateMany({
+        where: {
+          id: accountId,
+          tenantId: ctx.tenantId,
+          revisionCount: account.revisionCount,
+        },
+        data: {
+          ...parsed,
+          totalExpenses,
+          calculatedMomoVariance: momoVariance,
+          calculatedCashVariance: cashVariance,
+          correctedAt: new Date(),
+          correctedById: ctx.userId,
+          correctionReason: reason,
+          revisionCount: version,
+        },
+      });
+      if (updated.count !== 1) throw new Error("CORRECTION_CONFLICT");
+
+      await tx.expense.deleteMany({
+        where: { dailyAccountId: accountId, tenantId: ctx.tenantId },
+      });
+      if (expenses.length > 0) {
+        await tx.expense.createMany({
+          data: expenses.map((expense) => ({
+            tenantId: ctx.tenantId,
+            dailyAccountId: accountId,
+            description: expense.description,
+            amount: expense.amount,
+          })),
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      (error instanceof Error && error.message === "CORRECTION_CONFLICT") ||
+      (typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002")
+    ) {
+      return {
+        success: false,
+        error: "This account changed while you were correcting it. Reload and try again.",
+      };
+    }
+    return { success: false, error: "The correction could not be saved." };
+  }
+
+  await createAuditLog({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    action: "daily_account.corrected",
+    entityType: "dailyAccount",
+    entityId: accountId,
+    details: {
+      reason,
+      version,
+      totalExpenses,
+      momoVariance,
+      cashVariance,
+      previousSnapshotVersion: version,
+    },
+  });
+
+  revalidatePath(`/worker/daily/${accountId}`);
+  revalidatePath("/admin/history");
+  revalidatePath("/admin/reports");
+  revalidatePath("/admin/dashboard");
+  return { success: true, data: { version } };
+}
+
 export async function submitDailyAccount(
   accountId: string
 ): Promise<ActionResponse> {
@@ -529,5 +725,195 @@ export async function getAdminDashboardStats() {
     totalFloat,
     totalExpenses: totalExpensesToday,
     locationStatus,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Administrative correction screen
+// ---------------------------------------------------------------------------
+
+export interface DailyAccountRevisionView {
+  id: string;
+  version: number;
+  reason: string;
+  correctedById: string;
+  correctedByName: string | null;
+  createdAt: string;
+  snapshot: {
+    status: string;
+    openingMomoFloat: number;
+    openingCash: number;
+    totalCashIn: number;
+    totalCashOut: number;
+    totalCashReceived: number;
+    totalCashPaid: number;
+    commission: number;
+    otherIncome: number;
+    closingMomoFloat: number;
+    closingCash: number;
+    totalExpenses: number;
+    calculatedMomoVariance: number;
+    calculatedCashVariance: number;
+    expenses: Array<{ description: string; amount: number }>;
+  };
+}
+
+export interface DailyAccountCorrectionView {
+  id: string;
+  status: string;
+  businessDate: string;
+  location: { id: string; name: string; code: string };
+  worker: { id: string; fullName: string };
+  values: {
+    openingMomoFloat: number;
+    openingCash: number;
+    totalCashIn: number;
+    totalCashOut: number;
+    totalCashReceived: number;
+    totalCashPaid: number;
+    commission: number;
+    otherIncome: number;
+    closingMomoFloat: number;
+    closingCash: number;
+    totalExpenses: number;
+    calculatedMomoVariance: number;
+    calculatedCashVariance: number;
+  };
+  expenses: Array<{ description: string; amount: number }>;
+  reconciliationNote: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  correctedAt: string | null;
+  correctionReason: string | null;
+  revisionCount: number;
+  revisions: DailyAccountRevisionView[];
+}
+
+/**
+ * Read model for the dedicated correction screen. Only a tenant administrator
+ * with the MoMo module may load it; the tenant is resolved from the session,
+ * never from the browser. Revision history is returned read-only and is never
+ * edited or deleted by this screen.
+ */
+export async function getDailyAccountCorrectionData(
+  accountId: string
+): Promise<DailyAccountCorrectionView | null> {
+  const ctx = await requireTenantAdminMomo();
+
+  const account = await db.dailyAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
+    include: {
+      location: { select: { id: true, name: true, code: true } },
+      worker: { select: { id: true, fullName: true } },
+      expenses: { select: { description: true, amount: true } },
+      revisions: { orderBy: { version: "desc" } },
+    },
+  });
+  if (!account) return null;
+
+  const correctorIds = Array.from(
+    new Set(account.revisions.map((revision) => revision.correctedById))
+  );
+  const correctors =
+    correctorIds.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: correctorIds }, tenantId: ctx.tenantId },
+          select: { id: true, fullName: true },
+        })
+      : [];
+  const nameById = new Map(correctors.map((row) => [row.id, row.fullName]));
+
+  const revisions: DailyAccountRevisionView[] = account.revisions.map((revision) => {
+    let snapshot: DailyAccountRevisionView["snapshot"];
+    try {
+      const parsed = JSON.parse(revision.snapshot) as Record<string, unknown>;
+      snapshot = {
+        status: String(parsed.status ?? ""),
+        openingMomoFloat: Number(parsed.openingMomoFloat ?? 0),
+        openingCash: Number(parsed.openingCash ?? 0),
+        totalCashIn: Number(parsed.totalCashIn ?? 0),
+        totalCashOut: Number(parsed.totalCashOut ?? 0),
+        totalCashReceived: Number(parsed.totalCashReceived ?? 0),
+        totalCashPaid: Number(parsed.totalCashPaid ?? 0),
+        commission: Number(parsed.commission ?? 0),
+        otherIncome: Number(parsed.otherIncome ?? 0),
+        closingMomoFloat: Number(parsed.closingMomoFloat ?? 0),
+        closingCash: Number(parsed.closingCash ?? 0),
+        totalExpenses: Number(parsed.totalExpenses ?? 0),
+        calculatedMomoVariance: Number(parsed.calculatedMomoVariance ?? 0),
+        calculatedCashVariance: Number(parsed.calculatedCashVariance ?? 0),
+        expenses: Array.isArray(parsed.expenses)
+          ? (parsed.expenses as Array<{ description?: unknown; amount?: unknown }>).map(
+              (expense) => ({
+                description: String(expense.description ?? ""),
+                amount: Number(expense.amount ?? 0),
+              })
+            )
+          : [],
+      };
+    } catch {
+      // A corrupt snapshot must not hide the correction history. Render a
+      // clearly-empty snapshot instead of throwing the whole screen away.
+      snapshot = {
+        status: "",
+        openingMomoFloat: 0,
+        openingCash: 0,
+        totalCashIn: 0,
+        totalCashOut: 0,
+        totalCashReceived: 0,
+        totalCashPaid: 0,
+        commission: 0,
+        otherIncome: 0,
+        closingMomoFloat: 0,
+        closingCash: 0,
+        totalExpenses: 0,
+        calculatedMomoVariance: 0,
+        calculatedCashVariance: 0,
+        expenses: [],
+      };
+    }
+    return {
+      id: revision.id,
+      version: revision.version,
+      reason: revision.reason,
+      correctedById: revision.correctedById,
+      correctedByName: nameById.get(revision.correctedById) ?? null,
+      createdAt: revision.createdAt.toISOString(),
+      snapshot,
+    };
+  });
+
+  return {
+    id: account.id,
+    status: account.status,
+    businessDate: account.businessDate.toISOString(),
+    location: account.location,
+    worker: account.worker,
+    values: {
+      openingMomoFloat: Number(account.openingMomoFloat),
+      openingCash: Number(account.openingCash),
+      totalCashIn: Number(account.totalCashIn),
+      totalCashOut: Number(account.totalCashOut),
+      totalCashReceived: Number(account.totalCashReceived),
+      totalCashPaid: Number(account.totalCashPaid),
+      commission: Number(account.commission),
+      otherIncome: Number(account.otherIncome),
+      closingMomoFloat: Number(account.closingMomoFloat),
+      closingCash: Number(account.closingCash),
+      totalExpenses: Number(account.totalExpenses),
+      calculatedMomoVariance: Number(account.calculatedMomoVariance),
+      calculatedCashVariance: Number(account.calculatedCashVariance),
+    },
+    expenses: account.expenses.map((expense) => ({
+      description: expense.description,
+      amount: Number(expense.amount),
+    })),
+    reconciliationNote: account.reconciliationNote,
+    submittedAt: account.submittedAt?.toISOString() ?? null,
+    reviewedAt: account.reviewedAt?.toISOString() ?? null,
+    correctedAt: account.correctedAt?.toISOString() ?? null,
+    correctionReason: account.correctionReason,
+    revisionCount: account.revisionCount,
+    revisions,
   };
 }

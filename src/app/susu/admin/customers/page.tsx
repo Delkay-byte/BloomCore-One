@@ -1,7 +1,10 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
+import { useFormDraft } from "@/hooks/useFormDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 
 import { UserRound } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getCustomers,
@@ -45,6 +48,12 @@ export default function SusuCustomersPage() {
   const [collectors, setCollectors] = useState<Collector[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const createDraft = useFormDraft(createFormRef, {
+    draftKey: "susu-customer:new",
+    workflow: "susu.customer.create",
+    enabled: showForm,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [search, setSearch] = useState("");
@@ -95,6 +104,7 @@ export default function SusuCustomersPage() {
         setShowForm(false);
         setEnablePortal(false);
         setPortalPassword("");
+        await createDraft.clearDraft();
         loadData();
       } else {
         setError(result.error || "Failed to create customer");
@@ -135,12 +145,7 @@ export default function SusuCustomersPage() {
     return true;
   });
 
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
+  if (loading) return <SkeletonPage variant="table" />;
 
   return (
     <div>
@@ -155,7 +160,7 @@ export default function SusuCustomersPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-4">
+        <div role="alert" className="banner banner-error mb-4">
           {error}
           <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">
             ✕
@@ -163,7 +168,7 @@ export default function SusuCustomersPage() {
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-4">
+        <div role="status" className="banner banner-success mb-4">
           {success}
           <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">
             ✕
@@ -175,25 +180,26 @@ export default function SusuCustomersPage() {
       {showForm && (
         <div className="card mb-6">
           <h2 className="text-lg font-semibold mb-4">Register New Customer</h2>
-          <form action={handleCreate}>
+          <form ref={createFormRef} action={handleCreate}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
-                <input type="text" name="fullName" placeholder="Enter customer name" required />
+                <input type="text" name="fullName" autoComplete="name" placeholder="Enter customer name" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input type="tel" name="phone" placeholder="+233 XX XXX XXXX" />
+                <input type="tel" name="phone" autoComplete="tel" placeholder="+233 XX XXX XXXX" />
               </div>
               <div className="form-group">
                 <label className="form-label">Address</label>
-                <input type="text" name="address" placeholder="Customer address" />
+                <input type="text" name="address" autoComplete="street-address" placeholder="Customer address" />
               </div>
               <div className="form-group">
                 <label className="form-label">Daily Contribution (GH₵) *</label>
                 <input
                   type="number"
                   name="dailyContribution"
+                  autoComplete="off"
                   step="0.01"
                   min="0.01"
                   placeholder="e.g. 50"
@@ -247,6 +253,14 @@ export default function SusuCustomersPage() {
               </div>
             )}
 
+            <div className="mb-3">
+              <DraftIndicator
+                status={createDraft.status}
+                lastSavedAt={createDraft.lastSavedAt}
+                onDiscard={createDraft.clearDraft}
+                onAcknowledge={createDraft.acknowledgeRestored}
+              />
+            </div>
             <div className="flex gap-3 mt-4">
               <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {submitting ? "Creating..." : "Create Customer"}

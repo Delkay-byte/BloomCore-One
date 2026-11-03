@@ -3,6 +3,8 @@ import { X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
+import { useObjectDraft } from "@/hooks/useObjectDraft";
+import DraftIndicator from "@/components/DraftIndicator";
 import { useParams, useRouter } from "next/navigation";
 import { getDailyAccountById, saveDailyAccount, submitDailyAccount } from "@/lib/actions/daily-account.actions";
 import { formatDate } from "@/lib/utils";
@@ -11,7 +13,7 @@ import CediAmount from "@/components/CediAmount";
 
 interface Expense { description: string; amount: number; }
 interface AccountDetail {
-  id: string; businessDate: Date; status: string;
+  id: string; businessDate: Date; status: string; updatedAt?: string | Date;
   openingMomoFloat: number; openingCash: number;
   totalCashIn: number; totalCashOut: number;
   totalCashReceived: number; totalCashPaid: number;
@@ -47,6 +49,42 @@ export default function DailyAccountFormPage() {
   const [closingMomoFloat, setClosingMomoFloat] = useState(0);
   const [closingCash, setClosingCash] = useState(0);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+
+  // Unfinished daily accounts survive refresh and accidental navigation. The
+  // draft is only applied when it is newer than the server record.
+  const dailyDraft = useObjectDraft({
+    draftKey: `worker-daily:${params.id}`,
+    workflow: "worker.daily_account",
+    enabled: Boolean(account && account.status === "draft"),
+    serverUpdatedAt: account?.updatedAt ?? null,
+    value: {
+      step,
+      openingMomoFloat, openingCash, totalCashIn, totalCashOut,
+      totalCashReceived, totalCashPaid, commission, otherIncome,
+      closingMomoFloat, closingCash, expenses,
+    },
+    restore: (draft) => {
+      const value = draft as {
+        step?: number;
+        openingMomoFloat?: number; openingCash?: number; totalCashIn?: number; totalCashOut?: number;
+        totalCashReceived?: number; totalCashPaid?: number; commission?: number; otherIncome?: number;
+        closingMomoFloat?: number; closingCash?: number;
+        expenses?: Expense[];
+      };
+      if (typeof value.step === "number") setStep(value.step);
+      setOpeningMomoFloat(Number(value.openingMomoFloat ?? 0));
+      setOpeningCash(Number(value.openingCash ?? 0));
+      setTotalCashIn(Number(value.totalCashIn ?? 0));
+      setTotalCashOut(Number(value.totalCashOut ?? 0));
+      setTotalCashReceived(Number(value.totalCashReceived ?? 0));
+      setTotalCashPaid(Number(value.totalCashPaid ?? 0));
+      setCommission(Number(value.commission ?? 0));
+      setOtherIncome(Number(value.otherIncome ?? 0));
+      setClosingMomoFloat(Number(value.closingMomoFloat ?? 0));
+      setClosingCash(Number(value.closingCash ?? 0));
+      setExpenses(Array.isArray(value.expenses) ? value.expenses : []);
+    },
+  });
 
   async function loadAccount() {
     try {
@@ -113,7 +151,10 @@ export default function DailyAccountFormPage() {
       const saveResult = await saveDailyAccount(params.id as string, formData);
       if (!saveResult.success) { setError(saveResult.error || "Failed to save"); setConfirmOpen(false); return; }
       const submitResult = await submitDailyAccount(params.id as string);
-      if (submitResult.success) router.push("/worker/dashboard");
+      if (submitResult.success) {
+        await dailyDraft.clearDraft();
+        router.push("/worker/dashboard");
+      }
       else setError(submitResult.error || "Failed to submit");
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setSubmitting(false); setConfirmOpen(false); }
   }
@@ -125,7 +166,7 @@ export default function DailyAccountFormPage() {
     return (
       <div>
         <button onClick={() => router.push("/worker/dashboard")} className="text-sm text-slate-500 hover:text-slate-700 mb-4 inline-block">← Back to Dashboard</button>
-        <div className="banner banner-success mb-4">This report has been submitted and is now read-only.</div>
+        <div role="status" className="banner banner-success mb-4">This report has been submitted and is now read-only.</div>
         <div className="card">
           <h2 className="text-lg font-semibold mb-2">Daily Account — {formatDate(account.businessDate)}</h2>
           <p className="text-slate-500 mb-4">{account.location.name}</p>
@@ -149,8 +190,14 @@ export default function DailyAccountFormPage() {
         <p className="text-sm text-slate-500">{formatDate(account.businessDate)} &bull; {account.location.name}</p>
       </div>
 
-      {error && <div className="banner banner-error text-sm">{error}</div>}
-      {success && <div className="banner banner-success text-sm">{success}</div>}
+      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
+      {success && <div role="status" className="banner banner-success text-sm">{success}</div>}
+      <DraftIndicator
+        status={dailyDraft.status}
+        lastSavedAt={dailyDraft.lastSavedAt}
+        onDiscard={dailyDraft.clearDraft}
+        onAcknowledge={dailyDraft.acknowledgeRestored}
+      />
 
       <div className="flex gap-1 overflow-x-auto pb-2">
         {steps.map((s) => (
@@ -164,8 +211,8 @@ export default function DailyAccountFormPage() {
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Starting Balances</h2>
           <p className="text-sm text-slate-500">Enter the balances you started business with today.</p>
-          <div className="form-group"><label className="form-label">Starting Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money available when you started the day." /></label><input type="number" step="0.01" min="0" value={openingMomoFloat || ""} onChange={(e) => setOpeningMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Starting Cash (GH&#x20B5;) <InfoTooltip text="Physical business cash you had at the beginning of the day." /></label><input type="number" step="0.01" min="0" value={openingCash || ""} onChange={(e) => setOpeningCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Starting Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money available when you started the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={openingMomoFloat || ""} onChange={(e) => setOpeningMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Starting Cash (GH&#x20B5;) <InfoTooltip text="Physical business cash you had at the beginning of the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={openingCash || ""} onChange={(e) => setOpeningCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <button onClick={() => setStep(2)} className="btn btn-primary w-full">Next: Daily Totals →</button>
         </div>
       )}
@@ -174,12 +221,12 @@ export default function DailyAccountFormPage() {
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Daily Business Totals</h2>
           <p className="text-sm text-slate-500">Enter the summary totals for today&apos;s operations.</p>
-          <div className="form-group"><label className="form-label">Money Added to MoMo (GH&#x20B5;) <InfoTooltip text="Total money added to your MoMo balance through customer deposits." /></label><input type="number" step="0.01" min="0" value={totalCashIn || ""} onChange={(e) => setTotalCashIn(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Money Paid from MoMo (GH&#x20B5;) <InfoTooltip text="Total MoMo money paid to customers who withdrew money." /></label><input type="number" step="0.01" min="0" value={totalCashOut || ""} onChange={(e) => setTotalCashOut(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Cash Received (GH&#x20B5;) <InfoTooltip text="Physical cash received during the day." /></label><input type="number" step="0.01" min="0" value={totalCashReceived || ""} onChange={(e) => setTotalCashReceived(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Cash Paid Out (GH&#x20B5;) <InfoTooltip text="Physical cash paid out during the day." /></label><input type="number" step="0.01" min="0" value={totalCashPaid || ""} onChange={(e) => setTotalCashPaid(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Commission Earned (GH&#x20B5;) <InfoTooltip text="Commission earned from MoMo transactions during the day." /></label><input type="number" step="0.01" min="0" value={commission || ""} onChange={(e) => setCommission(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Other Cash Received (GH&#x20B5;) <InfoTooltip text="Money received by the business that is not already included in the other fields above." /></label><input type="number" step="0.01" min="0" value={otherIncome || ""} onChange={(e) => setOtherIncome(parseFloat(e.target.value) || 0)} placeholder="0.00" /><p className="form-hint">Example: Owner cash top-up</p></div>
+          <div className="form-group"><label className="form-label">Money Added to MoMo (GH&#x20B5;) <InfoTooltip text="Total money added to your MoMo balance through customer deposits." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={totalCashIn || ""} onChange={(e) => setTotalCashIn(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Money Paid from MoMo (GH&#x20B5;) <InfoTooltip text="Total MoMo money paid to customers who withdrew money." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={totalCashOut || ""} onChange={(e) => setTotalCashOut(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Cash Received (GH&#x20B5;) <InfoTooltip text="Physical cash received during the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={totalCashReceived || ""} onChange={(e) => setTotalCashReceived(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Cash Paid Out (GH&#x20B5;) <InfoTooltip text="Physical cash paid out during the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={totalCashPaid || ""} onChange={(e) => setTotalCashPaid(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Commission Earned (GH&#x20B5;) <InfoTooltip text="Commission earned from MoMo transactions during the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={commission || ""} onChange={(e) => setCommission(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Other Cash Received (GH&#x20B5;) <InfoTooltip text="Money received by the business that is not already included in the other fields above." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={otherIncome || ""} onChange={(e) => setOtherIncome(parseFloat(e.target.value) || 0)} placeholder="0.00" /><p className="form-hint">Example: Owner cash top-up</p></div>
           <div className="flex gap-3"><button onClick={() => setStep(1)} className="btn btn-secondary flex-1">← Back</button><button onClick={() => setStep(3)} className="btn btn-primary flex-1">Next: Expenses →</button></div>
         </div>
       )}
@@ -190,7 +237,7 @@ export default function DailyAccountFormPage() {
           {expenses.map((expense, index) => (
             <div key={index} className="flex gap-2 items-start">
               <div className="flex-1"><input type="text" placeholder="Description (e.g. Transport)" value={expense.description} onChange={(e) => updateExpense(index, "description", e.target.value)} /></div>
-              <div className="w-32"><input type="number" step="0.01" min="0" placeholder="Amount" value={expense.amount || ""} onChange={(e) => updateExpense(index, "amount", parseFloat(e.target.value) || 0)} /></div>
+              <div className="w-32"><input type="number" autoComplete="off" step="0.01" min="0" placeholder="Amount" value={expense.amount || ""} onChange={(e) => updateExpense(index, "amount", parseFloat(e.target.value) || 0)} /></div>
               <button type="button" onClick={() => removeExpense(index)} className="text-red-500 hover:text-red-700 p-2" aria-label={`Remove expense ${index + 1}`}><X size={16} aria-hidden /></button>
             </div>
           ))}
@@ -204,8 +251,8 @@ export default function DailyAccountFormPage() {
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Ending Balances</h2>
           <p className="text-sm text-slate-500">Count and enter what you actually have at the end of business today.</p>
-          <div className="form-group"><label className="form-label">Ending Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money you have at the end of the day." /></label><input type="number" step="0.01" min="0" value={closingMomoFloat || ""} onChange={(e) => setClosingMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
-          <div className="form-group"><label className="form-label">Ending Cash on Hand (GH&#x20B5;) <InfoTooltip text="Physical business cash available at the location." /></label><input type="number" step="0.01" min="0" value={closingCash || ""} onChange={(e) => setClosingCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Ending Balance — MoMo (GH&#x20B5;) <InfoTooltip text="MoMo money you have at the end of the day." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={closingMomoFloat || ""} onChange={(e) => setClosingMomoFloat(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+          <div className="form-group"><label className="form-label">Ending Cash on Hand (GH&#x20B5;) <InfoTooltip text="Physical business cash available at the location." /></label><input type="number" autoComplete="off" step="0.01" min="0" value={closingCash || ""} onChange={(e) => setClosingCash(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
           <div className="flex gap-3"><button onClick={() => setStep(3)} className="btn btn-secondary flex-1">← Back</button><button onClick={() => setStep(5)} className="btn btn-primary flex-1">Next: Review →</button></div>
         </div>
       )}

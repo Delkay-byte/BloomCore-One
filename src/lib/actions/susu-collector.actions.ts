@@ -12,6 +12,8 @@ import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { validateStatusTransition } from "@/lib/security/status";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
 
 export interface ActionResponse {
   success: boolean;
@@ -392,7 +394,7 @@ export async function recordRemittance(params: {
   if (!collector) return { success: false, error: "Collector not found" };
 
   const existingRemittances = await db.collectorRemittance.findMany({
-    where: { collectorId, tenantId: ctx.tenantId },
+    where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
     select: { createdAt: true },
     orderBy: { createdAt: "desc" },
     take: 1,
@@ -444,6 +446,85 @@ export async function recordRemittance(params: {
   revalidatePath("/susu/admin/remittances");
   revalidatePath("/susu/admin/collectors");
   return { success: true, data: remittance };
+}
+
+/**
+ * Reverse a recorded remittance.
+ *
+ * A remittance is a cash-handover observation, not a ledger posting. Reversal
+ * marks the original row as reversed (never deletes it) and removes it from the
+ * "last remittance" anchor and cash-handover totals, so contributions after the
+ * previous active remittance become expected again. No balance is rewritten and
+ * no negative row is inserted.
+ */
+export async function reverseRemittance(params: {
+  remittanceId: string;
+  reason: string;
+}): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminSusu();
+  const reason = params.reason?.trim() ?? "";
+  if (reason.length < 10 || reason.length > 500) {
+    return {
+      success: false,
+      error: "Enter a reversal reason of at least 10 characters.",
+    };
+  }
+
+  const rate = await consumeRateLimit(
+    "finance:remittance_reversal",
+    ctx.userId,
+    RATE_LIMITS.financeMutation
+  );
+  if (!rate.allowed) {
+    return { success: false, error: "Too many correction requests. Please wait." };
+  }
+
+  const original = await db.collectorRemittance.findFirst({
+    where: { id: params.remittanceId, tenantId: ctx.tenantId },
+  });
+  if (!original) return { success: false, error: "Remittance not found." };
+  if (original.reversedAt) {
+    return { success: false, error: "This remittance has already been reversed." };
+  }
+
+  const updated = await db.collectorRemittance.updateMany({
+    where: {
+      id: original.id,
+      tenantId: ctx.tenantId,
+      reversedAt: null,
+    },
+    data: {
+      status: "reversed",
+      reversedAt: new Date(),
+      reversedById: ctx.userId,
+      reversalReason: reason,
+    },
+  });
+  if (updated.count !== 1) {
+    return { success: false, error: "This remittance has already been reversed." };
+  }
+
+  await createAuditLog({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    action: "susu.remittance_reversed",
+    entityType: "remittance",
+    entityId: original.id,
+    details: {
+      collectorId: original.collectorId,
+      expectedAmount: Number(original.expectedAmount),
+      remittedAmount: Number(original.remittedAmount),
+      variance: Number(original.variance),
+      reason,
+    },
+  });
+
+  revalidatePath("/susu/admin/remittances");
+  revalidatePath("/susu/admin/collectors");
+  revalidatePath("/susu/admin/history");
+  revalidatePath("/susu/admin");
+  revalidatePath("/collector/dashboard");
+  return { success: true };
 }
 
 /**

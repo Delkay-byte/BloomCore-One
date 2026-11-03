@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import OfflineDevicesSettings from "@/components/OfflineDevicesSettings";
+import OfflineDataSettings from "@/components/OfflineDataSettings";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 interface UserProfile {
   id: string;
@@ -78,8 +80,10 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="spinner"></div>
+      <div className="min-h-screen bg-gray-50 px-4 py-10">
+        <div className="mx-auto w-full max-w-4xl">
+          <SkeletonPage variant="form" />
+        </div>
       </div>
     );
   }
@@ -242,6 +246,8 @@ export default function SettingsView({ module }: { module: "admin" | "momo" | "s
                   </p>
                 </div>
               )}
+
+              {module === "susu" && <OfflineDataSettings />}
 
               {module !== "admin" && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

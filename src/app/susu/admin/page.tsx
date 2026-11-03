@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { Footprints } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -63,15 +64,10 @@ export default function SusuAdminOverviewPage() {
     loadStats();
   }, []);
 
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="spinner"></div>
-      </div>
-    );
+  if (loading) return <SkeletonPage variant="dashboard" />;
   if (error)
     return (
-      <div className="banner banner-error">
+      <div role="alert" className="banner banner-error">
         {error}
       </div>
     );

@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -106,13 +107,7 @@ export default function CustomerSettingsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <SkeletonPage variant="form" />;
 
   if (!profile) {
     return (
@@ -135,12 +130,12 @@ export default function CustomerSettingsPage() {
       </div>
 
       {error && (
-        <div className="banner banner-error mb-6">
+        <div role="alert" className="banner banner-error mb-6">
           {error}
         </div>
       )}
       {success && (
-        <div className="banner banner-success mb-6">
+        <div role="status" className="banner banner-success mb-6">
           {success}
         </div>
       )}

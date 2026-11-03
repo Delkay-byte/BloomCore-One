@@ -213,7 +213,7 @@ export default function EnrollTenantWizard() {
       </ol>
 
       {error && (
-        <div className="banner banner-error text-sm">
+        <div role="alert" className="banner banner-error text-sm">
           {error}
         </div>
       )}
@@ -222,13 +222,13 @@ export default function EnrollTenantWizard() {
         {step === 1 && (
           <div className="space-y-4">
             <h2 className="font-semibold text-slate-900">Step 1 — Business information</h2>
-            <Field label="Business name" required value={state.name} onChange={(v) => update("name", v)} placeholder="e.g. Adom Mobile Money" />
+            <Field label="Business name" required autoComplete="organization" value={state.name} onChange={(v) => update("name", v)} placeholder="e.g. Adom Mobile Money" />
             <Field label="Legal / registered name (if different)" value={state.legalName} onChange={(v) => update("legalName", v)} placeholder="Registered company name" />
             <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Contact phone" value={state.contactPhone} onChange={(v) => update("contactPhone", v)} placeholder="+233…" />
-              <Field label="Contact email" type="email" value={state.contactEmail} onChange={(v) => update("contactEmail", v)} placeholder="owner@business.com" />
+              <Field label="Contact phone" autoComplete="tel" value={state.contactPhone} onChange={(v) => update("contactPhone", v)} placeholder="+233…" />
+              <Field label="Contact email" type="email" autoComplete="email" value={state.contactEmail} onChange={(v) => update("contactEmail", v)} placeholder="owner@business.com" />
             </div>
-            <Field label="Business address" value={state.address} onChange={(v) => update("address", v)} placeholder="Street, town" />
+            <Field label="Business address" autoComplete="street-address" value={state.address} onChange={(v) => update("address", v)} placeholder="Street, town" />
           </div>
         )}
 
@@ -270,9 +270,9 @@ export default function EnrollTenantWizard() {
               administrator signs in through the standard business login and manages
               only this business.
             </p>
-            <Field label="Administrator full name" required value={state.adminFullName} onChange={(v) => update("adminFullName", v)} placeholder="e.g. Akua Darko" />
-            <Field label="Administrator email (sign-in)" type="email" required value={state.adminEmail} onChange={(v) => update("adminEmail", v)} placeholder="admin@business.com" />
-            <Field label="Administrator phone" value={state.adminPhone} onChange={(v) => update("adminPhone", v)} placeholder="+233…" />
+            <Field label="Administrator full name" required autoComplete="name" value={state.adminFullName} onChange={(v) => update("adminFullName", v)} placeholder="e.g. Akua Darko" />
+            <Field label="Administrator email (sign-in)" type="email" required autoComplete="email" value={state.adminEmail} onChange={(v) => update("adminEmail", v)} placeholder="admin@business.com" />
+            <Field label="Administrator phone" autoComplete="tel" value={state.adminPhone} onChange={(v) => update("adminPhone", v)} placeholder="+233…" />
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600">
               A secure one-time temporary password is generated for the administrator and
               shown once at the end of enrollment. Only its hash is stored, and the
@@ -376,6 +376,7 @@ function Field({
   placeholder,
   type = "text",
   required,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -383,6 +384,7 @@ function Field({
   placeholder?: string;
   type?: string;
   required?: boolean;
+  autoComplete?: string;
 }) {
   return (
     <div className="form-group">
@@ -396,6 +398,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
+        autoComplete={autoComplete ?? "off"}
         className="w-full rounded-lg border border-slate-300 px-3 py-2.5"
       />
     </div>

@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonTable } from "@/components/ui/Skeletons";
 import { ClipboardList } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
@@ -79,7 +80,7 @@ export default function ReportsPage() {
 
       <div className="card">
         {loading ? (
-          <div className="flex items-center justify-center py-12"><div className="spinner"></div></div>
+          <SkeletonTable rows={8} columns={5} />
         ) : accounts.length === 0 ? (
           <div className="text-center py-12 text-slate-500"><p className="text-4xl mb-2 [&>svg]:h-9 [&>svg]:w-9 flex justify-center text-brand-300" aria-hidden><ClipboardList size={36} /></p><p className="font-medium">No reports found</p><p className="text-sm mt-1">Try adjusting your filters.</p></div>
         ) : (
