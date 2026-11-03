@@ -9,8 +9,9 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Check | Result | Evidence |
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
+| CI | PASS | GitHub Actions run on PR #3 head |
 | Lint | PASS (0 errors, 78 warnings) | `npm run lint` |
-| Unit/integration tests | PASS — 37 files, 387 tests | `npm test` |
+| Unit/integration tests | PASS — 37 files, 387 tests (CI) | `npm test` |
 | PostgreSQL tests | PASS — 6 files, 31 tests | `vitest --config vitest.pg.config.ts` |
 | Browser E2E | PASS — 16 tests | `playwright test` |
 | Production build | PASS | `npm run build` |
@@ -112,6 +113,17 @@ DATABASE_URL=... PG_DATABASE_URL=... npx vitest run --config vitest.pg.config.ts
 All 9 migrations applied, including
 `20261103_zeli_business_intelligence`. 31 PG tests passed, including concurrent
 daily-account correction and remittance reversal.
+
+## CI evidence
+
+- PR #1: `Lint, typecheck, test, build` pass.
+- PR #2: `Lint, typecheck, test, build` pass after retarget to `main`.
+- PR #3: `Lint, typecheck, test, build` pass (5m04s).
+
+Local full-suite runs occasionally hit environment timeouts in
+`customer-portal` and `password-lockout-live` on a loaded Windows host; the
+same files pass when re-run alone, and CI is green. No assertion failure was
+observed in the Zeli suites.
 
 ## Known test limitations
 

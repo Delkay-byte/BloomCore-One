@@ -8,11 +8,11 @@ not deployment.
 
 | Area | Status | Notes |
 |---|---|---|
-| Security closeout | READY WITH LIMITATIONS | PR #1 review pending; daily-account correction screen added with tests. |
-| Git integration | IN PROGRESS | Security PR must merge first; Zeli PR retargeted after; analytics PR against updated `main`. |
-| Zeli conversational experience | READY WITH LIMITATIONS | Providerless deterministic answers; supported intent set; no external model. |
-| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented. |
-| Subscription entitlements | READY WITH LIMITATIONS | Manual audited entitlement only; no billing provider/checkout. |
+| Security closeout | READY | PR #1 merged to `main` (`1d0645c`); daily-account correction screen included. |
+| Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
+| Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
+| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging review pending. |
+| Subscription entitlements | READY WITH LIMITATIONS | Manual audited entitlement only; no billing provider/checkout by design. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
 | External provider readiness | BLOCKED | DeepSeek disabled by code policy; no privacy approval. |
 | Independent penetration-test readiness | BLOCKED | Handover updated, but hosted staging and written authorization do not exist. |
@@ -50,6 +50,13 @@ not deployment.
 - Existing dev-tool dependency advisories remain; no critical advisory.
 - E2E runs on synthetic SQLite fixtures, not staging.
 - No pricing or checkout exists because the repository had no billing system.
+
+## Git state
+
+- `main` includes PR #1 merge `1d0645c` and PR #2 merge `2c7afed`.
+- Analytics branch: `feat/zeli-business-intelligence-2026-11`.
+- Analytics PR: <https://github.com/Delkay-byte/BloomCore-One/pull/3>.
+- Production Auto-Deploy: OFF. No deployment performed.
 
 ## Release gate
 
