@@ -7,6 +7,7 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getRemittances,
   recordRemittance,
+  reverseRemittance,
   getCollectors,
 } from "@/lib/actions/susu-collector.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
@@ -19,6 +20,8 @@ interface RemittanceRecord {
   variance: number;
   status: string;
   notes?: string | null;
+  reversedAt?: Date | null;
+  reversalReason?: string | null;
   createdAt: Date;
   collector: { user: { fullName: string } };
 }
@@ -114,6 +117,25 @@ export default function SusuRemittancesPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleReverse(record: RemittanceRecord) {
+    const reason = window.prompt(
+      "Reason for reversing this remittance (minimum 10 characters). The original record is kept and removed from active cash-handover totals."
+    );
+    if (!reason) return;
+    setError("");
+    setSuccess("");
+    const result = await reverseRemittance({
+      remittanceId: record.id,
+      reason,
+    });
+    if (!result.success) {
+      setError(result.error || "The remittance could not be reversed.");
+      return;
+    }
+    setSuccess("Remittance reversed. The original record remains in history.");
+    loadRemittances();
   }
 
   return (
@@ -219,6 +241,7 @@ export default function SusuRemittancesPage() {
                     <th>Amount Handed In</th>
                     <th>Difference</th>
                     <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -245,6 +268,19 @@ export default function SusuRemittancesPage() {
                         >
                           {r.status === "reconciled" ? "Matches" : r.status === "discrepancy" ? "Short" : r.status}
                         </span>
+                      </td>
+                      <td>
+                        {r.reversedAt ? (
+                          <span className="text-xs text-slate-500">Reversed</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleReverse(r)}
+                            className="btn btn-secondary btn-sm"
+                          >
+                            Reverse
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

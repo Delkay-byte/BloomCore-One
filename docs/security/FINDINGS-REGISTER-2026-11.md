@@ -168,3 +168,23 @@ do not.
 
 - No hosted Render/Neon staging was created (cost/credentials). The assessment used a local production-mode build with isolated PostgreSQL. This is not a substitute for testing a deployed staging service; external-test setup requirements are in `PENTEST-READINESS.md`.
 - ZAP CLI cannot complete TOTP; a server-minted test session (JWT + `SessionRecord`) was used for passive authenticated scanning. The minting helper is not committed.
+
+---
+
+# Security closeout — 2 November 2026
+
+Branch: `security/closeout-pentest-readiness-2026-11`
+
+| ID | Severity | Area | Finding / decision | Status |
+|---|---|---|---|---|
+| SC-01 | Medium | MFA replay | A valid TOTP step could be accepted more than once within its window; state was in-memory-free and not per-step. | **Fixed** — `User`/`Customer`/`PlatformSuperAdmin.mfaLastTotpStep`; atomic conditional `updateMany`; ±1 drift; recovery codes unchanged. Tests: `mfa-replay` (7), `pg-mfa-replay` (2). |
+| SC-02 | Medium | Remittance corrections | No safe reversal path; naive negative rows would corrupt the expected-cash anchor. | **Fixed** — `reversedAt/reversedById/reversalReason`, atomic single reversal, active queries exclude reversed rows. ADR §Remittance. |
+| SC-03 | Medium | Daily-account corrections | No correction path; duplicate row would violate location/date uniqueness. | **Fixed** — `DailyAccountRevision` immutable snapshots + live row correction, mandatory reason, atomic version guard. ADR §Daily account. |
+| SC-04 | Low | Password lockout live evidence | Previous internal staging did not complete a live repeated-password sequence. | **Covered by deterministic integration** (`security-hardening`): 1/5/15-minute progression, cooldown non-extension, success reset, pair + account buckets. Live re-run not repeated in this pass; documented. |
+| SC-05 | Low | Turnstile expired token | No explicit expired-challenge test. | **Fixed test coverage** — added expired timestamp test; existing missing/invalid/hostname/action/replay/timeout/configuration tests remain. Live staging keys still unavailable. |
+| SC-06 | Low | CSP `unsafe-inline` | Nonce/hash migration assessed as a broader dynamic-rendering change. | **Accepted residual** — policy unchanged; `unsafe-eval` remains production-removed. |
+| SC-07 | Informational | Audit integrity | Audit rows are append-only by application convention, not cryptographically chained; a database superuser or compromised application code can alter them. | **Accepted** — documented; hash chaining/external retention is a future project. |
+| SC-08 | Informational | Dependency advisory | `prisma → @prisma/config → deepmerge-ts` high advisory remains CLI-only. | **Accepted** — Prisma 7 migration is a separate compatibility project. |
+
+No Critical or High finding remains open from the code-addressable set. This is
+an internal status, not independent verification.

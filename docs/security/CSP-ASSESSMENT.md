@@ -81,3 +81,12 @@ Consequences measured against this repository:
 - No CSP relaxation was introduced; the enforced host allow-list is unchanged.
 - This document does not claim that `'unsafe-inline'` is harmless. It is a
   documented residual weakness.
+
+## Closeout recheck — 2 November 2026
+
+The policy was rechecked after the production rendering fix. A nonce still
+requires every statically prerendered page to become dynamic, and inline style
+attributes used by the UI would fail a nonce-only `style-src`. No safe partial
+removal was found. `script-src 'unsafe-inline'` remains an accepted residual;
+`'unsafe-eval'` is still development-only. Production build and authenticated
+pages were re-tested and render correctly under the enforced policy.

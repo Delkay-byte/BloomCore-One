@@ -6,6 +6,10 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/pg-*.test.ts"],
+    env: {
+      JWT_SECRET: "test-secret-for-vitest",
+      NODE_ENV: "test",
+    },
     fileParallelism: false,
   },
   resolve: {

@@ -104,6 +104,7 @@ export async function getSusuDashboardStats() {
         tenantId,
         collectorId: collector.id,
         createdAt: { gte: today, lt: tomorrow },
+        reversedAt: null,
       },
       select: { remittedAmount: true },
     });
@@ -283,6 +284,7 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
       tenantId,
       collectorId: collector.id,
       createdAt: { gte: today, lt: tomorrow },
+      reversedAt: null,
     },
   });
   const amountHandedInToday = todayRemittances.reduce(
@@ -360,6 +362,7 @@ export async function getAdminCollectorBreakdown() {
           tenantId,
           collectorId: collector.id,
           createdAt: { gte: today, lt: tomorrow },
+          reversedAt: null,
         },
         select: { remittedAmount: true },
       });

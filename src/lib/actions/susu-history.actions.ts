@@ -236,7 +236,7 @@ export async function getFinancialHistory(params?: {
     ]);
 
     const remitAgg = await db.collectorRemittance.aggregate({
-      where: remitWhere,
+      where: { ...remitWhere, reversedAt: null },
       _sum: { remittedAmount: true },
     });
     totalRemittances = Number(remitAgg._sum.remittedAmount || 0);

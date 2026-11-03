@@ -233,6 +233,202 @@ export async function saveDailyAccount(
   return { success: true };
 }
 
+/**
+ * Administrative correction of a submitted/reviewed daily account.
+ *
+ * The live row keeps its unique (location, date) identity and receives the
+ * corrected figures. Before the change, an immutable DailyAccountRevision
+ * snapshot preserves the exact prior financial values, expenses, status and
+ * review metadata, plus the author, timestamp and mandatory reason. A
+ * conditional update on revisionCount and a unique (account, version) index
+ * make concurrent corrections fail cleanly instead of overwriting each other.
+ *
+ * This is a revision model, not a negative entry: no balance is adjusted by
+ * appending a synthetic transaction.
+ */
+export async function correctDailyAccount(
+  accountId: string,
+  formData: FormData,
+  reasonInput: string
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+
+  const reason = reasonInput?.trim() ?? "";
+  if (reason.length < 10 || reason.length > 500) {
+    return {
+      success: false,
+      error: "Enter a correction reason of at least 10 characters.",
+    };
+  }
+
+  const account = await db.dailyAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
+    include: { expenses: true },
+  });
+  if (!account) return { success: false, error: "Daily account not found" };
+  if (account.status !== "submitted" && account.status !== "reviewed") {
+    return {
+      success: false,
+      error: "Only submitted or reviewed daily accounts can be corrected.",
+    };
+  }
+
+  let expenses: { description: string; amount: number }[] = [];
+  const expensesJson = formData.get("expenses") as string;
+  if (expensesJson) {
+    try {
+      expenses = JSON.parse(expensesJson);
+    } catch {
+      return { success: false, error: "Invalid expense data" };
+    }
+  }
+
+  const moneyField = (name: string): number => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.trim() === "") return Number.NaN;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : Number.NaN;
+  };
+
+  const parsed = {
+    openingMomoFloat: moneyField("openingMomoFloat"),
+    openingCash: moneyField("openingCash"),
+    totalCashIn: moneyField("totalCashIn"),
+    totalCashOut: moneyField("totalCashOut"),
+    totalCashReceived: moneyField("totalCashReceived"),
+    totalCashPaid: moneyField("totalCashPaid"),
+    commission: moneyField("commission"),
+    otherIncome: moneyField("otherIncome"),
+    closingMomoFloat: moneyField("closingMomoFloat"),
+    closingCash: moneyField("closingCash"),
+  };
+
+  const validated = dailyAccountSchema.safeParse({
+    ...parsed,
+    businessDate: account.businessDate.toISOString(),
+    expenses,
+  });
+  if (!validated.success) {
+    return { success: false, error: validated.error.issues[0].message };
+  }
+
+  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const { momoVariance, cashVariance } = calculateReconciliation({
+    ...parsed,
+    totalExpenses,
+  });
+  const version = account.revisionCount + 1;
+
+  const snapshot = {
+    status: account.status,
+    submittedAt: account.submittedAt?.toISOString() ?? null,
+    reviewedAt: account.reviewedAt?.toISOString() ?? null,
+    reviewedBy: account.reviewedBy ?? null,
+    reconciliationNote: account.reconciliationNote ?? null,
+    openingMomoFloat: Number(account.openingMomoFloat),
+    openingCash: Number(account.openingCash),
+    totalCashIn: Number(account.totalCashIn),
+    totalCashOut: Number(account.totalCashOut),
+    totalCashReceived: Number(account.totalCashReceived),
+    totalCashPaid: Number(account.totalCashPaid),
+    commission: Number(account.commission),
+    otherIncome: Number(account.otherIncome),
+    closingMomoFloat: Number(account.closingMomoFloat),
+    closingCash: Number(account.closingCash),
+    totalExpenses: Number(account.totalExpenses),
+    calculatedMomoVariance: Number(account.calculatedMomoVariance),
+    calculatedCashVariance: Number(account.calculatedCashVariance),
+    expenses: account.expenses.map((expense) => ({
+      description: expense.description,
+      amount: Number(expense.amount),
+    })),
+  };
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.dailyAccountRevision.create({
+        data: {
+          tenantId: ctx.tenantId,
+          dailyAccountId: accountId,
+          version,
+          snapshot: JSON.stringify(snapshot),
+          reason,
+          correctedById: ctx.userId,
+        },
+      });
+
+      const updated = await tx.dailyAccount.updateMany({
+        where: {
+          id: accountId,
+          tenantId: ctx.tenantId,
+          revisionCount: account.revisionCount,
+        },
+        data: {
+          ...parsed,
+          totalExpenses,
+          calculatedMomoVariance: momoVariance,
+          calculatedCashVariance: cashVariance,
+          correctedAt: new Date(),
+          correctedById: ctx.userId,
+          correctionReason: reason,
+          revisionCount: version,
+        },
+      });
+      if (updated.count !== 1) throw new Error("CORRECTION_CONFLICT");
+
+      await tx.expense.deleteMany({
+        where: { dailyAccountId: accountId, tenantId: ctx.tenantId },
+      });
+      if (expenses.length > 0) {
+        await tx.expense.createMany({
+          data: expenses.map((expense) => ({
+            tenantId: ctx.tenantId,
+            dailyAccountId: accountId,
+            description: expense.description,
+            amount: expense.amount,
+          })),
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      (error instanceof Error && error.message === "CORRECTION_CONFLICT") ||
+      (typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002")
+    ) {
+      return {
+        success: false,
+        error: "This account changed while you were correcting it. Reload and try again.",
+      };
+    }
+    return { success: false, error: "The correction could not be saved." };
+  }
+
+  await createAuditLog({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    action: "daily_account.corrected",
+    entityType: "dailyAccount",
+    entityId: accountId,
+    details: {
+      reason,
+      version,
+      totalExpenses,
+      momoVariance,
+      cashVariance,
+      previousSnapshotVersion: version,
+    },
+  });
+
+  revalidatePath(`/worker/daily/${accountId}`);
+  revalidatePath("/admin/history");
+  revalidatePath("/admin/reports");
+  revalidatePath("/admin/dashboard");
+  return { success: true, data: { version } };
+}
+
 export async function submitDailyAccount(
   accountId: string
 ): Promise<ActionResponse> {

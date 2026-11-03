@@ -256,6 +256,30 @@ describe("Cloudflare Turnstile verification", () => {
     expect(down.reason).toBe("unavailable");
   });
 
+  it("rejects an expired challenge timestamp", async () => {
+    configured();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            response({
+              challenge_ts: new Date(BASE - 11 * 60 * 1000).toISOString(),
+            })
+          ),
+          { status: 200 }
+        )
+      )
+    );
+    const result = await verifyTurnstile({
+      token: "expired-token",
+      action: "login",
+      now: BASE,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("expired");
+  });
+
   it("fails closed when enabled without keys", async () => {
     vi.stubEnv("TURNSTILE_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "");

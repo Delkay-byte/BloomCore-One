@@ -30,6 +30,7 @@ model User {
   mfaRecoveryCodes   String? // JSON array of SHA-256 recovery-code hashes
   mfaEnrolledAt      DateTime?
   mfaLastUsedAt      DateTime?
+  mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
   locationId         String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -99,12 +100,17 @@ model DailyAccount {
   submittedAt DateTime?
   reviewedAt  DateTime?
   reviewedBy  String?
+  correctedAt   DateTime?
+  correctedById String?
+  correctionReason String?
+  revisionCount Int      @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   location Location  @relation(fields: [locationId], references: [id])
   worker   User      @relation(fields: [workerId], references: [id])
   expenses Expense[]
+  revisions DailyAccountRevision[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -179,6 +185,7 @@ model Customer {
   mfaRecoveryCodes         String? // JSON array of SHA-256 recovery-code hashes
   mfaEnrolledAt            DateTime?
   mfaLastUsedAt            DateTime?
+  mfaLastTotpStep          Int? // Last accepted TOTP step (replay prevention)
 
   accounts    SusuAccount[]
   assignments CollectorCustomerAssignment[]
@@ -421,6 +428,9 @@ model CollectorRemittance {
   recordedById   String // Admin who recorded
   referenceId    String   @unique // Idempotency key
   notes          String?
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   createdAt      DateTime @default(now())
 
   collector Collector @relation(fields: [collectorId], references: [id])
@@ -432,6 +442,27 @@ model CollectorRemittance {
   @@index([createdAt])
   @@index([referenceId])
   @@index([tenantId])
+}
+
+/// Immutable snapshot of a daily account before an administrative correction.
+/// The live DailyAccount row carries the corrected figures; this table preserves
+/// the exact prior values, reason, author and version so history is auditable.
+model DailyAccountRevision {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  dailyAccountId String
+  version        Int
+  snapshot       String // JSON of the financial fields and expenses before correction
+  reason         String
+  correctedById  String
+  createdAt      DateTime @default(now())
+
+  dailyAccount DailyAccount @relation(fields: [dailyAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyAccountId, version])
+  @@index([dailyAccountId])
+  @@index([tenantId])
+  @@index([createdAt])
 }
 
 // =====================
@@ -582,6 +613,7 @@ model PlatformSuperAdmin {
   mfaRecoveryCodes   String? // JSON array of SHA-256 recovery-code hashes
   mfaEnrolledAt      DateTime?
   mfaLastUsedAt      DateTime?
+  mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
   lastLoginAt        DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
