@@ -727,3 +727,193 @@ export async function getAdminDashboardStats() {
     locationStatus,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Administrative correction screen
+// ---------------------------------------------------------------------------
+
+export interface DailyAccountRevisionView {
+  id: string;
+  version: number;
+  reason: string;
+  correctedById: string;
+  correctedByName: string | null;
+  createdAt: string;
+  snapshot: {
+    status: string;
+    openingMomoFloat: number;
+    openingCash: number;
+    totalCashIn: number;
+    totalCashOut: number;
+    totalCashReceived: number;
+    totalCashPaid: number;
+    commission: number;
+    otherIncome: number;
+    closingMomoFloat: number;
+    closingCash: number;
+    totalExpenses: number;
+    calculatedMomoVariance: number;
+    calculatedCashVariance: number;
+    expenses: Array<{ description: string; amount: number }>;
+  };
+}
+
+export interface DailyAccountCorrectionView {
+  id: string;
+  status: string;
+  businessDate: string;
+  location: { id: string; name: string; code: string };
+  worker: { id: string; fullName: string };
+  values: {
+    openingMomoFloat: number;
+    openingCash: number;
+    totalCashIn: number;
+    totalCashOut: number;
+    totalCashReceived: number;
+    totalCashPaid: number;
+    commission: number;
+    otherIncome: number;
+    closingMomoFloat: number;
+    closingCash: number;
+    totalExpenses: number;
+    calculatedMomoVariance: number;
+    calculatedCashVariance: number;
+  };
+  expenses: Array<{ description: string; amount: number }>;
+  reconciliationNote: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  correctedAt: string | null;
+  correctionReason: string | null;
+  revisionCount: number;
+  revisions: DailyAccountRevisionView[];
+}
+
+/**
+ * Read model for the dedicated correction screen. Only a tenant administrator
+ * with the MoMo module may load it; the tenant is resolved from the session,
+ * never from the browser. Revision history is returned read-only and is never
+ * edited or deleted by this screen.
+ */
+export async function getDailyAccountCorrectionData(
+  accountId: string
+): Promise<DailyAccountCorrectionView | null> {
+  const ctx = await requireTenantAdminMomo();
+
+  const account = await db.dailyAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
+    include: {
+      location: { select: { id: true, name: true, code: true } },
+      worker: { select: { id: true, fullName: true } },
+      expenses: { select: { description: true, amount: true } },
+      revisions: { orderBy: { version: "desc" } },
+    },
+  });
+  if (!account) return null;
+
+  const correctorIds = Array.from(
+    new Set(account.revisions.map((revision) => revision.correctedById))
+  );
+  const correctors =
+    correctorIds.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: correctorIds }, tenantId: ctx.tenantId },
+          select: { id: true, fullName: true },
+        })
+      : [];
+  const nameById = new Map(correctors.map((row) => [row.id, row.fullName]));
+
+  const revisions: DailyAccountRevisionView[] = account.revisions.map((revision) => {
+    let snapshot: DailyAccountRevisionView["snapshot"];
+    try {
+      const parsed = JSON.parse(revision.snapshot) as Record<string, unknown>;
+      snapshot = {
+        status: String(parsed.status ?? ""),
+        openingMomoFloat: Number(parsed.openingMomoFloat ?? 0),
+        openingCash: Number(parsed.openingCash ?? 0),
+        totalCashIn: Number(parsed.totalCashIn ?? 0),
+        totalCashOut: Number(parsed.totalCashOut ?? 0),
+        totalCashReceived: Number(parsed.totalCashReceived ?? 0),
+        totalCashPaid: Number(parsed.totalCashPaid ?? 0),
+        commission: Number(parsed.commission ?? 0),
+        otherIncome: Number(parsed.otherIncome ?? 0),
+        closingMomoFloat: Number(parsed.closingMomoFloat ?? 0),
+        closingCash: Number(parsed.closingCash ?? 0),
+        totalExpenses: Number(parsed.totalExpenses ?? 0),
+        calculatedMomoVariance: Number(parsed.calculatedMomoVariance ?? 0),
+        calculatedCashVariance: Number(parsed.calculatedCashVariance ?? 0),
+        expenses: Array.isArray(parsed.expenses)
+          ? (parsed.expenses as Array<{ description?: unknown; amount?: unknown }>).map(
+              (expense) => ({
+                description: String(expense.description ?? ""),
+                amount: Number(expense.amount ?? 0),
+              })
+            )
+          : [],
+      };
+    } catch {
+      // A corrupt snapshot must not hide the correction history. Render a
+      // clearly-empty snapshot instead of throwing the whole screen away.
+      snapshot = {
+        status: "",
+        openingMomoFloat: 0,
+        openingCash: 0,
+        totalCashIn: 0,
+        totalCashOut: 0,
+        totalCashReceived: 0,
+        totalCashPaid: 0,
+        commission: 0,
+        otherIncome: 0,
+        closingMomoFloat: 0,
+        closingCash: 0,
+        totalExpenses: 0,
+        calculatedMomoVariance: 0,
+        calculatedCashVariance: 0,
+        expenses: [],
+      };
+    }
+    return {
+      id: revision.id,
+      version: revision.version,
+      reason: revision.reason,
+      correctedById: revision.correctedById,
+      correctedByName: nameById.get(revision.correctedById) ?? null,
+      createdAt: revision.createdAt.toISOString(),
+      snapshot,
+    };
+  });
+
+  return {
+    id: account.id,
+    status: account.status,
+    businessDate: account.businessDate.toISOString(),
+    location: account.location,
+    worker: account.worker,
+    values: {
+      openingMomoFloat: Number(account.openingMomoFloat),
+      openingCash: Number(account.openingCash),
+      totalCashIn: Number(account.totalCashIn),
+      totalCashOut: Number(account.totalCashOut),
+      totalCashReceived: Number(account.totalCashReceived),
+      totalCashPaid: Number(account.totalCashPaid),
+      commission: Number(account.commission),
+      otherIncome: Number(account.otherIncome),
+      closingMomoFloat: Number(account.closingMomoFloat),
+      closingCash: Number(account.closingCash),
+      totalExpenses: Number(account.totalExpenses),
+      calculatedMomoVariance: Number(account.calculatedMomoVariance),
+      calculatedCashVariance: Number(account.calculatedCashVariance),
+    },
+    expenses: account.expenses.map((expense) => ({
+      description: expense.description,
+      amount: Number(expense.amount),
+    })),
+    reconciliationNote: account.reconciliationNote,
+    submittedAt: account.submittedAt?.toISOString() ?? null,
+    reviewedAt: account.reviewedAt?.toISOString() ?? null,
+    correctedAt: account.correctedAt?.toISOString() ?? null,
+    correctionReason: account.correctionReason,
+    revisionCount: account.revisionCount,
+    revisions,
+  };
+}

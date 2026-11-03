@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getMoMoHistory,
@@ -336,6 +337,7 @@ export default function MoMoHistoryPage() {
                     <th scope="col" className="num">Amount</th>
                     <th scope="col">Status</th>
                     <th scope="col">Notes</th>
+                    <th scope="col"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -358,6 +360,16 @@ export default function MoMoHistoryPage() {
                         </span>
                       </td>
                       <td className="text-sm text-slate-600 max-w-xs truncate">{r.notes}</td>
+                      <td className="text-sm whitespace-nowrap">
+                        {(r.status === "submitted" || r.status === "reviewed") && (
+                          <Link
+                            href={`/admin/history/${r.dailyAccountId}/correct`}
+                            className="text-brand-700 underline underline-offset-2 hover:text-brand-900"
+                          >
+                            Correct
+                          </Link>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -25,7 +25,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 import { recordRemittance, reverseRemittance } from "@/lib/actions/susu-collector.actions";
-import { correctDailyAccount } from "@/lib/actions/daily-account.actions";
+import {
+  correctDailyAccount,
+  getDailyAccountCorrectionData,
+} from "@/lib/actions/daily-account.actions";
 
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
 
@@ -256,5 +259,75 @@ describe("financial corrections", () => {
     });
     expect(updated.revisionCount).toBe(1);
     expect(updated.revisions).toHaveLength(1);
+  });
+
+  it("exposes correction history only to the owning tenant administrator", async () => {
+    const tenantA = await createTestTenant({ name: "Correction Tenant A" });
+    const tenantB = await createTestTenant({ name: "Correction Tenant B" });
+    const adminA = await createTestAdmin({ tenantId: tenantA.id });
+    const adminB = await createTestAdmin({ tenantId: tenantB.id });
+    await setAdminSession(adminA);
+
+    const location = await prisma.location.create({
+      data: { tenantId: tenantA.id, code: "COR-READ", name: "Read Model", status: "active" },
+    });
+    const workerUser = await prisma.user.create({
+      data: {
+        tenantId: tenantA.id,
+        email: "daily-worker-read@test.local",
+        fullName: "Read Worker",
+        role: "worker",
+        status: "active",
+        passwordHash: "not-used",
+        locationId: location.id,
+      },
+    });
+    const account = await prisma.dailyAccount.create({
+      data: {
+        tenantId: tenantA.id,
+        locationId: location.id,
+        workerId: workerUser.id,
+        businessDate: new Date("2026-11-03T00:00:00.000Z"),
+        openingMomoFloat: 100,
+        closingMomoFloat: 110,
+        status: "submitted",
+        submittedAt: new Date(),
+      },
+    });
+
+    const corrected = await correctDailyAccount(
+      account.id,
+      dailyForm({
+        openingMomoFloat: "100",
+        openingCash: "0",
+        totalCashIn: "10",
+        totalCashOut: "0",
+        totalCashReceived: "0",
+        totalCashPaid: "0",
+        commission: "0",
+        otherIncome: "0",
+        closingMomoFloat: "110",
+        closingCash: "0",
+        expenses: "[]",
+      }),
+      "Read-model correction for the revision screen"
+    );
+    expect(corrected.success).toBe(true);
+
+    const own = await getDailyAccountCorrectionData(account.id);
+    expect(own).not.toBeNull();
+    expect(own!.revisions).toHaveLength(1);
+    expect(own!.revisions[0].correctedByName).toBe("Test Admin");
+    expect(own!.revisions[0].snapshot.closingMomoFloat).toBe(110);
+
+    // A different tenant's administrator cannot read the record or its history.
+    await setAdminSession(adminB);
+    expect(await getDailyAccountCorrectionData(account.id)).toBeNull();
+
+    // No session at all is redirected by the admin guard, never served data.
+    mockCookieStore.clear();
+    await expect(getDailyAccountCorrectionData(account.id)).rejects.toThrow(
+      "REDIRECT:"
+    );
   });
 });
