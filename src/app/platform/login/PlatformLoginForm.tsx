@@ -1,14 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { isRedirectError } from "@/lib/errors";
 import { BrandLockup } from "@/components/brand/Brand";
 
-export default function PlatformLoginForm() {
+interface PlatformLoginFormProps {
+  /** Server-rendered: SSO entry point is shown only when the flag is on. */
+  ssoEnabled?: boolean;
+  /** Server-rendered SSO error/notice carried back via query params. */
+  ssoError?: string;
+  ssoNotice?: string;
+}
+
+export default function PlatformLoginForm({
+  ssoEnabled = false,
+  ssoError = "",
+  ssoNotice = "",
+}: PlatformLoginFormProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(0);
@@ -56,6 +68,16 @@ export default function PlatformLoginForm() {
               {error}
             </div>
           )}
+          {!error && ssoError && (
+            <div role="alert" className="banner banner-error mb-4">
+              {ssoError}
+            </div>
+          )}
+          {ssoNotice && (
+            <div role="status" className="banner banner-success mb-4">
+              {ssoNotice}
+            </div>
+          )}
 
           <form action={handleSubmit} className="space-y-4">
             <div className="form-group">
@@ -92,6 +114,20 @@ export default function PlatformLoginForm() {
               )}
             </button>
           </form>
+
+          {ssoEnabled && (
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <a
+                href="/platform/login/sso/start"
+                className="btn btn-secondary w-full flex items-center justify-center gap-2"
+              >
+                <Fingerprint size={15} aria-hidden /> Sign in with BloomCore Identity
+              </a>
+              <p className="text-center text-[11px] text-slate-400 mt-2">
+                Central sign-in via BloomCore Identity. Local password sign-in remains available.
+              </p>
+            </div>
+          )}
 
           <div className="mt-6 pt-4 border-t border-slate-100 text-center">
             <a href="/login" className="text-xs text-slate-500 hover:text-slate-700">

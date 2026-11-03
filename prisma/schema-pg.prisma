@@ -628,8 +628,43 @@ model PlatformSuperAdmin {
   updatedAt          DateTime  @updatedAt
 
   auditLogs PlatformAuditLog[]
+  oidcLinks PlatformOidcLink[]
 
   @@index([status])
+}
+
+/// OIDC identity link between a BloomCore Identity (Control Center / Authentik)
+/// subject and a platform super administrator. Feature-flagged SSO; the link is
+/// only created after the Control Center reports `verified`, or after the
+/// administrator proves the CURRENT local password (pending path). One IdP
+/// subject maps to at most one platform administrator and vice versa.
+model PlatformOidcLink {
+  id              String   @id @default(cuid())
+  platformAdminId String
+  issuer          String // exact OIDC issuer
+  idpSub          String   @unique // `sub` claim from the IdP
+  linkedVia       String // "cc_verified" | "local_credential_proof"
+  createdBy       String? // platform admin id that completed a pending confirmation
+  linkedAt        DateTime @default(now())
+
+  platformAdmin PlatformSuperAdmin @relation(fields: [platformAdminId], references: [id])
+
+  @@unique([issuer, platformAdminId])
+  @@index([platformAdminId])
+}
+
+/// Server-side companion to a platform SessionRecord created through SSO.
+/// Holds the (encrypted) IdP refresh token so logout can revoke it centrally.
+/// Tokens never live in cookies; the row is deleted on logout.
+model PlatformOidcSession {
+  id              String   @id // SessionRecord jti
+  platformAdminId String
+  refreshTokenEnc String? // AES-256-GCM encrypted IdP refresh token
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+
+  @@index([platformAdminId])
+  @@index([expiresAt])
 }
 
 /// Platform-level audit trail. Deliberately isolated from tenant AuditLog so

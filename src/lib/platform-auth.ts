@@ -55,6 +55,8 @@ export interface PlatformJwtPayload {
   jti?: string;
   tokenUse?: "platform";
   amr?: "pwd" | "pwd+mfa";
+  /** SSO only: raw IdP-attested amr array (auditability; guards use `amr`). */
+  idpAmr?: string[];
   iss?: string;
   aud?: string | string[];
   forcePasswordReset?: boolean;

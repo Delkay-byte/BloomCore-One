@@ -51,6 +51,8 @@ export async function cleanDatabase() {
   await prisma.zeliConversation.deleteMany();
   await prisma.zeliUsage.deleteMany();
   await prisma.platformAuditLog.deleteMany();
+  await prisma.platformOidcSession.deleteMany();
+  await prisma.platformOidcLink.deleteMany();
   await prisma.platformSuperAdmin.deleteMany();
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();

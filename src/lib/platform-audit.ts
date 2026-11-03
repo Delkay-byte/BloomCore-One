@@ -17,6 +17,12 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_LOGIN_FAILED: "platform.login_failed",
   PLATFORM_LOGOUT: "platform.logout",
   PLATFORM_PASSWORD_CHANGED: "platform.password_changed",
+  // OIDC SSO (feature-flagged; see docs/SSO-INTEGRATION.md)
+  PLATFORM_SSO_START: "platform.sso_start",
+  PLATFORM_SSO_SUCCESS: "platform.sso_success",
+  PLATFORM_SSO_DENIED: "platform.sso_denied",
+  PLATFORM_SSO_LINK_CREATED: "platform.sso_link_created",
+  PLATFORM_SSO_LINK_FAILED: "platform.sso_link_failed",
   TENANT_CREATED: "tenant.created",
   TENANT_ACTIVATED: "tenant.activated",
   TENANT_SUSPENDED: "tenant.suspended",

@@ -182,6 +182,16 @@ export async function platformLogout(): Promise<void> {
     const token = (await cookies()).get(PLATFORM_COOKIE)?.value;
     const payload = token ? await verifyPlatformToken(token) : null;
     await revokePlatformSession(payload, "platform_logout");
+    // SSO sessions: best-effort revocation of the IdP refresh token and
+    // cleanup of the companion row. Never blocks or fails local logout.
+    if (payload?.jti) {
+      try {
+        const { revokeIdpRefreshToken } = await import("@/lib/security/oidc");
+        await revokeIdpRefreshToken(payload.jti);
+      } catch {
+        // ignore — logout must always complete
+      }
+    }
     await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_LOGOUT);
   }
   await clearPlatformSession();
