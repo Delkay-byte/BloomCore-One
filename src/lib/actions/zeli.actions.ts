@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getTenantContext } from "@/lib/tenant";
-import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { getZeliProviderStatus } from "@/lib/zeli/provider";
 import { suggestedQuestionsForRole } from "@/lib/zeli/intelligence/intents";
 import {
   evaluateZeliAccess,
@@ -45,7 +45,7 @@ async function requireIdentity(): Promise<ZeliIdentity> {
 
 export async function getZeliBootstrap(): Promise<
   ZeliActionResponse<{
-    status: ReturnType<typeof zeliProviderStatus>;
+    status: Awaited<ReturnType<typeof getZeliProviderStatus>>;
     suggestions: string[];
     role: string;
     analyticsAccess: boolean;
@@ -63,7 +63,7 @@ export async function getZeliBootstrap(): Promise<
   return {
     success: true,
     data: {
-      status: zeliProviderStatus(),
+      status: await getZeliProviderStatus(identity.tenantId),
       suggestions: suggestedQuestionsForRole(identity.role, {
         analyticsAvailable: analyticsAccess,
       }),

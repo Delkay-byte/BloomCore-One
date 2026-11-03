@@ -1,6 +1,7 @@
 import { requireTenantAdmin } from "@/lib/tenant";
 import { getZeliAnalyticsDashboard } from "@/lib/actions/zeli-analytics.actions";
 import AnalyticsDashboard from "./AnalyticsDashboard";
+import { getZeliSubscriptionSummary } from "@/lib/actions/zeli-billing.actions";
 import type { PeriodPreset } from "@/lib/zeli/intelligence/period";
 
 export const dynamic = "force-dynamic";
@@ -53,9 +54,11 @@ export default async function ZeliAnalyticsPage({
       </div>
     );
   }
+  const subscription = await getZeliSubscriptionSummary();
   return (
     <AnalyticsDashboard
       data={result.data}
+      subscription={subscription.success ? subscription.data ?? null : null}
       filters={{
         period,
         from: params.from ?? null,

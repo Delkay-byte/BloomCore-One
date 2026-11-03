@@ -11,12 +11,12 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Typecheck | PASS | `npm run typecheck` |
 | CI | PASS | GitHub Actions run on PR #3 head |
 | Lint | PASS (0 errors, 78 warnings) | `npm run lint` |
-| Unit/integration tests | PASS — 37 files, 387 tests (CI) | `npm test` |
+| Unit/integration tests | PASS — 42 files, 424 tests | `npm test` |
 | PostgreSQL tests | PASS — 6 files, 31 tests | `vitest --config vitest.pg.config.ts` |
-| Browser E2E | PASS — 16 tests | `playwright test` |
+| Browser E2E | PASS — 19 tests | `playwright test` |
 | Production build | PASS | `npm run build` |
 | Dependency audit | 0 critical, 6 high, 19 moderate (dev toolchain) | `npm audit` |
-| Migration verification | PASS | `prisma migrate deploy` against PostgreSQL 16 |
+| Migration verification | PASS (10 migrations) | `prisma migrate deploy` against PostgreSQL 16 |
 | Analytics reconciliation | PASS | `tests/zeli-analytics.test.ts` |
 | Provider isolation | PASS | `tests/zeli-privacy-gateway.test.ts` |
 
@@ -72,9 +72,24 @@ PostgreSQL 16 container, Chromium via Playwright.
 - Concurrent refresh idempotency and PostgreSQL aggregate reconciliation.
 - Entitlement lifecycle persists and evaluates in PostgreSQL.
 
+## Commerce, provider and advanced-intelligence suites (new)
+
+- `zeli-billing.test.ts` (8): checkout price from DB, unavailable package,
+  forged webhook, duplicate webhook, amount/currency mismatch, refund suspension,
+  server-verified callback, cancellation until period end.
+- `zeli-provider-control.test.ts` (16): default/emergency/synthetic/approved
+  policy matrix, gateway package rules, small groups, synthetic/real confusion,
+  DeepSeek transport, output validation, normal chat never sent in synthetic mode.
+- `zeli-provider-actions.test.ts` (5): platform session required, production mode
+  locked, synthetic environment permission, emergency stop override.
+- `zeli-commerce-actions.test.ts` (5): platform plan management, mandatory reason,
+  invalid price/currency, no seeded price, tenant exclusion.
+- `zeli-advanced-insights.test.ts` (3): dormant accounts, contribution
+  consistency, reporting gaps, collector concentration, rich recommendations.
+
 ## Browser E2E (`e2e/`)
 
-16 tests across desktop and mobile Chromium:
+19 tests across desktop and mobile Chromium:
 
 - provider-disabled status and supported answer;
 - unsupported-question limitation;
@@ -91,7 +106,10 @@ PostgreSQL 16 container, Chromium via Playwright.
 - platform page exposes no tenant financial records;
 - correction screen original/proposed values, reason, confirmation, revision;
 - cross-tenant correction denial;
-- mobile Zeli and analytics layout.
+- mobile Zeli and analytics layout;
+- owner-configured package creation;
+- provider emergency stop;
+- honest checkout-configuration state.
 
 Run:
 
@@ -119,6 +137,7 @@ daily-account correction and remittance reversal.
 - PR #1: `Lint, typecheck, test, build` pass.
 - PR #2: `Lint, typecheck, test, build` pass after retarget to `main`.
 - PR #3: `Lint, typecheck, test, build` pass (5m04s).
+- This branch: CI to be recorded after push.
 
 Local full-suite runs occasionally hit environment timeouts in
 `customer-portal` and `password-lockout-live` on a loaded Windows host; the

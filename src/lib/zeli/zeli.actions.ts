@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getTenantContext } from "@/lib/tenant";
-import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { getZeliProviderStatus } from "@/lib/zeli/provider";
 import {
   assertConversationOwner,
   runZeliTurn,
@@ -64,7 +64,7 @@ const SUGGESTIONS: Record<string, string[]> = {
 
 export async function getZeliBootstrap(): Promise<
   ZeliActionResponse<{
-    status: ReturnType<typeof zeliProviderStatus>;
+    status: Awaited<ReturnType<typeof getZeliProviderStatus>>;
     suggestions: string[];
     role: string;
   }>
@@ -74,7 +74,7 @@ export async function getZeliBootstrap(): Promise<
   return {
     success: true,
     data: {
-      status: zeliProviderStatus(),
+      status: await getZeliProviderStatus(undefined),
       suggestions: SUGGESTIONS[identity.role] ?? SUGGESTIONS.admin,
       role: identity.role,
     },

@@ -25,9 +25,6 @@ import {
 } from "@/lib/actions/zeli-platform.actions";
 import { formatDateTime } from "@/lib/utils";
 
-const PROVIDER_MESSAGE =
-  "External AI processing is currently disabled. Zeli's private analytics and local intelligence features remain available.";
-
 function statusBadge(row: PlatformZeliTenantRow) {
   if (!row.entitlement) return { label: "No subscription", cls: "badge-gray" };
   if (row.entitlement.allowed) return { label: "Active", cls: "badge-green" };
@@ -249,23 +246,27 @@ export default function ZeliControlCentre({
             <h2 className="flex items-center gap-2 font-semibold text-slate-900">
               <ShieldCheck size={16} aria-hidden /> Provider status
             </h2>
-            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {PROVIDER_MESSAGE}
+            <p className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
+              overview.provider.external.state === "disabled"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-emerald-200 bg-emerald-50 text-emerald-900"
+            }`}>
+              {overview.provider.message}
             </p>
             <dl className="mt-3 space-y-2 text-sm">
               <Row label="Local engine" value="Internal deterministic (active)" />
-              <Row label="External provider" value="Disabled" />
-              <Row label="DeepSeek" value="Disabled by code policy" />
-              <Row label="Approval recorded" value={overview.provider.external.approvalRecorded ? "Yes" : "No"} />
+              <Row label="External provider" value={overview.provider.external.state === "disabled" ? "Disabled" : "DeepSeek"} />
+              <Row label="DeepSeek" value={overview.provider.external.state === "disabled" ? "Disabled by policy" : overview.provider.external.state} />
+              <Row label="Approval recorded" value={overview.provider.external.productionApproved ? "Yes" : "No"} />
               <Row
                 label="Credential present"
                 value={overview.provider.external.credentialConfigured ? "Yes (still inert)" : "No"}
               />
-              <Row label="Policy phase" value={overview.provider.external.phase} />
+              <Row label="Policy phase" value={overview.provider.external.state} />
             </dl>
             <p className="mt-2 text-xs text-slate-500">
-              There is no toggle on this page that can activate DeepSeek. Enabling any external
-              provider requires a reviewed code change, a privacy assessment and owner approval.
+              Use the External AI control panel below. Production processing stays locked behind
+              the code, privacy and approval gates.
             </p>
           </section>
 

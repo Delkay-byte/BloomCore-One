@@ -1,0 +1,72 @@
+# BloomCore One — Staging Blueprint (not applied)
+#
+# This file is a reviewed template. It does NOT create or deploy anything.
+# The owner must approve staging spend, create the Neon database and Render
+# service, then set secrets in the provider dashboard.
+#
+# Never reuse production Neon, production API keys, Paystack live keys,
+# Turnstile production keys or the legacy Render service.
+
+services:
+  - type: web
+    name: bloomcore-one-staging
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: false
+    buildCommand: npm ci --include=dev && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_ENV
+        value: STAGING
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RATE_LIMIT_HMAC_SECRET
+        sync: false
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      - key: MFA_ENFORCEMENT
+        value: "enforce"
+      - key: TURNSTILE_ENABLED
+        value: "true"
+      - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_ALLOWED_HOSTNAMES
+        value: "bloomcore-one-staging.onrender.com"
+      - key: TRUSTED_PROXY_HEADERS
+        value: "true"
+      - key: NEXTAUTH_URL
+        value: "https://bloomcore-one-staging.onrender.com"
+      - key: SESSION_IDLE_TIMEOUT_SECONDS
+        value: "1800"
+      - key: SESSION_BACKGROUND_TIMEOUT_SECONDS
+        value: "600"
+      - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
+        value: "14400"
+      - key: OFFLINE_COLLECTIONS_ENABLED
+        value: "false"
+      - key: OFFLINE_MOMO_ENABLED
+        value: "false"
+      # Payment provider: set TEST keys only. Live mode is forbidden.
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      # Optional DeepSeek synthetic testing. Keep disabled unless an approved
+      # synthetic window is active. The global control must also be enabled.
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: ZELI_PROVIDER
+        value: "deepseek"
+      - key: ZELI_SYNTHETIC_TESTING_ALLOWED
+        value: "false"
+      - key: ZELI_GATEWAY_MIN_COHORT
+        value: "5"

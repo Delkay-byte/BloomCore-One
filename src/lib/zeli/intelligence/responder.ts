@@ -17,6 +17,7 @@ import {
   type ComposedAnswer,
 } from "./compose";
 import { classifyIntent, type ClassifiedIntent } from "./intents";
+import { enhanceWithProvider } from "../provider-reasoning";
 
 /**
  * Providerless responder for the business-administrator Zeli workspace.
@@ -270,9 +271,18 @@ export async function answerAdminBusinessQuestion(params: {
       break;
   }
 
+  const enhancement = await enhanceWithProvider({
+    identity: params.identity,
+    intent: classified.intent,
+    snapshot,
+    localAnswer: answer,
+  });
+  const externalText = enhancement.used ? `
+
+${enhancement.text}` : "";
   const sources = sourcesForIntent(classified.intent, snapshot);
   return {
-    text: `${answer.text}\n\n[PERIOD] ${answer.period} · [SOURCE] ${answer.source} · [FRESHNESS] ${answer.freshness}\n\n[LIMITATIONS] ${answer.limitations.join(" ")}`,
+    text: `${answer.text}${externalText}\n\n[PERIOD] ${answer.period} · [SOURCE] ${answer.source} · [FRESHNESS] ${answer.freshness}\n\n[LIMITATIONS] ${answer.limitations.join(" ")}`,
     sources,
     intent: classified.intent,
     focus: answer.focus,

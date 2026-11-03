@@ -1,6 +1,6 @@
 # Zeli — Release Readiness
 
-**Date:** 3 November 2026.
+**Date:** 4 November 2026.
 **Production deployment:** NOT AUTHORIZED. Render Auto-Deploy is OFF; merging is
 not deployment.
 
@@ -12,10 +12,10 @@ not deployment.
 | Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
 | Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
 | Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging review pending. |
-| Subscription entitlements | READY WITH LIMITATIONS | Manual audited entitlement only; no billing provider/checkout by design. |
+| Subscription entitlements | READY WITH LIMITATIONS | Paystack checkout, webhook lifecycle and manual overrides implemented; test-key configuration required. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
-| External provider readiness | BLOCKED | DeepSeek disabled by code policy; no privacy approval. |
-| Independent penetration-test readiness | BLOCKED | Handover updated, but hosted staging and written authorization do not exist. |
+| External provider readiness | READY WITH LIMITATIONS | Adapter, three-state control and synthetic mode implemented; production locked; no key/live probe locally. |
+| Independent penetration-test readiness | BLOCKED | Handover updated with commerce/provider scope; hosted staging and written authorization missing. |
 | Production release | BLOCKED | Owner authorization and staging validation required. |
 
 ## Implemented and available without external AI
@@ -50,6 +50,14 @@ not deployment.
 - Existing dev-tool dependency advisories remain; no critical advisory.
 - E2E runs on synthetic SQLite fixtures, not staging.
 - No pricing or checkout exists because the repository had no billing system.
+
+## Commerce/provider addendum
+
+- Subscription checkout and lifecycle implemented; no price seeded.
+- DeepSeek adapter uses the fixed official endpoint and aggregate package.
+- Global AI control has disabled/synthetic/approved states and emergency stop.
+- Production AI remains locked by code and approval gates.
+- Staging is prepared, not deployed.
 
 ## Git state
 

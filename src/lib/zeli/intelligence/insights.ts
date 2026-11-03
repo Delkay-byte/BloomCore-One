@@ -362,6 +362,115 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
   const engagement = engagementTrend(snapshot);
   if (engagement) insights.push(engagement);
 
+
+  if (snapshot.customer.dormantAccounts > 0 && snapshot.customer.totalActiveAccounts >= 5) {
+    const share = (snapshot.customer.dormantAccounts / snapshot.customer.totalActiveAccounts) * 100;
+    if (share >= 10) {
+      insights.push({
+        id: "dormant-accounts",
+        title: "Some active accounts had no contribution",
+        detail: `${snapshot.customer.dormantAccounts} of ${snapshot.customer.totalActiveAccounts} active accounts recorded no contribution in ${period}. This is a count of accounts, not a judgement about customers.`,
+        severity: share >= 40 ? "attention" : "info",
+        category: "customer",
+        period,
+        metric: "Dormant active accounts",
+        calculation: "Active SusuAccount count minus distinct accounts with at least one non-reversed contribution in the period",
+        source: snapshot.reconciliation.contributionSource,
+        freshness,
+        confidence: "medium",
+        limitations: [
+          "An account may be paused by agreement, or the customer may contribute through another account.",
+          "This is not proof of churn or misconduct.",
+        ],
+        evidence: [
+          { label: "Dormant accounts", value: String(snapshot.customer.dormantAccounts) },
+          { label: "Active accounts", value: String(snapshot.customer.totalActiveAccounts) },
+        ],
+        recommendedAction: "Review collection coverage and contact only through an authorized staff workflow.",
+        type: "detected_pattern",
+      });
+    }
+  }
+
+  if (snapshot.customer.activeAccounts >= 5 && snapshot.customer.singleContributionAccounts > 0) {
+    const share = (snapshot.customer.singleContributionAccounts / snapshot.customer.activeAccounts) * 100;
+    if (share >= 60) {
+      insights.push({
+        id: "contribution-consistency",
+        title: "Most contributing accounts paid only once",
+        detail: `${Math.round(share)}% of contributing accounts recorded a single contribution in ${period}. Contribution consistency is a service indicator, not an employee-performance conclusion.`,
+        severity: "attention",
+        category: "customer",
+        period,
+        metric: "Contribution consistency",
+        calculation: "Accounts with exactly one non-reversed contribution divided by all contributing accounts",
+        source: snapshot.reconciliation.contributionSource,
+        freshness,
+        confidence: "medium",
+        limitations: ["A short reporting period naturally produces more single contributions."],
+        evidence: [
+          { label: "Single-contribution accounts", value: String(snapshot.customer.singleContributionAccounts) },
+          { label: "Contributing accounts", value: String(snapshot.customer.activeAccounts) },
+        ],
+        recommendedAction: "Check collection routes and whether the period is too short to judge consistency.",
+        type: "detected_pattern",
+      });
+    }
+  }
+
+  if (snapshot.period.days >= 7 && snapshot.series.length > 0) {
+    const zeroDays = snapshot.series.filter((point) => point.transactionCount === 0).length;
+    const share = (zeroDays / snapshot.series.length) * 100;
+    if (share >= 30) {
+      insights.push({
+        id: "reporting-gaps",
+        title: "Several days have no recorded transactions",
+        detail: `${zeroDays} of ${snapshot.series.length} days in ${period} have no contributions, withdrawals or remittances. Zero can mean no activity or missing records.`,
+        severity: share >= 60 ? "warning" : "attention",
+        category: "data_quality",
+        period,
+        metric: "Reporting completeness",
+        calculation: "Days with zero transactions divided by total days in the period",
+        source: snapshot.freshness.source,
+        freshness,
+        confidence: "medium",
+        limitations: ["Businesses may legitimately close on some days."],
+        evidence: [{ label: "Zero-transaction days", value: String(zeroDays) }],
+        recommendedAction: "Confirm opening days and that daily accounts were submitted.",
+        type: "detected_pattern",
+      });
+    }
+  }
+
+  const activeCollectors = snapshot.collectorActivity.filter((row) => row.contributions > 0);
+  if (activeCollectors.length >= 3) {
+    const totalCollected = activeCollectors.reduce((sum, row) => sum + row.contributions, 0);
+    const top = activeCollectors[0];
+    const share = totalCollected > 0 ? (top.contributions / totalCollected) * 100 : 0;
+    if (share >= 75) {
+      insights.push({
+        id: "collector-concentration",
+        title: "Collection activity is concentrated in one collector",
+        detail: `One collector accounts for ${share.toFixed(0)}% of recorded collector contributions in ${period}. Workload can legitimately differ by route size.`,
+        severity: "info",
+        category: "branch",
+        period,
+        metric: "Collector activity distribution",
+        calculation: "Largest collector contribution total divided by all collector contribution totals",
+        source: snapshot.reconciliation.contributionSource,
+        freshness,
+        confidence: "low",
+        limitations: [
+          "This is a workload observation, not evidence of performance or misconduct.",
+          "Assignments and route size are not normalized.",
+        ],
+        evidence: [{ label: "Largest share", value: `${share.toFixed(0)}%` }],
+        recommendedAction: "Review route assignment and handover coverage, not individual blame.",
+        type: "detected_pattern",
+      });
+    }
+  }
+
   if (snapshot.freshness.stale) {
     insights.push({
       id: "stale-analytics",
@@ -408,14 +517,23 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
 }
 
 /** Short recommendation list derived from insights, safe and read-only. */
-export function recommendationsFrom(insights: Insight[]): Array<{
+export interface Recommendation {
   id: string;
   title: string;
   action: string;
   severity: InsightSeverity;
-}> {
+  explanation: string;
+  evidenceSource: string;
+  period: string;
+  suggestedInvestigation: string;
+  confidence: Insight["confidence"];
+  limitations: string[];
+  humanActionRequired: true;
+}
+
+export function recommendationsFrom(insights: Insight[]): Recommendation[] {
   const seen = new Set<string>();
-  const output: Array<{ id: string; title: string; action: string; severity: InsightSeverity }> = [];
+  const output: Recommendation[] = [];
   for (const insight of insights) {
     if (!insight.recommendedAction || seen.has(insight.recommendedAction)) continue;
     seen.add(insight.recommendedAction);
@@ -424,6 +542,13 @@ export function recommendationsFrom(insights: Insight[]): Array<{
       title: insight.title,
       action: insight.recommendedAction,
       severity: insight.severity,
+      explanation: insight.detail,
+      evidenceSource: insight.source,
+      period: insight.period,
+      suggestedInvestigation: insight.recommendedAction,
+      confidence: insight.confidence,
+      limitations: insight.limitations,
+      humanActionRequired: true,
     });
     if (output.length >= 5) break;
   }

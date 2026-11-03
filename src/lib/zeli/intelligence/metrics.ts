@@ -97,6 +97,9 @@ export interface CustomerAnalytics {
   newCustomers: number;
   activeAccounts: number;
   contributingAccounts: number;
+  totalActiveAccounts: number;
+  dormantAccounts: number;
+  singleContributionAccounts: number;
   engagement: Array<{ bucket: string; accounts: number }>;
   series: Array<{ date: string; newCustomers: number; activeAccounts: number }>;
 }
@@ -873,10 +876,17 @@ async function computeCustomerAnalytics(
           registeredAt: { gte: range.start, lt: range.endExclusive },
         },
       });
+  const totalActiveAccounts = await db.susuAccount.count({
+    where: { tenantId, status: "active" },
+  });
+  const singleContributionAccounts = engagement[0]?.accounts ?? 0;
   return {
     newCustomers,
     activeAccounts: accountIds.length,
     contributingAccounts: customers.length,
+    totalActiveAccounts,
+    dormantAccounts: Math.max(0, totalActiveAccounts - accountIds.length),
+    singleContributionAccounts,
     engagement,
     series: series.map((point) => ({
       date: point.date,

@@ -42,6 +42,7 @@ import {
 } from "@/lib/actions/zeli-analytics.actions";
 import type { ExplainableChartId } from "@/lib/zeli/intelligence/compose";
 import { formatDateTime } from "@/lib/utils";
+import SubscriptionCard from "./SubscriptionCard";
 
 const PERIODS: Array<{ value: string; label: string }> = [
   { value: "today", label: "Today" },
@@ -56,6 +57,12 @@ const PERIODS: Array<{ value: string; label: string }> = [
 
 interface Props {
   data: AnalyticsDashboardData;
+  subscription: {
+    planName: string;
+    status: string;
+    periodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+  } | null;
   filters: {
     period: string;
     from: string | null;
@@ -99,7 +106,7 @@ const SEVERITY_STYLE: Record<string, string> = {
   info: "border-brand-100 bg-brand-50 text-brand-900",
 };
 
-export default function AnalyticsDashboard({ data, filters }: Props) {
+export default function AnalyticsDashboard({ data, filters, subscription }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -730,7 +737,16 @@ export default function AnalyticsDashboard({ data, filters }: Props) {
                 {recommendations.map((recommendation) => (
                   <li key={recommendation.id} className="rounded-lg border border-slate-200 p-2.5">
                     <p className="font-medium text-slate-800">{recommendation.title}</p>
-                    <p className="mt-1 text-slate-600">{recommendation.action}</p>
+                    <p className="mt-1 text-slate-600">{recommendation.explanation}</p>
+                    <p className="mt-1 text-xs text-slate-500">{recommendation.action}</p>
+                    <details className="mt-1 text-xs text-slate-500">
+                      <summary className="cursor-pointer">Evidence and limitations</summary>
+                      <p>Source: {recommendation.evidenceSource}</p>
+                      <p>Period: {recommendation.period}</p>
+                      <p>Confidence: {recommendation.confidence}</p>
+                      <p>Limitations: {recommendation.limitations.join(" ")}</p>
+                      <p>Human action required: {recommendation.humanActionRequired ? "yes" : "no"}</p>
+                    </details>
                   </li>
                 ))}
               </ol>
@@ -748,6 +764,8 @@ export default function AnalyticsDashboard({ data, filters }: Props) {
               Open Zeli Assistant
             </Link>
           </div>
+
+          <SubscriptionCard summary={subscription} />
 
           <div className="card bg-white text-xs text-slate-500">
             <h2 className="text-sm font-semibold text-slate-800">How these figures are calculated</h2>
