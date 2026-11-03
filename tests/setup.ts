@@ -15,33 +15,47 @@ export const prisma = new PrismaClient();
  * Clean all tables in the correct order to respect foreign key constraints.
  */
 export async function cleanDatabase() {
-  await prisma.contributionAllocation.deleteMany();
-  await prisma.contribution.deleteMany();
-  await prisma.withdrawal.deleteMany();
-  await prisma.commission.deleteMany();
-  await prisma.cardFee.deleteMany();
-  await prisma.collectorCustomerAssignment.deleteMany();
-  await prisma.collectorRemittance.deleteMany();
-  await prisma.susuCycle.deleteMany();
-  await prisma.susuAccount.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.collector.deleteMany();
-  await prisma.expense.deleteMany();
-  await prisma.dailyAccount.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.passwordResetToken.deleteMany();
-  await prisma.offlineTransaction.deleteMany();
-  await prisma.deviceEnrollment.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.location.deleteMany();
-  await prisma.businessTenant.deleteMany();
-  await prisma.platformAuditLog.deleteMany();
-  await prisma.platformSuperAdmin.deleteMany();
-  await prisma.sessionRecord.deleteMany();
-  await prisma.accountRecoveryRequest.deleteMany();
-  await prisma.rateLimitCounter.deleteMany();
-  await prisma.authThrottle.deleteMany();
-  await prisma.turnstileTokenUse.deleteMany();
+  // One transaction keeps cleanup fast and consistent. Deletion order respects
+  // foreign keys: financial children before parents, tenant-owned rows before
+  // BusinessTenant. Each test file runs sequentially, so this cannot race.
+  await prisma.$transaction([
+    prisma.contributionAllocation.deleteMany(),
+    prisma.contribution.deleteMany(),
+    prisma.withdrawal.deleteMany(),
+    prisma.commission.deleteMany(),
+    prisma.cardFee.deleteMany(),
+    prisma.collectorCustomerAssignment.deleteMany(),
+    prisma.collectorRemittance.deleteMany(),
+    prisma.susuCycle.deleteMany(),
+    prisma.susuAccount.deleteMany(),
+    prisma.customer.deleteMany(),
+    prisma.collector.deleteMany(),
+    prisma.expense.deleteMany(),
+    prisma.dailyAccountRevision.deleteMany(),
+    prisma.dailyAccount.deleteMany(),
+    prisma.auditLog.deleteMany(),
+    prisma.passwordResetToken.deleteMany(),
+    prisma.offlineTransaction.deleteMany(),
+    prisma.deviceEnrollment.deleteMany(),
+    prisma.zeliProviderGatewayEvent.deleteMany(),
+    prisma.zeliAnalyticsDaily.deleteMany(),
+    prisma.zeliAnalyticsRefresh.deleteMany(),
+    prisma.zeliEntitlementEvent.deleteMany(),
+    prisma.zeliEntitlement.deleteMany(),
+    prisma.zeliMessage.deleteMany(),
+    prisma.zeliConversation.deleteMany(),
+    prisma.zeliUsage.deleteMany(),
+    prisma.user.deleteMany(),
+    prisma.location.deleteMany(),
+    prisma.businessTenant.deleteMany(),
+    prisma.platformAuditLog.deleteMany(),
+    prisma.platformSuperAdmin.deleteMany(),
+    prisma.sessionRecord.deleteMany(),
+    prisma.accountRecoveryRequest.deleteMany(),
+    prisma.rateLimitCounter.deleteMany(),
+    prisma.authThrottle.deleteMany(),
+    prisma.turnstileTokenUse.deleteMany(),
+  ]);
 }
 
 /**
@@ -82,7 +96,7 @@ export async function createTestAdmin(options: {
   tenantId?: string;
 } = {}) {
   const bcrypt = await import("bcryptjs");
-  const passwordHash = await bcrypt.hash("Test1234!", 12);
+  const passwordHash = await bcrypt.hash("Test1234!", 4);
   const tenant =
     options.tenantId != null
       ? null

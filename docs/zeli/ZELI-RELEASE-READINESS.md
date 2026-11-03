@@ -1,35 +1,70 @@
 # Zeli — Release Readiness
 
-## Status
+**Date:** 3 November 2026.
+**Production deployment:** NOT AUTHORIZED. Render Auto-Deploy is OFF; merging is
+not deployment.
 
-- **Functional readiness:** READY WITH LIMITATIONS — read-only assistant,
-  mock provider, conversation persistence, role-aware context.
-- **External-provider readiness:** BLOCKED — DeepSeek requires written DPA/
-  privacy approval and a secret key. Adapter is built and tested with mocks.
-- **Production release readiness:** NOT AUTHORIZED — no production deployment in
-  this assignment.
+## Status by area
 
-## Available now
+| Area | Status | Notes |
+|---|---|---|
+| Security closeout | READY | PR #1 merged to `main` (`1d0645c`); daily-account correction screen included. |
+| Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
+| Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
+| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging review pending. |
+| Subscription entitlements | READY WITH LIMITATIONS | Manual audited entitlement only; no billing provider/checkout by design. |
+| Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
+| External provider readiness | BLOCKED | DeepSeek disabled by code policy; no privacy approval. |
+| Independent penetration-test readiness | BLOCKED | Handover updated, but hosted staging and written authorization do not exist. |
+| Production release | BLOCKED | Owner authorization and staging validation required. |
 
-Read-only business summaries, customer lookup, collector/worker/customer
-context, conversations, streaming transport, feedback, usage limit, provider
-status.
+## Implemented and available without external AI
 
-## Disabled pending owner action
+- `/zeli` supported intents and role-scoped summaries.
+- `/admin/zeli-analytics` KPIs, charts, filters, refresh, export.
+- Rule-based insights with calculation/source/freshness/limitations.
+- Platform `/platform/zeli` entitlement management and aggregate health.
+- Daily-account correction screen.
+- Provider-disabled status on both admin surfaces.
 
-DeepSeek external processing. `ZELI_PROVIDER=deepseek` without
-`ZELI_DEEPSEEK_APPROVED=true` or a key returns a clear unavailable message.
+## Implemented but denied by policy
 
-## Not implemented
+- DeepSeek adapter (inert).
+- Outbound gateway delivery (evaluates and denies; audit only).
+- External provider credential use.
 
-Financial write actions, voice, uploads, external retrieval/vector store,
-conversation export, per-tenant AI billing.
+## Planned / requiring external approval
 
-## Before release
+- Automatic add-on billing.
+- DPIA sign-off for any external provider.
+- Hosted staging for independent testing.
+- Local inference host (optional future work).
+- Production deployment.
 
-1. Security PR merged and migration rehearsed.
-2. Zeli DB migration rehearsed on a restored dataset.
-3. Provider decision documented; mock default remains unless approved.
-4. UI review on desktop/tablet/mobile.
-5. Synthetic two-tenant test on staging.
-6. Owner sign-off.
+## Known limitations
+
+- Analytics refresh is on-demand with a 60-second TTL, not real-time streaming.
+- Branch attribution uses the recording user's or collector's assigned location.
+- Customer analytics counts are aggregate; branch-level new-customer counts are
+  tenant-wide only.
+- Existing dev-tool dependency advisories remain; no critical advisory.
+- E2E runs on synthetic SQLite fixtures, not staging.
+- No pricing or checkout exists because the repository had no billing system.
+
+## Git state
+
+- `main` includes PR #1 merge `1d0645c` and PR #2 merge `2c7afed`.
+- Analytics branch: `feat/zeli-business-intelligence-2026-11`.
+- Analytics PR: <https://github.com/Delkay-byte/BloomCore-One/pull/3>.
+- Production Auto-Deploy: OFF. No deployment performed.
+
+## Release gate
+
+Do not deploy until:
+
+1. PR #1 is merged and CI is green.
+2. PR #2 is reconciled without force-push.
+3. The analytics PR is reviewed and CI is green.
+4. Owner approves production deployment explicitly.
+5. `prisma migrate deploy` is run by the operator against the approved database.
+6. Staging, privacy and penetration-test approvals are recorded.

@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Banknote,
   BookText,
   ClipboardList,
@@ -31,6 +32,11 @@ export const navSections: NavSection[] = [
     items: [
       { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/zeli", label: "Zeli Assistant", icon: Sparkles },
+      {
+        href: "/admin/zeli-analytics",
+        label: "Zeli Business Intelligence",
+        icon: BarChart3,
+      },
     ],
   },
   {

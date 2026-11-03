@@ -57,14 +57,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The answer is already complete. Send it once: there is deliberately no
+  // artificial "typing" animation that would imply a live model is thinking.
   const encoder = new TextEncoder();
-  const chunks = result.text.match(/[\s\S]{1,24}/g) ?? [result.text];
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-        await new Promise((resolve) => setTimeout(resolve, 12));
-      }
+    start(controller) {
+      controller.enqueue(encoder.encode(result.text));
       controller.close();
     },
   });
@@ -75,6 +73,9 @@ export async function POST(request: NextRequest) {
       "cache-control": "no-store",
       "x-zeli-provider": result.provider,
       "x-zeli-provider-available": String(result.providerAvailable),
+      "x-zeli-provider-kind": "internal-deterministic",
+      "x-zeli-external-ai": "disabled",
+      "x-zeli-intent": result.intent,
     },
   });
 }

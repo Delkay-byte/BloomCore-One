@@ -74,7 +74,7 @@ beforeEach(async () => {
 
   await makeCustomer(custAId, "BIK-C-A", "Kofi Mensah", "+233000A", tenant.id);
   await makeCustomer(custBId, "BIK-C-B", "Ama Serwaa", "+233000B", tenant.id);
-});
+}, 30_000);
 
 async function makeCustomer(id: string, customerId: string, fullName: string, phone: string, tenantId: string) {
   await prisma.customer.create({

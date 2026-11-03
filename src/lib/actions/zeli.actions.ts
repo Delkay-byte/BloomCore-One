@@ -3,6 +3,11 @@
 import { db } from "@/lib/db";
 import { getTenantContext } from "@/lib/tenant";
 import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { suggestedQuestionsForRole } from "@/lib/zeli/intelligence/intents";
+import {
+  evaluateZeliAccess,
+  getZeliEntitlement,
+} from "@/lib/zeli/entitlements";
 import {
   assertConversationOwner,
   runZeliTurn,
@@ -38,45 +43,32 @@ async function requireIdentity(): Promise<ZeliIdentity> {
   return identity;
 }
 
-const SUGGESTIONS: Record<string, string[]> = {
-  admin: [
-    "Summarise today's contributions and cash handed in.",
-    "Which daily accounts are still draft or submitted?",
-    "Show today's remittance variance.",
-    "Find a customer by name or account id.",
-  ],
-  worker: [
-    "What is the status of today's daily account?",
-    "Explain the MoMo and cash variance on my latest account.",
-    "Find a customer account I need to reference.",
-  ],
-  collector: [
-    "How many customers are assigned to me?",
-    "Summarise what I collected and handed in today.",
-    "Find a customer by name or account id.",
-  ],
-  customer: [
-    "Summarise my savings account and active cycle.",
-    "How much have I contributed in this cycle?",
-    "How do I request a withdrawal?",
-  ],
-};
-
 export async function getZeliBootstrap(): Promise<
   ZeliActionResponse<{
     status: ReturnType<typeof zeliProviderStatus>;
     suggestions: string[];
     role: string;
+    analyticsAccess: boolean;
   }>
 > {
   const identity = await resolveIdentity();
   if (!identity) return { success: false, error: "Not authenticated" };
+  const entitlement = identity.tenantId
+    ? await getZeliEntitlement(identity.tenantId)
+    : null;
+  const analyticsAccess = evaluateZeliAccess({
+    role: identity.role,
+    entitlement,
+  }).allowed;
   return {
     success: true,
     data: {
       status: zeliProviderStatus(),
-      suggestions: SUGGESTIONS[identity.role] ?? SUGGESTIONS.admin,
+      suggestions: suggestedQuestionsForRole(identity.role, {
+        analyticsAvailable: analyticsAccess,
+      }),
       role: identity.role,
+      analyticsAccess,
     },
   };
 }
@@ -147,6 +139,9 @@ export async function getZeliConversation(conversationId: string) {
         content: message.content,
         sources: message.sources ? JSON.parse(message.sources) : [],
         feedback: message.feedback,
+        provider: message.provider,
+        model: message.model,
+        deterministic: message.provider === "internal",
         createdAt: message.createdAt.toISOString(),
       })),
     },
@@ -186,7 +181,14 @@ export async function deleteZeliConversation(
 export async function sendZeliMessage(params: {
   conversationId: string;
   message: string;
-}): Promise<ZeliActionResponse<{ text: string; sources: unknown[] }>> {
+}): Promise<
+  ZeliActionResponse<{
+    text: string;
+    sources: unknown[];
+    intent: string;
+    deterministic: boolean;
+  }>
+> {
   const identity = await resolveIdentity();
   if (!identity) return { success: false, error: "Not authenticated" };
   try {
@@ -195,7 +197,15 @@ export async function sendZeliMessage(params: {
       conversationId: params.conversationId,
       question: params.message,
     });
-    return { success: true, data: { text: result.text, sources: result.sources } };
+    return {
+      success: true,
+      data: {
+        text: result.text,
+        sources: result.sources,
+        intent: result.intent,
+        deterministic: result.deterministic,
+      },
+    };
   } catch (error) {
     if (error instanceof ZeliUsageError) {
       return { success: false, error: error.message };

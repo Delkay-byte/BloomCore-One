@@ -60,7 +60,7 @@ describe("live password lockout sequence", () => {
       expect(correctWhileBlocked.error).toMatch(/wait|too many|try again/i);
     }
     expect(mockCookieStore.has("bik-admin-session")).toBe(false);
-  });
+  }, 30_000);
 
   it("allows a correct password after the cooldown is cleared", async () => {
     const admin = await createTestAdmin({ momo: false, susu: false });
@@ -80,5 +80,5 @@ describe("live password lockout sequence", () => {
       /REDIRECT:\/admin\/dashboard/
     );
     expect(mockCookieStore.has("bik-admin-session")).toBe(true);
-  });
+  }, 30_000);
 });

@@ -42,6 +42,14 @@ export async function cleanDatabase() {
   await prisma.rateLimitCounter.deleteMany();
   await prisma.authThrottle.deleteMany();
   await prisma.turnstileTokenUse.deleteMany();
+  await prisma.zeliProviderGatewayEvent.deleteMany();
+  await prisma.zeliAnalyticsDaily.deleteMany();
+  await prisma.zeliAnalyticsRefresh.deleteMany();
+  await prisma.zeliEntitlementEvent.deleteMany();
+  await prisma.zeliEntitlement.deleteMany();
+  await prisma.zeliMessage.deleteMany();
+  await prisma.zeliConversation.deleteMany();
+  await prisma.zeliUsage.deleteMany();
   await prisma.platformAuditLog.deleteMany();
   await prisma.platformSuperAdmin.deleteMany();
   await prisma.user.deleteMany();
@@ -53,7 +61,7 @@ export function refId(prefix: string) { return `${prefix}-TEST-${randomBytes(4).
 
 export async function createTestAdmin() {
   const bcrypt = await import("bcryptjs");
-  const hash = await bcrypt.hash("Test1234!", 12);
+  const hash = await bcrypt.hash("Test1234!", 4);
   return prisma.user.create({
     data: { email: `test-pg-${Date.now()}@test.com`, fullName: "PG Test Admin", role: "admin", status: "active", passwordHash: hash },
   });

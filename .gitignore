@@ -48,3 +48,8 @@ tsconfig.tsbuildinfo
 .agents/
 .claude/
 .windsurf/
+
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
