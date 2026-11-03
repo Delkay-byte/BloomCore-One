@@ -69,7 +69,10 @@ describe("Zeli grounding and isolation", () => {
     });
 
     expect(result.providerAvailable).toBe(true);
-    expect(result.text).toContain("Active customers: 1");
+    expect(result.provider).toBe("internal");
+    expect(result.deterministic).toBe(true);
+    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Contributions:");
     expect(result.sources.length).toBeGreaterThan(0);
 
     const messages = await prisma.zeliMessage.findMany({
@@ -161,15 +164,16 @@ describe("Zeli grounding and isolation", () => {
       conversationId: conversation.id,
       question: "Summarise the business",
     });
-    expect(result.providerAvailable).toBe(false);
-    expect(result.text).toContain("disabled pending written DPA/privacy approval");
+    expect(result.providerAvailable).toBe(true);
+    expect(result.provider).toBe("internal");
+    expect(result.text).toContain("CALCULATED FACT");
     expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
-  it("uses the DeepSeek adapter with a mocked provider when approval is present", async () => {
+  it("stays providerless even when the old approval flag and an API key are present", async () => {
     const { tenantA, adminA } = await seed();
     const conversation = await prisma.zeliConversation.create({
       data: { tenantId: tenantA.id, userId: adminA.id },
@@ -191,8 +195,10 @@ describe("Zeli grounding and isolation", () => {
       question: "Summarise the business",
     });
     expect(result.providerAvailable).toBe(true);
-    expect(result.text).toBe("Mocked provider answer");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.provider).toBe("internal");
+    expect(result.deterministic).toBe(true);
+    expect(result.text).toContain("CALCULATED FACT");
+    expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();

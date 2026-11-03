@@ -4,11 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  BarChart3,
   Check,
   Copy,
   MessageSquarePlus,
   Pencil,
   Send,
+  ShieldCheck,
   Sparkles,
   Square,
   ThumbsDown,
@@ -39,6 +41,9 @@ interface Message {
   content: string;
   sources: Array<{ label: string; href?: string; detail?: string }>;
   feedback: string | null;
+  provider?: string | null;
+  model?: string | null;
+  deterministic?: boolean;
 }
 
 export default function ZeliPage() {
@@ -55,6 +60,7 @@ export default function ZeliPage() {
     reason?: string;
   } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [analyticsAccess, setAnalyticsAccess] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,6 +81,7 @@ export default function ZeliPage() {
     if (bootstrap.success && bootstrap.data) {
       setStatus(bootstrap.data.status);
       setSuggestions(bootstrap.data.suggestions);
+      setAnalyticsAccess(Boolean(bootstrap.data.analyticsAccess));
     }
     if (list.success && list.data && list.data.length > 0) {
       setConversations(list.data);
@@ -269,12 +276,28 @@ export default function ZeliPage() {
                 ? `Provider: ${status.provider}`
                 : "External provider disabled"}
             </span>
+            {analyticsAccess && (
+              <Link href="/admin/zeli-analytics" className="btn btn-secondary btn-sm">
+                <BarChart3 size={14} aria-hidden /> Analytics
+              </Link>
+            )}
             <button type="button" onClick={newConversation} className="btn btn-primary btn-sm">
               <MessageSquarePlus size={14} aria-hidden /> New
             </button>
           </div>
         </div>
       </header>
+
+      <div className="mx-auto max-w-7xl px-4 pt-3">
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
+          <p>
+            <strong>External AI processing is currently disabled.</strong> Zeli&apos;s private
+            analytics and local intelligence features remain available. Answers are computed from
+            your authorized BloomCore One records by a rule-based engine, not a language model.
+          </p>
+        </div>
+      </div>
 
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[280px_1fr]">
         <aside className="hidden lg:block" aria-label="Conversations">
@@ -316,6 +339,35 @@ export default function ZeliPage() {
           </ul>
         </aside>
 
+        <div className="lg:hidden">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="zeli-conversation-mobile">
+            Conversation
+          </label>
+          <div className="mt-1 flex gap-2">
+            <select
+              id="zeli-conversation-mobile"
+              className="min-w-0 flex-1"
+              value={selected ?? ""}
+              onChange={(event) => loadConversation(event.target.value)}
+            >
+              {conversations.map((conversation) => (
+                <option key={conversation.id} value={conversation.id}>
+                  {conversation.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => selected && remove(conversations.find((item) => item.id === selected) ?? conversations[0])}
+              className="btn btn-secondary btn-sm"
+              aria-label="Delete current conversation"
+              disabled={!selected}
+            >
+              <Trash2 size={14} aria-hidden />
+            </button>
+          </div>
+        </div>
+
         <main className="flex min-h-[70vh] flex-col rounded-2xl border border-brand-100 bg-white shadow-sm">
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6" aria-live="polite">
             {messages.length === 0 && (
@@ -351,7 +403,12 @@ export default function ZeliPage() {
                     : "bg-[#F6F5EC] text-[#17211C]"
                 }`}
               >
-                <div className="whitespace-pre-wrap">{message.content || "…"}</div>
+                <div className="whitespace-pre-wrap">
+                  {message.content ||
+                    (sending && message.role === "assistant"
+                      ? "Reading authorized records…"
+                      : "")}
+                </div>
                 {message.role === "assistant" && message.content && (
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                     <button type="button" onClick={() => copy(message)} className="inline-flex items-center gap-1 hover:text-brand-800">
@@ -374,6 +431,11 @@ export default function ZeliPage() {
                     >
                       <ThumbsDown size={12} aria-hidden /> Not helpful
                     </button>
+                    {message.role === "assistant" && message.deterministic && (
+                      <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
+                        <ShieldCheck size={12} aria-hidden /> Computed from your records
+                      </span>
+                    )}
                     {message.sources?.length > 0 && (
                       <span className="text-slate-400">Sources:</span>
                     )}
@@ -430,7 +492,7 @@ export default function ZeliPage() {
               )}
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions.
+              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI processing is disabled.
             </p>
           </form>
         </main>
