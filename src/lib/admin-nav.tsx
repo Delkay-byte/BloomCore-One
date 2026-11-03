@@ -9,6 +9,7 @@ import {
   MapPin,
   ScrollText,
   Settings,
+  Sparkles,
   UserCog,
   UserRound,
   Users,
@@ -27,7 +28,10 @@ export type { NavSection };
 export const navSections: NavSection[] = [
   {
     title: "",
-    items: [{ href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/zeli", label: "Zeli Assistant", icon: Sparkles },
+    ],
   },
   {
     title: "MoMo",

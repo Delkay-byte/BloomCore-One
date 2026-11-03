@@ -2,6 +2,8 @@
 import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import { getCustomerAccount, getCustomerCycles } from "@/lib/actions/susu-customer.actions";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
@@ -136,6 +138,12 @@ export default function CustomerDashboardPage() {
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h1 className="text-2xl font-bold text-slate-900">{getGreeting()}, {customer.fullName}</h1>
         <p className="text-sm text-blue-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
+        <Link
+          href="/zeli"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-control bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-800"
+        >
+          <Sparkles size={13} aria-hidden /> Ask Zeli about my savings
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
