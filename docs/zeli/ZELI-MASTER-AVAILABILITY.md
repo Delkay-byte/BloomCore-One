@@ -69,6 +69,12 @@ value, new value, reason, actor, timestamp.
 
 ## Verification
 
+Staging: 26/26 internal checks passed, including OFF/ON across all tenant roles,
+chat/analytics/export blocking, platform accessibility, subscription preservation
+and immediate recovery.
+
+Local:
+
 - All four tenant roles blocked from direct service turns when OFF.
 - Chat API and analytics export return 503.
 - Analytics action returns no data.

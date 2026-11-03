@@ -1,7 +1,6 @@
 # Zeli — DeepSeek API Architecture
 
-**Production state:** disabled. **Synthetic live verification:** not performed
-in this environment because no API key was available.
+**Production state:** disabled. **Synthetic live verification:** PASSED on staging with a fixed synthetic package. Production processing remains locked.
 
 ## Official provider contract
 
@@ -112,8 +111,14 @@ only whether a credential exists.
 
 ## Live verification status
 
-The key was not available in this development environment. Mocked integration
-tests prove:
+A staging-only key was configured. The fixed synthetic probe returned success:
+2002 ms, 257 input tokens, 190 output tokens, model `deepseek-flash`. Audit
+recorded decision `success` without prompt or payload content. A normal tenant
+chat during synthetic mode made no provider request. Emergency stop was applied,
+the environment permission was returned to false, and the service redeployed;
+provider usage did not increase afterwards.
+
+Mocked integration tests additionally prove:
 
 - fixed endpoint and model;
 - synthetic-only package;

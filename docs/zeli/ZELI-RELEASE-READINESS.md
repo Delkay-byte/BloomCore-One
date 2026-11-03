@@ -12,10 +12,10 @@ not deployment.
 | Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
 | Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
 | Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging deployment/verification recorded separately. |
-| Subscription entitlements | READY WITH LIMITATIONS | Paystack checkout, webhook lifecycle and manual overrides implemented; test-key configuration required. |
+| Subscription entitlements | READY WITH LIMITATIONS | Paystack checkout and controlled signed-webhook lifecycle verified in staging test mode; no live charge. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
-| External provider readiness | READY WITH LIMITATIONS | Adapter, three-state control and synthetic mode implemented; production locked; no key/live probe locally. |
-| Independent penetration-test readiness | BLOCKED | Handover updated with commerce/provider scope; hosted staging and written authorization missing. |
+| External provider readiness | READY WITH LIMITATIONS | Fixed synthetic staging probe succeeded; production remains locked. |
+| Independent penetration-test readiness | BLOCKED | Staging verified; external tester and written authorization still missing. |
 | Production release | BLOCKED | Owner authorization and staging validation required. |
 
 ## Implemented and available without external AI
@@ -84,3 +84,15 @@ Do not deploy until:
 - Migration preserves ON for existing installations; missing/error fails closed.
 - Subscription/payment lifecycle remains operational while Zeli is OFF.
 - Browser and action tests cover OFF/ON and cross-role denial.
+
+## Staging verification (4 November 2026)
+
+- Commit `2050c01`, host `bloomcore-one-staging.onrender.com`.
+- Staging Auto-Deploy OFF.
+- 20/20 migrations; 2 tenants, 10 synthetic accounts.
+- 26/26 internal staging checks.
+- Paystack test checkout initialization and controlled signed webhook lifecycle
+  verified; no live payment.
+- DeepSeek synthetic probe succeeded; emergency stop restored and environment
+  permission returned to false.
+- Production untouched; PR #4 remains open.

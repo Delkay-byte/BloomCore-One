@@ -14,6 +14,7 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Unit/integration tests | PASS — 44 files, 435 tests | `npm test` |
 | PostgreSQL tests | PASS — 6 files, 32 tests | `vitest --config vitest.pg.config.ts` |
 | Browser E2E | PASS — 20 tests | `playwright test` |
+| Staging internal verification | PASS — 26/26 | Playwright + HTTP against staging |
 | Production build | PASS | `npm run build` |
 | Dependency audit | 0 critical, 6 high, 19 moderate (dev toolchain) | `npm audit` |
 | Migration verification | PASS (10 migrations) | `prisma migrate deploy` against PostgreSQL 16 |
@@ -136,6 +137,21 @@ DATABASE_URL=... PG_DATABASE_URL=... npx vitest run --config vitest.pg.config.ts
 All 9 migrations applied, including
 `20261103_zeli_business_intelligence`. 31 PG tests passed, including concurrent
 daily-account correction and remittance reversal.
+
+## Staging evidence
+
+- Hostname: `bloomcore-one-staging.onrender.com`
+- Deployed commit: `2050c01`
+- Migrations: 20/20 applied; status up to date.
+- Seed: 2 tenants, 10 synthetic accounts, 1 platform admin.
+- Internal staging checks: 26/26.
+- Paystack test-mode initialization reached `checkout.paystack.com`; no charge.
+- Controlled signed webhook: valid processed, duplicate ignored, wrong amount failed, refund suspended entitlement.
+- DeepSeek synthetic probe: success, 2002 ms, 257 input / 190 output tokens.
+- Normal tenant chat during synthetic mode made no provider request.
+- Emergency stop + env permission reset + redeploy; no further provider usage.
+- MFA without `amr` redirects to login; Turnstile challenge is enforced.
+- Turnstile Managed mode was not verifiable without Cloudflare access.
 
 ## CI evidence
 
