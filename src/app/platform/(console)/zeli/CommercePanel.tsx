@@ -294,7 +294,7 @@ export default function CommercePanel({
                   <td className="text-xs">{row.periodEnd ? row.periodEnd.slice(0, 10) : "—"}</td>
                   <td className="font-mono text-xs">{row.reference}</td>
                   <td>
-                    <button type="button" className="inline-flex items-center gap-1 text-xs text-brand-700" disabled={busy !== null} onClick={() => reconcile(row.id)}>
+                    <button type="button" className="inline-flex items-center gap-1 text-xs text-brand-700" disabled={busy !== null || row.provider !== "paystack"} onClick={() => reconcile(row.id)}>
                       {busy === row.id ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <RefreshCw size={12} aria-hidden />}
                       Reconcile
                     </button>

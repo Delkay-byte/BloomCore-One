@@ -197,6 +197,7 @@ export interface PlatformSubscriptionRow {
   tenantCode: string;
   tenantName: string;
   planName: string;
+  provider: string;
   status: string;
   amount: number;
   currency: string;
@@ -228,6 +229,7 @@ export async function listZeliSubscriptions(search?: string): Promise<PlatformSu
     tenantCode: row.tenant.code,
     tenantName: row.tenant.name,
     planName: row.plan.name,
+    provider: row.provider,
     status: row.status,
     amount: Number(row.amount),
     currency: row.currency,
