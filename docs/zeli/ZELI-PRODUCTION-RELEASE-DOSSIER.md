@@ -8,7 +8,7 @@
 |---|---|
 | Repository | `Delkay-byte/BloomCore-One` |
 | Branch | `feat/zeli-complete-api-commerce-2026-11` |
-| Proposed code SHA | `2050c01` (staging-verified); final docs head may be later |
+| Proposed code SHA | `76b0356` (staging-verified); final docs head may be later |
 | Base | `main` at `06ea9df` |
 | PR | #4 — open |
 | Production service | `bloomcore-one` — do not touch |

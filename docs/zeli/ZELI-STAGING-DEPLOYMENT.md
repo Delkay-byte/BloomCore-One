@@ -2,7 +2,7 @@
 
 **Status:** DEPLOYED AND VERIFIED (internal verification, not an independent test).
 **Hostname:** https://bloomcore-one-staging.onrender.com
-**Deployed commit:** `2050c01` (PR #4 head code at time of verification)
+**Deployed commit:** `76b0356` (PR #4 head code at time of verification)
 **Staging Auto-Deploy:** OFF (verified through the Render API)
 **Production:** untouched.
 

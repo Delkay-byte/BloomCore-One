@@ -87,7 +87,7 @@ Do not deploy until:
 
 ## Staging verification (4 November 2026)
 
-- Commit `2050c01`, host `bloomcore-one-staging.onrender.com`.
+- Commit `76b0356`, host `bloomcore-one-staging.onrender.com`.
 - Staging Auto-Deploy OFF.
 - 20/20 migrations; 2 tenants, 10 synthetic accounts.
 - 26/26 internal staging checks.

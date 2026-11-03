@@ -141,7 +141,7 @@ daily-account correction and remittance reversal.
 ## Staging evidence
 
 - Hostname: `bloomcore-one-staging.onrender.com`
-- Deployed commit: `2050c01`
+- Deployed commit: `76b0356`
 - Migrations: 20/20 applied; status up to date.
 - Seed: 2 tenants, 10 synthetic accounts, 1 platform admin.
 - Internal staging checks: 26/26.

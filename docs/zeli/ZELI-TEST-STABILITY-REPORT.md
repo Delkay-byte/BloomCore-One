@@ -29,14 +29,17 @@ Five consecutive full-suite runs:
 
 | Run | Result | Duration |
 |---|---|---|
-| 1 | 424/424 passed | 107.39s |
-| 2 | 424/424 passed | 85.42s |
-| 3 | 424/424 passed | 101.62s |
-| 4 | 424/424 passed | 95.85s |
-| 5 | 424/424 passed | 93.47s |
+| 1 | 435/435 passed | 87.12s |
+| 2 | 435/435 passed | 81.24s |
+| 3 | 435/435 passed | 109.96s |
+| 4 | 435/435 passed | 80.58s |
+| 5 | 435/435 passed | 117.13s |
 
-An earlier five-run validation before the commerce/provider feature also passed
-387/387 each time. Post-feature suite: 44 files, 435 tests passed. PostgreSQL: 32/32. Browser E2E: 20/20.
+An earlier five-run validation before the master switch passed 424/424 each time.
+Post-feature suite: 44 files, 435 tests passed. PostgreSQL: 32/32. Browser E2E:
+20/20. One SQLite correction-concurrency assertion was corrected to test the
+no-lost-update invariant; true same-base rejection remains covered by the
+PostgreSQL concurrency test.
 
 PostgreSQL suite is run separately (`vitest.pg.config.ts`), not in parallel with
 SQLite tests. Browser tests remain a separate Playwright run.
