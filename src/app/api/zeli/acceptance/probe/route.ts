@@ -24,6 +24,7 @@ import type { ZeliIdentity } from "@/lib/zeli/types";
  */
 
 const TURNS = [
+  "Hello. What can you help me with?",
   "Give me a summary of the business this month.",
   "What about last month?",
 ];
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
         mode: result.conversationMode,
         provider: result.provider,
         model: result.model,
+        intent: result.intent,
         tools: result.tools.map((tool) => ({ tool: tool.tool, ok: tool.ok })),
         numericIntegrity: result.numericIntegrity,
         contextUsed: result.contextUsed,

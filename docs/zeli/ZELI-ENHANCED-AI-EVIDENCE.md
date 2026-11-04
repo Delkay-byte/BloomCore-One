@@ -22,15 +22,16 @@ using the DeepSeek credential already configured in staging.
 
 | Turn | Question | Purpose |
 |---|---|---|
-| 1 | "Give me a summary of the business this month." | business tool + explanation |
-| 2 | "What about last month?" | bounded follow-up context |
+| 1 | "Hello. What can you help me with?" | natural conversation, no tools |
+| 2 | "Give me a summary of the business this month." | business tool + explanation |
+| 3 | "What about last month?" | bounded follow-up context |
 
 ## Deployment
 
 | Item | Value |
 |---|---|
 | Staging service | `bloomcore-one-staging` |
-| Code SHA | `feb6367c0ad4ee4de1718b718aff227d90fc415f` |
+| Code SHA | `53391c0c5b58008e5a8047d191fbf565c7fb781b` (probe build; merged into `main` after verification) |
 | Deploy status | live |
 | Environment | `APP_ENV=STAGING` |
 | Provider control | `synthetic`, enabled, emergency stop off |
@@ -41,25 +42,33 @@ using the DeepSeek credential already configured in staging.
 
 | Turn | Mode | Provider | Model | Tool | Context used | Numeric integrity | Latency | Tokens |
 |---|---|---|---|---|---|---|---|---|
-| 1 | external | `deepseek-enhanced` | `deepseek-flash` | `business_summary` | false | verified | 10,270 ms | 5,457 in / 487 out |
-| 2 | external | `deepseek-enhanced` | `deepseek-flash` | `period_comparison` | true | verified | 4,727 ms | 5,391 in / 486 out |
+| 1 | external | `deepseek-conversation` | `deepseek-flash` | none | false | n/a (no figures) | 2,231 ms | 217 in / 199 out |
+| 2 | external | `deepseek-enhanced` | `deepseek-flash` | `business_summary`, `exceptions` | false | verified | 10,309 ms | 5,593 in / 459 out |
+| 3 | external | `deepseek-enhanced` | `deepseek-flash` | `period_comparison` | true | verified | 3,996 ms | 5,391 in / 368 out |
 
-Provider audit rows (two):
+Provider audit rows (three):
 
 ```
 provider:  deepseek
 model:     deepseek-flash
-purpose:   chat:business_summary
+purpose:   conversation:help
 decision:  success
-latency:   10270 ms
-tokens:    5457 / 487
+latency:   2231 ms
+tokens:    217 / 199
+
+provider:  deepseek
+model:     deepseek-flash
+purpose:   chat:business_summary,exceptions
+decision:  success
+latency:   10309 ms
+tokens:    5593 / 459
 
 provider:  deepseek
 model:     deepseek-flash
 purpose:   chat:period_comparison
 decision:  success
-latency:   4727 ms
-tokens:    5391 / 486
+latency:   3996 ms
+tokens:    5391 / 368
 ```
 
 A scan of the audit ledger for prompt text found **0** rows containing message
@@ -70,10 +79,11 @@ content. The ledger stores decisions, categories, latency and token counts only.
 - The request reached the fixed DeepSeek endpoint.
 - Authentication succeeded with the existing rotated credential.
 - The configured allow-listed model responded.
-- The model selected an approved read-only tool.
-- The server executed the tool against the staging database.
-- The model explained the tool result.
-- Every numeric token in both answers matched a tool result.
+- A natural greeting was answered by the external conversational path.
+- The model selected approved read-only tools.
+- The server executed the tools against the staging database.
+- The model explained the tool results.
+- Every numeric token in the business answers matched a tool result.
 - Follow-up context was inherited from the previous turn.
 - The staging audit recorded success without prompt content.
 - No production data was available to the staging process.
