@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac } from "crypto";
 import { db } from "@/lib/db";
 import { POST as revokePost } from "@/app/api/v1/platform/sessions/revoke/route";
@@ -201,6 +201,36 @@ describe("central session revocation", () => {
     const { raw, sig } = sign(body);
     const res = await revokePost(makeRequest(raw, sig, body.event_id));
     expect((await res.json()) as { revoked: number }).toMatchObject({ revoked: 1 });
+    expect(await active()).toEqual(["jti-local-1", "jti-other-identity"]);
+  });
+
+
+  it("does NOT record the event when the revocation fails (so a retry can succeed)", async () => {
+    await seedSessions();
+    const body = message();
+    const { raw, sig } = sign(body);
+
+    // Fail the whole transaction: pre-fix the event id was committed on its own
+    // first, so the retry saw "already_applied" and the SSO session stayed
+    // alive while the Control Center recorded delivery.
+    const txSpy = vi
+      .spyOn(db, "$transaction")
+      .mockRejectedValueOnce(new Error("simulated transaction failure"));
+
+    const failed = await revokePost(makeRequest(raw, sig, body.event_id));
+    expect(failed.status).toBe(500);
+    txSpy.mockRestore();
+
+    // Nothing was applied and the event id was not consumed.
+    expect(
+      await db.oidcRevocationEvent.findUnique({ where: { eventId: body.event_id } })
+    ).toBeNull();
+    expect((await active()).length).toBe(3);
+
+    // The Control Center retries the same event and now succeeds.
+    const retried = await revokePost(makeRequest(raw, sig, body.event_id));
+    expect(retried.status).toBe(200);
+    expect((await retried.json()) as { revoked: number }).toMatchObject({ revoked: 1 });
     expect(await active()).toEqual(["jti-local-1", "jti-other-identity"]);
   });
 

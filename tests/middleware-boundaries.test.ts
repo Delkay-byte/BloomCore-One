@@ -324,17 +324,31 @@ describe("Forced first-login password change", () => {
   });
 
   it("does not loop the platform login through the console layout", async () => {
+    // Contract change (Phase 1.1, security fix): the edge middleware no longer
+    // forwards /platform/login to the dashboard on JWT claims alone. It cannot
+    // see the server-side session registry, so a revoked-but-unexpired cookie
+    // used to bounce dashboard -> login -> dashboard forever. The login page
+    // performs the same forwarding with getPlatformSession() (registry-checked),
+    // so a live session still lands on the dashboard and a revoked one simply
+    // gets the sign-in form.
     const token = await platformToken(true);
     const login = await middleware(
       request("/platform/login", { "bik-platform-session": token })
     );
-    expect(login.status).toBe(307);
-    expect(location(login)).toContain("/platform/first-login");
+    expect(login.status).toBe(200); // served by the page, which does the check
 
     const screen = await middleware(
       request("/platform/first-login", { "bik-platform-session": token })
     );
     expect(screen.status).toBe(200);
+
+    // A first-login operator is still routed to the standalone screen from any
+    // other console page — that behaviour is unchanged.
+    const dashboard = await middleware(
+      request("/platform/dashboard", { "bik-platform-session": token })
+    );
+    expect(dashboard.status).toBe(307);
+    expect(location(dashboard)).toContain("/platform/first-login");
   });
 
   it("allows every forced role to reach only its own first-login screen", async () => {

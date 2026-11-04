@@ -28,6 +28,7 @@ interface RevokedRow {
 }
 
 async function revokeSsoSessions(
+  client: Pick<typeof db, "sessionRecord">,
   idpSub: string | null,
   idpSid: string | null,
   scope: string
@@ -48,13 +49,13 @@ async function revokeSsoSessions(
     where.authSource = "sso";
   }
 
-  const rows = (await db.sessionRecord.findMany({
+  const rows = (await client.sessionRecord.findMany({
     where,
     select: { id: true },
   })) as RevokedRow[];
 
   if (rows.length > 0) {
-    await db.sessionRecord.updateMany({
+    await client.sessionRecord.updateMany({
       where: { id: { in: rows.map((r) => r.id) } },
       data: { revokedAt: new Date(), revokedReason: "central_revocation" },
     });
@@ -62,21 +63,54 @@ async function revokeSsoSessions(
   return rows.length;
 }
 
-async function seenOrRecord(
+/**
+ * Record the event id and perform the revocation in ONE transaction.
+ *
+ * Recording the id separately (the Phase 1.1 shape) created a real hole: if the
+ * revocation threw after the id was committed, every retry saw "already
+ * applied" and the revocation was silently lost while the Control Center
+ * recorded delivery. Both steps now commit together or not at all, so a failed
+ * attempt stays retryable.
+ *
+ * Returns `duplicate: true` when the event id was already applied (also when a
+ * concurrent delivery won the unique constraint), which the caller reports as
+ * an idempotent success.
+ */
+async function applyRevocationOnce(
   eventId: string,
-  source: string
-): Promise<boolean> {
-  const existing = await db.oidcRevocationEvent.findUnique({
-    where: { eventId },
-  });
-  if (existing) return true;
+  source: string,
+  idpSub: string,
+  idpSid: string | null,
+  scope: string,
+  reason: string
+): Promise<{ duplicate: boolean; revoked: number }> {
   try {
-    await db.oidcRevocationEvent.create({ data: { eventId, source } });
-  } catch {
-    // Unique violation from a concurrent delivery: treat as already applied.
-    return true;
+    return await db.$transaction(async (tx) => {
+      await tx.oidcRevocationEvent.create({ data: { eventId, source } });
+      const revoked = await revokeSsoSessions(tx, idpSub, idpSid, scope);
+      await tx.platformAuditLog.create({
+        data: {
+          action: PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SESSION_REVOKED,
+          reason,
+          // `details` is a String column: serialise explicitly.
+          details: JSON.stringify({ source, revoked, idpSub }),
+        },
+      });
+      return { duplicate: false, revoked };
+    });
+  } catch (error) {
+    // Only a unique-constraint violation means "this event was already
+    // applied". Any other failure must surface: reporting it as applied would
+    // tell the Control Center the session is gone when it is not.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return { duplicate: true, revoked: 0 };
+    }
+    throw error;
   }
-  return false;
 }
 
 /** Control Center-initiated revocation. */
@@ -134,19 +168,30 @@ export async function POST(request: Request): Promise<Response> {
   }
   const idpSid = typeof body.idp_sid === "string" ? body.idp_sid : null;
 
-  if (await seenOrRecord(String(body.event_id), "control_center")) {
-    return NextResponse.json({ status: "already_applied", revoked: 0 });
+  const scope = typeof body.scope === "string" ? body.scope : "identity_sessions";
+  const reason = String(body.reason ?? "logout");
+
+  let outcome: { duplicate: boolean; revoked: number };
+  try {
+    outcome = await applyRevocationOnce(
+      String(body.event_id),
+      "control_center",
+      idpSub,
+      idpSid,
+      scope,
+      reason
+    );
+  } catch (error) {
+    // Fail closed and let the Control Center retry.
+    console.error("[revocation] apply failed", error);
+    await auditSsoEvent(PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_DENIED, {
+      reason: "revocation_apply_failed",
+    }).catch(() => undefined);
+    return NextResponse.json({ error: "revocation failed" }, { status: 500 });
   }
 
-  const revoked = await revokeSsoSessions(
-    idpSub,
-    idpSid,
-    typeof body.scope === "string" ? body.scope : "identity_sessions"
-  );
-  await auditSsoEvent(PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SESSION_REVOKED, {
-    actorEmail: null,
-    reason: String(body.reason ?? "logout"),
-    details: { source: "control_center", revoked, idpSub },
-  });
-  return NextResponse.json({ status: "revoked", revoked });
+  if (outcome.duplicate) {
+    return NextResponse.json({ status: "already_applied", revoked: 0 });
+  }
+  return NextResponse.json({ status: "revoked", revoked: outcome.revoked });
 }

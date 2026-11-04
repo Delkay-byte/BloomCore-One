@@ -67,39 +67,62 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const { sub, sid, jti } = result.claims;
-  const already = await db.oidcRevocationEvent.findUnique({ where: { eventId: jti } });
-  if (already) {
-    return NextResponse.json({ status: "already_applied" });
-  }
+
+  // Record the jti and revoke in ONE transaction: recording it first meant a
+  // failed revocation was retried into "already applied" and silently lost.
+  let outcome: { duplicate: boolean; revoked: number };
   try {
-    await db.oidcRevocationEvent.create({ data: { eventId: jti, source: "idp" } });
-  } catch {
+    outcome = await db.$transaction(async (tx) => {
+      await tx.oidcRevocationEvent.create({ data: { eventId: jti, source: "idp" } });
+      const where: Record<string, unknown> = {
+        subjectType: "platform",
+        revokedAt: null,
+      };
+      if (sid) {
+        where.idpSid = sid;
+        if (sub) where.idpSub = sub;
+      } else {
+        where.idpSub = sub;
+        where.authSource = "sso";
+      }
+      const rows = (await tx.sessionRecord.findMany({
+        where,
+        select: { id: true },
+      })) as { id: string }[];
+      if (rows.length > 0) {
+        await tx.sessionRecord.updateMany({
+          where: { id: { in: rows.map((r) => r.id) } },
+          data: { revokedAt: new Date(), revokedReason: "idp_backchannel_logout" },
+        });
+      }
+      await tx.platformAuditLog.create({
+        data: {
+          action: PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SESSION_REVOKED,
+          reason: "idp_backchannel_logout",
+          details: JSON.stringify({
+            source: "idp",
+            revoked: rows.length,
+            matchedSid: Boolean(sid),
+          }),
+        },
+      });
+      return { duplicate: false, revoked: rows.length };
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json({ status: "already_applied" });
+    }
+    console.error("[backchannel-logout] apply failed", error);
+    return NextResponse.json({ error: "revocation failed" }, { status: 500 });
+  }
+
+  if (outcome.duplicate) {
     return NextResponse.json({ status: "already_applied" });
   }
-
-  const where: Record<string, unknown> = { subjectType: "platform", revokedAt: null };
-  if (sid) {
-    where.idpSid = sid;
-    if (sub) where.idpSub = sub;
-  } else {
-    where.idpSub = sub;
-    where.authSource = "sso";
-  }
-  const rows = (await db.sessionRecord.findMany({ where, select: { id: true } })) as {
-    id: string;
-  }[];
-  if (rows.length > 0) {
-    await db.sessionRecord.updateMany({
-      where: { id: { in: rows.map((r) => r.id) } },
-      data: { revokedAt: new Date(), revokedReason: "idp_backchannel_logout" },
-    });
-  }
-
-  await auditSsoEvent(PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SESSION_REVOKED, {
-    reason: "idp_backchannel_logout",
-    details: { source: "idp", revoked: rows.length, matchedSid: Boolean(sid) },
-  });
-
   // A valid token with no matching session is still a success (idempotent).
-  return NextResponse.json({ status: "revoked", revoked: rows.length });
+  return NextResponse.json({ status: "revoked", revoked: outcome.revoked });
 }
