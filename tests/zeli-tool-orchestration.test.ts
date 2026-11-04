@@ -158,6 +158,53 @@ describe("Enhanced AI tool orchestration", () => {
     expect(JSON.stringify(usage)).not.toContain("1,234.50");
   });
 
+  it("accepts a provided change value and rejects a fabricated one", async () => {
+    const { tenant, admin, account, cycle, conversation, identity } = await fixture();
+    const now = new Date();
+    await prisma.contribution.createMany({
+      data: [
+        {
+          tenantId: tenant.id,
+          accountId: account.id,
+          cycleId: cycle.id,
+          amount: 3600,
+          collectionDate: new Date(),
+          channel: "direct_office",
+          recordedById: admin.id,
+          referenceId: `ORCH-CUR-${Date.now()}`,
+        },
+        {
+          tenantId: tenant.id,
+          accountId: account.id,
+          cycleId: cycle.id,
+          amount: 2400,
+          collectionDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)),
+          channel: "direct_office",
+          recordedById: admin.id,
+          referenceId: `ORCH-PREV-${Date.now()}`,
+        },
+      ],
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(toolResponse("period_comparison", { period: "this_month" }))
+      .mockResolvedValueOnce(
+        answerResponse(
+          "Contributions increased by GH₵1,200.00 compared with the previous month. Review the report before acting."
+        )
+      );
+
+    const result = await runZeliTurn({
+      identity,
+      conversationId: conversation.id,
+      question: "How did contributions change compared with last month?",
+    });
+
+    expect(result.externalAi).toBe(true);
+    expect(result.text).toContain("1,200.00");
+    expect(result.tools[0].tool).toBe("period_comparison");
+  });
+
   it("rejects a fabricated figure and falls back to the local answer", async () => {
     const { conversation, identity } = await fixture();
 

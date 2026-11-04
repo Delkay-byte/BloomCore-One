@@ -164,6 +164,23 @@ describe("conversation context and follow-ups", () => {
     expect(followUp.text).toContain("CALCULATED FACT");
   });
 
+  it("resolves a follow-up that ends with a full stop", async () => {
+    const { conversation, identity } = await adminConversation();
+    await runZeliTurn({
+      identity,
+      conversationId: conversation.id,
+      question: "Summarise the business this month.",
+    });
+    const followUp = await runZeliTurn({
+      identity,
+      conversationId: conversation.id,
+      question: "Compare that with last month.",
+    });
+    expect(followUp.contextUsed).toBe(true);
+    expect(followUp.intent).toBe("compare_periods");
+    expect(followUp.period).toBe("previous_month");
+  });
+
   it("resolves a why follow-up against the previous subject", async () => {
     const { conversation, identity } = await adminConversation();
     await runZeliTurn({

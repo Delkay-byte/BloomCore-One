@@ -175,7 +175,11 @@ export function resolveConversationContext(params: {
   previous: ZeliPreviousTurn | null;
 }): FollowUpResolution {
   const question = params.question.trim();
-  const text = question.toLowerCase().replace(/\s+/g, " ");
+  const text = question
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.?!]+$/g, "")
+    .trim();
   const unchanged: FollowUpResolution = {
     question,
     usedContext: false,

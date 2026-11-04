@@ -212,8 +212,24 @@ function snapshotFacts(snapshot: AnalyticsSnapshot) {
     totals: snapshot.totals,
     previousTotals: snapshot.previousTotals,
     comparison: snapshot.comparison,
+    changes: {
+      contributions: roundDiff(
+        snapshot.totals.contributions,
+        snapshot.previousTotals.contributions
+      ),
+      withdrawals: roundDiff(snapshot.totals.withdrawals, snapshot.previousTotals.withdrawals),
+      remittances: roundDiff(snapshot.totals.remittances, snapshot.previousTotals.remittances),
+      expenses: roundDiff(snapshot.totals.expenses, snapshot.previousTotals.expenses),
+      cashIncome: roundDiff(snapshot.totals.cashIncome, snapshot.previousTotals.cashIncome),
+      netCashFlow: roundDiff(snapshot.totals.netCashFlow, snapshot.previousTotals.netCashFlow),
+      transactionCount: snapshot.totals.transactionCount - snapshot.previousTotals.transactionCount,
+    },
     exceptions: snapshot.exceptions,
   };
+}
+
+function roundDiff(current: number, previous: number): number {
+  return Math.round((current - previous) * 100) / 100;
 }
 
 function composedResult(
@@ -341,6 +357,16 @@ async function analyticsTool(
           withdrawalCount: snapshot.totals.withdrawalCount,
           previousContributions: snapshot.previousTotals.contributions,
           previousWithdrawals: snapshot.previousTotals.withdrawals,
+          changes: {
+            contributions: roundDiff(
+              snapshot.totals.contributions,
+              snapshot.previousTotals.contributions
+            ),
+            withdrawals: roundDiff(
+              snapshot.totals.withdrawals,
+              snapshot.previousTotals.withdrawals
+            ),
+          },
           comparison: snapshot.comparison,
           contributingAccounts: snapshot.totals.activeAccounts,
           source: snapshot.freshness.source,
@@ -364,6 +390,17 @@ async function analyticsTool(
           expenseCount: snapshot.totals.expenseCount,
           previousExpenses: snapshot.previousTotals.expenses,
           netCashFlow: snapshot.totals.netCashFlow,
+          changes: {
+            cashIncome: roundDiff(
+              snapshot.totals.cashIncome,
+              snapshot.previousTotals.cashIncome
+            ),
+            expenses: roundDiff(snapshot.totals.expenses, snapshot.previousTotals.expenses),
+            netCashFlow: roundDiff(
+              snapshot.totals.netCashFlow,
+              snapshot.previousTotals.netCashFlow
+            ),
+          },
           comparison: snapshot.comparison,
           source: snapshot.freshness.source,
           freshness: snapshot.freshness.refreshedAt,
@@ -381,6 +418,16 @@ async function analyticsTool(
           remittanceCount: snapshot.totals.remittanceCount,
           previousRemittances: snapshot.previousTotals.remittances,
           previousRemittanceVariance: snapshot.previousTotals.remittanceVariance,
+          changes: {
+            remittances: roundDiff(
+              snapshot.totals.remittances,
+              snapshot.previousTotals.remittances
+            ),
+            variance: roundDiff(
+              snapshot.totals.remittanceVariance,
+              snapshot.previousTotals.remittanceVariance
+            ),
+          },
           source: snapshot.freshness.source,
           freshness: snapshot.freshness.refreshedAt,
         },
@@ -426,6 +473,21 @@ async function analyticsTool(
           previousPeriod: snapshot.previousPeriod.label,
           totals: snapshot.totals,
           previousTotals: snapshot.previousTotals,
+          changes: {
+            contributions: roundDiff(
+              snapshot.totals.contributions,
+              snapshot.previousTotals.contributions
+            ),
+            withdrawals: roundDiff(
+              snapshot.totals.withdrawals,
+              snapshot.previousTotals.withdrawals
+            ),
+            expenses: roundDiff(snapshot.totals.expenses, snapshot.previousTotals.expenses),
+            netCashFlow: roundDiff(
+              snapshot.totals.netCashFlow,
+              snapshot.previousTotals.netCashFlow
+            ),
+          },
           comparison: snapshot.comparison,
           source: snapshot.freshness.source,
           freshness: snapshot.freshness.refreshedAt,
