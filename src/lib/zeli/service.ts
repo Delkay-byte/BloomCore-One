@@ -13,6 +13,24 @@ import {
   evaluateZeliAccess,
   getZeliEntitlement,
 } from "./entitlements";
+import {
+  classifyConversationAct,
+  isFinancialInstruction,
+  type ZeliConversationAct,
+} from "./conversation/acts";
+import {
+  parsePreviousTurn,
+  resolveConversationContext,
+} from "./conversation/context";
+import {
+  clarificationAnswer,
+  conversationActAnswer,
+} from "./conversation/social";
+import { detectAmbiguity } from "./conversation/clarify";
+import {
+  generateExternalConversation,
+  getConversationStatus,
+} from "./providers/conversation-provider";
 
 const DAILY_REQUEST_LIMIT = 40;
 
@@ -33,6 +51,12 @@ export interface ZeliTurnResult {
   providerAvailable: boolean;
   intent: string;
   deterministic: boolean;
+  conversationMode: "local" | "external";
+  externalAi: boolean;
+  contextUsed: boolean;
+  period: string | null;
+  periodLabel: string | null;
+  askedFor: string | null;
 }
 
 function dayKey(): string {
@@ -87,18 +111,29 @@ async function hasAnalyticsAccess(identity: ZeliIdentity): Promise<boolean> {
   return evaluateZeliAccess({ role: identity.role, entitlement }).allowed;
 }
 
+const EXTERNAL_ELIGIBLE_ACTS = new Set<ZeliConversationAct>([
+  "greeting",
+  "help",
+  "thanks",
+  "farewell",
+  "identity",
+  "smalltalk",
+  "general_knowledge",
+]);
+
 /**
  * Run one user turn. Every query is scoped by the server-resolved identity.
  *
- * Providerless path:
- *  - business administrators get a deterministic answer composed from the
- *    server-computed business snapshot;
- *  - customer/worker/collector turns use the existing authorized read-only
- *    tools and the internal deterministic formatter;
- *  - unsupported questions receive an honest limitation, never a fabricated
- *    answer.
+ * The turn has three layers:
+ *  1. conversation layer — social acts, clarification and follow-up resolution,
+ *     all local and deterministic;
+ *  2. business layer — server-computed answers and authorized read-only tools;
+ *  3. optional external layer — a separately approved conversational provider
+ *     that may answer non-business messages only. It never receives records,
+ *     history or figures, and local answers remain authoritative.
  *
- * No external provider is selected and no outbound request is made.
+ * When the external provider is disabled (the production default) the whole
+ * turn runs inside BloomCore One and no outbound request is made.
  */
 export async function runZeliTurn(params: {
   identity: ZeliIdentity;
@@ -117,12 +152,19 @@ export async function runZeliTurn(params: {
   );
   await consumeUsage(params.identity);
 
-  const previous = await db.zeliMessage.findMany({
+  const previousMessages = await db.zeliMessage.findMany({
     where: { conversationId: conversation.id },
     orderBy: { createdAt: "asc" },
     take: 20,
-    select: { role: true, content: true },
+    select: { role: true, content: true, toolCalls: true },
   });
+  const previousAssistant = [...previousMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const previousTurn = parsePreviousTurn(previousAssistant?.toolCalls ?? null);
+
+  const resolved = resolveConversationContext({ question, previous: previousTurn });
+  const effectiveQuestion = resolved.question;
 
   await db.zeliMessage.create({
     data: {
@@ -133,46 +175,152 @@ export async function runZeliTurn(params: {
   });
 
   const analyticsAvailable = await hasAnalyticsAccess(params.identity);
-  const classified = classifyIntent(question);
-  let text: string;
+  const originalClassified = classifyIntent(question);
+  const classified = resolved.usedContext
+    ? classifyIntent(effectiveQuestion)
+    : originalClassified;
+
+  const instruction = isFinancialInstruction(question);
+  const act: ZeliConversationAct | null = instruction
+    ? "instruction"
+    : resolved.usedContext || classified.intent !== "unsupported"
+      ? null
+      : classifyConversationAct(question, params.identity.role);
+
+  const conversationStatus = await getConversationStatus(params.identity.tenantId);
+
+  let text = "";
   let sources: ZeliSource[] = [];
   let tools: ZeliToolOutcome[] = [];
   let providerName = "internal";
   let model = "rule-based";
-  let intent = classified.intent;
+  let intent: string = classified.intent;
   let deterministic = true;
+  let conversationMode: "local" | "external" = "local";
+  let externalAi = false;
+  let period: string | null = classified.period ?? null;
+  let periodLabel: string | null = null;
+  let askedFor: string | null = null;
 
-  const analyticAnswer =
-    params.identity.role === "admin"
-      ? await answerAdminBusinessQuestion({
-          identity: params.identity,
-          question,
-          analyticsAvailable,
-        })
-      : null;
+  if (act) {
+    intent = act;
 
-  if (analyticAnswer) {
-    text = analyticAnswer.text;
-    sources = analyticAnswer.sources;
-    intent = analyticAnswer.intent;
-    deterministic = true;
-  } else if (
-    params.identity.role === "admin" &&
-    (classified.intent === "unsupported" ||
-      classified.intent === "customer_lookup" ||
-      classified.intent === "daily_accounts")
-  ) {
-    if (classified.intent !== "unsupported") {
-      // Customer lookup and daily-account status are supported read-only tools.
-      const context = await buildZeliContext(params.identity, question);
+    if (act !== "instruction" && EXTERNAL_ELIGIBLE_ACTS.has(act)) {
+      const external = await generateExternalConversation({
+        identity: params.identity,
+        message: question,
+        act,
+      });
+      if (external) {
+        text = external.text;
+        providerName = external.provider;
+        model = external.model;
+        deterministic = false;
+        externalAi = true;
+        conversationMode = "external";
+      }
+    }
+
+    if (!text) {
+      const local = conversationActAnswer(act, params.identity, {
+        externalAiAllowed: conversationStatus.mode === "external",
+      });
+      text = local.text;
+      sources = local.sources;
+      askedFor = local.askedFor;
+      intent = local.intent;
+    }
+  } else {
+    const analyticAnswer =
+      params.identity.role === "admin"
+        ? await answerAdminBusinessQuestion({
+            identity: params.identity,
+            question: effectiveQuestion,
+            analyticsAvailable,
+          })
+        : null;
+
+    if (analyticAnswer) {
+      text = analyticAnswer.text;
+      sources = analyticAnswer.sources;
+      intent = analyticAnswer.intent;
+      period = classified.period ?? "this_month";
+      periodLabel = analyticAnswer.period ?? null;
+      deterministic = true;
+    } else if (
+      params.identity.role === "admin" &&
+      (classified.intent === "unsupported" ||
+        classified.intent === "customer_lookup" ||
+        classified.intent === "daily_accounts")
+    ) {
+      if (classified.intent !== "unsupported") {
+        // Customer lookup and daily-account status are supported read-only tools.
+        const context = await buildZeliContext(params.identity, effectiveQuestion);
+        tools = context.tools;
+        sources = sourcesFor(context.tools);
+        const provider = getZeliProvider();
+        try {
+          const response = await provider.generate({
+            system: "server-controlled",
+            question: effectiveQuestion,
+            history: previousMessages.map((message) => ({
+              role: message.role === "assistant" ? "assistant" : "user",
+              content: message.content,
+            })),
+            context: context.blocks,
+            identity: params.identity,
+          });
+          text = response.text;
+          providerName = response.provider;
+          model = response.model;
+        } catch (error) {
+          text =
+            error instanceof ProviderUnavailableError
+              ? error.message
+              : "Zeli could not complete that request. No business data was changed.";
+        }
+      } else {
+        const ambiguity = detectAmbiguity(effectiveQuestion);
+        if (ambiguity) {
+          const clarification = clarificationAnswer(params.identity, ambiguity.reason);
+          text = clarification.text;
+          sources = clarification.sources;
+          intent = clarification.intent;
+          askedFor = clarification.askedFor;
+        } else {
+          const unsupported = unsupportedAnswer(analyticsAvailable);
+          text = unsupported.text;
+          sources = unsupported.sources;
+          intent = unsupported.intent;
+        }
+      }
+    } else if (
+      params.identity.role !== "admin" &&
+      !isSupportedForRole(params.identity.role, effectiveQuestion)
+    ) {
+      const ambiguity = detectAmbiguity(effectiveQuestion);
+      if (ambiguity) {
+        const clarification = clarificationAnswer(params.identity, ambiguity.reason);
+        text = clarification.text;
+        sources = clarification.sources;
+        intent = clarification.intent;
+        askedFor = clarification.askedFor;
+      } else {
+        const unsupported = unsupportedAnswer(analyticsAvailable);
+        text = unsupported.text;
+        sources = unsupported.sources;
+        intent = unsupported.intent;
+      }
+    } else {
+      const context = await buildZeliContext(params.identity, effectiveQuestion);
       tools = context.tools;
       sources = sourcesFor(context.tools);
       const provider = getZeliProvider();
       try {
         const response = await provider.generate({
           system: "server-controlled",
-          question,
-          history: previous.map((message) => ({
+          question: effectiveQuestion,
+          history: previousMessages.map((message) => ({
             role: message.role === "assistant" ? "assistant" : "user",
             content: message.content,
           })),
@@ -188,44 +336,6 @@ export async function runZeliTurn(params: {
             ? error.message
             : "Zeli could not complete that request. No business data was changed.";
       }
-    } else {
-      const unsupported = unsupportedAnswer(analyticsAvailable);
-      text = unsupported.text;
-      sources = unsupported.sources;
-      intent = unsupported.intent;
-    }
-  } else if (
-    params.identity.role !== "admin" &&
-    !isSupportedForRole(params.identity.role, question)
-  ) {
-    const unsupported = unsupportedAnswer(analyticsAvailable);
-    text = unsupported.text;
-    sources = unsupported.sources;
-    intent = unsupported.intent;
-  } else {
-    const context = await buildZeliContext(params.identity, question);
-    tools = context.tools;
-    sources = sourcesFor(context.tools);
-    const provider = getZeliProvider();
-    try {
-      const response = await provider.generate({
-        system: "server-controlled",
-        question,
-        history: previous.map((message) => ({
-          role: message.role === "assistant" ? "assistant" : "user",
-          content: message.content,
-        })),
-        context: context.blocks,
-        identity: params.identity,
-      });
-      text = response.text;
-      providerName = response.provider;
-      model = response.model;
-    } catch (error) {
-      text =
-        error instanceof ProviderUnavailableError
-          ? error.message
-          : "Zeli could not complete that request. No business data was changed.";
     }
   }
 
@@ -238,7 +348,12 @@ export async function runZeliTurn(params: {
       toolCalls: JSON.stringify({
         intent,
         deterministic,
-        category: "server_computed",
+        category: externalAi ? "external_conversational" : "server_computed",
+        conversationMode,
+        period,
+        periodLabel,
+        askedFor,
+        contextUsed: resolved.usedContext,
         tools: tools.map((tool) => ({
           tool: tool.tool,
           ok: tool.ok,
@@ -270,5 +385,11 @@ export async function runZeliTurn(params: {
     providerAvailable: true,
     intent,
     deterministic,
+    conversationMode,
+    externalAi,
+    contextUsed: resolved.usedContext,
+    period,
+    periodLabel,
+    askedFor,
   };
 }

@@ -9,6 +9,7 @@ import {
   providerStatusMessage,
   type EffectiveProviderPolicy,
 } from "./provider-control";
+import { getConversationStatus } from "./providers/conversation-provider";
 import type { ZeliProvider } from "./types";
 
 /**
@@ -28,10 +29,12 @@ export async function getZeliProviderStatus(tenantId?: string | null): Promise<{
   reason?: string;
   external: EffectiveProviderPolicy;
   message: string;
+  conversation: Awaited<ReturnType<typeof getConversationStatus>>;
 }> {
   const provider = getZeliProvider();
   const availability = provider.available();
   const external = await getEffectiveProviderPolicy(tenantId);
+  const conversation = await getConversationStatus(tenantId);
   return {
     provider: provider.name,
     model: provider.model,
@@ -41,6 +44,7 @@ export async function getZeliProviderStatus(tenantId?: string | null): Promise<{
       : availability.reason,
     external,
     message: providerStatusMessage(external),
+    conversation,
   };
 }
 

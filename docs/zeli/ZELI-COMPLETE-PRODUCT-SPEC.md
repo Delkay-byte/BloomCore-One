@@ -45,6 +45,10 @@
 
 ### DeepSeek integration
 
+Two separate, separately gated uses:
+
+**Aggregate explanation (implemented earlier).**
+
 - Fixed official endpoint `https://api.deepseek.com/chat/completions`.
 - `deepseek-flash` default (or `deepseek-v4-pro`).
 - Server-only key, strict timeout, bounded response size and token cap.
@@ -56,6 +60,30 @@
 - Provider failure never breaks the private analytics workspace.
 - Per-user and per-tenant daily limits, circuit breaker, usage accounting.
 - Audit stores decisions, categories, latency and tokens, never prompts/values.
+
+**Conversational reasoning (new, disabled in production).**
+
+- Separate policy and code gate (`PRODUCTION_CONVERSATION_APPROVED = false`).
+- One sanitised user message only: no history, records, identifiers, tenant id
+  or user id. Numbers, emails, phones and references are redacted first.
+- Only non-financial messages may use it. Business figures are always answered
+  locally.
+- Output rejected if it contains any digit, link, email, reference or markup, so
+  the model cannot introduce a financial figure.
+- Fixed endpoint, redirect rejection, timeout, response-size bound and strict
+  validation.
+- Falls back to the local assistant on any failure.
+- Requires a completed DPIA/privacy decision pack before activation.
+
+### Conversational assistant (local)
+
+- Greeting, help, identity, thanks and small talk.
+- Deterministic follow-up resolution from the previous turn.
+- One clarifying question for ambiguous requests, with the answer remembered.
+- Financial-instruction refusal: Zeli is read-only.
+- Income and expenses intent.
+- Honest limitation for general knowledge in local mode.
+- Role-aware capability lists and tool permissions.
 
 ### Advanced intelligence
 

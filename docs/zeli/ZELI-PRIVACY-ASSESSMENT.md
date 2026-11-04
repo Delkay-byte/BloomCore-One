@@ -3,6 +3,11 @@
 **Status:** draft for owner/legal review. **Not legally approved.**
 The DPC form acknowledgement is not final regulatory clearance.
 
+**Scope:** this document covers the aggregate insight-explanation path. It does
+**not** approve transmitting a user's message. That separate activity is
+assessed in `ZELI-CONVERSATIONAL-PRIVACY-DECISION-PACK.md`, which is also
+unapproved.
+
 ## Processing purpose (proposed)
 
 Explain an already-computed aggregate business trend to an authorized tenant

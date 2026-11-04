@@ -9,6 +9,7 @@ import {
   composeBranches,
   composeContributions,
   composeExceptions,
+  composeIncomeExpenses,
   composeOverview,
   composeRemittances,
   explainChart,
@@ -51,6 +52,7 @@ export const SUPPORTED_QUESTIONS = [
   "Summarise today's activity.",
   "Compare this month with last month.",
   "Summarise contributions and withdrawals.",
+  "Summarise income and expenses.",
   "Summarise remittance activity.",
   "Show outstanding operational exceptions.",
   "Compare branch performance.",
@@ -119,6 +121,11 @@ function sourcesForIntent(intent: ClassifiedIntent["intent"], snapshot: Analytic
       return [
         { label: "Contributions report", href: "/susu/admin/contributions" },
         { label: "Withdrawals report", href: "/susu/admin/withdrawals" },
+        { label: "Zeli Business Intelligence", href: analytics },
+      ];
+    case "income_expenses":
+      return [
+        { label: "Money & History", href: "/admin/history" },
         { label: "Zeli Business Intelligence", href: analytics },
       ];
     case "remittances":
@@ -243,6 +250,9 @@ export async function answerAdminBusinessQuestion(params: {
   switch (classified.intent) {
     case "contributions_withdrawals":
       answer = composeContributions(snapshot);
+      break;
+    case "income_expenses":
+      answer = composeIncomeExpenses(snapshot);
       break;
     case "remittances":
       answer = composeRemittances(snapshot);
