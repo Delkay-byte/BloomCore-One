@@ -6,6 +6,7 @@ import type { ZeliIdentity } from "@/lib/zeli/types";
 import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
 import { getEffectiveProviderPolicy } from "@/lib/zeli/provider-control";
 import { providerPolicyHeaders } from "@/lib/zeli/provider-status";
+import { getConversationStatus } from "@/lib/zeli/providers/conversation-provider";
 
 async function identity(): Promise<ZeliIdentity | null> {
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
   const externalAiHeaders = providerPolicyHeaders(
     await getEffectiveProviderPolicy(who.tenantId)
   );
+  const conversationStatus = await getConversationStatus(who.tenantId);
 
   let body: { conversationId?: string; message?: string };
   try {
@@ -85,9 +87,19 @@ export async function POST(request: NextRequest) {
       "cache-control": "no-store",
       "x-zeli-provider": result.provider,
       "x-zeli-provider-available": String(result.providerAvailable),
-      "x-zeli-provider-kind": "internal-deterministic",
-      ...externalAiHeaders,
+      "x-zeli-provider-kind": result.externalAi
+        ? "external-conversational"
+        : "internal-deterministic",
+      "x-zeli-conversation-mode": result.conversationMode,
+      "x-zeli-conversation-provider": result.externalAi
+        ? result.provider
+        : "internal",
       "x-zeli-intent": result.intent,
+      "x-zeli-context-used": String(result.contextUsed),
+      ...externalAiHeaders,
+      ...(conversationStatus.mode === "external"
+        ? {}
+        : { "x-zeli-conversation-status": "local-only" }),
     },
   });
 }

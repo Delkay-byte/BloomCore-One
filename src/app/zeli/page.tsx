@@ -60,6 +60,7 @@ export default function ZeliPage() {
     reason?: string;
     message?: string;
     external?: { state: string; allowed: boolean };
+    conversation?: { mode: "local" | "external"; state: string; message: string };
   } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analyticsAccess, setAnalyticsAccess] = useState(false);
@@ -292,20 +293,20 @@ export default function ZeliPage() {
 
       <div className="mx-auto max-w-7xl px-4 pt-3">
         <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${
-          status?.external?.state === "disabled"
-            ? "border-amber-200 bg-amber-50 text-amber-900"
-            : "border-emerald-200 bg-emerald-50 text-emerald-900"
+          status?.conversation?.mode === "external"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-amber-200 bg-amber-50 text-amber-900"
         }`}>
           <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
           <p>
             <strong>
-              {status?.external?.state === "disabled"
-                ? "External AI processing is currently disabled."
-                : "External AI is limited to approved aggregate explanations."}
+              {status?.conversation?.mode === "external"
+                ? "External AI conversation is enabled."
+                : "Local mode."}
             </strong>{" "}
-            {status?.message ??
-              "Zeli's private analytics and local intelligence features remain available."}{" "}
-            Financial facts and calculations always come from BloomCore One.
+            {status?.conversation?.mode === "external"
+              ? "An approved external provider may help with greetings and general conversation. It never receives business records or figures; every financial answer is calculated inside BloomCore One."
+              : "Zeli runs entirely inside BloomCore One. Your messages are not sent to an external AI. Financial answers are calculated from your authorized records."}
           </p>
         </div>
       </div>
@@ -445,6 +446,11 @@ export default function ZeliPage() {
                     {message.role === "assistant" && message.deterministic && (
                       <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
                         <ShieldCheck size={12} aria-hidden /> Computed from your records
+                      </span>
+                    )}
+                    {message.role === "assistant" && message.provider?.startsWith("deepseek") && (
+                      <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
+                        <Sparkles size={12} aria-hidden /> External AI answer
                       </span>
                     )}
                     {message.sources?.length > 0 && (

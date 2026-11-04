@@ -13,6 +13,7 @@ export type ZeliIntent =
   | "business_summary"
   | "compare_periods"
   | "contributions_withdrawals"
+  | "income_expenses"
   | "remittances"
   | "exceptions"
   | "branches"
@@ -37,11 +38,17 @@ function has(text: string, ...terms: string[]): string[] {
 function detectPeriod(text: string): PeriodPreset | null {
   if (/\btoday\b|\bso far today\b/.test(text)) return "today";
   if (/\byesterday\b/.test(text)) return "yesterday";
-  if (/\bprevious week\b|\blast week\b/.test(text)) return "previous_week";
-  if (/\bthis week\b|\bweek so far\b/.test(text)) return "this_week";
-  if (/\bprevious month\b|\blast month\b/.test(text)) return "previous_month";
-  if (/\bthis month\b|\bmonth so far\b|\bmonth to date\b/.test(text)) return "this_month";
-  if (/\bthis quarter\b|\bquarter so far\b|\bquarter to date\b/.test(text)) return "this_quarter";
+  if (/\bprevious week\b|\blast week\b|\bpast week\b/.test(text)) return "previous_week";
+  if (/\bthis week\b|\bweek so far\b|\bcurrent week\b/.test(text)) return "this_week";
+  if (/\bprevious month\b|\blast month\b|\bpast month\b/.test(text)) return "previous_month";
+  if (
+    /\bthis month\b|\bmonth so far\b|\bmonth to date\b|\bcurrent month\b|\bmonth-to-date\b/.test(text)
+  ) {
+    return "this_month";
+  }
+  if (/\bthis quarter\b|\bquarter so far\b|\bquarter to date\b|\bcurrent quarter\b/.test(text)) {
+    return "this_quarter";
+  }
   return null;
 }
 
@@ -95,19 +102,35 @@ export function classifyIntent(question: string): ClassifiedIntent {
     return { intent: "why_changed", period, chartId: null, matchedKeywords: changed };
   }
 
-  const branches = has(text, "branch", "location", "compare branches", "which branch", "branch performance");
-  if (branches.length > 0 && has(text, "compare", "performance", "which", "summary", "summarise", "summarize").length > 0) {
+  const branches = has(text, "branch", "branches", "location", "outlet", "compare branches", "which branch", "branch performance");
+  if (branches.length > 0 && has(text, "compare", "performance", "which", "summary", "summarise", "summarize", "best", "worst").length > 0) {
     return { intent: "branches", period, chartId: null, matchedKeywords: branches };
   }
 
-  const remittance = has(text, "remittance", "remitted", "handed in", "handover", "variance");
+  const remittance = has(text, "remittance", "remit", "remitted", "handed in", "handover", "variance");
   if (remittance.length > 0) {
     return { intent: "remittances", period, chartId: null, matchedKeywords: remittance };
   }
 
-  const exceptions = has(text, "exception", "outstanding", "needs attention", "unusual", "discrepanc", "pending withdrawal", "awaiting review", "overdue");
+  const exceptions = has(text, "exception", "outstanding", "needs attention", "unusual", "discrepanc", "pending withdrawal", "awaiting review", "overdue", "problem", "issue");
   if (exceptions.length > 0) {
     return { intent: "exceptions", period, chartId: null, matchedKeywords: exceptions };
+  }
+
+  const incomeExpenses = has(
+    text,
+    "income",
+    "expense",
+    "expenses",
+    "spending",
+    "profit",
+    "loss",
+    "p&l",
+    "profit and loss",
+    "money going out"
+  );
+  if (incomeExpenses.length > 0) {
+    return { intent: "income_expenses", period, chartId: null, matchedKeywords: incomeExpenses };
   }
 
   const daily = has(text, "daily account", "draft account", "submitted account", "cash variance", "momo variance");
@@ -115,13 +138,13 @@ export function classifyIntent(question: string): ClassifiedIntent {
     return { intent: "daily_accounts", period, chartId: null, matchedKeywords: daily };
   }
 
-  const compare = has(text, "compare", "versus", " vs ", "month on month", "week on week", "against last", "difference between");
+  const compare = has(text, "compare", "compared", "versus", " vs ", " v ", "month on month", "week on week", "against last", "difference between");
   if (compare.length > 0) {
     return { intent: "compare_periods", period, chartId: null, matchedKeywords: compare };
   }
 
-  const contributions = has(text, "contribution", "savings", "paid in", "collection");
-  const withdrawals = has(text, "withdrawal", "paid out", "payout");
+  const contributions = has(text, "contribution", "contributions", "savings", "paid in", "collection", "collected", "deposit");
+  const withdrawals = has(text, "withdrawal", "withdrawals", "withdraw", "paid out", "payout", "cash out", "cash-out");
   if (contributions.length > 0 || withdrawals.length > 0) {
     return {
       intent: "contributions_withdrawals",
@@ -131,7 +154,7 @@ export function classifyIntent(question: string): ClassifiedIntent {
     };
   }
 
-  const summary = has(text, "summarise", "summarize", "summary", "overview", "how are we doing", "today's activity", "business activity", "what happened");
+  const summary = has(text, "summarise", "summarize", "summary", "overview", "how are we doing", "how's business", "how is business", "today's activity", "business activity", "what happened", "what's happening", "status");
   if (summary.length > 0) {
     return { intent: "business_summary", period, chartId: null, matchedKeywords: summary };
   }
@@ -146,9 +169,11 @@ export function suggestedQuestionsForRole(
 ): string[] {
   if (role === "admin") {
     const base = [
+      "What can you do?",
       "Summarise this month's business activity.",
       "Compare this month with last month.",
       "Summarise contributions and withdrawals for this month.",
+      "Summarise income and expenses for this month.",
       "Explain the remittance variance.",
       "Show outstanding operational exceptions.",
     ];
@@ -159,6 +184,7 @@ export function suggestedQuestionsForRole(
   }
   if (role === "worker") {
     return [
+      "What can you do?",
       "What is the status of today's daily account?",
       "Explain the MoMo and cash variance on my latest account.",
       "Find a customer account I need to reference.",
@@ -166,12 +192,14 @@ export function suggestedQuestionsForRole(
   }
   if (role === "collector") {
     return [
+      "What can you do?",
       "How many customers are assigned to me?",
       "Summarise what I collected and handed in today.",
       "Find a customer by name or account id.",
     ];
   }
   return [
+    "What can you do?",
     "Summarise my savings account and active cycle.",
     "How much have I contributed in this cycle?",
     "How do I request a withdrawal?",
