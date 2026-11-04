@@ -1,7 +1,7 @@
 # Zeli — Production Release Dossier
 
-**Status:** RELEASE CANDIDATE. Engineering remediation complete; PR #4 open and
-awaiting final CI, merge and production deployment.
+**Status:** RELEASE CANDIDATE. Engineering remediation complete; staging verified
+at `53ceae8`; PR #4 open and awaiting final CI, merge and production deployment.
 **Prepared:** 4 November 2026. **Owner decision:** production operation
 authorized for this release.
 
@@ -12,7 +12,7 @@ authorized for this release.
 | Repository | `Delkay-byte/BloomCore-One` |
 | PR | #4 — base `main` at `06ea9df` |
 | Branch | `feat/zeli-complete-api-commerce-2026-11` |
-| Candidate SHA | the PR head at merge time; recorded in the closeout report |
+| Candidate SHA | `53ceae829b348b2415832eb87a469858a5985d31` (staging-verified) |
 | Production service | `bloomcore-one` |
 | Legacy service | `bik-prestige-legacy` — not touched |
 | Staging | `bloomcore-one-staging` — manual deploy, Auto-Deploy OFF |
@@ -35,7 +35,11 @@ authorized for this release.
 - [x] Emergency stop latched independently of provider mode.
 - [x] External-AI status header derived from the effective policy.
 - [ ] Final CI on the exact PR head.
-- [ ] Staging deployment of the final candidate and acceptance run.
+- [x] Staging deployment of the final candidate. Health at `53ceae8`, 21/21
+      migrations, availability ON, provider latched disabled, chat 401,
+      cross-origin 403, unsigned webhook 401. Interactive browser acceptance was
+      blocked by Cloudflare Turnstile for the automation browser and is recorded
+      as a limitation in `ZELI-STAGING-DEPLOYMENT.md`.
 - [ ] Merge and production deployment.
 - [ ] Independent penetration test — **DEFERRED**; owner intends to arrange it.
 - [ ] DPIA/privacy/legal approval for approved production AI — outstanding.
@@ -155,7 +159,7 @@ Never run from a build. Never run against staging by accident.
 
 ## Owner approval checklist
 
-- [ ] I have reviewed the 89-file PR #4 diff at `81d6031`.
+- [ ] I have reviewed the PR #4 diff at `53ceae8`.
 - [ ] I accept that `main` merge triggers production Auto-Deploy.
 - [ ] I have taken and recorded a production Neon backup/branch.
 - [ ] I have confirmed production Paystack LIVE credentials are set and remain

@@ -11,11 +11,11 @@ performed by this workstream.
 | Area | Status | Notes |
 |---|---|---|
 | Security closeout | READY | PR #1 merged to `main` (`1d0645c`); daily-account correction screen included. |
-| Git integration | READY WITH LIMITATIONS | PR #1, #2 and #3 merged. PR #4 open at `81d6031` against `main` `06ea9df`, mergeable, CI green. No force-push, no deployment. |
+| Git integration | READY WITH LIMITATIONS | PR #1, #2 and #3 merged. PR #4 at `53ceae8` against `main` `06ea9df`, mergeable, CI green. No force-push. |
 | Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
-| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging verified at `81d6031`. |
+| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging verified at `53ceae8`. |
 | Subscription checkout | READY WITH LIMITATIONS | Paystack checkout and signed-webhook lifecycle verified in staging test mode; no live charge. |
-| Paystack staging verification | READY WITH LIMITATIONS | Test-mode lifecycle and signed test webhook verified; production LIVE credentials owner-confirmed and unchanged. |
+| Paystack staging verification | READY WITH LIMITATIONS | Test-mode lifecycle and signed test webhook verified. Production also holds a test key, so production checkout stays closed until the owner sets a LIVE key. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
 | DeepSeek synthetic integration | READY | Approved staging probe succeeded; permission returned to `false`; provider disabled. |
 | Approved production AI | BLOCKED | Locked by `PRODUCTION_PROVIDER_APPROVED = false` and missing DPIA approval. |
@@ -64,15 +64,15 @@ performed by this workstream.
 - DeepSeek adapter uses the fixed official endpoint and aggregate package.
 - Global AI control has disabled/synthetic/approved states and emergency stop.
 - Production AI remains locked by code and approval gates.
-- Staging is deployed and verified at `81d6031`.
+- Staging is deployed and verified at `53ceae8`.
 
 ## Git state
 
 - `main` includes PR #1 merge `1d0645c`, PR #2 merge `2c7afed` and PR #3 merge
   `06ea9df`.
 - PR #4: <https://github.com/Delkay-byte/BloomCore-One/pull/4> — OPEN,
-  mergeable, head `81d6031`, base `main` `06ea9df`, 89 files.
-- CI on `81d6031`: `Lint, typecheck, test, build` — pass.
+  mergeable, head `53ceae8`, base `main` `06ea9df`.
+- CI on `53ceae8`: `Lint, typecheck, test, build` — pass.
 - Production Auto-Deploy: **ON** (deploys on CI pass). Not triggered by this work.
 
 ## Release gate
@@ -97,11 +97,15 @@ Do not deploy until:
 
 ## Staging verification (4 November 2026)
 
-- Commit `81d6031`, host `bloomcore-one-staging.onrender.com`; live `/api/health`
+- Commit `53ceae8`, host `bloomcore-one-staging.onrender.com`; live `/api/health`
   reports the same commit and `env=STAGING`.
 - Staging Auto-Deploy OFF; deployed manually.
-- 20/20 migrations; 2 tenants, 10 synthetic accounts; database up to date.
-- 26/26 internal staging checks.
+- 21/21 migrations; 2 tenants, 10 synthetic accounts; database up to date.
+- 26/26 internal staging checks ran on the earlier `81d6031` candidate; the same
+  application paths are unchanged in `53ceae8`. API-level checks on `53ceae8`:
+  health ready, chat 401 same-origin, chat 403 cross-origin, unsigned webhook 401.
+  Interactive browser login on `53ceae8` was blocked by a Cloudflare Turnstile
+  challenge for the automation browser; recorded as a limitation.
 - Paystack test checkout initialization and controlled signed webhook lifecycle
   verified; no live payment and no customer charge.
 - Paystack test/live separation and Turnstile Managed mode are owner-confirmed.

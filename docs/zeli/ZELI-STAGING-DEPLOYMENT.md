@@ -65,7 +65,7 @@ synthetic probe and returned to `false`.
 
 ## Migrations
 
-All 20 migrations applied with `prisma migrate deploy --schema=prisma/schema-pg.prisma`.
+All 21 migrations applied with `prisma migrate deploy --schema=prisma/schema-pg.prisma`.
 `prisma migrate status` reports “Database schema is up to date.”
 
 Note on dates: `20261104_zeli_commerce_and_provider_control` was authored in PR #4
@@ -129,9 +129,12 @@ Using the configured Paystack **test** secret and a controlled signed webhook:
 - No card payment or customer charge occurred.
 
 The staging environment uses a Paystack **TEST** secret key. The production
-environment uses a Paystack **LIVE** secret key. The owner has confirmed that the
-two environments are correctly separated. Neither key was displayed, copied,
-rotated or changed during this verification, and no live charge was made.
+service is currently configured with a Paystack **TEST** key as well, not a LIVE
+key; that is a separately recorded material finding in
+`ZELI-PRODUCTION-RELEASE-DOSSIER.md`. The application therefore keeps production
+checkout closed with an honest message. The secrets are stored in separate
+services and separate Neon projects; neither key was displayed, copied, rotated
+or changed during this verification, and no live charge was made.
 
 ## DeepSeek synthetic probe
 
@@ -150,7 +153,38 @@ rotated or changed during this verification, and no live charge was made.
   not increase.
 - Production approval code constant remains `false`.
 
-## Remaining owner actions
+## Candidate `53ceae8` — final verification
+
+Deployment and evidence for the release candidate
+`53ceae829b348b2415832eb87a469858a5985d31`.
+
+| Check | Result |
+|---|---|
+| Manual deploy of `53ceae8`, Auto-Deploy still OFF | PASS |
+| `/api/health` returns `env=STAGING`, `commit=53ceae82…` | PASS |
+| `/api/health/ready` returns `status=ready`, `database=ok` | PASS |
+| `prisma migrate deploy` — 21/21 migrations applied | PASS |
+| `ZeliAvailability` row `global` present and `enabled=true` | PASS |
+| `ZeliProviderControl` `mode=disabled`, `enabled=false`, latched | PASS |
+| `ZELI_SYNTHETIC_TESTING_ALLOWED=false` | PASS |
+| `POST /api/zeli/chat` same-origin, no session → 401 `Not authenticated` (not 503) | PASS |
+| `POST /api/zeli/chat` cross-origin → 403 origin denied | PASS |
+| `POST /api/payments/paystack/webhook` unsigned → 401 `invalid_signature` | PASS |
+
+The 401 rather than 503 on the chat route proves the global availability guard is
+open; the same-origin guard and authentication still reject the request.
+
+Limitation recorded honestly: interactive staging acceptance through the browser
+could not be completed by this workstream on this candidate. The `/admin/login`
+page loads, but Cloudflare Turnstile presents an interactive challenge to the
+automation browser, so the session never reaches the MFA step. This is a
+Turnstile/automation interaction, not a product failure. The authenticated
+UI walk-through (master switch, provider controls, commerce panels, analytics
+entitlements) was previously executed on the `81d6031` candidate with the same
+application code paths and is not re-claimed for `53ceae8`. An owner-operated
+manual login remains the way to re-run those UI checks on the final candidate.
+
+
 
 1. Independent penetration testing is **DEFERRED** — the owner intends to
    arrange it at a later security-assurance stage. No tester has been engaged,
