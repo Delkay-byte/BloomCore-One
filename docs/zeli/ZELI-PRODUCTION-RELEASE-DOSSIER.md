@@ -1,7 +1,7 @@
 # Zeli — Production Release Dossier
 
-**Status:** RELEASED. PR #4 merged; production deployed at `f4ef601`; Zeli
-availability ON; external AI disabled. See “Production release record” below.
+**Status:** RELEASED. PR #4 merged; production deployed and verified at
+`030ff1c`; Zeli availability ON with an audit entry; external AI disabled.
 **Prepared:** 4 November 2026. **Owner decision:** production operation
 authorized for this release.
 
@@ -14,6 +14,7 @@ authorized for this release.
 | Branch | `feat/zeli-complete-api-commerce-2026-11` |
 | Candidate SHA | `53ceae829b348b2415832eb87a469858a5985d31` (staging-verified) |
 | Deployed merge commit | `f4ef60139fd463bf5782797f59f1f44f2946d31b` |
+| Current production commit | `030ff1c26faae04d55ad77310ac042f66692049f` (scheduler fix) |
 | Production service | `bloomcore-one` |
 | Legacy service | `bik-prestige-legacy` — not touched |
 | Staging | `bloomcore-one-staging` — manual deploy, Auto-Deploy OFF |
@@ -124,31 +125,50 @@ Never run from a build. Never run against staging by accident.
    build. A clean redeploy of the same commit (`clearCache: clear`) was issued
    through the Render API and the origin then served `f4ef601`.
 5. Smoke verification run against `https://bloomcore-one.onrender.com`.
+6. Post-release check found the expiry scheduler hook at the repository root,
+   which Next ignores for a `src/app` project, so no sweep ever started. PR #7
+   moved it to `src/instrumentation.ts`, added regression tests, and deployed as
+   `030ff1c`. Production logs then showed `[zeli-expiry] sweep completed` at
+   14:14:50Z and 14:29:44Z, 15 minutes apart.
 
 ## Production release record
 
 | Item | Result |
 |---|---|
 | Merge commit | `f4ef60139fd463bf5782797f59f1f44f2946d31b` |
-| Production `/api/health` | 200, `env=production`, `commit=f4ef601` |
+| Current production commit | `030ff1c26faae04d55ad77310ac042f66692049f` |
+| Production `/api/health` | 200, `env=production`, `commit=030ff1c` |
 | `/api/health/ready` | 200, `database=ok` |
 | Migrations applied | 21/21 (`_prisma_migrations`) |
-| `ZeliAvailability` | `enabled=true`, seeded by migration `20261103` |
+| `ZeliAvailability` | `enabled=true`, explicit release reason, audited |
 | `ZeliProviderControl` rows | 0 → `DEFAULT_CONTROL` (disabled, emergency) |
 | `PRODUCTION_PROVIDER_APPROVED` | `false` in the deployed commit |
+| Expiry scheduler | in-process, 15-minute sweep, production logs confirm runs |
 | `POST /api/zeli/chat` same-origin, no session | 401 `Not authenticated` (Zeli ON) |
 | `POST /api/zeli/chat` cross-origin | 403 origin denied |
 | `POST /api/payments/paystack/webhook` unsigned | 401 `invalid_signature` |
 | `/platform/login` | 200 |
 | `/admin/login` | 200 |
-| Legacy service `bik-prestige-legacy` | not touched |
+| Legacy service `bik-prestige-legacy` | no configuration change; see finding |
 | Staging | unchanged at `53ceae8`, Auto-Deploy OFF |
 
-Audit note: because `ZeliAvailability` is seeded `enabled=true` by the rollout
-migration, the production switch is ON without a `PlatformAuditLog` entry for an
-operator “enable” action. Re-affirming the switch in the Super Admin control
-records an audited entry with the operator's reason. No audit row was fabricated
-and no direct write was made to `PlatformAuditLog`.
+Audit note: the rollout migration seeded `enabled=true`. The explicit release
+enablement was then performed as an audited platform operation in one database
+transaction: the `ZeliAvailability` row was updated with the release reason and a
+`PlatformAuditLog` row `zeli.availability_enabled` was written with the same
+reason, the previous value, the previous reason and a marker that it was executed
+without a UI session. No operator identity was fabricated (`actorId` is null).
+The external-AI control row was not touched and remains absent, so external AI
+stays disabled.
+
+## Legacy service coupling
+
+`bik-prestige-legacy` points at the same GitHub repository and `main` branch with
+Auto-Deploy on, so it redeployed automatically when PR #4 merged. It also uses
+the **same production Neon database** and has no `MFA_ENFORCEMENT`, Turnstile or
+`APP_ENV` variables. It was not reconfigured by this workstream, per the
+instruction not to modify it. It is a second public entry point to the same data
+with weaker login protections and should be retired or hardened by the owner.
 
 ## Post-deployment checks still owner-operated
 

@@ -68,3 +68,15 @@ No secret is required. The process uses the service's existing `DATABASE_URL`.
   catch-up covers the gap.
 - The sweep is a lifecycle bookkeeping job, never the access control. The
   entitlement `expiresAt` check remains authoritative on every request.
+
+## Production evidence
+
+- Production build `030ff1c` moved the hook to `src/instrumentation.ts`; the
+  build emits `.next/server/instrumentation.js`.
+- Render logs for `bloomcore-one` show
+  `[zeli-expiry] sweep completed { subscriptions: 0, entitlements: 0, skipped: 0 }`
+  at 14:14:50Z and 14:29:44Z on 4 November 2026 — the immediate catch-up and the
+  first scheduled run, 15 minutes apart.
+- An earlier root-level hook (`f4ef601`) was silently ignored by Next, so no
+  sweep ran until the fix. That regression is now covered by
+  `tests/zeli-expiry-scheduler.test.ts`.
