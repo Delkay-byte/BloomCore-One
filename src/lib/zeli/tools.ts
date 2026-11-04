@@ -73,7 +73,7 @@ function canUse(identity: ZeliIdentity, tool: string): boolean {
   );
 }
 
-async function businessSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome> {
+export async function businessSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome> {
   const started = Date.now();
   if (!identity.tenantId || !canUse(identity, "business_summary")) {
     return {
@@ -134,7 +134,7 @@ async function businessSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome>
   };
 }
 
-async function customerLookup(
+export async function customerLookup(
   identity: ZeliIdentity,
   question: string
 ): Promise<ZeliToolOutcome | null> {
@@ -192,7 +192,7 @@ async function customerLookup(
   };
 }
 
-async function collectorSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
+export async function collectorSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
   if (!identity.tenantId || !canUse(identity, "collector_summary")) return null;
   const today = startOfToday();
   const collector = await db.collector.findFirst({
@@ -246,7 +246,7 @@ async function collectorSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome
   };
 }
 
-async function dailyAccountSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
+export async function dailyAccountSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
   if (!identity.tenantId || !canUse(identity, "daily_account_summary")) return null;
   const today = startOfToday();
   const rows = await db.dailyAccount.findMany({
@@ -289,7 +289,7 @@ async function dailyAccountSummary(identity: ZeliIdentity): Promise<ZeliToolOutc
   };
 }
 
-async function customerAccountSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
+export async function customerAccountSummary(identity: ZeliIdentity): Promise<ZeliToolOutcome | null> {
   if (!canUse(identity, "customer_account_summary")) return null;
   const accounts = await db.susuAccount.findMany({
     where: {

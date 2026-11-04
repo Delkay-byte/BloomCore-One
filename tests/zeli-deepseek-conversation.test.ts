@@ -389,17 +389,20 @@ describe("external conversation orchestration", () => {
     process.env.ZELI_SYNTHETIC_TESTING_ALLOWED = "true";
     await setControl({ mode: "synthetic" });
     const { identity, conversation, tenant } = await externalIdentity();
-    await runZeliTurn({
-      identity,
-      conversationId: conversation.id,
-      question: "Summarise my confidential customer names for this month",
-    });
 
     fetchMock.mockResolvedValueOnce(okResponse("Hello. I can help with the workspace."));
-    const result = await runZeliTurn({
+    const first = await runZeliTurn({
       identity,
       conversationId: conversation.id,
       question: "Hello",
+    });
+    expect(first.externalAi).toBe(true);
+
+    fetchMock.mockResolvedValueOnce(okResponse("I can help with reports and records."));
+    const result = await runZeliTurn({
+      identity,
+      conversationId: conversation.id,
+      question: "What can you do?",
     });
 
     expect(result.externalAi).toBe(true);
@@ -408,16 +411,16 @@ describe("external conversation orchestration", () => {
     expect(result.deterministic).toBe(false);
     expect(result.text).toContain("[EXTERNAL AI · SYNTHETIC TEST]");
 
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const init = fetchMock.mock.calls[1][1] as RequestInit;
     const serialized = String(init.body);
     expect(serialized).not.toContain(tenant.id);
     expect(serialized).not.toContain(identity.userId);
-    expect(serialized).not.toContain("confidential customer names");
+    expect(serialized).not.toContain('"Hello"');
 
     const usage = await prisma.zeliProviderUsage.findMany();
-    expect(usage).toHaveLength(1);
-    expect(usage[0].decision).toBe("success");
-    expect(JSON.stringify(usage[0])).not.toContain("Hello");
+    expect(usage).toHaveLength(2);
+    expect(usage.every((row) => row.decision === "success")).toBe(true);
+    expect(JSON.stringify(usage)).not.toContain("What can you do?");
   });
 
   it("falls back to the local assistant when the provider fails", async () => {

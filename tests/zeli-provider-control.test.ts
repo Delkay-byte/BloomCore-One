@@ -311,7 +311,7 @@ describe("DeepSeek transport", () => {
 });
 
 describe("normal Zeli turns under synthetic mode", () => {
-  it("never sends a real user request to the provider", async () => {
+  it("uses tool orchestration for a synthetic staging business turn without tenant identifiers", async () => {
     await setControl({
       mode: "synthetic",
       enabled: true,
@@ -325,7 +325,53 @@ describe("normal Zeli turns under synthetic mode", () => {
     });
     vi.stubEnv("DEEPSEEK_API_KEY", "sk-test");
     vi.stubEnv("ZELI_SYNTHETIC_TESTING_ALLOWED", "true");
-    const fetchMock = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: "deepseek-flash",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: "",
+                  tool_calls: [
+                    {
+                      id: "call_1",
+                      type: "function",
+                      function: {
+                        name: "contributions_withdrawals",
+                        arguments: JSON.stringify({ period: "this_month" }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: "tool_calls",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: "deepseek-flash",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content:
+                    "This month's contributions are shown in the authoritative calculation below.",
+                },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runZeliTurn({
@@ -339,8 +385,14 @@ describe("normal Zeli turns under synthetic mode", () => {
       conversationId: conversation.id,
       question: "Summarise this month's contributions.",
     });
-    expect(result.provider).toBe("internal");
-    expect(result.text).toContain("CALCULATED FACT");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.provider).toBe("deepseek-enhanced");
+    expect(result.conversationMode).toBe("external");
+    expect(result.tools[0].tool).toBe("contributions_withdrawals");
+    expect(result.text).toContain("[AUTHORITATIVE LOCAL CALCULATION]");
+
+    const body = String((fetchMock.mock.calls[0][1] as RequestInit).body);
+    expect(body).not.toContain(tenant.id);
+    expect(body).not.toContain(admin.id);
+    expect(body).toContain("Summarise this month's contributions.");
   });
 });

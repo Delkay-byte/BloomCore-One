@@ -243,7 +243,25 @@ export function resolveConversationContext(params: {
     };
   }
 
-  if (/^(tell me more|more details?|go deeper|explain|explain that|explain this)\s*\??$/.test(text)) {
+  if (
+    /^(can you )?(put|say|explain|rephrase) (that|this|it)( in)? (simpler|simple|plain)( terms| language)?\s*\??$/.test(
+      text
+    ) ||
+    /^(rephrase|simplify)( that| this| it)?\s*\??$/.test(text)
+  ) {
+    const verb = VERB_PHRASE[previous.intent] ?? "summarise business activity";
+    return {
+      question: `${verb} in simple terms ${period ?? ""}`.trim(),
+      usedContext: true,
+      inheritedIntent: previous.intent,
+    };
+  }
+
+  if (
+    /^(tell me more|more details?|go deeper|explain|explain that|explain this|summari[sz]e (that|this|it)|sum (that|it) up)\s*\??$/.test(
+      text
+    )
+  ) {
     const verb = VERB_PHRASE[previous.intent] ?? "summarise business activity";
     return {
       question: `${verb} with more detail ${period ?? ""}`.trim(),
