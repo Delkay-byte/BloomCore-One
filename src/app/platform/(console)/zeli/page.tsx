@@ -5,6 +5,7 @@ import {
 } from "@/lib/actions/zeli-platform.actions";
 import {
   getZeliCommerceOverview,
+  listZeliPaymentExceptions,
   listZeliPlansForPlatform,
   listZeliSubscriptions,
 } from "@/lib/actions/zeli-commerce.actions";
@@ -13,6 +14,7 @@ import { getZeliAvailabilityAdminState } from "@/lib/actions/zeli-availability.a
 import ZeliControlCentre from "./ZeliControlCentre";
 import ProviderControlPanel from "./ProviderControlPanel";
 import CommercePanel from "./CommercePanel";
+import PaymentExceptionsPanel from "./PaymentExceptionsPanel";
 import ZeliAvailabilityPanel from "./ZeliAvailabilityPanel";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function PlatformZeliPage() {
   await requirePlatformPage();
-  const [overview, tenants, providerState, commerce, plans, subscriptions, availabilityState] =
+  const [overview, tenants, providerState, commerce, plans, subscriptions, availabilityState, exceptions] =
     await Promise.all([
       getZeliPlatformOverview(),
       listZeliTenants(""),
@@ -35,6 +37,7 @@ export default async function PlatformZeliPage() {
       listZeliPlansForPlatform(),
       listZeliSubscriptions(""),
       getZeliAvailabilityAdminState(),
+      listZeliPaymentExceptions(),
     ]);
   return (
     <div className="space-y-6">
@@ -49,6 +52,7 @@ export default async function PlatformZeliPage() {
         plans={plans}
         subscriptions={subscriptions}
       />
+      <PaymentExceptionsPanel exceptions={exceptions} />
     </div>
   );
 }

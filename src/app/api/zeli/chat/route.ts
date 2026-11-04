@@ -4,6 +4,8 @@ import { runZeliTurn, ZeliUsageError } from "@/lib/zeli/service";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 import type { ZeliIdentity } from "@/lib/zeli/types";
 import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
+import { getEffectiveProviderPolicy } from "@/lib/zeli/provider-control";
+import { providerPolicyHeaders } from "@/lib/zeli/provider-status";
 
 async function identity(): Promise<ZeliIdentity | null> {
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
@@ -32,6 +34,13 @@ export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return crossOriginDenied();
   const who = await identity();
   if (!who) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  // Informational only. The local assistant stays available regardless: this
+  // header describes whether external AI may be called, not whether Zeli works.
+  // It is never used to authorize anything; the provider path re-checks policy.
+  const externalAiHeaders = providerPolicyHeaders(
+    await getEffectiveProviderPolicy(who.tenantId)
+  );
 
   let body: { conversationId?: string; message?: string };
   try {
@@ -77,7 +86,7 @@ export async function POST(request: NextRequest) {
       "x-zeli-provider": result.provider,
       "x-zeli-provider-available": String(result.providerAvailable),
       "x-zeli-provider-kind": "internal-deterministic",
-      "x-zeli-external-ai": "disabled",
+      ...externalAiHeaders,
       "x-zeli-intent": result.intent,
     },
   });

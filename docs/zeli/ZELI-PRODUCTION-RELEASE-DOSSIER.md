@@ -1,62 +1,65 @@
 # Zeli — Production Release Dossier
 
-**Status:** NOT APPROVED. PR #4 remains open and unmerged. Production untouched.
-**Prepared:** 4 November 2026. **Owner decision:** pending.
+**Status:** RELEASE CANDIDATE. Engineering remediation complete; PR #4 open and
+awaiting final CI, merge and production deployment.
+**Prepared:** 4 November 2026. **Owner decision:** production operation
+authorized for this release.
 
 ## Proposed release
 
 | Item | Value |
 |---|---|
 | Repository | `Delkay-byte/BloomCore-One` |
-| PR | #4 — open, mergeable, base `main` at `06ea9df` |
+| PR | #4 — base `main` at `06ea9df` |
 | Branch | `feat/zeli-complete-api-commerce-2026-11` |
-| PR head / proposed release SHA | `81d6031` |
-| Changed files | 89 (+8132 / −137) |
-| Production service | `bloomcore-one` — do not touch |
-| Legacy service | `bik-prestige-legacy` — do not touch |
-| Staging | `bloomcore-one-staging` — verified at `81d6031` |
+| Candidate SHA | the PR head at merge time; recorded in the closeout report |
+| Production service | `bloomcore-one` |
+| Legacy service | `bik-prestige-legacy` — not touched |
+| Staging | `bloomcore-one-staging` — manual deploy, Auto-Deploy OFF |
 | Production AI | Locked: `PRODUCTION_PROVIDER_APPROVED = false` |
 
 ## Evidence recorded before merge
 
-- [x] CI green on `81d6031` (`Lint, typecheck, test, build` — pass).
-- [x] Unit/integration suite: 44 files, 435/435.
-- [x] PostgreSQL suite: 32/32 against PostgreSQL 16.
+- [x] Unit/integration suite: 49 files, 493/493.
+- [x] PostgreSQL suite: 32/32 on PostgreSQL 16.15 and 32/32 on 18.6.
 - [x] Browser E2E: 20/20 (desktop and mobile projects).
-- [x] Typecheck, lint and production build pass.
-- [x] Staging deployed at `81d6031`; `/api/health` reports `env=STAGING` and the
-      same commit; 26/26 internal staging checks.
-- [x] Staging migrations applied; `prisma migrate status` up to date.
-- [x] Synthetic staging seed completed (2 tenants, 10 role accounts, 1 platform
-      admin); no production data imported.
-- [x] Payment lifecycle verified with Paystack **test** mode and signed test
-      webhooks; no customer charge.
-- [x] Synthetic DeepSeek probe succeeded in an approved staging window;
-      environment permission returned to `false` and the provider is disabled.
-- [x] Paystack test/live credential separation **owner-confirmed**.
-- [x] Turnstile staging widget Managed mode and hostname restriction
-      **owner-confirmed**.
-- [ ] Owner reviews PR #4 diff and approves merge.
+- [x] Typecheck clean; lint 0 errors / 83 warnings; production build passes.
+- [x] Migration rehearsal on PostgreSQL 18.6, empty and upgrade paths; empty
+      `migrate diff` — see `ZELI-MIGRATION-REHEARSAL.md`.
+- [x] Production `MFA_ENFORCEMENT=enforce` verified through the Render API and
+      the blueprint updated to match.
+- [x] Payment lifecycle covered by `zeli-billing-lifecycle.test.ts` (25 cases)
+      including early renewal, checkout races, duplicate settlement, refund
+      retry and webhook replay.
+- [x] Expiry sweep implemented and tested; access still denied by `expiresAt`.
+- [x] Emergency stop latched independently of provider mode.
+- [x] External-AI status header derived from the effective policy.
+- [ ] Final CI on the exact PR head.
+- [ ] Staging deployment of the final candidate and acceptance run.
+- [ ] Merge and production deployment.
 - [ ] Independent penetration test — **DEFERRED**; owner intends to arrange it.
 - [ ] DPIA/privacy/legal approval for approved production AI — outstanding.
-- [ ] Production backup/snapshot taken immediately before release.
+
+## Material environment finding
+
+Production `bloomcore-one` is configured with a Paystack **test** key
+(`sk_test_…`), not a LIVE key. The application therefore keeps production
+checkout closed with an honest message instead of taking an unsettled order.
+This is an owner-operated Render dashboard action: set `PAYSTACK_SECRET_KEY` on
+`bloomcore-one` to the LIVE secret key, then redeploy. No key value is recorded
+here and the key must never be copied to staging.
 
 ## Migration review
 
-Migrations: 20 in the repository. New for this release:
+Migrations: 21 in the repository. New for this release:
 
-- `20261102_zeli_assistant` (previous PR #2, already on `main`)
-- `20261103_zeli_business_intelligence` (PR #3, already on `main`)
-- `20261103_zeli_global_availability` (this PR)
-- `20261104_zeli_commerce_and_provider_control` (this PR)
+- `20261103_zeli_global_availability` (PR #4)
+- `20261104_zeli_commerce_and_provider_control` (PR #4)
+- `20261105_zeli_renewal_checkout_refund_expiry` (this remediation)
 
-Both new migrations are additive: they create tables, indexes and foreign keys,
-and insert one `ZeliAvailability` row with `enabled = true`. No `DROP`,
-`DELETE`, `TRUNCATE` or column removal appears in either file. Existing
-financial, subscription, conversation and audit records are untouched.
-
-The `20261104` name is a sequential ordering label, not a forward-dated
-operation. The full 20-migration sequence was applied to staging PostgreSQL.
+`20261105` adds nullable/defaulted columns, unique indexes and one new table.
+No `DROP`, `DELETE`, `TRUNCATE` or column removal appears in any of them.
+Existing financial, subscription, conversation and audit records are untouched.
 
 Apply only with:
 
@@ -69,28 +72,25 @@ Never run from a build. Never run against staging by accident.
 
 ## Pre-deployment
 
-1. Take a Neon backup/branch/snapshot and record its identifier.
+1. Record the Neon recovery point/branch identifier privately.
 2. Verify production `DATABASE_URL`/`DIRECT_URL` privately (pooled/direct).
-3. Confirm the `20261103_zeli_global_availability` migration will insert the
-   `enabled = true` row; the master switch is ON for every tenant after release.
-4. Confirm provider control remains `disabled`/emergency with
+3. Confirm the `20261103_zeli_global_availability` migration inserts the
+   `enabled = true` row; the master switch is ON after release unless an
+   operator turned it off.
+4. Confirm provider control remains `disabled`/latched and
    `PRODUCTION_PROVIDER_APPROVED=false` in the release commit.
-5. Confirm production Paystack LIVE credentials are present in the Render
-   dashboard and were not changed by this workstream. Do not display them.
+5. Production Paystack: **currently a test key**. Either set the LIVE key before
+   release or accept that production checkout stays closed with an honest
+   message. Do not display the key.
 6. Confirm the production webhook endpoint
    `https://bloomcore-one.onrender.com/api/payments/paystack/webhook` is set in
-   the Paystack dashboard with the LIVE secret and that signature verification
-   is enabled. Do not send a live charge; use provider test events only if the
-   owner authorises them.
+   the Paystack dashboard with the LIVE secret. Do not send a live charge.
 7. Confirm production Turnstile keys and hostname
-   (`bloomcore-one.onrender.com`); Managed mode compatibility is the owner's
-   Cloudflare decision. No widget or key change is part of this release.
-8. Confirm production `MFA_ENFORCEMENT` in the live Render dashboard.
-   `docs/security/MFA-ADMIN-SETUP.md` records production as `enforce`, while the
-   checked-in `render.yaml` template still shows `optional`. The live value must
-   be verified by the owner; this is a documentation/config consistency item, not
-   a change made by PR #4.
-9. Confirm production Auto-Deploy behaviour: merging `main` can trigger deploy.
+   (`bloomcore-one.onrender.com`) are unchanged.
+8. Production `MFA_ENFORCEMENT=enforce` is verified live and matches the
+   blueprint.
+9. Production Auto-Deploy is `checksPass`: merging `main` triggers a deployment
+   after CI passes.
 
 ## Deployment sequence (owner only)
 
@@ -131,14 +131,18 @@ Never run from a build. Never run against staging by accident.
 - DPIA/privacy/legal review for external AI remains outstanding.
 - Independent penetration testing has not occurred and is **DEFERRED** to the
   owner's later security-assurance stage.
-- No independent audit, certification or penetration test has taken place.
-- No successful live card payment; a controlled signed test webhook was used.
+- Production Paystack is configured with a test key, so live checkout stays
+  closed until the owner sets the LIVE key in Render.
+- No successful live card payment. Payment behaviour is proven with the
+  Paystack TEST environment and signed TEST webhooks.
 - Recurring auto-charge requires an owner-configured Paystack plan code.
 - Revenue report is gross recorded value, not settled revenue.
-- Paystack test/live separation is owner-confirmed, not independently inspected
-  by this workstream.
-- Turnstile Managed mode is owner-confirmed, not independently inspected in the
-  Cloudflare dashboard by this workstream.
+- The expiry sweep runs in-process every 15 minutes; it is not a separately
+  monitored Render Cron Job.
+- Paystack test/live separation is verified by key prefix, not by dashboard
+  inspection of the Paystack account.
+- Dependency advisories remain in the Prisma CLI chain (`deepmerge-ts`,
+  build-time only). Upgrading Prisma is a breaking change outside this release.
 
 ## Required owner approvals
 

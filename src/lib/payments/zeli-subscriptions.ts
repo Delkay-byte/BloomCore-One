@@ -3,19 +3,29 @@ import { db } from "@/lib/db";
 import type { TenantContext } from "@/lib/tenant";
 import {
   initializeTransaction,
+  paystackReadyForCheckout,
   paystackConfigured,
+  refundTransaction,
   verifyTransaction,
   verifyWebhookSignature,
   type PaystackTransaction,
 } from "./paystack";
 import { getZeliEntitlement } from "@/lib/zeli/entitlements";
+import { assertZeliAvailable } from "@/lib/zeli/availability";
 
 /**
  * Zeli subscription lifecycle.
  *
  * The provider webhook (or a server-side verify) is the authority. A browser
- * redirect never activates an entitlement. Every activation is idempotent on
- * the provider event id and the unique subscription reference.
+ * redirect never activates an entitlement. Every activation is idempotent on a
+ * canonical provider transaction event and every side effect is conditional on
+ * the state read inside the same transaction.
+ *
+ * Renewal policy:
+ *  - a payment while a period is live extends from that period's end;
+ *  - a payment after expiry starts from the verified payment time;
+ *  - a payment for a checkout that a newer checkout superseded is treated as a
+ *    duplicate and refunded, never silently discarded and never double-granted.
  */
 
 export class SubscriptionError extends Error {
@@ -27,11 +37,35 @@ export class SubscriptionError extends Error {
   }
 }
 
+const PENDING_CHECKOUT_TTL_MS = 30 * 60 * 1000;
+const REFUND_RETRY_AFTER_MS = 15 * 60 * 1000;
+
 function addInterval(start: Date, interval: string): Date {
   const end = new Date(start);
-  if (interval === "year") end.setUTCFullYear(end.getUTCFullYear() + 1);
-  else end.setUTCMonth(end.getUTCMonth() + 1);
+  if (interval === "year") {
+    const year = end.getUTCFullYear() + 1;
+    const month = end.getUTCMonth();
+    const day = Math.min(end.getUTCDate(), daysInMonth(year, month));
+    end.setUTCFullYear(year, month, day);
+    return end;
+  }
+  const month = end.getUTCMonth() + 1;
+  const year = end.getUTCFullYear() + Math.floor(month / 12);
+  const targetMonth = ((month % 12) + 12) % 12;
+  const day = Math.min(end.getUTCDate(), daysInMonth(year, targetMonth));
+  end.setUTCFullYear(year, targetMonth, day);
   return end;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
+
+function maxDate(...values: Array<Date | null | undefined>): Date {
+  return values.reduce<Date>((latest, value) => {
+    if (!value) return latest;
+    return value.getTime() > latest.getTime() ? value : latest;
+  }, new Date(0));
 }
 
 function amountSubunit(value: unknown): number {
@@ -56,6 +90,15 @@ function baseUrl(): string {
   } catch {
     throw new SubscriptionError("Application URL is not valid.", "missing_app_url");
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }
 
 export interface PublicZeliPlan {
@@ -93,14 +136,16 @@ export function paymentProviderStatus(): {
   provider: "paystack";
   message: string;
 } {
-  const configured = paystackConfigured();
-  return {
-    configured,
-    provider: "paystack",
-    message: configured
-      ? "Secure checkout is available through Paystack."
-      : "Subscription checkout is not configured yet. Ask the platform administrator to configure the payment provider and catalogue.",
-  };
+  const configured = paystackReadyForCheckout();
+  let message = "Secure checkout is available through Paystack.";
+  if (!paystackConfigured()) {
+    message =
+      "Subscription checkout is not configured yet. Ask the platform administrator to configure the payment provider and catalogue.";
+  } else if (!configured) {
+    message =
+      "Subscription checkout is not available for live payments yet. Ask the platform administrator to configure the production payment key.";
+  }
+  return { configured, provider: "paystack", message };
 }
 
 /** Start a checkout for a tenant administrator. Price comes from the database. */
@@ -108,12 +153,15 @@ export async function createZeliCheckout(
   ctx: TenantContext,
   planCode: string
 ): Promise<{ authorizationUrl: string; reference: string }> {
+  await assertZeliAvailable();
   if (ctx.role !== "admin") {
     throw new SubscriptionError("Only a business administrator can subscribe.", "forbidden");
   }
-  if (!paystackConfigured()) {
+  if (!paystackReadyForCheckout()) {
     throw new SubscriptionError(
-      "Subscription checkout is not configured yet.",
+      paystackConfigured()
+        ? "Subscription checkout is not available for live payments yet."
+        : "Subscription checkout is not configured yet.",
       "provider_not_configured"
     );
   }
@@ -149,19 +197,50 @@ export async function createZeliCheckout(
   }
 
   const reference = `ZELI-${ctx.tenantId.slice(0, 8)}-${randomBytes(8).toString("hex")}`;
-  const created = await db.zeliSubscription.create({
-    data: {
-      tenantId: ctx.tenantId,
-      planId: plan.id,
-      status: "pending",
-      provider: "paystack",
-      providerReference: reference,
-      amount: plan.price,
-      currency: plan.currency,
-      periodStart: null,
-      periodEnd: null,
-    },
-  });
+  const pendingKey = `${ctx.tenantId}:${plan.id}`;
+  const cutoff = new Date(Date.now() - PENDING_CHECKOUT_TTL_MS);
+
+  let created;
+  try {
+    created = await db.$transaction(async (tx) => {
+      // A stale checkout can never stay payable forever: replace it only when
+      // it is old enough that the customer has abandoned it.
+      await tx.zeliSubscription.updateMany({
+        where: {
+          tenantId: ctx.tenantId,
+          status: "pending",
+          OR: [{ updatedAt: { lt: cutoff } }, { createdAt: { lt: cutoff } }],
+        },
+        data: {
+          status: "expired",
+          pendingKey: null,
+          failureReason: "Checkout expired before payment",
+        },
+      });
+      return tx.zeliSubscription.create({
+        data: {
+          tenantId: ctx.tenantId,
+          planId: plan.id,
+          status: "pending",
+          provider: "paystack",
+          providerReference: reference,
+          amount: plan.price,
+          currency: plan.currency,
+          periodStart: null,
+          periodEnd: null,
+          pendingKey,
+        },
+      });
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new SubscriptionError(
+        "A checkout for this package is already in progress. Complete it or try again in a few minutes.",
+        "checkout_in_progress"
+      );
+    }
+    throw error;
+  }
 
   try {
     const initialized = await initializeTransaction({
@@ -180,10 +259,11 @@ export async function createZeliCheckout(
     }
     return { authorizationUrl: initialized.authorizationUrl, reference };
   } catch (error) {
-    await db.zeliSubscription.update({
-      where: { id: created.id },
+    await db.zeliSubscription.updateMany({
+      where: { id: created.id, status: "pending" },
       data: {
         status: "failed",
+        pendingKey: null,
         failureReason: error instanceof Error ? error.message.slice(0, 200) : "initialization failed",
       },
     });
@@ -192,15 +272,125 @@ export async function createZeliCheckout(
   }
 }
 
-interface FulfilResult {
-  decision: "processed" | "ignored" | "failed";
+export type FulfilDecision =
+  | "processed"
+  | "ignored"
+  | "failed"
+  | "refund_requested"
+  | "exception";
+
+export interface FulfilResult {
+  decision: FulfilDecision;
   subscriptionId: string | null;
   reason: string;
 }
 
+/* ------------------------------------------------------------------------- *
+ * Payment-event ledger
+ * ------------------------------------------------------------------------- */
+
+interface EventIdentity {
+  eventId: string;
+  eventType: string;
+  reference: string | null;
+  subscriptionId: string | null;
+  tenantId: string | null;
+}
+
+async function claimPaymentEvent(
+  identity: EventIdentity
+): Promise<"claimed" | "duplicate" | "in_progress"> {
+  try {
+    await db.zeliPaymentEvent.create({
+      data: {
+        provider: "paystack",
+        eventId: identity.eventId,
+        eventType: identity.eventType,
+        reference: identity.reference,
+        subscriptionId: identity.subscriptionId,
+        tenantId: identity.tenantId,
+        decision: "received",
+        reason: "processing",
+      },
+    });
+    return "claimed";
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const existing = await db.zeliPaymentEvent.findUnique({ where: { eventId: identity.eventId } });
+    if (!existing) return "in_progress";
+    if (existing.decision === "processed" || existing.decision === "ignored") return "duplicate";
+    if (existing.decision === "failed") {
+      const retry = await db.zeliPaymentEvent.updateMany({
+        where: { eventId: identity.eventId, decision: "failed" },
+        data: { decision: "received", reason: "retry", processedAt: null },
+      });
+      return retry.count > 0 ? "claimed" : "in_progress";
+    }
+    // A crash between claim and completion leaves "received". Retry only when
+    // the claim is old enough that no process can still be working on it.
+    if (existing.createdAt.getTime() < Date.now() - 5 * 60 * 1000) {
+      const retry = await db.zeliPaymentEvent.updateMany({
+        where: { eventId: identity.eventId, decision: "received" },
+        data: { createdAt: new Date(), reason: "retry_stale" },
+      });
+      return retry.count > 0 ? "claimed" : "in_progress";
+    }
+    return "in_progress";
+  }
+}
+
+async function finishEvent(
+  eventId: string,
+  decision: "processed" | "ignored" | "failed",
+  reason: string
+): Promise<void> {
+  await db.zeliPaymentEvent.updateMany({
+    where: { eventId },
+    data: { decision, reason, processedAt: new Date() },
+  });
+}
+
+async function recordException(input: {
+  dedupeKey: string;
+  tenantId?: string | null;
+  subscriptionId?: string | null;
+  reference?: string | null;
+  kind: string;
+  detail: string;
+  amount?: number | null;
+  currency?: string | null;
+}): Promise<void> {
+  try {
+    await db.zeliPaymentException.create({
+      data: {
+        dedupeKey: input.dedupeKey,
+        tenantId: input.tenantId ?? null,
+        subscriptionId: input.subscriptionId ?? null,
+        reference: input.reference ?? null,
+        kind: input.kind,
+        detail: input.detail.slice(0, 500),
+        amount: input.amount ?? null,
+        currency: input.currency ?? null,
+      },
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Charge fulfilment
+ * ------------------------------------------------------------------------- */
+
+interface InternalChargeResult {
+  kind: "processed" | "ignored" | "refund";
+  reason: string;
+}
+
 /**
- * Activate a paid subscription atomically. `eventId` is unique; replaying the
- * same provider event returns the existing event and never extends the period.
+ * Activate or extend a paid subscription. The event id must already be the
+ * canonical transaction identity so a callback verification and the matching
+ * webhook cannot both extend the period.
  */
 export async function fulfilPaidSubscription(input: {
   reference: string;
@@ -215,83 +405,84 @@ export async function fulfilPaidSubscription(input: {
   if (!subscription) {
     return { decision: "failed", subscriptionId: null, reason: "unknown_reference" };
   }
+
+  const claim = await claimPaymentEvent({
+    eventId: input.eventId,
+    eventType: input.eventType,
+    reference: input.reference,
+    subscriptionId: subscription.id,
+    tenantId: subscription.tenantId,
+  });
+  if (claim === "duplicate") {
+    return { decision: "ignored", subscriptionId: subscription.id, reason: "duplicate_event" };
+  }
+  if (claim === "in_progress") {
+    return { decision: "ignored", subscriptionId: subscription.id, reason: "processing" };
+  }
+
   if (
     input.transaction.reference !== subscription.providerReference ||
     Number(input.transaction.amount) !== Math.round(Number(subscription.amount) * 100) ||
     input.transaction.currency.toUpperCase() !== subscription.currency.toUpperCase()
   ) {
+    await finishEvent(input.eventId, "failed", "payment_mismatch");
+    await recordException({
+      dedupeKey: `payment_mismatch:${subscription.id}:${input.eventId}`,
+      tenantId: subscription.tenantId,
+      subscriptionId: subscription.id,
+      reference: input.reference,
+      kind: "payment_mismatch",
+      detail:
+        "A provider payment did not match the stored reference, amount or currency. No access was granted.",
+      amount: input.transaction.amount,
+      currency: input.transaction.currency,
+    });
     return { decision: "failed", subscriptionId: subscription.id, reason: "payment_mismatch" };
   }
+
   if (input.transaction.status !== "success") {
+    await finishEvent(input.eventId, "ignored", "not_successful");
     return { decision: "ignored", subscriptionId: subscription.id, reason: "not_successful" };
   }
 
+  let outcome: InternalChargeResult;
   try {
-    const result = await db.$transaction(async (tx) => {
-      if (await tx.zeliPaymentEvent.findUnique({ where: { eventId: input.eventId } })) {
-        return { decision: "ignored" as const, reason: "duplicate_event" };
-      }
+    outcome = await db.$transaction(async (tx) => {
       const fresh = await tx.zeliSubscription.findUniqueOrThrow({
         where: { id: subscription.id },
         include: { plan: true },
       });
-      if (
-        fresh.status === "active" &&
-        fresh.periodEnd &&
-        fresh.periodEnd.getTime() > Date.now()
-      ) {
-        await tx.zeliPaymentEvent.create({
-          data: {
-            provider: "paystack",
-            eventId: input.eventId,
-            eventType: input.eventType,
-            reference: input.reference,
-            subscriptionId: fresh.id,
-            tenantId: fresh.tenantId,
-            decision: "ignored",
-            reason: "subscription_already_active",
-            processedAt: new Date(),
-          },
-        });
-        return { decision: "ignored" as const, reason: "already_active" };
+
+      if (fresh.status === "refunded" || fresh.refundStatus === "processed") {
+        return { kind: "ignored" as const, reason: "subscription_refunded" };
       }
-      const periodStart = new Date();
-      const periodEnd = addInterval(periodStart, fresh.plan.billingInterval);
+      if (fresh.paidAt) {
+        return { kind: "ignored" as const, reason: "duplicate_reference" };
+      }
 
-      await tx.zeliSubscription.updateMany({
-        where: {
-          tenantId: fresh.tenantId,
-          id: { not: fresh.id },
-          status: "active",
-        },
-        data: { status: "expired" },
-      });
-      await tx.zeliSubscription.update({
-        where: { id: fresh.id },
-        data: {
-          status: "active",
-          periodStart,
-          periodEnd,
-          paidAt: input.transaction.paidAt ? new Date(input.transaction.paidAt) : periodStart,
-          failureReason: null,
-          providerCustomerCode: input.transaction.customerCode ?? fresh.providerCustomerCode,
-        },
-      });
-      await tx.zeliPaymentEvent.create({
-        data: {
-          provider: "paystack",
-          eventId: input.eventId,
-          eventType: input.eventType,
-          reference: input.reference,
-          subscriptionId: fresh.id,
-          tenantId: fresh.tenantId,
-          decision: "processed",
-          reason: "paid",
-          processedAt: new Date(),
-        },
-      });
+      // A payment for a checkout that a newer checkout replaced is an
+      // unintended duplicate, not a renewal. Never discard it: refund it and
+      // leave paid access untouched.
+      if (fresh.status === "expired" && !fresh.paidAt) {
+        const newer = await tx.zeliSubscription.findFirst({
+          where: {
+            tenantId: fresh.tenantId,
+            createdAt: { gt: fresh.createdAt },
+            status: { in: ["active", "pending", "past_due"] },
+          },
+          select: { providerReference: true },
+          orderBy: { createdAt: "desc" },
+        });
+        if (newer) {
+          await tx.zeliSubscription.update({
+            where: { id: fresh.id },
+            data: { status: "expired", supersededByReference: newer.providerReference },
+          });
+          return { kind: "refund" as const, reason: "superseded_checkout" };
+        }
+      }
 
-      const existing = await tx.zeliEntitlement.findUnique({
+      const entitlement = await tx.zeliEntitlement.findUnique({
         where: {
           tenantId_featureKey: {
             tenantId: fresh.tenantId,
@@ -299,12 +490,60 @@ export async function fulfilPaidSubscription(input: {
           },
         },
       });
+      const latest = await tx.zeliSubscription.findFirst({
+        where: {
+          tenantId: fresh.tenantId,
+          id: { not: fresh.id },
+          status: { in: ["active", "cancelled"] },
+          periodEnd: { gt: new Date() },
+        },
+        orderBy: { periodEnd: "desc" },
+      });
+
+      const paidAt = input.transaction.paidAt ? new Date(input.transaction.paidAt) : new Date();
+      const now = new Date();
+      const parsedPaidAt = Number.isNaN(paidAt.getTime()) ? now : paidAt;
+      // A provider timestamp in the future would start a period that has not
+      // begun. Clamp it to the server clock.
+      const verifiedPaidAt = parsedPaidAt.getTime() > now.getTime() ? now : parsedPaidAt;
+      const boundary = maxDate(verifiedPaidAt, latest?.periodEnd, entitlement?.expiresAt);
+      const base = boundary.getTime() > 0 ? boundary : verifiedPaidAt;
+      const periodEnd = addInterval(base, fresh.plan.billingInterval);
+      const entitlementStart = entitlement?.startsAt ?? (base.getTime() > now.getTime() ? now : base);
+
+      await tx.zeliSubscription.updateMany({
+        where: {
+          tenantId: fresh.tenantId,
+          id: { not: fresh.id },
+          status: { in: ["active", "cancelled"] },
+        },
+        data: { status: "superseded" },
+      });
+      await tx.zeliSubscription.update({
+        where: { id: fresh.id },
+        data: {
+          status: "active",
+          periodStart: base,
+          periodEnd,
+          paidAt: verifiedPaidAt,
+          periodGranted: true,
+          pendingKey: null,
+          cancelAtPeriodEnd: false,
+          cancelledAt: null,
+          failureReason: null,
+          supersededByReference: null,
+          providerCustomerCode:
+            input.transaction.customerCode ?? fresh.providerCustomerCode,
+        },
+      });
+
       const keepManual =
-        existing?.status === "active" &&
-        existing.source === "manual" &&
-        existing.expiresAt &&
-        existing.expiresAt.getTime() > periodEnd.getTime();
-      const entitlement = await tx.zeliEntitlement.upsert({
+        entitlement?.status === "active" &&
+        entitlement.source === "manual" &&
+        entitlement.expiresAt &&
+        entitlement.expiresAt.getTime() > periodEnd.getTime();
+      const finalExpiry = keepManual ? entitlement!.expiresAt! : periodEnd;
+      const created = await tx.zeliEntitlement.upsert({
         where: {
           tenantId_featureKey: {
             tenantId: fresh.tenantId,
@@ -317,14 +556,14 @@ export async function fulfilPaidSubscription(input: {
           status: "active",
           source: "subscription",
           reason: `Paid subscription ${fresh.plan.code} (${fresh.providerReference})`,
-          startsAt: periodStart,
-          expiresAt: periodEnd,
+          startsAt: entitlementStart,
+          expiresAt: finalExpiry,
         },
         update: {
           status: "active",
           source: keepManual ? "manual" : "subscription",
           reason: `Paid subscription ${fresh.plan.code} (${fresh.providerReference})`,
-          expiresAt: keepManual ? existing!.expiresAt : periodEnd,
+          expiresAt: finalExpiry,
           suspendedAt: null,
           revokedAt: null,
           revokedById: null,
@@ -332,42 +571,221 @@ export async function fulfilPaidSubscription(input: {
       });
       await tx.zeliEntitlementEvent.create({
         data: {
-          entitlementId: entitlement.id,
+          entitlementId: created.id,
           tenantId: fresh.tenantId,
-          action: "subscription_activated",
+          action: entitlement ? "subscription_renewed" : "subscription_activated",
+          previousStatus: entitlement?.status ?? null,
           status: "active",
           reason: `Paystack payment ${fresh.providerReference}`,
           actorType: "payment_provider",
-          expiresAt: keepManual ? existing!.expiresAt : periodEnd,
+          expiresAt: finalExpiry,
         },
       });
-      return { decision: "processed" as const, reason: "paid" };
+      return { kind: "processed" as const, reason: "paid" };
     });
-    return { ...result, subscriptionId: subscription.id };
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "P2002"
-    ) {
-      return { decision: "ignored", subscriptionId: subscription.id, reason: "duplicate_event" };
+    await finishEvent(input.eventId, "failed", "processing_failure");
+    await recordException({
+      dedupeKey: `processing_failure:${subscription.id}:${input.eventId}`,
+      tenantId: subscription.tenantId,
+      subscriptionId: subscription.id,
+      reference: input.reference,
+      kind: "processing_failure",
+      detail: "A verified payment could not be applied. It will be retried; no access was granted yet.",
+    });
+    if (process.env.NODE_ENV !== "test") {
+      console.error("zeli_payment_processing_failed", {
+        subscriptionId: subscription.id,
+        error: error instanceof Error ? error.name : "unknown",
+      });
     }
     return { decision: "failed", subscriptionId: subscription.id, reason: "transaction_failed" };
   }
+
+  if (outcome.kind === "refund") {
+    const refund = await requestProviderRefund({
+      subscriptionId: subscription.id,
+      reason: "A payment settled for a checkout that a newer checkout had already replaced.",
+      actorId: null,
+      tenantId: subscription.tenantId,
+    });
+    await finishEvent(input.eventId, "processed", refund.reason);
+    return {
+      decision: refund.decision === "failed" ? "exception" : "refund_requested",
+      subscriptionId: subscription.id,
+      reason: refund.reason,
+    };
+  }
+
+  await finishEvent(
+    input.eventId,
+    outcome.kind === "processed" ? "processed" : "ignored",
+    outcome.reason
+  );
+  return { decision: outcome.kind, subscriptionId: subscription.id, reason: outcome.reason };
 }
 
-/** Verify a callback/server reconciliation without trusting the redirect. */
-export async function verifyAndFulfil(reference: string, source: string): Promise<FulfilResult> {
-  const transaction = await verifyTransaction(reference);
-  const eventId = `verify:${reference}:${transaction.paidAt ?? transaction.id ?? source}`;
-  return fulfilPaidSubscription({
-    reference,
-    eventId,
-    eventType: "charge.success.verified",
-    transaction,
+/* ------------------------------------------------------------------------- *
+ * Refunds
+ * ------------------------------------------------------------------------- */
+
+interface RefundOutcome {
+  decision: "refunded" | "refund_requested" | "already_processed" | "already_pending" | "failed";
+  reason: string;
+}
+
+async function suspendEntitlementForRefund(
+  tenantId: string,
+  reference: string
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    const entitlement = await tx.zeliEntitlement.findUnique({
+      where: {
+        tenantId_featureKey: { tenantId, featureKey: "zeli_analytics" },
+      },
+    });
+    if (!entitlement || entitlement.status === "suspended") return;
+    await tx.zeliEntitlement.update({
+      where: { id: entitlement.id },
+      data: {
+        status: "suspended",
+        suspendedAt: new Date(),
+        reason: "Subscription refunded; access suspended pending review",
+      },
+    });
+    await tx.zeliEntitlementEvent.create({
+      data: {
+        entitlementId: entitlement.id,
+        tenantId,
+        action: "refund_suspended",
+        previousStatus: entitlement.status,
+        status: "suspended",
+        reason: `Paystack refund for ${reference}`,
+        actorType: "payment_provider",
+      },
+    });
   });
 }
+
+async function requestProviderRefund(input: {
+  subscriptionId: string;
+  reason: string;
+  actorId: string | null;
+  tenantId: string | null;
+}): Promise<RefundOutcome> {
+  const subscription = await db.zeliSubscription.findUnique({
+    where: { id: input.subscriptionId },
+  });
+  if (!subscription) return { decision: "failed", reason: "not_found" };
+  if (input.tenantId && subscription.tenantId !== input.tenantId) {
+    return { decision: "failed", reason: "not_found" };
+  }
+  if (subscription.refundStatus === "processed") {
+    return { decision: "already_processed", reason: "refund_processed" };
+  }
+  if (
+    subscription.refundStatus === "pending" &&
+    subscription.updatedAt.getTime() > Date.now() - REFUND_RETRY_AFTER_MS
+  ) {
+    return { decision: "already_pending", reason: "refund_pending" };
+  }
+
+  const claim = await db.zeliSubscription.updateMany({
+    where: {
+      id: subscription.id,
+      OR: [
+        { refundStatus: null },
+        { refundStatus: "failed" },
+        {
+          refundStatus: "pending",
+          updatedAt: { lt: new Date(Date.now() - REFUND_RETRY_AFTER_MS) },
+        },
+      ],
+    },
+    data: { refundStatus: "pending", refundFailureReason: null },
+  });
+  if (claim.count === 0) {
+    return { decision: "already_pending", reason: "refund_already_claimed" };
+  }
+
+  try {
+    const refund = await refundTransaction(subscription.providerReference);
+    const status =
+      refund.status === "processed" ? "processed" : refund.status === "failed" ? "failed" : "pending";
+    await db.zeliSubscription.update({
+      where: { id: subscription.id },
+      data: {
+        refundStatus: status,
+        refundReference: String(refund.id),
+        refundedAt: status === "processed" ? new Date() : subscription.refundedAt,
+        refundFailureReason: status === "failed" ? "Provider reported the refund as failed" : null,
+        status: status === "processed" ? "refunded" : subscription.status,
+      },
+    });
+    if (status === "failed") {
+      await recordException({
+        dedupeKey: `refund_failed:${subscription.providerReference}`,
+        tenantId: subscription.tenantId,
+        subscriptionId: subscription.id,
+        reference: subscription.providerReference,
+        kind: "refund_failed",
+        detail: `Paystack reported refund ${refund.id} as failed. Reconcile manually.`,
+        amount: Number(subscription.amount),
+        currency: subscription.currency,
+      });
+      return { decision: "failed", reason: "refund_failed" };
+    }
+    if (status === "processed" && subscription.periodGranted) {
+      await suspendEntitlementForRefund(subscription.tenantId, subscription.providerReference);
+    }
+    return {
+      decision: status === "processed" ? "refunded" : "refund_requested",
+      reason: status,
+    };
+  } catch (error) {
+    await db.zeliSubscription.update({
+      where: { id: subscription.id },
+      data: {
+        refundStatus: "failed",
+        refundFailureReason:
+          error instanceof Error ? error.message.slice(0, 200) : "refund request failed",
+      },
+    });
+    await recordException({
+      dedupeKey: `refund_failed:${subscription.providerReference}`,
+      tenantId: subscription.tenantId,
+      subscriptionId: subscription.id,
+      reference: subscription.providerReference,
+      kind: "refund_failed",
+      detail:
+        "The automatic refund could not be completed. The payment is recorded and requires reconciliation; no refund is reported as successful.",
+      amount: Number(subscription.amount),
+      currency: subscription.currency,
+    });
+    return { decision: "failed", reason: "refund_failed" };
+  }
+}
+
+/**
+ * Platform reconciliation entrypoint for a duplicate settlement or a refund
+ * that previously failed. Safe to call repeatedly.
+ */
+export async function retryZeliPaymentRefund(input: {
+  subscriptionId: string;
+  reason: string;
+  actorId: string | null;
+  tenantId: string | null;
+}): Promise<{ decision: RefundOutcome["decision"]; reason: string }> {
+  const reason = (input.reason ?? "").trim();
+  if (reason.length < 10 || reason.length > 500) {
+    throw new SubscriptionError("Enter a reason of at least 10 characters.", "invalid_reason");
+  }
+  return requestProviderRefund(input);
+}
+
+/* ------------------------------------------------------------------------- *
+ * Webhook
+ * ------------------------------------------------------------------------- */
 
 interface PaystackWebhookBody {
   event?: string;
@@ -382,6 +800,7 @@ interface PaystackWebhookBody {
     subscription_code?: string;
     plan?: { plan_code?: string };
     metadata?: unknown;
+    refunded_at?: string | null;
   };
 }
 
@@ -395,6 +814,16 @@ function webhookMetadata(value: unknown): Record<string, unknown> {
     }
   }
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function canonicalEventId(eventType: string, data: PaystackWebhookBody["data"], rawBody: string): string {
+  if (data?.id != null) return `paystack:${eventType}:${data.id}`;
+  if (eventType === "charge.success" && data?.reference) {
+    // Same identity as verifyAndFulfil when the provider omits the numeric id,
+    // so the webhook and the callback cannot both extend the period.
+    return `paystack:charge.success:ref:${data.reference}`;
+  }
+  return `paystack:${eventType}:${createHash("sha256").update(rawBody).digest("hex")}`;
 }
 
 export async function handlePaystackWebhook(
@@ -416,32 +845,25 @@ export async function handlePaystackWebhook(
   const subscription = reference
     ? await db.zeliSubscription.findUnique({ where: { providerReference: reference } })
     : null;
-  const rawEventId =
-    data.id != null
-      ? `paystack:${eventType}:${data.id}`
-      : `paystack:${eventType}:${reference || createHash("sha256").update(rawBody).digest("hex")}`;
-
-  if (!subscription) {
-    await db.zeliPaymentEvent
-      .create({
-        data: {
-          provider: "paystack",
-          eventId: rawEventId,
-          eventType: eventType || "unknown",
-          reference: reference || null,
-          decision: "ignored",
-          reason: "unknown_reference",
-          processedAt: new Date(),
-        },
-      })
-      .catch(() => undefined);
-    return { ok: true, status: 200, decision: "ignored" };
-  }
+  const eventId = canonicalEventId(eventType, data, rawBody);
 
   if (eventType === "charge.success") {
+    if (!subscription) {
+      const claim = await claimPaymentEvent({
+        eventId,
+        eventType,
+        reference: reference || null,
+        subscriptionId: null,
+        tenantId: null,
+      });
+      if (claim === "claimed") {
+        await finishEvent(eventId, "ignored", "unknown_reference");
+      }
+      return { ok: true, status: 200, decision: "ignored" };
+    }
     const result = await fulfilPaidSubscription({
       reference,
-      eventId: rawEventId,
+      eventId,
       eventType,
       transaction: {
         status: String(data.status ?? "success"),
@@ -454,74 +876,176 @@ export async function handlePaystackWebhook(
         id: typeof data.id === "number" ? data.id : null,
       },
     });
-    return { ok: true, status: 200, decision: result.decision };
+    return {
+      ok: result.decision !== "failed" && result.decision !== "exception",
+      status: result.decision === "failed" || result.decision === "exception" ? 500 : 200,
+      decision: result.decision,
+    };
   }
 
-  if (eventType === "charge.failed") {
-    await db.zeliSubscription.updateMany({
-      where: { id: subscription.id, status: { in: ["pending", "past_due"] } },
-      data: { status: "failed", failureReason: "Payment failed at provider" },
-    });
-  } else if (eventType === "refund.processed") {
+  const claim = await claimPaymentEvent({
+    eventId,
+    eventType,
+    reference: reference || null,
+    subscriptionId: subscription?.id ?? null,
+    tenantId: subscription?.tenantId ?? null,
+  });
+  if (claim === "duplicate") {
+    return { ok: true, status: 200, decision: "ignored" };
+  }
+  if (claim === "in_progress") {
+    return { ok: true, status: 200, decision: "ignored" };
+  }
+
+  if (!subscription) {
+    await finishEvent(eventId, "ignored", "unknown_reference");
+    return { ok: true, status: 200, decision: "ignored" };
+  }
+
+  const supported = new Set([
+    "charge.failed",
+    "refund.processed",
+    "refund.pending",
+    "refund.failed",
+    "subscription.create",
+    "subscription.disable",
+    "subscription.not_renew",
+    "invoice.payment_failed",
+  ]);
+  if (!supported.has(eventType)) {
+    await finishEvent(eventId, "ignored", "unsupported_event");
+    return { ok: true, status: 200, decision: "ignored" };
+  }
+
+  try {
     await db.$transaction(async (tx) => {
-      await tx.zeliSubscription.update({
-        where: { id: subscription.id },
-        data: { status: "refunded", refundedAt: new Date() },
-      });
-      await tx.zeliEntitlement.updateMany({
-        where: { tenantId: subscription.tenantId, featureKey: "zeli_analytics" },
-        data: {
-          status: "suspended",
-          suspendedAt: new Date(),
-          reason: "Subscription refunded; access suspended pending review",
-        },
-      });
-      await tx.zeliEntitlementEvent.create({
-        data: {
-          tenantId: subscription.tenantId,
-          action: "refund_suspended",
-          status: "suspended",
-          reason: `Paystack refund for ${reference}`,
-          actorType: "payment_provider",
-        },
-      });
+      if (eventType === "charge.failed") {
+        await tx.zeliSubscription.updateMany({
+          where: { id: subscription.id, status: { in: ["pending", "past_due"] } },
+          data: {
+            status: "failed",
+            pendingKey: null,
+            failureReason: "Payment failed at provider",
+          },
+        });
+      } else if (eventType === "refund.processed" || eventType === "refund.pending") {
+        const fresh = await tx.zeliSubscription.findUniqueOrThrow({
+          where: { id: subscription.id },
+        });
+        const processed = eventType === "refund.processed";
+        await tx.zeliSubscription.update({
+          where: { id: subscription.id },
+          data: {
+            refundStatus: processed ? "processed" : "pending",
+            refundedAt: processed ? new Date() : fresh.refundedAt,
+            status: processed ? "refunded" : fresh.status,
+          },
+        });
+        if (processed && fresh.periodGranted) {
+          const entitlement = await tx.zeliEntitlement.findUnique({
+            where: {
+              tenantId_featureKey: {
+                tenantId: subscription.tenantId,
+                featureKey: "zeli_analytics",
+              },
+            },
+          });
+          if (entitlement && entitlement.status !== "suspended") {
+            await tx.zeliEntitlement.update({
+              where: { id: entitlement.id },
+              data: {
+                status: "suspended",
+                suspendedAt: new Date(),
+                reason: "Subscription refunded; access suspended pending review",
+              },
+            });
+            await tx.zeliEntitlementEvent.create({
+              data: {
+                entitlementId: entitlement.id,
+                tenantId: subscription.tenantId,
+                action: "refund_suspended",
+                previousStatus: entitlement.status,
+                status: "suspended",
+                reason: `Paystack refund for ${reference}`,
+                actorType: "payment_provider",
+              },
+            });
+          }
+        }
+      } else if (eventType === "refund.failed") {
+        await tx.zeliSubscription.update({
+          where: { id: subscription.id },
+          data: {
+            refundStatus: "failed",
+            refundFailureReason: "Provider reported the refund as failed",
+          },
+        });
+      } else if (eventType === "subscription.create") {
+        await tx.zeliSubscription.updateMany({
+          where: { id: subscription.id },
+          data: {
+            providerSubscriptionCode: data.subscription_code ?? null,
+            providerCustomerCode:
+              data.customer?.customer_code ?? subscription.providerCustomerCode,
+          },
+        });
+      } else if (eventType === "subscription.disable" || eventType === "subscription.not_renew") {
+        await tx.zeliSubscription.updateMany({
+          where: { id: subscription.id },
+          data: { cancelAtPeriodEnd: true, cancelledAt: new Date() },
+        });
+      } else if (eventType === "invoice.payment_failed") {
+        await tx.zeliSubscription.updateMany({
+          where: { id: subscription.id, status: { in: ["active", "past_due"] } },
+          data: { status: "past_due", failureReason: "Renewal invoice failed" },
+        });
+      }
     });
-  } else if (eventType === "subscription.create") {
-    await db.zeliSubscription.updateMany({
-      where: { id: subscription.id },
-      data: {
-        providerSubscriptionCode: data.subscription_code ?? null,
-        providerCustomerCode: data.customer?.customer_code ?? subscription.providerCustomerCode,
-      },
-    });
-  } else if (eventType === "subscription.disable" || eventType === "subscription.not_renew") {
-    await db.zeliSubscription.updateMany({
-      where: { id: subscription.id },
-      data: { cancelAtPeriodEnd: true, cancelledAt: new Date() },
-    });
-  } else if (eventType === "invoice.payment_failed") {
-    await db.zeliSubscription.updateMany({
-      where: { id: subscription.id },
-      data: { status: "past_due", failureReason: "Renewal invoice failed" },
-    });
-  }
 
-  await db.zeliPaymentEvent
-    .create({
-      data: {
-        provider: "paystack",
-        eventId: rawEventId,
-        eventType: eventType || "unknown",
-        reference: reference || null,
-        subscriptionId: subscription.id,
+    if (eventType === "refund.failed") {
+      await recordException({
+        dedupeKey: `refund_failed:${reference}`,
         tenantId: subscription.tenantId,
-        decision: "processed",
-        reason: eventType,
-        processedAt: new Date(),
-      },
-    })
-    .catch(() => undefined);
-  return { ok: true, status: 200, decision: "processed" };
+        subscriptionId: subscription.id,
+        reference,
+        kind: "refund_failed",
+        detail: "Paystack reported the refund as failed. Reconcile manually.",
+        amount: Number(subscription.amount),
+        currency: subscription.currency,
+      });
+    }
+
+    await finishEvent(
+      eventId,
+      "processed",
+      eventType || "processed"
+    );
+    return { ok: true, status: 200, decision: "processed" };
+  } catch (error) {
+    await finishEvent(eventId, "failed", "processing_failure");
+    if (process.env.NODE_ENV !== "test") {
+      console.error("zeli_webhook_processing_failed", {
+        eventType,
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    return { ok: false, status: 500, decision: "processing_failure" };
+  }
+}
+
+/** Verify a callback/server reconciliation without trusting the redirect. */
+export async function verifyAndFulfil(reference: string, source: string): Promise<FulfilResult> {
+  const transaction = await verifyTransaction(reference);
+  const eventId =
+    transaction.id != null
+      ? `paystack:charge.success:${transaction.id}`
+      : `paystack:charge.success:ref:${reference}`;
+  return fulfilPaidSubscription({
+    reference,
+    eventId,
+    eventType: "charge.success",
+    transaction,
+  });
 }
 
 /** Tenant admin cancellation: access remains until the paid period ends. */

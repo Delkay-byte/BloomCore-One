@@ -981,6 +981,17 @@ model ZeliSubscription {
   refundedAt               DateTime?
   paidAt                   DateTime?
   failureReason            String?
+  /// Set only while status = "pending". The unique index makes two concurrent
+  /// checkouts for the same tenant and plan impossible.
+  pendingKey               String?   @unique
+  /// True only when this subscription actually extended the entitlement period.
+  periodGranted            Boolean   @default(false)
+  /// none | pending | processed | failed. A refund is never reported as
+  /// processed before Paystack confirms it.
+  refundStatus             String?
+  refundReference          String?   @unique
+  refundFailureReason      String?
+  supersededByReference    String?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 
@@ -991,6 +1002,7 @@ model ZeliSubscription {
   @@index([tenantId, status])
   @@index([providerReference])
   @@index([periodEnd])
+  @@index([refundStatus])
 }
 
 /// Provider webhook/verification ledger. eventId is unique so duplicate
@@ -1016,7 +1028,32 @@ model ZeliPaymentEvent {
   @@index([decision])
 }
 
-/// Global external-AI control. A missing row means disabled + emergency off.
+/// A payment that could not be resolved automatically and needs a human
+/// decision: a duplicate settlement, a failed automatic refund or a payment
+/// that did not match its checkout. Never contains provider secrets.
+model ZeliPaymentException {
+  id             String    @id @default(cuid())
+  /// Stable identity so repeated webhook deliveries cannot spam the queue.
+  dedupeKey      String    @unique
+  tenantId       String?
+  subscriptionId String?
+  reference      String?
+  kind           String // duplicate_payment | refund_failed | payment_mismatch | processing_failure
+  status         String    @default("open") // open | resolved
+  amount         Decimal?
+  currency       String?
+  detail         String
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([reference])
+}
+
+/// Global external-AI control. A missing row means disabled + emergency on.
 /// Production mode additionally requires reviewed code approval and
 /// environment approvals; this row cannot enable it alone.
 model ZeliProviderControl {

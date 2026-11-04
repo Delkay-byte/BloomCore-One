@@ -1,18 +1,22 @@
 # Zeli — Staging Deployment and Verification
 
-**Status:** DEPLOYED AND VERIFIED (internal verification, not an independent test).
+**Status:** PRESERVED. Manual deployment only; Auto-Deploy OFF. Candidate
+verification is recorded below after each release candidate.
 **Hostname:** https://bloomcore-one-staging.onrender.com
-**Deployed commit:** `81d6031` (current PR #4 head)
-**Staging Auto-Deploy:** OFF (verified through the Render API)
-**Production:** untouched.
+**Staging Auto-Deploy:** OFF (verified through the Render API:
+`autoDeployTrigger=off`)
+**Production:** separate service, separate Neon project, LIVE credentials.
 
 ## Live recheck (4 November 2026)
 
-- `GET /api/health` returned HTTP 200 with
-  `{"status":"ok","app":"bloomcore-one","env":"STAGING","commit":"81d6031d49e0684c746ee095d69b68ef09837baa"}`.
-- The deployed commit matches the current PR #4 head, so no additional staging
-  deployment was required for this closeout.
-- Auto-Deploy remains OFF; staging is deployed manually.
+- Staging service confirmed through the Render API: `bloomcore-one-staging`,
+  plan retained, Auto-Deploy off.
+- Staging `MFA_ENFORCEMENT=enforce`; `PAYSTACK_SECRET_KEY` is a **TEST** key;
+  `ZELI_SYNTHETIC_TESTING_ALLOWED=false`.
+- Staging database uses the pooled hostname for runtime and the direct hostname
+  for migrations, in the staging Neon project only.
+- Candidate deployment and acceptance results are appended below for this
+  release.
 
 ## Blueprint note
 

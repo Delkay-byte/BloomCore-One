@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {
+  clearZeliProviderEmergencyStop,
   emergencyDisableZeliProvider,
   runSyntheticDeepSeekProbe,
   setTenantZeliAiAuthorization,
@@ -93,6 +94,33 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
       }
       setProbe(result.data);
       setNotice("Synthetic provider probe completed. No tenant data was sent.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function clearStop() {
+    setError("");
+    setNotice("");
+    if (reason.trim().length < 10) {
+      setError("Enter a reason of at least 10 characters.");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Clear the emergency stop? External AI stays disabled until a separate deliberate mode change."
+    );
+    if (!confirmed) return;
+    setBusy("clear-stop");
+    try {
+      const result = await clearZeliProviderEmergencyStop(reason);
+      if (!result.success) {
+        setError(result.error ?? "The emergency stop could not be cleared.");
+        return;
+      }
+      setNotice("Emergency stop cleared. External AI remains disabled.");
+      router.refresh();
+    } catch {
+      setError("The emergency stop could not be cleared.");
     } finally {
       setBusy(null);
     }
@@ -196,6 +224,22 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
         >
           <ShieldOff size={13} aria-hidden /> Emergency stop
         </button>
+        {state.control.emergencyDisabled && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={busy !== null}
+            onClick={clearStop}
+            data-testid="clear-emergency-stop"
+          >
+            {busy === "clear-stop" ? (
+              <Loader2 size={13} className="animate-spin" aria-hidden />
+            ) : (
+              <ShieldCheck size={13} aria-hidden />
+            )}
+            Clear emergency stop
+          </button>
+        )}
         <button
           type="button"
           className="btn btn-secondary btn-sm"
@@ -210,6 +254,10 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
       <p className="mt-2 text-xs text-slate-500">
         Synthetic environment permission: {state.syntheticEnvAllowed ? "enabled" : "disabled"}.
         Synthetic probes send a fixed fake package only and are logged without payload values.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        The emergency stop latches: switching mode does not clear it. Clearing it requires a
+        reason, is audited, and does not enable external AI or change the mode.
       </p>
 
       {error && (

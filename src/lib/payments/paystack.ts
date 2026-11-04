@@ -28,6 +28,29 @@ export function paystackConfigured(): boolean {
   return Boolean(process.env.PAYSTACK_SECRET_KEY);
 }
 
+/**
+ * Whether the configured key is a live key. The prefix is not a secret, but it
+ * is read from the key itself so no separate flag can drift out of sync.
+ */
+export function paystackKeyMode(): "live" | "test" | "unknown" {
+  const key = process.env.PAYSTACK_SECRET_KEY ?? "";
+  if (key.startsWith("sk_live_")) return "live";
+  if (key.startsWith("sk_test_")) return "test";
+  return key ? "unknown" : "unknown";
+}
+
+/**
+ * Checkout is only offered when the environment can legally take the payment.
+ * Production must use a live key: a test key in production would either fail
+ * or take a real order without settling money, so checkout stays closed with
+ * an honest message until the owner configures the live key.
+ */
+export function paystackReadyForCheckout(): boolean {
+  if (!paystackConfigured()) return false;
+  if (process.env.NODE_ENV !== "production") return true;
+  return paystackKeyMode() === "live";
+}
+
 function secretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY;
   if (!key) throw new PaystackError("Payment provider is not configured.", "not_configured");
@@ -208,8 +231,50 @@ export async function verifyTransaction(reference: string): Promise<PaystackTran
 /** HMAC SHA-512 over the exact raw body, as documented by Paystack. */
 export function verifyWebhookSignature(rawBody: string, signature: string | null): boolean {
   if (!signature) return false;
+  if (!process.env.PAYSTACK_SECRET_KEY) return false;
   const expected = createHmac("sha512", secretKey()).update(rawBody).digest("hex");
   const left = Buffer.from(expected);
   const right = Buffer.from(signature);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export interface PaystackRefund {
+  id: number;
+  status: "pending" | "processed" | "failed";
+  amount: number;
+  currency: string;
+}
+
+/**
+ * Create a refund for a transaction. Official endpoint: POST /refund with the
+ * transaction reference or id in `transaction`.
+ *
+ * The returned status is the provider's status, never an assumption. A refund
+ * is not reported as processed until Paystack says so.
+ */
+export async function refundTransaction(reference: string): Promise<PaystackRefund> {
+  if (!/^[A-Za-z0-9._=-]{6,120}$/.test(reference)) {
+    throw new PaystackError("Invalid payment reference.", "invalid_reference");
+  }
+  const body = await request<{
+    status?: boolean;
+    data?: { id?: number; status?: string; amount?: number; currency?: string };
+    message?: string;
+  }>("/refund", {
+    method: "POST",
+    body: JSON.stringify({ transaction: reference }),
+  });
+  if (!body.status || !body.data || body.data.id == null) {
+    throw new PaystackError("Payment provider rejected the refund.", "refund_failed");
+  }
+  const status = String(body.data.status ?? "pending").toLowerCase();
+  if (status !== "pending" && status !== "processed" && status !== "failed") {
+    throw new PaystackError("Payment provider returned an unknown refund state.", "invalid_response");
+  }
+  return {
+    id: Number(body.data.id),
+    status,
+    amount: Number(body.data.amount ?? 0),
+    currency: String(body.data.currency ?? ""),
+  };
 }

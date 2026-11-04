@@ -169,7 +169,9 @@ export async function setZeliProviderMode(input: {
     update: {
       mode: input.mode,
       enabled: !disabled,
-      emergencyDisabled: disabled,
+      // The emergency stop is a latch. It is never cleared by a mode change,
+      // including switching to synthetic: only clearZeliProviderEmergencyStop
+      // may clear it, and clearing it does not enable the provider.
       approvedProvider: disabled ? null : "deepseek",
       reason,
       updatedById: session.adminId,
@@ -177,6 +179,59 @@ export async function setZeliProviderMode(input: {
   });
   await audit(session, disabled ? "zeli.provider_disabled" : "zeli.provider_synthetic_enabled", reason, {
     mode: input.mode,
+  });
+  return { success: true };
+}
+
+/**
+ * Clear the latched emergency stop after an explicit, audited decision.
+ *
+ * This never enables external AI: the mode is forced to disabled so the
+ * operator must make a separate, deliberate synthetic switch afterwards.
+ */
+export async function clearZeliProviderEmergencyStop(
+  reason: string
+): Promise<ProviderActionResponse> {
+  const session = await requirePlatformWrite();
+  const clean = (reason ?? "").trim();
+  if (clean.length < 10 || clean.length > 500) {
+    return { success: false, error: "Enter a reason of at least 10 characters." };
+  }
+  const control = await getProviderControl();
+  if (!control.emergencyDisabled) {
+    return { success: false, error: "The emergency stop is not active." };
+  }
+  const clearedAt = new Date();
+  await db.zeliProviderControl.upsert({
+    where: { id: "global" },
+    create: {
+      id: "global",
+      mode: "disabled",
+      enabled: false,
+      emergencyDisabled: false,
+      reason: clean,
+      updatedById: session.adminId,
+    },
+    update: {
+      mode: "disabled",
+      enabled: false,
+      emergencyDisabled: false,
+      reason: clean,
+      updatedById: session.adminId,
+    },
+  });
+  await audit(session, "zeli.provider_emergency_cleared", clean, {
+    previousState: {
+      emergencyDisabled: true,
+      mode: control.mode,
+      enabled: control.enabled,
+    },
+    newState: {
+      emergencyDisabled: false,
+      mode: "disabled",
+      enabled: false,
+    },
+    clearedAt: clearedAt.toISOString(),
   });
   return { success: true };
 }

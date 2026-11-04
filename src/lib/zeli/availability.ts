@@ -25,6 +25,7 @@ export interface ZeliAvailabilityState {
 }
 
 export class ZeliUnavailableError extends Error {
+  code = "zeli_unavailable";
   constructor(message = "Zeli is temporarily unavailable. BloomCore One remains available.") {
     super(message);
     this.name = "ZeliUnavailableError";

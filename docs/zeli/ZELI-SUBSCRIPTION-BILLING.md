@@ -42,33 +42,56 @@ ignores any browser-supplied amount.
 
 | Event | Behaviour |
 |---|---|
-| Duplicate webhook | Ignored; unique event id |
+| Duplicate webhook | Ignored; unique canonical event id |
+| Duplicate callback verification | Same canonical event id; no second extension |
 | Pending | No entitlement |
-| Failed initial payment | Subscription failed; no entitlement |
-| Renewal after expiry | New verified payment activates a new period |
-| Renewal before period end | Recorded as `ignored` (`subscription_already_active`); the period is **not** extended — see limitations |
+| Failed initial payment | Subscription failed; pending guard cleared |
+| Renewal after expiry | Extends from the verified payment time |
+| Renewal before period end | Extends from the current period end; remaining paid time is preserved |
+| Second checkout while one is pending | Refused with `checkout_in_progress`; database unique index also blocks the race |
+| Checkout abandoned for 30 minutes | Marked expired; a new checkout can start |
 | Cancellation | `cancelAtPeriodEnd`; access until period end |
-| Expiry | Entitlement expiry denies access |
-| Refund | Subscription refunded; entitlement suspended |
+| Expiry | Scheduled sweep closes the subscription and entitlement; access also denied by `expiresAt` |
+| Refund for a granted period | Subscription refunded; entitlement suspended and audited |
+| Payment for a superseded checkout | Automatic Paystack refund; if that fails, an open exception is queued |
 | Manual suspension/revocation | Platform override remains available |
 | Webhook missed | Platform “Reconcile” re-verifies by reference |
+| Out-of-order events | Refund marks the payment refunded; a later charge cannot grant access |
+
+## Renewal and duplicate-payment policy
+
+- The extension boundary is the later of the verified payment time, the current
+  subscription end and the current entitlement expiry. A payment is never lost
+  because a period is still running.
+- Every charge uses one canonical event identity, so the webhook and the
+  callback verification cannot both grant the same period.
+- A new subscription supersedes the previous active row (`status=superseded`),
+  keeping the payment history.
+- A payment for a checkout that a newer checkout replaced is treated as an
+  unintended duplicate: Paystack is asked for a refund and no period is granted.
+- A refund is never shown as successful before Paystack confirms it. Failed
+  refunds create a visible open exception with the reference, amount and reason,
+  and can be retried from the platform control centre.
+- `periodGranted` records whether a payment actually extended access, so a
+  refund for a duplicate settlement does not suspend paid access granted by a
+  different payment.
 
 ## Webhook protection
 
-- HMAC SHA-512 with the Paystack secret.
-- Raw body used, not re-serialized JSON.
+- HMAC SHA-512 with the Paystack secret over the unmodified raw body.
 - Payload size bounded.
-- Amount and currency checked against the stored subscription.
-- Unique event ledger prevents double activation.
-- Unknown reference is acknowledged and ignored.
-- No raw payload stored.
+- Amount, currency and reference checked against the stored subscription.
+- Unique event ledger claimed before side effects, with processing state and
+  stale-claim recovery.
+- Unknown, unsupported, malformed and duplicate events are recorded once.
+- No raw payload or secret stored.
 
 ## Security boundaries
 
-- Checkout requires tenant admin.
+- Checkout requires tenant admin and global Zeli availability.
 - Browser cannot supply tenant, amount or currency.
 - Callback reference must belong to the tenant.
-- Platform reconciliation requires platform session and reason.
+- Platform reconciliation and refund retry require a platform session and reason.
 - Platform reports expose no tenant customer/financial records.
 - Revenue is labelled gross recorded value, not settled revenue.
 
@@ -76,17 +99,14 @@ ignores any browser-supplied amount.
 
 - Recurring auto-charge requires an owner-configured Paystack plan code; without
   it, renewal is a new checkout.
-- A second payment received while the subscription is already active and in
-  period is recorded as `ignored` and does **not** extend the period. The
-  checkout guard prevents a normal early renewal, but a payment made directly at
-  the provider would not grant extra time. Owner decision required for any
-  automatic credit or extension policy.
-- Two checkouts can be created for the same tenant before either is paid. Only
-  the first verified payment activates access; a later verified payment for the
-  same tenant is recorded and ignored. There is no automatic refund path.
-- There is no scheduled expiry job. Access is denied by the entitlement
-  `expiresAt` check, while the subscription row keeps its last status until the
-  next provider event or manual reconciliation.
+- Automatic refunds depend on Paystack accepting the refund; a failure is queued
+  for a human decision rather than retried blindly.
+- The expiry sweep runs inside the web service every 15 minutes with a catch-up
+  on start. It is idempotent. Access never depends on the sweep: `expiresAt` is
+  enforced on every check.
 - Trial is an explicit owner-configured grant for first-time businesses only.
 - Refund policy/grace periods are not invented; no grace period is enabled by
   default.
+- Production checkout requires a live Paystack key. When the production service
+  is configured with a test key, checkout is closed with an honest message
+  instead of taking an unsettled order.

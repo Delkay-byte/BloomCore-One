@@ -71,7 +71,7 @@ test.describe("Platform Zeli commerce and provider controls", () => {
     await page.goto("/platform/zeli");
     const panel = page.getByTestId("provider-control");
     await panel.locator("textarea").first().fill("E2E immediate external AI stop");
-    await panel.getByRole("button", { name: "Emergency stop" }).click();
+    await panel.getByRole("button", { name: "Emergency stop", exact: true }).click();
     await expect(panel.getByText("Provider control updated.")).toBeVisible();
     await expect(panel.getByText("ACTIVE")).toBeVisible();
   });

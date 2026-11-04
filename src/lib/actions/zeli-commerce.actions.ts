@@ -5,7 +5,11 @@ import { getPlatformAdminOrNull } from "@/lib/platform-auth";
 import { createPlatformAuditLog } from "@/lib/platform-audit";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
-import { reconcileZeliSubscription } from "@/lib/payments/zeli-subscriptions";
+import {
+  reconcileZeliSubscription,
+  retryZeliPaymentRefund,
+} from "@/lib/payments/zeli-subscriptions";
+import { paystackReadyForCheckout } from "@/lib/payments/paystack";
 
 /**
  * Platform commerce administration. Every mutation requires a platform
@@ -241,16 +245,20 @@ export async function listZeliSubscriptions(search?: string): Promise<PlatformSu
 }
 
 export async function getZeliCommerceOverview(): Promise<{
-  subscriptions: { total: number; active: number; pending: number; expired: number; cancelled: number; failed: number; refunded: number };
+  subscriptions: { total: number; active: number; pending: number; expired: number; cancelled: number; failed: number; refunded: number; superseded: number };
   revenue: { collected: number; currency: string; reliable: boolean };
   packages: Array<{ name: string; count: number }>;
   providerConfigured: boolean;
+  openExceptions: number;
 }> {
   await requirePlatformRead();
-  const rows = await db.zeliSubscription.findMany({
-    select: { status: true, amount: true, currency: true, plan: { select: { name: true } } },
-    take: 5000,
-  });
+  const [rows, openExceptions] = await Promise.all([
+    db.zeliSubscription.findMany({
+      select: { status: true, amount: true, currency: true, plan: { select: { name: true } } },
+      take: 5000,
+    }),
+    db.zeliPaymentException.count({ where: { status: "open" } }),
+  ]);
   const count = (status: string) => rows.filter((row) => row.status === status).length;
   const activePaid = rows.filter(
     (row) => row.status === "active" || row.status === "expired" || row.status === "cancelled"
@@ -272,6 +280,7 @@ export async function getZeliCommerceOverview(): Promise<{
       cancelled: count("cancelled"),
       failed: count("failed"),
       refunded: count("refunded"),
+      superseded: count("superseded"),
     },
     revenue: {
       collected: Math.round(collected * 100) / 100,
@@ -282,7 +291,8 @@ export async function getZeliCommerceOverview(): Promise<{
       name,
       count: countValue,
     })),
-    providerConfigured: Boolean(process.env.PAYSTACK_SECRET_KEY),
+    providerConfigured: paystackReadyForCheckout(),
+    openExceptions,
   };
 }
 
@@ -306,4 +316,110 @@ export async function reconcileZeliSubscriptionAction(
   } catch {
     return { success: false, error: "Reconciliation failed. Check the provider configuration." };
   }
+}
+
+export interface PlatformPaymentExceptionRow {
+  id: string;
+  subscriptionId: string | null;
+  tenantCode: string | null;
+  reference: string | null;
+  kind: string;
+  status: string;
+  amount: number | null;
+  currency: string | null;
+  detail: string;
+  createdAt: string;
+}
+
+/** Visible, auditable queue of payments that need a human decision. */
+export async function listZeliPaymentExceptions(): Promise<PlatformPaymentExceptionRow[]> {
+  await requirePlatformRead();
+  const rows = await db.zeliPaymentException.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 50,
+  });
+  const tenantIds = Array.from(
+    new Set(rows.map((row) => row.tenantId).filter((value): value is string => Boolean(value)))
+  );
+  const tenants = tenantIds.length
+    ? await db.businessTenant.findMany({
+        where: { id: { in: tenantIds } },
+        select: { id: true, code: true },
+      })
+    : [];
+  const codes = new Map(tenants.map((tenant) => [tenant.id, tenant.code]));
+  return rows.map((row) => ({
+    id: row.id,
+    subscriptionId: row.subscriptionId,
+    tenantCode: row.tenantId ? codes.get(row.tenantId) ?? null : null,
+    reference: row.reference,
+    kind: row.kind,
+    status: row.status,
+    amount: row.amount == null ? null : Number(row.amount),
+    currency: row.currency,
+    detail: row.detail,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+/**
+ * Retry a failed or stuck refund. The provider result is the only success
+ * signal; a repeated call for an already processed refund makes no request.
+ */
+export async function retryZeliRefundAction(
+  subscriptionId: string,
+  reason: string
+): Promise<CommerceResponse<{ decision: string }>> {
+  const session = await requirePlatformWrite();
+  const cleanReason = (reason ?? "").trim();
+  if (cleanReason.length < 10) {
+    return { success: false, error: "Enter a reason of at least 10 characters." };
+  }
+  try {
+    const result = await retryZeliPaymentRefund({
+      subscriptionId,
+      reason: cleanReason,
+      actorId: session.adminId,
+      tenantId: null,
+    });
+    await audit(session, "zeli.payment_refund_retried", {
+      reason: cleanReason,
+      entityId: subscriptionId,
+      details: { decision: result.decision, providerReason: result.reason },
+    });
+    return { success: true, data: { decision: result.decision } };
+  } catch {
+    return {
+      success: false,
+      error: "The refund could not be retried. The existing exception remains open.",
+    };
+  }
+}
+
+export async function resolveZeliPaymentExceptionAction(
+  exceptionId: string,
+  note: string
+): Promise<CommerceResponse> {
+  const session = await requirePlatformWrite();
+  const clean = (note ?? "").trim();
+  if (clean.length < 10) {
+    return { success: false, error: "Enter a resolution note of at least 10 characters." };
+  }
+  const updated = await db.zeliPaymentException.updateMany({
+    where: { id: exceptionId, status: "open" },
+    data: {
+      status: "resolved",
+      resolutionNote: clean,
+      resolvedById: session.adminId,
+      resolvedAt: new Date(),
+    },
+  });
+  if (updated.count === 0) {
+    return { success: false, error: "That exception is not open." };
+  }
+  await audit(session, "zeli.payment_exception_resolved", {
+    reason: clean,
+    entityId: exceptionId,
+  });
+  return { success: true };
 }

@@ -11,10 +11,11 @@ import {
 } from "@/lib/actions/zeli-commerce.actions";
 
 interface Overview {
-  subscriptions: { total: number; active: number; pending: number; expired: number; cancelled: number; failed: number; refunded: number };
+  subscriptions: { total: number; active: number; pending: number; expired: number; cancelled: number; failed: number; refunded: number; superseded: number };
   revenue: { collected: number; currency: string; reliable: boolean };
   packages: Array<{ name: string; count: number }>;
   providerConfigured: boolean;
+  openExceptions: number;
 }
 
 const EMPTY = {
