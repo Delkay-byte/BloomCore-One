@@ -1,68 +1,48 @@
 # Zeli — Provider Setup
 
-**Status in this release:** HARD-OFF. External AI processing is disabled.
+## Current production state
 
-## Current behaviour
+External AI is **disabled**. DeepSeek is optional and never authoritative.
+A key or legacy approval flag cannot enable it.
 
-- `getZeliProvider()` always returns the internal deterministic provider.
-- `ZELI_PROVIDER` is ignored for provider selection.
-- The DeepSeek adapter is retained only as a future integration surface.
-- `available()` always reports disabled; `generate()` throws before constructing
-  a request or touching `fetch`.
-- No key, approval flag, health check or background request can activate it.
-- The platform provider panel has no activation toggle.
+## Three states
 
-Owner-facing status:
+| State | How it is enabled | What may be sent |
+|---|---|---|
+| Disabled | default / emergency stop | nothing |
+| Synthetic | platform control + `ZELI_SYNTHETIC_TESTING_ALLOWED=true` + key | fixed synthetic packages only |
+| Approved production | reviewed code constant + control + privacy version + approval reference + tenant authorization + key | approved aggregate insight package |
 
-> External AI processing is currently disabled. Zeli's private analytics and
-> local intelligence features remain available.
+See `ZELI-GLOBAL-PROVIDER-CONTROLS.md` and `ZELI-DEEPSEEK-API-ARCHITECTURE.md`.
 
-## Environment variables
+## Environment
 
-| Variable | Purpose in this release |
+| Variable | Purpose |
 |---|---|
-| `ZELI_PROVIDER` | Diagnostic only. `deepseek` is displayed as disabled. |
-| `ZELI_DEEPSEEK_APPROVED` | Ignored. Cannot enable processing. |
-| `DEEPSEEK_API_KEY` | Ignored. Never read for a request. Presence is shown only as a boolean. |
-| `DEEPSEEK_MODEL` | Not used. |
-| `DEEPSEEK_BASE_URL` | Not used. |
-| `ZELI_GATEWAY_MIN_COHORT` | Optional gateway minimum; clamped to at least 5. |
+| `DEEPSEEK_API_KEY` | Server-only provider credential |
+| `DEEPSEEK_MODEL` | `deepseek-flash` (default) or `deepseek-v4-pro` |
+| `ZELI_PROVIDER` | Diagnostic only; never activates |
+| `ZELI_DEEPSEEK_APPROVED` | Ignored legacy flag; never activates |
+| `ZELI_SYNTHETIC_TESTING_ALLOWED` | Required for synthetic mode |
+| `ZELI_PRIVACY_POLICY_VERSION` | Must match the control record for approved mode |
+| `ZELI_APPROVAL_REFERENCE` | Required for approved mode |
+| `ZELI_GATEWAY_MIN_COHORT` | Minimum 5; can be raised |
 
-Do not add any provider credential to staging or production during this phase.
+Never put the key in `NEXT_PUBLIC_*`, client code, HTML, logs or Git.
 
-## Future approval procedure (do not skip)
+## Activation procedure (future)
 
-1. Complete a DPIA and purpose-specific privacy assessment.
-2. Obtain written owner approval and any required data processing agreement.
-3. Define the approved metrics, period granularity and minimum cohort.
-4. Implement and test the gateway allow-list and audit.
-5. Change `EXTERNAL_AI_PHASE` to `"approved"` in a reviewed commit.
-6. Add the approval identifier and credential to the approved environment only.
-7. Run provider-isolation tests with outbound HTTP interception.
-8. Verify failure, timeout, retry and disable behaviour in staging.
-9. Obtain independent security/privacy sign-off before production.
+1. DPIA/privacy assessment and legal review.
+2. Owner approval and provider contract/DPA.
+3. Reviewed code change to `PRODUCTION_PROVIDER_APPROVED`.
+4. Match privacy policy version and approval reference.
+5. Enable tenant authorization.
+6. Run synthetic probe, then gateway/isolation tests.
+7. Monitor latency, denials, cost and errors.
+8. Keep emergency stop available.
 
-## Future integration constraints
+## Synthetic probe
 
-- Only gateway-approved aggregate payloads may be sent.
-- Never send names, phone numbers, emails, account numbers, staff/customer ids,
-  payment/transaction references, precise location, raw rows, customer notes,
-  documents, authentication data, MFA data or conversation history.
-- A payload belongs to exactly one tenant.
-- The provider cannot be selected by the browser.
-- The internal engine must remain fully functional if the provider is absent.
-
-## Local model option (evaluated, not deployed)
-
-Ollama or an OpenAI-compatible local server can be trialled without paid GPU
-resources, but:
-
-- CPU inference latency is high for useful multi-metric explanations;
-- memory requirements depend on model size;
-- Render web instances are not suitable inference hosts;
-- a separate inference service needs network isolation and access control;
-- model licences must be reviewed;
-- tenant isolation and prompt-injection handling still apply.
-
-No paid infrastructure was provisioned. The application does not depend on a
-local model.
+From `/platform/zeli` while synthetic mode is enabled, use “Run synthetic
+probe”. It sends a fixed fake package; no tenant data enters that path. A live
+probe was not possible here because no key was available.

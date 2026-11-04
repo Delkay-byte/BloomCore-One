@@ -58,6 +58,8 @@ export default function ZeliPage() {
     model: string;
     available: boolean;
     reason?: string;
+    message?: string;
+    external?: { state: string; allowed: boolean };
   } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analyticsAccess, setAnalyticsAccess] = useState(false);
@@ -289,12 +291,21 @@ export default function ZeliPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-3">
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${
+          status?.external?.state === "disabled"
+            ? "border-amber-200 bg-amber-50 text-amber-900"
+            : "border-emerald-200 bg-emerald-50 text-emerald-900"
+        }`}>
           <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
           <p>
-            <strong>External AI processing is currently disabled.</strong> Zeli&apos;s private
-            analytics and local intelligence features remain available. Answers are computed from
-            your authorized BloomCore One records by a rule-based engine, not a language model.
+            <strong>
+              {status?.external?.state === "disabled"
+                ? "External AI processing is currently disabled."
+                : "External AI is limited to approved aggregate explanations."}
+            </strong>{" "}
+            {status?.message ??
+              "Zeli's private analytics and local intelligence features remain available."}{" "}
+            Financial facts and calculations always come from BloomCore One.
           </p>
         </div>
       </div>
@@ -492,7 +503,7 @@ export default function ZeliPage() {
               )}
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI processing is disabled.
+              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI is optional and never authoritative.
             </p>
           </form>
         </main>

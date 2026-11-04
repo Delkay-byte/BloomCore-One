@@ -37,6 +37,12 @@ export async function cleanDatabase() {
     prisma.passwordResetToken.deleteMany(),
     prisma.offlineTransaction.deleteMany(),
     prisma.deviceEnrollment.deleteMany(),
+    prisma.zeliProviderUsage.deleteMany(),
+    prisma.zeliPaymentEvent.deleteMany(),
+    prisma.zeliSubscription.deleteMany(),
+    prisma.zeliPlan.deleteMany(),
+    prisma.zeliAiTenantAuthorization.deleteMany(),
+    prisma.zeliProviderControl.deleteMany(),
     prisma.zeliProviderGatewayEvent.deleteMany(),
     prisma.zeliAnalyticsDaily.deleteMany(),
     prisma.zeliAnalyticsRefresh.deleteMany(),
@@ -56,6 +62,11 @@ export async function cleanDatabase() {
     prisma.authThrottle.deleteMany(),
     prisma.turnstileTokenUse.deleteMany(),
   ]);
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "Test default" },
+    update: { enabled: true, reason: "Test default" },
+  });
 }
 
 /**

@@ -40,6 +40,18 @@ async function main() {
     },
   });
 
+  const tenantC = await prisma.businessTenant.create({
+    data: {
+      id: "e2e-tenant-c",
+      code: "E2E-C",
+      name: "E2E Bloom Business C",
+      status: "ACTIVE",
+      onboardingStatus: "COMPLETED",
+      momoEnabled: true,
+      susuEnabled: true,
+    },
+  });
+
   const adminA = await prisma.user.create({
     data: {
       id: "e2e-user-a",
@@ -59,6 +71,19 @@ async function main() {
       tenantId: tenantB.id,
       email: "e2e-admin-b@test.local",
       fullName: "E2E Admin B",
+      role: "admin",
+      status: "active",
+      passwordHash,
+      momoEnabled: true,
+      susuEnabled: true,
+    },
+  });
+  await prisma.user.create({
+    data: {
+      id: "e2e-user-c",
+      tenantId: tenantC.id,
+      email: "e2e-admin-c@test.local",
+      fullName: "E2E Admin C",
       role: "admin",
       status: "active",
       passwordHash,
@@ -264,6 +289,12 @@ async function main() {
     },
   });
 
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "E2E default" },
+    update: { enabled: true, reason: "E2E default" },
+  });
+
   await prisma.platformSuperAdmin.create({
     data: {
       id: "e2e-platform-admin",
@@ -281,6 +312,7 @@ async function main() {
         tenantB: tenantB.code,
         adminA: "e2e-admin-a@test.local",
         adminB: "e2e-admin-b@test.local",
+        adminC: "e2e-admin-c@test.local",
         platform: "e2e-platform@test.local",
         dailyAccountId: "e2e-daily-a",
       },

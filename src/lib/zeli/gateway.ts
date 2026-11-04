@@ -302,3 +302,142 @@ export async function recordGatewayDecision(params: {
     console.error("[ZELI GATEWAY] decision audit failed", error);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Aggregate insight package (the only payload an external provider may see)
+// ---------------------------------------------------------------------------
+
+export const INSIGHT_SCHEMA_VERSION = "zeli-insight-v1";
+
+export const INSIGHT_PURPOSES = [
+  "period_comparison",
+  "trend_explanation",
+  "chart_explanation",
+  "operational_summary",
+  "branch_comparison",
+  "remittance_pattern",
+  "exception_explanation",
+] as const;
+
+export const INSIGHT_METRICS = [
+  "contributions",
+  "withdrawals",
+  "net_cash_flow",
+  "remittances",
+  "expenses",
+  "transaction_volume",
+  "active_accounts",
+  "exceptions",
+] as const;
+
+const direction = z.enum(["up", "down", "flat", "unknown"]);
+const changeBand = z.enum(["lt_5", "5_10", "10_25", "25_50", "gt_50", "unknown"]);
+const cohortBand = z.enum(["5_24", "25_99", "100_plus"]);
+
+const insightPackageSchema = z
+  .object({
+    schemaVersion: z.literal(INSIGHT_SCHEMA_VERSION),
+    purpose: z.enum(INSIGHT_PURPOSES),
+    reportingPeriod: z
+      .object({
+        granularity: z.enum(["day", "week", "month", "quarter"]),
+        comparison: z.enum(["previous_period", "none"]),
+      })
+      .strict(),
+    metrics: z
+      .array(
+        z
+          .object({
+            metric: z.enum(INSIGHT_METRICS),
+            direction,
+            changeBand,
+          })
+          .strict()
+      )
+      .min(1)
+      .max(8),
+    cohortBand,
+    categories: z
+      .array(z.enum(GATEWAY_CATEGORIES))
+      .max(4)
+      .optional(),
+    synthetic: z.literal(true).optional(),
+    syntheticScenario: z
+      .enum(["integration_probe", "trend_fixture", "exception_fixture"])
+      .optional(),
+  })
+  .strict();
+
+export type InsightPackage = z.infer<typeof insightPackageSchema>;
+
+export interface InsightEvaluation {
+  ok: boolean;
+  reason: string;
+  package: InsightPackage | null;
+  categories: string[];
+}
+
+/**
+ * Validate an insight package. `cohortSize` is supplied out-of-band from the
+ * server snapshot and is never part of the outbound payload. Synthetic mode
+ * requires the explicit synthetic marker; production mode rejects it.
+ */
+export function evaluateInsightPackage(
+  input: unknown,
+  options: { cohortSize: number; synthetic: boolean }
+): InsightEvaluation {
+  const forbidden = findForbiddenKey(input);
+  if (forbidden) {
+    return { ok: false, reason: `Forbidden field rejected: ${forbidden}`, package: null, categories: [] };
+  }
+  const identifier = findIdentifierValue(input);
+  if (identifier) {
+    return {
+      ok: false,
+      reason: `Identifier-like or free-text value rejected: ${identifier}`,
+      package: null,
+      categories: [],
+    };
+  }
+  const parsed = insightPackageSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reason: `Insight package rejected: ${parsed.error.issues[0]?.message ?? "schema error"}`,
+      package: null,
+      categories: [],
+    };
+  }
+  const value = parsed.data;
+  if (value.synthetic === true) {
+    if (!options.synthetic) {
+      return {
+        ok: false,
+        reason: "Synthetic package rejected outside synthetic mode",
+        package: null,
+        categories: [],
+      };
+    }
+  } else if (options.synthetic) {
+    return {
+      ok: false,
+      reason: "Synthetic mode accepts only explicitly marked synthetic packages",
+      package: null,
+      categories: [],
+    };
+  }
+  if (options.cohortSize < minimumCohortSize()) {
+    return {
+      ok: false,
+      reason: `Small group suppressed: cohort ${options.cohortSize} is below ${minimumCohortSize()}`,
+      package: null,
+      categories: value.categories ?? [],
+    };
+  }
+  return {
+    ok: true,
+    reason: "Insight package satisfies the outbound allow-list",
+    package: value,
+    categories: value.categories ?? value.metrics.map((metric) => metric.metric),
+  };
+}

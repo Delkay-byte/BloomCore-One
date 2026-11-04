@@ -8,6 +8,13 @@ import {
   zeliDenialMessage,
   type ZeliDenialReason,
 } from "@/lib/zeli/entitlements";
+import {
+  listPublicZeliPlans,
+  paymentProviderStatus,
+} from "@/lib/payments/zeli-subscriptions";
+import CheckoutPlans from "./CheckoutPlans";
+import { getZeliAvailability } from "@/lib/zeli/availability";
+import ZeliUnavailable from "@/components/zeli/ZeliUnavailable";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +30,10 @@ export default async function ZeliAnalyticsUpgradePage({
   searchParams: Promise<{ reason?: string }>;
 }) {
   const ctx = await requireTenantAdmin();
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) {
+    return <ZeliUnavailable reason={availability.reason} />;
+  }
   const params = await searchParams;
   const entitlement = await getZeliEntitlement(ctx.tenantId);
   const access = evaluateZeliAccess({ role: ctx.role, entitlement });
@@ -30,6 +41,11 @@ export default async function ZeliAnalyticsUpgradePage({
 
   const reason = (params.reason as ZeliDenialReason | undefined) ?? access.reason;
   const message = zeliDenialMessage(reason ?? null);
+  const checkoutAllowed =
+    access.reason === "no_entitlement" || access.reason === "expired";
+  const [plans, payment] = checkoutAllowed
+    ? await Promise.all([listPublicZeliPlans(), Promise.resolve(paymentProviderStatus())])
+    : [[], paymentProviderStatus()];
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 py-6">
@@ -57,9 +73,9 @@ export default async function ZeliAnalyticsUpgradePage({
         <div className="mt-5 rounded-xl border border-brand-100 bg-brand-50/60 p-4 text-sm text-brand-900">
           <p className="font-semibold">How access is granted</p>
           <p className="mt-1">
-            A BloomCore platform administrator reviews the business, records the decision and
-            activates the entitlement. Every change requires a reason and is written to the
-            platform audit trail. This screen does not create a payment or change billing.
+            Subscribe below, or ask a BloomCore platform administrator to review the business.
+            Subscription access is activated by a verified Paystack payment event, not by the
+            browser redirect. Manual platform decisions always require a reason and are audited.
           </p>
           {access.status !== "none" && (
             <p className="mt-2 text-xs">
@@ -68,6 +84,17 @@ export default async function ZeliAnalyticsUpgradePage({
             </p>
           )}
         </div>
+
+        {checkoutAllowed && (
+          <div className="mt-5">
+            <h2 className="mb-2 font-semibold text-brand-900">Zeli Analytics packages</h2>
+            <CheckoutPlans
+              plans={plans}
+              paymentConfigured={payment.configured}
+              providerMessage={payment.message}
+            />
+          </div>
+        )}
 
         <div className="mt-5 flex flex-wrap gap-2">
           <Link href="/zeli" className="btn btn-primary btn-sm">
