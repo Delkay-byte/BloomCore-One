@@ -22,7 +22,7 @@ let timer: NodeJS.Timeout | null = null;
 
 async function runSweep(): Promise<void> {
   try {
-    const { expireZeliLifecycle } = await import("./src/lib/zeli/expiry");
+    const { expireZeliLifecycle } = await import("./lib/zeli/expiry");
     const counts = await expireZeliLifecycle();
     console.info("[zeli-expiry] sweep completed", counts);
   } catch (error) {

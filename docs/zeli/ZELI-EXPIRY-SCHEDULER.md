@@ -24,6 +24,22 @@ keep in sync. The existing web service already holds the production database
 credentials and is restarted by Render. Running the sweep in-process avoids a
 new cost and a new secret. The trade-off is documented below.
 
+If a managed schedule is preferred later, the exact owner action is a Render
+Cron Job on the same repo and branch with schedule `*/15 * * * *` and command
+`npm run zeli:expire`, sharing the production service's non-secret environment
+and `DATABASE_URL`/`DIRECT_URL`. Render bills cron jobs by running time with a
+**minimum of $1/month per cron job service**, so it needs explicit owner cost
+approval. It has not been created.
+
+## Hook location (important)
+
+This project uses `src/app`, so Next scans `<root>/src` for the instrumentation
+hook. The scheduler must live at `src/instrumentation.ts`. A hook placed at the
+repository root is silently ignored, and the scheduled sweep then never starts
+even though the service is healthy. A regression test
+(`tests/zeli-expiry-scheduler.test.ts`) fails if the hook moves back out of
+`src/` or if `register()` stops starting the sweep.
+
 ## Configuration
 
 | Variable | Default | Meaning |
