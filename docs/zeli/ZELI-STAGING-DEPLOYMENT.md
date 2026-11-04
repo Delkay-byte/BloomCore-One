@@ -2,9 +2,25 @@
 
 **Status:** DEPLOYED AND VERIFIED (internal verification, not an independent test).
 **Hostname:** https://bloomcore-one-staging.onrender.com
-**Deployed commit:** `76b0356` (PR #4 head code at time of verification)
+**Deployed commit:** `81d6031` (current PR #4 head)
 **Staging Auto-Deploy:** OFF (verified through the Render API)
 **Production:** untouched.
+
+## Live recheck (4 November 2026)
+
+- `GET /api/health` returned HTTP 200 with
+  `{"status":"ok","app":"bloomcore-one","env":"STAGING","commit":"81d6031d49e0684c746ee095d69b68ef09837baa"}`.
+- The deployed commit matches the current PR #4 head, so no additional staging
+  deployment was required for this closeout.
+- Auto-Deploy remains OFF; staging is deployed manually.
+
+## Blueprint note
+
+The checked-in `render.staging.yaml` is a reviewed template and was not applied to
+create the live service. Its `branch: main` entry is a template default; the live
+staging service is deployed manually from the approved feature commit with
+Auto-Deploy OFF. While Auto-Deploy is OFF, changing the template branch would not
+deploy anything.
 
 ## Service and database
 
@@ -91,8 +107,11 @@ Internal staging checks: **26/26 passed**.
   redirects to `/platform/login?reason=mfa_required`.
 - Turnstile is enabled, the page loads the Cloudflare script, and login without
   a challenge token is rejected.
-- **Cloudflare widget mode (Managed) could not be verified** without Cloudflare
-  account access. Owner must confirm Managed mode on the staging widget.
+- **Cloudflare widget mode:** the owner has confirmed that the staging widget
+  uses **Managed mode** and is restricted to
+  `bloomcore-one-staging.onrender.com`. This is an owner confirmation, not an
+  independent Cloudflare dashboard verification by this workstream. The widget
+  and its keys were not changed.
 
 ## Paystack live test-mode lifecycle
 
@@ -105,8 +124,10 @@ Using the configured Paystack **test** secret and a controlled signed webhook:
 - `refund.processed` → subscription refunded; entitlement suspended.
 - No card payment or customer charge occurred.
 
-The staging Paystack secret is a test key but is the same test key configured on
-production. The owner should provision a separate staging-only test key.
+The staging environment uses a Paystack **TEST** secret key. The production
+environment uses a Paystack **LIVE** secret key. The owner has confirmed that the
+two environments are correctly separated. Neither key was displayed, copied,
+rotated or changed during this verification, and no live charge was made.
 
 ## DeepSeek synthetic probe
 
@@ -127,11 +148,11 @@ production. The owner should provision a separate staging-only test key.
 
 ## Remaining owner actions
 
-1. Create/confirm a separate Paystack **test** key for staging (currently shares
-   the production test key).
-2. Confirm the staging Turnstile widget is Managed mode and bound only to the
-   staging hostname.
-3. Deliver the generated synthetic credentials to the independent tester through
-   an approved secure channel.
-4. Keep staging Auto-Deploy OFF unless a deliberate manual deployment is chosen.
-5. Decide whether to add a third synthetic tenant for billing isolation tests.
+1. Independent penetration testing is **DEFERRED** — the owner intends to
+   arrange it at a later security-assurance stage. No tester has been engaged,
+   and this internal verification is not an independent assessment.
+2. Keep staging Auto-Deploy OFF unless a deliberate manual deployment is chosen.
+3. Decide whether to add a third synthetic tenant for billing isolation tests.
+4. Decide the DPIA/privacy position before any approved production AI
+   processing. Production AI remains locked by code.
+5. Authorise production release separately. This document authorises nothing.

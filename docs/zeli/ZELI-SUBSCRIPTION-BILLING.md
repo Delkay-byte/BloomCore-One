@@ -45,7 +45,8 @@ ignores any browser-supplied amount.
 | Duplicate webhook | Ignored; unique event id |
 | Pending | No entitlement |
 | Failed initial payment | Subscription failed; no entitlement |
-| Renewal | New verified payment extends/replaces period |
+| Renewal after expiry | New verified payment activates a new period |
+| Renewal before period end | Recorded as `ignored` (`subscription_already_active`); the period is **not** extended — see limitations |
 | Cancellation | `cancelAtPeriodEnd`; access until period end |
 | Expiry | Entitlement expiry denies access |
 | Refund | Subscription refunded; entitlement suspended |
@@ -75,6 +76,17 @@ ignores any browser-supplied amount.
 
 - Recurring auto-charge requires an owner-configured Paystack plan code; without
   it, renewal is a new checkout.
+- A second payment received while the subscription is already active and in
+  period is recorded as `ignored` and does **not** extend the period. The
+  checkout guard prevents a normal early renewal, but a payment made directly at
+  the provider would not grant extra time. Owner decision required for any
+  automatic credit or extension policy.
+- Two checkouts can be created for the same tenant before either is paid. Only
+  the first verified payment activates access; a later verified payment for the
+  same tenant is recorded and ignored. There is no automatic refund path.
+- There is no scheduled expiry job. Access is denied by the entitlement
+  `expiresAt` check, while the subscription row keeps its last status until the
+  next provider event or manual reconciliation.
 - Trial is an explicit owner-configured grant for first-time businesses only.
 - Refund policy/grace periods are not invented; no grace period is enabled by
   default.

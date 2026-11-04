@@ -80,6 +80,6 @@
   subscription or entitlement.
 - Revenue shown on the platform is gross recorded value, not settled provider
   revenue.
-- Hosted staging is prepared but not deployed; no paid infrastructure was
-  created.
+- Hosted staging is deployed and internally verified at
+  `bloomcore-one-staging.onrender.com`; production deployment remains off.
 - Production external AI and production deployment remain off.

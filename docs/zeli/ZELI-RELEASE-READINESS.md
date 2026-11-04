@@ -1,22 +1,29 @@
 # Zeli — Release Readiness
 
 **Date:** 4 November 2026.
-**Production deployment:** NOT AUTHORIZED. Render Auto-Deploy is OFF; merging is
-not deployment.
+**Production deployment:** NOT AUTHORIZED. Production Render Auto-Deploy is
+**ON**, so merging PR #4 into `main` may deploy production automatically. No
+merge, push to `main`, production migration or production credential change was
+performed by this workstream.
 
 ## Status by area
 
 | Area | Status | Notes |
 |---|---|---|
 | Security closeout | READY | PR #1 merged to `main` (`1d0645c`); daily-account correction screen included. |
-| Git integration | READY WITH LIMITATIONS | PR #1 and PR #2 merged; PR #3 open against updated `main` for owner review. No force-push, no deployment. |
+| Git integration | READY WITH LIMITATIONS | PR #1, #2 and #3 merged. PR #4 open at `81d6031` against `main` `06ea9df`, mergeable, CI green. No force-push, no deployment. |
 | Zeli conversational experience | READY | Providerless deterministic answers; supported intent set; browser-tested. |
-| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging deployment/verification recorded separately. |
-| Subscription entitlements | READY WITH LIMITATIONS | Paystack checkout and controlled signed-webhook lifecycle verified in staging test mode; no live charge. |
+| Zeli Business Intelligence | READY WITH LIMITATIONS | Dashboard, charts, filters, explanations and export implemented; staging verified at `81d6031`. |
+| Subscription checkout | READY WITH LIMITATIONS | Paystack checkout and signed-webhook lifecycle verified in staging test mode; no live charge. |
+| Paystack staging verification | READY WITH LIMITATIONS | Test-mode lifecycle and signed test webhook verified; production LIVE credentials owner-confirmed and unchanged. |
 | Private intelligence engine | READY | Server-computed metrics, insights and templates; tested. |
-| External provider readiness | READY WITH LIMITATIONS | Fixed synthetic staging probe succeeded; production remains locked. |
-| Independent penetration-test readiness | BLOCKED | Staging verified; external tester and written authorization still missing. |
-| Production release | BLOCKED | Owner authorization and staging validation required. |
+| DeepSeek synthetic integration | READY | Approved staging probe succeeded; permission returned to `false`; provider disabled. |
+| Approved production AI | BLOCKED | Locked by `PRODUCTION_PROVIDER_APPROVED = false` and missing DPIA approval. |
+| Entire-Zeli master switch | READY | Database-backed, fail-closed, Super Admin only; enforced on tenant routes, actions, APIs and exports; separate from provider control. |
+| Internal security testing | READY | Automated regression, PostgreSQL, browser and staging checks. Not independent. |
+| Independent penetration testing | DEFERRED | Owner intends to arrange it later; no tester engaged or contacted. |
+| Production release preparation | READY WITH LIMITATIONS | Dossier, migrations, backup, deployment and rollback documented; owner approvals outstanding. |
+| Production deployment | BLOCKED | Owner authorisation and production backup required. |
 
 ## Implemented and available without external AI
 
@@ -57,25 +64,28 @@ not deployment.
 - DeepSeek adapter uses the fixed official endpoint and aggregate package.
 - Global AI control has disabled/synthetic/approved states and emergency stop.
 - Production AI remains locked by code and approval gates.
-- Staging is prepared, not deployed.
+- Staging is deployed and verified at `81d6031`.
 
 ## Git state
 
-- `main` includes PR #1 merge `1d0645c` and PR #2 merge `2c7afed`.
-- Analytics branch: `feat/zeli-business-intelligence-2026-11`.
-- Analytics PR: <https://github.com/Delkay-byte/BloomCore-One/pull/3>.
-- Production Auto-Deploy: OFF. No deployment performed.
+- `main` includes PR #1 merge `1d0645c`, PR #2 merge `2c7afed` and PR #3 merge
+  `06ea9df`.
+- PR #4: <https://github.com/Delkay-byte/BloomCore-One/pull/4> — OPEN,
+  mergeable, head `81d6031`, base `main` `06ea9df`, 89 files.
+- CI on `81d6031`: `Lint, typecheck, test, build` — pass.
+- Production Auto-Deploy: **ON** (deploys on CI pass). Not triggered by this work.
 
 ## Release gate
 
 Do not deploy until:
 
-1. PR #1 is merged and CI is green.
-2. PR #2 is reconciled without force-push.
-3. The analytics PR is reviewed and CI is green.
+1. Owner reviews the PR #4 diff at the release SHA.
+2. CI is green on the final head.
+3. Owner takes and records a production database backup.
 4. Owner approves production deployment explicitly.
-5. `prisma migrate deploy` is run by the operator against the approved database.
-6. Staging, privacy and penetration-test approvals are recorded.
+5. `prisma migrate deploy` is run by the operator against the approved direct URL.
+6. Privacy decisions and the deferred penetration test are recorded as accepted
+   residual risks.
 
 ## Global availability addendum
 
@@ -87,12 +97,14 @@ Do not deploy until:
 
 ## Staging verification (4 November 2026)
 
-- Commit `76b0356`, host `bloomcore-one-staging.onrender.com`.
-- Staging Auto-Deploy OFF.
-- 20/20 migrations; 2 tenants, 10 synthetic accounts.
+- Commit `81d6031`, host `bloomcore-one-staging.onrender.com`; live `/api/health`
+  reports the same commit and `env=STAGING`.
+- Staging Auto-Deploy OFF; deployed manually.
+- 20/20 migrations; 2 tenants, 10 synthetic accounts; database up to date.
 - 26/26 internal staging checks.
 - Paystack test checkout initialization and controlled signed webhook lifecycle
-  verified; no live payment.
+  verified; no live payment and no customer charge.
+- Paystack test/live separation and Turnstile Managed mode are owner-confirmed.
 - DeepSeek synthetic probe succeeded; emergency stop restored and environment
   permission returned to false.
-- Production untouched; PR #4 remains open.
+- Production untouched; PR #4 remains open and unmerged.

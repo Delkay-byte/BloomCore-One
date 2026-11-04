@@ -9,7 +9,7 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Check | Result | Evidence |
 |---|---|---|
 | Typecheck | PASS | `npm run typecheck` |
-| CI | PASS | GitHub Actions run on PR #3 head |
+| CI | PASS | GitHub Actions run on PR #4 head `81d6031` |
 | Lint | PASS (0 errors, 78 warnings) | `npm run lint` |
 | Unit/integration tests | PASS — 44 files, 435 tests | `npm test` |
 | PostgreSQL tests | PASS — 6 files, 32 tests | `vitest --config vitest.pg.config.ts` |
@@ -17,7 +17,7 @@ PostgreSQL 16 container, Chromium via Playwright.
 | Staging internal verification | PASS — 26/26 | Playwright + HTTP against staging |
 | Production build | PASS | `npm run build` |
 | Dependency audit | 0 critical, 6 high, 19 moderate (dev toolchain) | `npm audit` |
-| Migration verification | PASS (10 migrations) | `prisma migrate deploy` against PostgreSQL 16 |
+| Migration verification | PASS (20 migrations) | `prisma migrate deploy` against PostgreSQL 16 |
 | Analytics reconciliation | PASS | `tests/zeli-analytics.test.ts` |
 | Provider isolation | PASS | `tests/zeli-privacy-gateway.test.ts` |
 
@@ -134,14 +134,13 @@ DATABASE_URL=... DIRECT_URL=... npx prisma migrate deploy --schema prisma/schema
 DATABASE_URL=... PG_DATABASE_URL=... npx vitest run --config vitest.pg.config.ts
 ```
 
-All 9 migrations applied, including
-`20261103_zeli_business_intelligence`. 31 PG tests passed, including concurrent
-daily-account correction and remittance reversal.
+All 20 migrations applied, including both PR #4 migrations. 32 PG tests passed,
+including concurrent daily-account correction and remittance reversal.
 
 ## Staging evidence
 
 - Hostname: `bloomcore-one-staging.onrender.com`
-- Deployed commit: `76b0356`
+- Deployed commit: `81d6031` (current PR #4 head); `/api/health` confirms it.
 - Migrations: 20/20 applied; status up to date.
 - Seed: 2 tenants, 10 synthetic accounts, 1 platform admin.
 - Internal staging checks: 26/26.
@@ -151,14 +150,15 @@ daily-account correction and remittance reversal.
 - Normal tenant chat during synthetic mode made no provider request.
 - Emergency stop + env permission reset + redeploy; no further provider usage.
 - MFA without `amr` redirects to login; Turnstile challenge is enforced.
-- Turnstile Managed mode was not verifiable without Cloudflare access.
+- Turnstile Managed mode and Paystack test/live separation are owner-confirmed.
+- Independent penetration testing: **DEFERRED**; not performed.
 
 ## CI evidence
 
 - PR #1: `Lint, typecheck, test, build` pass.
 - PR #2: `Lint, typecheck, test, build` pass after retarget to `main`.
 - PR #3: `Lint, typecheck, test, build` pass (5m04s).
-- This branch: CI to be recorded after push.
+- PR #4 head `81d6031`: `Lint, typecheck, test, build` pass.
 
 Local full-suite runs occasionally hit environment timeouts in
 `customer-portal` and `password-lockout-live` on a loaded Windows host; the
