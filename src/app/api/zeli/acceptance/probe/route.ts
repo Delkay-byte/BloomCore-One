@@ -25,7 +25,7 @@ import type { ZeliIdentity } from "@/lib/zeli/types";
 
 const TURNS = [
   "Give me a summary of the business this month.",
-  "Compare that with last month.",
+  "What about last month?",
 ];
 
 const hits = new Map<string, { count: number; resetAt: number }>();

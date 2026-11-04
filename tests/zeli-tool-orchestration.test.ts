@@ -7,6 +7,7 @@ import {
   prisma,
 } from "./setup";
 import { runZeliTurn } from "@/lib/zeli/service";
+import { validateGroundedAnswer } from "@/lib/zeli/providers/tool-orchestrator";
 import type { ZeliIdentity } from "@/lib/zeli/types";
 
 const fetchMock = vi.fn();
@@ -107,6 +108,21 @@ afterEach(() => {
 });
 
 describe("Enhanced AI tool orchestration", () => {
+  it("ignores list numbering and still rejects an ungrounded figure", () => {
+    const allowed = new Set([1234.5]);
+    const accepted = validateGroundedAnswer(
+      "1. Contributions were GH₵1,234.50.\n2. Review the report.",
+      allowed
+    );
+    expect(accepted.ok).toBe(true);
+
+    const rejected = validateGroundedAnswer(
+      "1. Contributions were GH₵9,999.99.",
+      allowed
+    );
+    expect(rejected.ok).toBe(false);
+  });
+
   it("executes an authorized read-only tool and explains grounded figures", async () => {
     const { tenant, admin, account, cycle, conversation, identity, customer } = await fixture();
     await prisma.contribution.create({
@@ -156,6 +172,53 @@ describe("Enhanced AI tool orchestration", () => {
     expect(usage[0].decision).toBe("success");
     expect(usage[0].purpose).toContain("business_summary");
     expect(JSON.stringify(usage)).not.toContain("1,234.50");
+  });
+
+  it("accepts a provided change value and rejects a fabricated one", async () => {
+    const { tenant, admin, account, cycle, conversation, identity } = await fixture();
+    const now = new Date();
+    await prisma.contribution.createMany({
+      data: [
+        {
+          tenantId: tenant.id,
+          accountId: account.id,
+          cycleId: cycle.id,
+          amount: 3600,
+          collectionDate: new Date(),
+          channel: "direct_office",
+          recordedById: admin.id,
+          referenceId: `ORCH-CUR-${Date.now()}`,
+        },
+        {
+          tenantId: tenant.id,
+          accountId: account.id,
+          cycleId: cycle.id,
+          amount: 2400,
+          collectionDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)),
+          channel: "direct_office",
+          recordedById: admin.id,
+          referenceId: `ORCH-PREV-${Date.now()}`,
+        },
+      ],
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(toolResponse("period_comparison", { period: "this_month" }))
+      .mockResolvedValueOnce(
+        answerResponse(
+          "Contributions increased by GH₵1,200.00 compared with the previous month. Review the report before acting."
+        )
+      );
+
+    const result = await runZeliTurn({
+      identity,
+      conversationId: conversation.id,
+      question: "How did contributions change compared with last month?",
+    });
+
+    expect(result.externalAi).toBe(true);
+    expect(result.text).toContain("1,200.00");
+    expect(result.tools[0].tool).toBe("period_comparison");
   });
 
   it("rejects a fabricated figure and falls back to the local answer", async () => {
