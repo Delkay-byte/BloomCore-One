@@ -129,3 +129,15 @@ Do not deploy until:
 - Staging unchanged at `53ceae8`, Auto-Deploy OFF.
 - Paystack on production is now a LIVE key; checkout is open for real charges.
   No live charge was made.
+
+## Scheduler fix after release (4 November 2026)
+
+- The expiry hook was at the repository root; with `src/app` Next ignores that
+  location, so no sweep ran. PR #7 moved it to `src/instrumentation.ts` and added
+  regression tests.
+- Production deployed `030ff1c`; Render logs show
+  `[zeli-expiry] sweep completed` at 14:14:50Z and 14:29:44Z, 15 minutes apart.
+- Zeli availability was explicitly re-enabled with an audited reason after the
+  release; `PlatformAuditLog` contains `zeli.availability_enabled`.
+- External AI remains disabled: `ZeliProviderControl` has no row and
+  `PRODUCTION_PROVIDER_APPROVED=false`.
