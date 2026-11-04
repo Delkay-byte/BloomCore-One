@@ -53,3 +53,7 @@ tsconfig.tsbuildinfo
 test-results/
 playwright-report/
 blob-report/
+
+# Temporary generated Prisma clients (local tooling)
+.prisma-pg-gen/
+.prisma-gen/

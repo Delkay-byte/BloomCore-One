@@ -54,6 +54,8 @@ export async function getZeliBootstrap(): Promise<
     suggestions: string[];
     role: string;
     analyticsAccess: boolean;
+    environment: "staging" | "production";
+    acceptanceMode: boolean;
   }>
 > {
   const availability = await getZeliAvailability();
@@ -69,15 +71,21 @@ export async function getZeliBootstrap(): Promise<
     role: identity.role,
     entitlement,
   }).allowed;
+  const status = await getZeliProviderStatus(identity.tenantId);
+  const environment =
+    (process.env.APP_ENV || "").toUpperCase() === "STAGING" ? "staging" : "production";
   return {
     success: true,
     data: {
-      status: await getZeliProviderStatus(identity.tenantId),
+      status,
       suggestions: suggestedQuestionsForRole(identity.role, {
         analyticsAvailable: analyticsAccess,
       }),
       role: identity.role,
       analyticsAccess,
+      environment,
+      acceptanceMode:
+        environment === "staging" && status.conversation.mode === "external",
     },
   };
 }

@@ -32,11 +32,36 @@ src/lib/zeli/conversation/
 src/lib/zeli/providers/
   conversation-policy.ts   separate approval gate for message processing
   deepseek-conversation.ts fixed endpoint, sanitisation, validation, transport
+  deepseek-chat.ts         tool-calling transport
+  tool-orchestrator.ts     tool selection, execution, grounding validation
   conversation-provider.ts provider-neutral selection, limits, audit, fallback
+
+src/lib/zeli/business-tools.ts
+  read-only tool schemas, role filtering and execution against domain services
 ```
 
 Provider selection is server-side only. The browser cannot choose a provider,
 model, tenant or tool, and no provider credential is ever sent to the browser.
+
+## 2a. Enhanced AI tool orchestration
+
+When the conversational policy allows it, a business turn runs:
+
+1. The model receives the fixed system prompt, bounded recent history (last six
+   messages, 800 characters each, plus a one-line summary of dropped turns) and
+   the current question.
+2. The model must select a read-only tool (`tool_choice: required`) for a
+   recognised business intent.
+3. The server validates the tool name and strict arguments, checks role and
+   tenant, and executes the existing domain service.
+4. The model receives only the minimum facts and explains them.
+5. Every numeric token in the final answer must match a number returned by a
+   tool, within a small rounding tolerance. Otherwise the answer is rejected
+   and the local deterministic answer is used.
+6. The authoritative local calculation is appended, so facts and explanation
+   are visibly separated.
+
+No arbitrary SQL, database access or financial operation is exposed.
 
 ## 3. Turn order
 
@@ -48,8 +73,9 @@ model, tenant or tool, and no provider credential is ever sent to the browser.
 5. Classify a financial instruction → refuse locally. No provider call.
 6. Social act → try the external conversational provider if eligible; otherwise
    answer locally.
-7. Business intent → local responder and authorized tools only. The external
-   provider is never called for a business intent.
+7. Business intent → external tool orchestration when policy allows; otherwise
+   the local responder and authorized tools. Local data always remains
+   authoritative.
 8. Persist messages with intent, period, clarification state, context flag and
    mode.
 
@@ -90,20 +116,34 @@ unavailable because external AI is off.
 
 ### Sent in external mode
 
+**Conversational (social) turns** — simple adapter:
+
 - The current user message, truncated to 1000 characters, after redaction of:
   emails, URLs, phone-like numbers, reference-like identifiers and every
   numeric token.
 - A fixed system prompt that defines the assistant and its limits.
 
+**Business turns** — Enhanced AI tool orchestration:
+
+- The current question (up to 1500 characters).
+- Bounded recent history: the last six user/assistant messages, each up to 800
+  characters, plus a one-line summary of older turns.
+- The tool catalogue for the user's role, and the minimum facts returned by the
+  executed tool (aggregate totals, comparisons, or authorized customer/account
+  fields for a lookup).
+- A fixed system prompt.
+
+Business turns are only orchestrated when the policy allows it. In production
+that policy is disabled, so none of this is transmitted. The current authorized
+use is the isolated staging environment with synthetic data.
+
 ### Never sent
 
-- Conversation history or earlier messages.
-- Customer, staff, collector or tenant names.
-- Account, customer, payment or transaction references.
-- Database rows, financial statements, report values or exact amounts.
+- The full conversation history.
+- Raw database rows, tables, statements or unrestricted records.
 - Tenant id, user id, session data, authentication data or MFA data.
-- Tool outputs or analytics snapshots.
-- The local answer text.
+- Credentials, secrets or system configuration.
+- The local authoritative answer text (it is generated after the provider call).
 
 ### Residual risk (must be accepted by the privacy assessment)
 
@@ -117,9 +157,11 @@ pattern catches. Production approval must cover this residual risk explicitly.
   tag inside the text is neutralised.
 - The system prompt states that the user message is untrusted data and that
   instructions inside it must be ignored.
-- The output is rejected if it contains **any digit**, URL, email, reference
-  pattern, HTML/markup or control character. The model therefore cannot state a
-  financial figure, and cannot override a locally calculated value.
+- The output is rejected if it contains a URL, email, reference pattern,
+  HTML/markup or control character.
+- Social answers reject **any digit**. Enhanced business answers allow only
+  numbers that were returned by an executed tool, within a small rounding
+  tolerance. A fabricated figure is rejected and the local answer is used.
 - Output length and type are validated before use.
 - Provider errors, status codes and validation codes are audited without prompt
   or response content.

@@ -19,6 +19,20 @@ export const PROVIDER_LIMITS = {
   perTenantPerDay: 100,
 } as const;
 
+function effectiveLimit(name: string, fallback: number, max: number): number {
+  const configured = Number(process.env[name] ?? "");
+  if (!Number.isFinite(configured) || configured < 1) return fallback;
+  return Math.min(max, Math.floor(configured));
+}
+
+function userDailyLimit(): number {
+  return effectiveLimit("ZELI_PROVIDER_USER_DAILY_LIMIT", PROVIDER_LIMITS.perUserPerDay, 500);
+}
+
+function tenantDailyLimit(): number {
+  return effectiveLimit("ZELI_PROVIDER_TENANT_DAILY_LIMIT", PROVIDER_LIMITS.perTenantPerDay, 2000);
+}
+
 export async function checkProviderLimits(
   tenantHash: string,
   userHash: string
@@ -41,10 +55,10 @@ export async function checkProviderLimits(
       },
     }),
   ]);
-  if (userCount >= PROVIDER_LIMITS.perUserPerDay) {
+  if (userCount >= userDailyLimit()) {
     return { allowed: false, reason: "user_daily_limit" };
   }
-  if (tenantCount >= PROVIDER_LIMITS.perTenantPerDay) {
+  if (tenantCount >= tenantDailyLimit()) {
     return { allowed: false, reason: "tenant_daily_limit" };
   }
   return { allowed: true };
