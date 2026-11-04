@@ -121,17 +121,13 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/platform")) {
     // The platform login itself is public.
     if (PLATFORM_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-      // An already-authenticated operator is sent straight to the dashboard.
-      const existing = await readClaims(
-        request.cookies.get(PLATFORM_COOKIE)?.value
-      );
-      if (isPlatformClaims(existing) && pathname === "/platform/login") {
-        return redirectTo(
-          existing.forcePasswordReset
-            ? "/platform/first-login"
-            : "/platform/dashboard"
-        );
-      }
+      // Deliberately NO auto-forward here. The edge runtime can only validate
+      // the JWT's signature and timestamps, not the server-side session
+      // registry; a revoked-but-unexpired cookie would then bounce
+      // dashboard -> login -> dashboard forever. The login page performs the
+      // same forwarding using getPlatformSession(), which consults the
+      // registry, so an operator with a live session still lands on the
+      // dashboard and a revoked one simply sees the sign-in form.
       return NextResponse.next();
     }
 
