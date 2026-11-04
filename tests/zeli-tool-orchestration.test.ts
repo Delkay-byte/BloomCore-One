@@ -7,6 +7,7 @@ import {
   prisma,
 } from "./setup";
 import { runZeliTurn } from "@/lib/zeli/service";
+import { validateGroundedAnswer } from "@/lib/zeli/providers/tool-orchestrator";
 import type { ZeliIdentity } from "@/lib/zeli/types";
 
 const fetchMock = vi.fn();
@@ -107,6 +108,21 @@ afterEach(() => {
 });
 
 describe("Enhanced AI tool orchestration", () => {
+  it("ignores list numbering and still rejects an ungrounded figure", () => {
+    const allowed = new Set([1234.5]);
+    const accepted = validateGroundedAnswer(
+      "1. Contributions were GH₵1,234.50.\n2. Review the report.",
+      allowed
+    );
+    expect(accepted.ok).toBe(true);
+
+    const rejected = validateGroundedAnswer(
+      "1. Contributions were GH₵9,999.99.",
+      allowed
+    );
+    expect(rejected.ok).toBe(false);
+  });
+
   it("executes an authorized read-only tool and explains grounded figures", async () => {
     const { tenant, admin, account, cycle, conversation, identity, customer } = await fixture();
     await prisma.contribution.create({
