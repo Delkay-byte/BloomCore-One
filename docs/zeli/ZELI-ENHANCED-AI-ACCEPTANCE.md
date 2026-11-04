@@ -4,6 +4,10 @@
 **Environment:** `https://bloomcore-one-staging.onrender.com`
 **Mode:** Enhanced AI — TEAM ACCEPTANCE MODE (DeepSeek, synthetic data only)
 **Production:** unchanged, Local mode.
+**Live provider status:** BLOCKED — the staging `DEEPSEEK_API_KEY` is rejected
+with HTTP 401. The control and synthetic data are configured; the owner must
+update the staging secret from the authorized secret store before team testing.
+See `ZELI-ENHANCED-AI-EVIDENCE.md`.
 
 This document is the team guide, the feedback template and the shutdown
 procedure. It also records what was verified and what was not.
