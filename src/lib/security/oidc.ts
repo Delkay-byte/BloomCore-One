@@ -541,13 +541,95 @@ export async function revokeIdpRefreshToken(
 // Audit helpers
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// OIDC Back-Channel Logout token (OpenID Connect BCL 1.0)
+// ---------------------------------------------------------------------------
+
+export const LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
+export const LOGOUT_TOKEN_MAX_AGE_SECONDS = 120;
+
+export type LogoutTokenFailure =
+  | "malformed"
+  | "signature"
+  | "issuer"
+  | "audience"
+  | "expired"
+  | "stale"
+  | "events"
+  | "nonce"
+  | "identifiers";
+
+/**
+ * Validate a back-channel logout token. Fail closed on every check: signature
+ * against the IdP JWKS, exact issuer, audience == client_id, exp/iat, the
+ * back-channel-logout `events` member, a recent `iat` (replay window), a `jti`,
+ * no `nonce` (spec §2.6) and at least one of `sub` / `sid`.
+ */
+export async function validateLogoutToken(
+  logoutToken: string,
+  jwksUri: string,
+  expected: { issuer: string; clientId: string },
+  fetchImpl: typeof fetch = fetch
+): Promise<
+  | { ok: true; claims: { sub?: string; sid?: string; jti: string } }
+  | { ok: false; reason: LogoutTokenFailure }
+> {
+  const jwks = createRemoteJWKSet(new URL(jwksUri), {
+    [customFetch]: fetchImpl as never,
+  });
+  let payload: Record<string, unknown>;
+  try {
+    const verified = await jwtVerify(logoutToken, jwks, {
+      issuer: expected.issuer,
+      audience: expected.clientId,
+      clockTolerance: OIDC_CLOCK_TOLERANCE_SECONDS,
+      algorithms: ALLOWED_ALGS,
+    });
+    payload = verified.payload as Record<string, unknown>;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === "ERR_JWT_EXPIRED") return { ok: false, reason: "expired" };
+    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
+      return { ok: false, reason: "signature" };
+    }
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+      try {
+        const decoded = decodeJwt(logoutToken) as Record<string, unknown>;
+        if (decoded.iss !== expected.issuer) return { ok: false, reason: "issuer" };
+        return { ok: false, reason: "audience" };
+      } catch {
+        return { ok: false, reason: "malformed" };
+      }
+    }
+    return { ok: false, reason: "malformed" };
+  }
+
+  const events = payload.events as Record<string, unknown> | undefined;
+  if (!events || typeof events !== "object" || !(LOGOUT_EVENT in events)) {
+    return { ok: false, reason: "events" };
+  }
+  if (payload.nonce !== undefined) return { ok: false, reason: "nonce" };
+
+  const iat = Number(payload.iat ?? 0);
+  if (!Number.isFinite(iat) || Math.abs(Date.now() / 1000 - iat) > LOGOUT_TOKEN_MAX_AGE_SECONDS) {
+    return { ok: false, reason: "stale" };
+  }
+  const jti = typeof payload.jti === "string" ? payload.jti : "";
+  const sub = typeof payload.sub === "string" ? payload.sub : undefined;
+  const sid = typeof payload.sid === "string" ? payload.sid : undefined;
+  if (!jti || (!sub && !sid)) return { ok: false, reason: "identifiers" };
+  return { ok: true, claims: { sub, sid, jti } };
+}
+
 export async function auditSsoEvent(
   action:
     | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_START
     | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SUCCESS
     | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_DENIED
     | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_LINK_CREATED
-    | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_LINK_FAILED,
+    | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_LINK_FAILED
+    | typeof PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_SESSION_REVOKED,
   params: {
     actorId?: string | null;
     actorEmail?: string | null;

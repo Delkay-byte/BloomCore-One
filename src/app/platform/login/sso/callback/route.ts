@@ -191,6 +191,7 @@ export async function GET(request: Request): Promise<Response> {
     idpSub: resolve.identity_sub,
     idpAmr: amr,
     refreshToken: tokens.refresh_token,
+    idpSid: typeof claims.sid === "string" ? claims.sid : null,
   });
 
   if (!result.ok) {

@@ -159,7 +159,8 @@ export async function verifyPlatformToken(
 }
 
 export async function setPlatformSession(
-  payload: Omit<PlatformJwtPayload, "kind">
+  payload: Omit<PlatformJwtPayload, "kind">,
+  provenance?: { authSource?: "local" | "sso"; idpSub?: string | null; idpSid?: string | null }
 ): Promise<void> {
   const cookieStore = await cookies();
   const jti = payload.jti ?? randomUUID();
@@ -175,6 +176,11 @@ export async function setPlatformSession(
     expiresAt: new Date(
       Date.now() + PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS * 1000
     ),
+    // Provenance makes SSO-derived sessions revocable by central logout and by
+    // IdP back-channel logout without touching the same admin's local login.
+    authSource: provenance?.authSource ?? null,
+    idpSub: provenance?.idpSub ?? null,
+    idpSid: provenance?.idpSid ?? null,
   });
   cookieStore.set(PLATFORM_COOKIE, token, {
     httpOnly: true,

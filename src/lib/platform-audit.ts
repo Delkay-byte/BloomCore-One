@@ -23,6 +23,7 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_SSO_DENIED: "platform.sso_denied",
   PLATFORM_SSO_LINK_CREATED: "platform.sso_link_created",
   PLATFORM_SSO_LINK_FAILED: "platform.sso_link_failed",
+  PLATFORM_SSO_SESSION_REVOKED: "platform.sso_session_revoked",
   TENANT_CREATED: "tenant.created",
   TENANT_ACTIVATED: "tenant.activated",
   TENANT_SUSPENDED: "tenant.suspended",

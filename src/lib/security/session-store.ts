@@ -20,6 +20,12 @@ export interface SessionRecordInput {
   ipHash?: string | null;
   userAgentHash?: string | null;
   expiresAt: Date;
+  /** "local" | "sso" — SSO rows are the only ones central revocation targets. */
+  authSource?: "local" | "sso" | null;
+  /** Immutable Authentik subject (uid) for SSO sessions. */
+  idpSub?: string | null;
+  /** OIDC session id, so an IdP back-channel logout token with `sid` matches. */
+  idpSid?: string | null;
 }
 
 export async function createSessionRecord(input: SessionRecordInput): Promise<void> {
@@ -33,6 +39,9 @@ export async function createSessionRecord(input: SessionRecordInput): Promise<vo
         ipHash: input.ipHash ?? null,
         userAgentHash: input.userAgentHash ?? null,
         expiresAt: input.expiresAt,
+        authSource: input.authSource ?? null,
+        idpSub: input.idpSub ?? null,
+        idpSid: input.idpSid ?? null,
       },
     });
   } catch (error) {

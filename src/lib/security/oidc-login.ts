@@ -40,6 +40,8 @@ export async function completeSsoSignIn(input: {
   idpSub: string;
   idpAmr: string[];
   refreshToken?: string;
+  /** OIDC session id from the ID token — lets back-channel logout match exactly. */
+  idpSid?: string | null;
 }): Promise<SsoSignInResult> {
   const link = await db.platformOidcLink.findUnique({
     where: { idpSub: input.idpSub },
@@ -91,6 +93,10 @@ export async function completeSsoSignIn(input: {
     // guards; the mapped `amr` literal above is what middleware enforces.
     idpAmr: input.idpAmr,
     jti,
+  }, {
+    authSource: "sso",
+    idpSub: input.idpSub,
+    idpSid: input.idpSid ?? null,
   });
 
   try {

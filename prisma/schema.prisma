@@ -747,9 +747,24 @@ model SessionRecord {
   expiresAt     DateTime
   revokedAt     DateTime?
   revokedReason String?
+  // Provenance (Phase 1.1). Local logins leave these null; SSO sessions carry
+  // the immutable Authentik subject and OIDC session id so central logout and
+  // IdP back-channel logout revoke exactly these rows and never a local login.
+  authSource    String?
+  idpSub        String?
+  idpSid        String?
 
   @@index([subjectType, subjectId])
   @@index([expiresAt])
+  @@index([idpSub])
+  @@index([idpSid])
+}
+
+/// Processed revocation message ids (replay/duplicate protection).
+model OidcRevocationEvent {
+  eventId    String   @id
+  source     String   @default("control_center")
+  receivedAt DateTime @default(now())
 }
 
 /// Administrator-issued, single-use account recovery code.
