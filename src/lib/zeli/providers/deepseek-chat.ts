@@ -110,7 +110,20 @@ export async function requestDeepSeekChat(params: {
 
     const body = await readBounded(response);
     if (!response.ok) {
-      throw new ChatTransportError(`Provider returned ${response.status}.`, "provider_status");
+      let providerType = "";
+      try {
+        const parsedError = JSON.parse(body) as {
+          error?: { type?: unknown; code?: unknown };
+        };
+        const raw = parsedError.error?.type ?? parsedError.error?.code ?? "";
+        providerType = String(raw).replace(/[^a-z0-9_]/gi, "").slice(0, 40);
+      } catch {
+        providerType = "";
+      }
+      throw new ChatTransportError(
+        `Provider returned ${response.status}.`,
+        `provider_status_${response.status}${providerType ? `:${providerType}` : ""}`
+      );
     }
 
     let parsed: {
