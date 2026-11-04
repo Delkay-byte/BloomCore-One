@@ -319,7 +319,9 @@ export default function ZeliPage() {
             </p>
             <p className="mt-1">
               Business figures come from this staging database and are calculated by
-              BloomCore One. Enhanced AI explains them; it cannot change records.
+              BloomCore One. Enhanced AI explains them; it cannot change records. If an
+              answer is labelled “Local mode — Enhanced AI unavailable or blocked”, the
+              provider was unavailable and Zeli answered locally.
             </p>
           </div>
         ) : (
@@ -475,16 +477,30 @@ export default function ZeliPage() {
                     >
                       <ThumbsDown size={12} aria-hidden /> Not helpful
                     </button>
-                    {message.role === "assistant" && message.deterministic && (
-                      <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
-                        <ShieldCheck size={12} aria-hidden /> Computed from your records
-                      </span>
-                    )}
+                    {message.role === "assistant" &&
+                      message.deterministic &&
+                      !(environment === "staging" && status?.conversation?.mode === "external") && (
+                        <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
+                          <ShieldCheck size={12} aria-hidden /> Computed from your records
+                        </span>
+                      )}
                     {message.role === "assistant" && message.provider?.startsWith("deepseek") && (
                       <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
                         <Sparkles size={12} aria-hidden /> External AI answer
                       </span>
                     )}
+                    {message.role === "assistant" &&
+                      environment === "staging" &&
+                      status?.conversation?.mode === "external" &&
+                      message.provider === "internal" && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900"
+                          title="The external provider was unavailable or blocked this turn. Zeli answered locally."
+                        >
+                          <ShieldCheck size={12} aria-hidden /> Local mode — Enhanced AI
+                          unavailable or blocked
+                        </span>
+                      )}
                     {message.sources?.length > 0 && (
                       <span className="text-slate-400">Sources:</span>
                     )}
