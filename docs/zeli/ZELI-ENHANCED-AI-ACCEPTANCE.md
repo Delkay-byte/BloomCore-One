@@ -4,9 +4,8 @@
 **Environment:** `https://bloomcore-one-staging.onrender.com`
 **Mode:** Enhanced AI — TEAM ACCEPTANCE MODE (DeepSeek, synthetic data only)
 **Production:** unchanged, Local mode.
-**Live provider status:** BLOCKED — the staging `DEEPSEEK_API_KEY` is rejected
-with HTTP 401. The control and synthetic data are configured; the owner must
-update the staging secret from the authorized secret store before team testing.
+**Live provider status:** VERIFIED. Two real staging turns succeeded on
+`deepseek-flash` with tool execution, numeric grounding and follow-up context.
 See `ZELI-ENHANCED-AI-EVIDENCE.md`.
 
 This document is the team guide, the feedback template and the shutdown
@@ -118,7 +117,10 @@ payment or confidential business information.
 
 1. "Give me a summary of the business this month."
 2. "What contributed most to the change?"
-3. "Compare that with last month."
+3. "Compare that with last month." — if the answer falls back to Local mode, the
+   model tried to add a figure that the tool did not return. That is the safety
+   rule working, not a failure. "What about last month?" is the verified
+   context test.
 4. "What about the East branch?"
 5. "Why is that branch different?"
 6. "What should management investigate first?"

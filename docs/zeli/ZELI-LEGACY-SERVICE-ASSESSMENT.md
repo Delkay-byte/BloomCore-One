@@ -14,50 +14,51 @@ The following remain in force and were not changed by this work:
 - do not change its database;
 - do not change its secrets.
 
-## 2. What the repository shows
+## 2. What the repository and live service show
 
 | Finding | Evidence |
 |---|---|
 | The legacy service is the previous Render service, retained as a rollback target | `render.yaml` header comment: previous service `srv-dbihvrmgekts73fdcbj0`, now `bik-prestige-legacy` |
-| The legacy application predates the current security model | `origin/master` is an ancestor of `origin/main` and **77 commits behind** |
-| Legacy authentication has no MFA | no `mfaEnabled` or `MFA_ENFORCEMENT` in `origin/master` |
-| Legacy has no Turnstile | no Turnstile reference in `origin/master` |
-| Legacy still exposes login surfaces | `/login`, `/login/momo`, `/login/susu`, `/login/customer`, `/api/auth/session` on `origin/master` |
-| Legacy reads the same domain tables | the old schema contains `User`, `Customer`, accounts, contributions and withdrawals |
+| It auto-deploys from `main` | Render service metadata: `branch=main`, `autoDeploy=yes` |
+| It runs the current application code | live deploy commit `4a68c5d`, the production release |
+| It is publicly reachable | `https://bik-prestige-enterprise-pcxi.onrender.com` returns HTTP 200 on `/`, `/login`, `/platform/login` and `/api/health` |
+| It shares the production database host | Render env host comparison: legacy `DATABASE_URL` host equals production host |
+| Legacy authentication has no enforced MFA | only 7 env keys; `MFA_ENFORCEMENT` absent, so the code default is not `enforce` |
+| Legacy has no Turnstile | no `TURNSTILE_*` keys configured |
+| Legacy has no dedicated rate-limit secret | `RATE_LIMIT_HMAC_SECRET` absent; code falls back to `JWT_SECRET` |
+| Legacy has no MFA encryption key | `MFA_ENCRYPTION_KEY` absent, so MFA enrolment cannot operate correctly |
+| Legacy exposes the current login and platform surfaces | `/login` and `/platform/login` both return 200 |
 
-This is repository evidence about the code. It is not evidence about the
-running service's environment, which the agent cannot read without Render or
-Neon access.
+This is stronger evidence than the previous release. The legacy host is not a
+stale old build: it is the current application, running against the production
+database, with weaker environment configuration.
 
-## 3. Prior release finding (carried forward, not re-verified)
+## 3. Prior release finding — confirmed
 
 The previous release reported that `bik-prestige-legacy` shares the production
-Neon database and lacks the current MFA and Turnstile protections. That finding
-is consistent with the repository evidence above, but it was not re-verified in
-this change.
+Neon database and lacks the current MFA and Turnstile protections. Both points
+are now confirmed from Render service metadata and environment keys. The legacy
+host also auto-deploys the current `main` code, so it is not a frozen old build.
 
 ## 4. Questions and current answers
 
 | # | Question | Answer | Confidence |
 |---|---|---|---|
-| 1 | Is it receiving real user traffic? | Unknown. Requires Render request metrics and access logs. | Not verified |
-| 2 | Which users depend on it? | Unknown. Requires access logs plus user contact. | Not verified |
-| 3 | Does it share production user/session data? | Reported yes by the previous release; not re-verified. | Prior finding |
-| 4 | What financial and customer data can it access? | If it shares the database: users, customers, accounts, contributions, withdrawals, remittances and daily accounts. | Code-level inference |
-| 5 | Can weaker authentication expose the shared database? | If it shares the database and is reachable, a valid password could create a session without MFA. Session tokens are signed with the legacy secret, so they would not automatically be valid on the new host, but the legacy host could still read and write through its own session. | Conditional risk |
+| 1 | Is it receiving real user traffic? | Unknown. Render's public API does not expose request metrics; dashboard access is required. | Not verified |
+| 2 | Which users depend on it? | Unknown. Requires access logs and owner knowledge. | Not verified |
+| 3 | Does it share production user/session data? | Yes: same database host as production. | Verified |
+| 4 | What financial and customer data can it access? | Users, customers, accounts, contributions, withdrawals, remittances and daily accounts in the production database. | Verified by configuration |
+| 5 | Can weaker authentication expose the shared database? | Yes conditionally: MFA is not enforced and Turnstile is absent, so a valid password is sufficient on the legacy host. | Verified configuration risk |
 | 6 | Can it be isolated safely? | Yes, in stages: block public traffic first, then remove database access after a rollback window. Requires owner authorization. | Recommendation |
 | 7 | Should it be retired or hardened? | Retire after evidence collection unless a named user still depends on it. Hardening is the fallback. | Recommendation |
 
 ## 5. Risk statement
 
-A reachable legacy deployment with password-only authentication, pointed at the
-production database, is a weaker path to the same records protected by MFA and
-Turnstile on the current host. The severity depends on two facts that are not
-yet verified: whether it is reachable, and whether it still uses the production
-database.
-
-Do not describe the production database as fully protected until those two facts
-are confirmed.
+A publicly reachable legacy deployment that auto-deploys the current code,
+enforces no MFA, has no Turnstile, and points at the production database is a
+weaker path to the same records protected on the main host. The remaining
+unknown is traffic volume, not exposure. Treat this as a live production
+security finding until the owner decides the transition.
 
 ## 6. Evidence collection (owner, read-only)
 
