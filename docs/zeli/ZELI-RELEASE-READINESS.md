@@ -112,3 +112,20 @@ Do not deploy until:
 - DeepSeek synthetic probe succeeded; emergency stop restored and environment
   permission returned to false.
 - Production untouched; PR #4 remains open and unmerged.
+
+## Production release (4 November 2026)
+
+- PR #4 merged to `main` as `f4ef601`; production deployed and verified at that
+  commit (`env=production`, `database=ok`).
+- Migrations applied to production: 14 → 21, all additive.
+- Zeli global availability: **ON** (`ZeliAvailability.enabled=true`, seeded by
+  the rollout migration; no audited operator entry because no Super Admin
+  session was used).
+- External AI: **OFF**. `ZeliProviderControl` has no row, so the effective
+  policy is `DEFAULT_CONTROL` (disabled and emergency-disabled), and
+  `PRODUCTION_PROVIDER_APPROVED=false`.
+- Smoke: chat 401 same-origin, chat 403 cross-origin, unsigned webhook 401,
+  `/platform/login` 200, `/admin/login` 200.
+- Staging unchanged at `53ceae8`, Auto-Deploy OFF.
+- Paystack on production is now a LIVE key; checkout is open for real charges.
+  No live charge was made.

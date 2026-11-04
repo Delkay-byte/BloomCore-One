@@ -1,7 +1,7 @@
 # Zeli — Production Release Dossier
 
-**Status:** RELEASE CANDIDATE. Engineering remediation complete; staging verified
-at `53ceae8`; PR #4 open and awaiting final CI, merge and production deployment.
+**Status:** RELEASED. PR #4 merged; production deployed at `f4ef601`; Zeli
+availability ON; external AI disabled. See “Production release record” below.
 **Prepared:** 4 November 2026. **Owner decision:** production operation
 authorized for this release.
 
@@ -13,6 +13,7 @@ authorized for this release.
 | PR | #4 — base `main` at `06ea9df` |
 | Branch | `feat/zeli-complete-api-commerce-2026-11` |
 | Candidate SHA | `53ceae829b348b2415832eb87a469858a5985d31` (staging-verified) |
+| Deployed merge commit | `f4ef60139fd463bf5782797f59f1f44f2946d31b` |
 | Production service | `bloomcore-one` |
 | Legacy service | `bik-prestige-legacy` — not touched |
 | Staging | `bloomcore-one-staging` — manual deploy, Auto-Deploy OFF |
@@ -34,24 +35,41 @@ authorized for this release.
 - [x] Expiry sweep implemented and tested; access still denied by `expiresAt`.
 - [x] Emergency stop latched independently of provider mode.
 - [x] External-AI status header derived from the effective policy.
-- [ ] Final CI on the exact PR head.
+- [x] Final CI on the exact PR head `b46a0f5` (`Lint, typecheck, test, build`).
 - [x] Staging deployment of the final candidate. Health at `53ceae8`, 21/21
       migrations, availability ON, provider latched disabled, chat 401,
       cross-origin 403, unsigned webhook 401. Interactive browser acceptance was
       blocked by Cloudflare Turnstile for the automation browser and is recorded
       as a limitation in `ZELI-STAGING-DEPLOYMENT.md`.
-- [ ] Merge and production deployment.
+- [x] Merge and production deployment — merge `f4ef601`, deployed and verified.
 - [ ] Independent penetration test — **DEFERRED**; owner intends to arrange it.
 - [ ] DPIA/privacy/legal approval for approved production AI — outstanding.
 
 ## Material environment finding
 
-Production `bloomcore-one` is configured with a Paystack **test** key
-(`sk_test_…`), not a LIVE key. The application therefore keeps production
-checkout closed with an honest message instead of taking an unsettled order.
-This is an owner-operated Render dashboard action: set `PAYSTACK_SECRET_KEY` on
-`bloomcore-one` to the LIVE secret key, then redeploy. No key value is recorded
-here and the key must never be copied to staging.
+During this release window the production `PAYSTACK_SECRET_KEY` on
+`bloomcore-one` changed from a test key to a **LIVE** key (`sk_live_…`, prefix
+only). The release was performed after that change, so production checkout is
+now **open for real charges** rather than closed by the test-key guard.
+
+Consequences, recorded honestly:
+
+- No card charge and no checkout initialisation were performed by this
+  workstream. No payment row was created.
+- The production webhook endpoint must be registered in the Paystack dashboard
+  against the LIVE secret before any real payment is attempted. That is an
+  owner dashboard check and was not verified here.
+- Refunds use the same LIVE secret; the duplicate-payment auto-refund path is
+  therefore live as well. It is never triggered by a synthetic test.
+- Staging still uses its own TEST key and was not changed.
+
+Also observed: production `DEEPSEEK_API_KEY` now holds a real value, and
+`ZELI_DEEPSEEK_APPROVED=true` is set. External AI still cannot run because the
+`ZeliProviderControl` row is absent, which resolves to `DEFAULT_CONTROL`
+(`mode=disabled`, `enabled=false`, `emergencyDisabled=true`), and because
+`PRODUCTION_PROVIDER_APPROVED = false` in code. The key value was not recorded
+in this document; it should be rotated as routine hygiene if it was ever
+exposed outside the Render dashboard.
 
 ## Migration review
 
@@ -96,30 +114,49 @@ Never run from a build. Never run against staging by accident.
 9. Production Auto-Deploy is `checksPass`: merging `main` triggers a deployment
    after CI passes.
 
-## Deployment sequence (owner only)
+## Deployment sequence (executed)
 
-1. Approve merge and production deployment.
-2. Merge PR #4 (this may trigger Auto-Deploy on CI pass).
-3. Run migration deploy with the direct URL **before** or independently of
-   relying on the app.
-4. Verify `/api/health` reports the expected commit and `APP_ENV`.
-5. Verify `/platform/login` and `/admin/login`.
-6. Verify the payment webhook endpoint responds and rejects an unsigned request.
-7. Verify `/platform/zeli`: Zeli ON, provider disabled, emergency stop active,
-   production processing locked.
-8. Verify analytics/chat with a synthetic tenant or controlled support account.
-9. Monitor errors, latency, provider usage, entitlement and payment events.
+1. Final CI on `b46a0f5`: `Lint, typecheck, test, build` — pass.
+2. `prisma migrate deploy` with the production direct URL — 7 pending migrations
+   applied, 14 → 21. No migration dropped or truncated anything.
+3. PR #4 merged as `f4ef601` (merge commit). Auto-Deploy started from `main`.
+4. First auto-deploy reached `live` but the public origin kept serving the old
+   build. A clean redeploy of the same commit (`clearCache: clear`) was issued
+   through the Render API and the origin then served `f4ef601`.
+5. Smoke verification run against `https://bloomcore-one.onrender.com`.
 
-## Post-deployment health checks
+## Production release record
 
-- `GET /api/health` returns 200 with the release commit.
-- Platform login and tenant login succeed; MFA behaves as configured.
-- `/zeli` answers locally with external AI disabled.
-- Unentitled tenant is denied analytics; export returns 403.
-- `/platform/zeli` shows Zeli ON and provider disabled.
-- Webhook rejects an unsigned POST and acknowledges a valid test event without
-  granting access from a browser redirect.
-- No unexpected provider usage rows appear.
+| Item | Result |
+|---|---|
+| Merge commit | `f4ef60139fd463bf5782797f59f1f44f2946d31b` |
+| Production `/api/health` | 200, `env=production`, `commit=f4ef601` |
+| `/api/health/ready` | 200, `database=ok` |
+| Migrations applied | 21/21 (`_prisma_migrations`) |
+| `ZeliAvailability` | `enabled=true`, seeded by migration `20261103` |
+| `ZeliProviderControl` rows | 0 → `DEFAULT_CONTROL` (disabled, emergency) |
+| `PRODUCTION_PROVIDER_APPROVED` | `false` in the deployed commit |
+| `POST /api/zeli/chat` same-origin, no session | 401 `Not authenticated` (Zeli ON) |
+| `POST /api/zeli/chat` cross-origin | 403 origin denied |
+| `POST /api/payments/paystack/webhook` unsigned | 401 `invalid_signature` |
+| `/platform/login` | 200 |
+| `/admin/login` | 200 |
+| Legacy service `bik-prestige-legacy` | not touched |
+| Staging | unchanged at `53ceae8`, Auto-Deploy OFF |
+
+Audit note: because `ZeliAvailability` is seeded `enabled=true` by the rollout
+migration, the production switch is ON without a `PlatformAuditLog` entry for an
+operator “enable” action. Re-affirming the switch in the Super Admin control
+records an audited entry with the operator's reason. No audit row was fabricated
+and no direct write was made to `PlatformAuditLog`.
+
+## Post-deployment checks still owner-operated
+
+- Authenticated UI walk-through of `/platform/zeli` with a Super Admin session
+  (Zeli ON, provider disabled, emergency stop active).
+- Tenant-side `/zeli` chat and analytics entitlement checks with a real account.
+- Paystack dashboard: confirm the webhook URL and LIVE secret, then send one
+  controlled LIVE verification only if the business is ready to take money.
 
 ## Rollback
 
@@ -135,8 +172,8 @@ Never run from a build. Never run against staging by accident.
 - DPIA/privacy/legal review for external AI remains outstanding.
 - Independent penetration testing has not occurred and is **DEFERRED** to the
   owner's later security-assurance stage.
-- Production Paystack is configured with a test key, so live checkout stays
-  closed until the owner sets the LIVE key in Render.
+- Production Paystack is now configured with a LIVE key, so production checkout
+  is open for real charges. No live charge was made during this release.
 - No successful live card payment. Payment behaviour is proven with the
   Paystack TEST environment and signed TEST webhooks.
 - Recurring auto-charge requires an owner-configured Paystack plan code.
@@ -171,4 +208,9 @@ Never run from a build. Never run against staging by accident.
 - [ ] I accept that approved production AI remains locked.
 - [ ] I accept that independent penetration testing is deferred.
 
-No production action was taken by this work.
+## Execution note
+
+Production action was taken by this workstream under the owner's written release
+authorisation: migrations were applied, PR #4 was merged, and the service was
+redeployed. Exact setting and reason for the one owner-operated dashboard item
+(Paystack LIVE key) is recorded under “Material environment finding”.
