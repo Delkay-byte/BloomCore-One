@@ -93,7 +93,7 @@ Old `bloomcore-one-*` assets were removed after all references moved.
 | Branches | Preserved |
 | PRs and issues | Untouched |
 | CI workflow | `.github/workflows/ci.yml`, reviewed, no product-name coupling |
-| Remote CI result | **Running** on PR #16 (`Lint, typecheck, test, build`) |
+| Remote CI result | **Pass** — PR #16, run 42308514524 (`Lint, typecheck, test, build`, 3m55s) |
 | Local CI equivalent | Typecheck, tests, lint, production build passed (§H) |
 
 ### Prepared rename steps (not executed)
