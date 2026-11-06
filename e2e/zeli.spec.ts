@@ -10,7 +10,7 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
     await page.goto("/zeli");
     await expect(page.getByText("Local mode.", { exact: false })).toBeVisible();
     await expect(
-      page.getByText("runs entirely inside BloomCore One", { exact: false })
+      page.getByText("runs entirely inside MaaCash", { exact: false })
     ).toBeVisible();
 
     await sendZeliMessage(page, "Summarise this month's contributions and withdrawals.");

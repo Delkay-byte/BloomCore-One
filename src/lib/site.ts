@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PUBLIC SITE CONFIGURATION — BloomCore One
+ * PUBLIC SITE CONFIGURATION — MaaCash
  * ============================================================================
  *
  * One place for everything the public marketing site and the application
@@ -23,12 +23,13 @@
  *   supply — it never pretends an enquiry was sent.
  */
 
-export const PRODUCT_NAME = "BloomCore One";
+export const PRODUCT_NAME = "MaaCash";
 export const COMPANY_NAME = "BloomCore Technologies";
 export const PRODUCT_TAGLINE = "One platform. Clearer control.";
-export const PRODUCT_DESCRIPTOR = "Business & Financial Operations Platform";
+export const PRODUCT_DESCRIPTOR =
+  "Mobile Money, Susu & Multi-Branch Financial Operations Platform";
 export const PRODUCT_POSITIONING =
-  "BloomCore One brings business operations, collections, people and financial records together in one connected platform.";
+  "MaaCash brings mobile money, Susu collections, multi-branch operations and financial records together in one connected platform.";
 export const COMPANY_LOCATION = "Ghana";
 export const FIRST_TENANT_NAME = "BIK Prestige Enterprise";
 export const FIRST_TENANT_CODE = "BIK-HQ-001";

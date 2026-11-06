@@ -121,7 +121,7 @@ export default function UnifiedLoginClient({
         {/* Brand */}
         <div className="text-center mb-7">
           <BrandLockup size={56} className="justify-center" />
-          <p className="text-slate-500 mt-3 text-sm">Business & Financial Operations Platform</p>
+          <p className="text-slate-500 mt-3 text-sm">Mobile Money, Susu & Multi-Branch Operations</p>
         </div>
 
         {/* Invalid admin role */}

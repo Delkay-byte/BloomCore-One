@@ -11,7 +11,7 @@ export default function ZeliUnavailable({
     <div className={compact ? "" : "mx-auto max-w-2xl py-12"}>
       <div className="card bg-white text-center">
         <p className="text-xs font-semibold uppercase tracking-wider text-gold-600">
-          BloomCore One
+          MaaCash
         </p>
         <h1 className="mt-1 text-2xl font-bold text-brand-900">
           Zeli is temporarily unavailable

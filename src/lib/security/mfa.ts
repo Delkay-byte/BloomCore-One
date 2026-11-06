@@ -28,7 +28,7 @@ interface MfaRow {
   mfaRecoveryCodes: string | null;
 }
 
-const ISSUER = "BloomCore One";
+const ISSUER = "MaaCash";
 
 function actorTypeFor(
   subjectType: MfaSubjectType

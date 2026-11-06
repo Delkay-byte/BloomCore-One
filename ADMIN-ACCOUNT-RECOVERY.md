@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the emergency procedure for recovering access to the BIK Prestige Enterprise administrator account when:
+This document describes the emergency procedure for recovering access to a MaaCash administrator account when:
 
 - The admin has forgotten their password
 - The normal password reset flow is unavailable

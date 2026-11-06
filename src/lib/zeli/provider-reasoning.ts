@@ -138,7 +138,7 @@ export async function enhanceWithProvider(params: {
       `Possible interpretation: ${explanation.interpretation}`,
       `Suggested investigation: ${explanation.suggestedInvestigation}`,
       `Limitations: ${explanation.limitations}`,
-      "[AUTHORITATIVE FACTS] All amounts, counts and dates in the preceding local answer are calculated by BloomCore One. The external explanation cannot change them.",
+      "[AUTHORITATIVE FACTS] All amounts, counts and dates in the preceding local answer are calculated by MaaCash. The external explanation cannot change them.",
     ].join("\n");
     return { used: true, text, state: policy.state };
   } catch (error) {

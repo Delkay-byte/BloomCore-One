@@ -1,5 +1,5 @@
 /**
- * BIK Prestige Enterprise — Deployment Preparation Script
+ * MaaCash - Deployment Preparation Script
  *
  * This script prepares the application for deployment by:
  * 1. Verifying environment configuration
@@ -34,7 +34,7 @@ function run(cmd) {
 }
 
 console.log("");
-console.log("🚀 BIK Prestige Enterprise — Deployment Preparation");
+console.log("🚀 MaaCash — Deployment Preparation");
 console.log("");
 
 // Step 1: Verify environment

@@ -1,13 +1,14 @@
-# Render Deployment Blueprint — BloomCore One (Neon)
+# Render Deployment Blueprint — MaaCash (Neon)
 # https://render.com/docs/blueprint-spec
 #
 # Scope: describes the Neon-backed production service `bloomcore-one`
-# (srv-dbjalrk9v7es739ifkp0), created in the Render dashboard with this name so
-# its onrender.com hostname matches the product identity. The previous service
-# (srv-dbihvrmgekts73fdcbj0, now `bik-prestige-legacy`) is retained only as a
-# rollback target until the new host is confirmed. Do not run "New → Blueprint"
-# against this branch unless both services are first deleted, or a duplicate
-# will be created.
+# (srv-dbjalrk9v7es739ifkp0). The service identifier and its onrender.com
+# hostname are intentionally preserved after the MaaCash rebrand: they are
+# infrastructure contracts used by Paystack webhooks, Turnstile host checks and
+# OIDC redirect URIs. The public product identity is MaaCash. Rename the
+# service only as a separately approved migration with all callbacks updated.
+# Do not run "New → Blueprint" against this branch unless both services are
+# first deleted, or a duplicate will be created.
 #
 # Database schema is NEVER created or altered by a build. Provisioning the
 # schema is a separate, explicitly run operator step — see

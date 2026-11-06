@@ -22,7 +22,7 @@ import {
  *  - decisions are audited without storing payload values.
  *
  * Pseudonymisation is not anonymisation. Even a fully valid aggregate payload
- * stays inside BloomCore One while external processing is disabled.
+ * stays inside MaaCash while external processing is disabled.
  */
 
 export const GATEWAY_METRICS = [

@@ -1,5 +1,11 @@
 # BloomCore One — Brand and Public Website
 
+> **Historical record.** This document describes the product while it was named
+> BloomCore One. The current product identity is **MaaCash** (formerly BloomCore
+> One). See `docs/branding/MAACASH-REBRAND-MIGRATION-REPORT.md` for the current
+> brand system and migration record. Do not use this document as current brand
+> guidance.
+
 **Status:** implemented on branch `feature/bloomcore-one-brand-public-site`.
 **Owner:** BloomCore Technologies.
 **Scope of this document:** product identity, logo system, palette, typography,

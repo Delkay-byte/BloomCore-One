@@ -1,5 +1,5 @@
 /*
- * BloomCore One — per-tab proof-of-possession transport.
+ * MaaCash — per-tab proof-of-possession transport.
  *
  * Ordinary cookies are shared by every tab. This worker gives each tab its own
  * authentication credential without ever persisting a bearer session token.

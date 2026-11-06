@@ -45,7 +45,7 @@ export default function CustomerForgotPasswordPage() {
         </div>
       </div>
       <p className="text-center text-xs text-slate-400 mt-8">
-        BloomCore One · Built by BloomCore Technologies
+        MaaCash · Built by BloomCore Technologies
       </p>
     </div>
   );

@@ -1,5 +1,8 @@
 # PRODUCTION RELEASE RUNBOOK — Multi-Tenant SaaS Activation
 
+> Current product identity: **MaaCash** (formerly BloomCore One). Service and
+> database identifiers below are preserved infrastructure names, not branding.
+
 **Release:** multi-tenant platform foundation + Phase 2 UI → Render production
 **Executed:** 2026-10-31 · **Status:** DATABASE MIGRATED — MAIN PROMOTION PENDING
 **Production branch:** `main` · **Previous `main`:** `b88a10a`

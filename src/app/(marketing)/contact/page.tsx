@@ -42,7 +42,7 @@ const ENQUIRY_CHECKLIST = [
 
 const mailtoHref = CONTACT_EMAIL
   ? `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
-      `BloomCore One demonstration request`
+      `MaaCash demonstration request`
     )}&body=${encodeURIComponent(
       [
         "Business name:",

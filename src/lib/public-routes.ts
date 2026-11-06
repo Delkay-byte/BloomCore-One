@@ -3,7 +3,7 @@
  * PUBLIC MARKETING ROUTES
  * ============================================================================
  *
- * The BloomCore One marketing site is public. Everything else keeps the access
+ * The MaaCash marketing site is public. Everything else keeps the access
  * control it already had.
  *
  * This module is deliberately dependency-free: src/middleware.ts runs it on the

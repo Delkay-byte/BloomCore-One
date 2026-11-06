@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     description: PRODUCT_POSITIONING,
     images: [
       {
-        url: absoluteUrl("/branding/bloomcore-one-og.png"),
+        url: absoluteUrl("/branding/maacash-og.png"),
         width: 1200,
         height: 630,
         alt: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
@@ -39,12 +39,12 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${PRODUCT_NAME} — ${PRODUCT_DESCRIPTOR}`,
     description: PRODUCT_POSITIONING,
-    images: [absoluteUrl("/branding/bloomcore-one-og.png")],
+    images: [absoluteUrl("/branding/maacash-og.png")],
   },
   icons: {
     icon: [
-      { url: "/branding/bloomcore-one-icon.svg", type: "image/svg+xml" },
-      { url: "/branding/bloomcore-one-icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/branding/maacash-icon.svg", type: "image/svg+xml" },
+      { url: "/branding/maacash-icon-192.png", sizes: "192x192", type: "image/png" },
     ],
     apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },

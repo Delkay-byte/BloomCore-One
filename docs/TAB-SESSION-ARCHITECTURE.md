@@ -2,7 +2,7 @@
 
 ## Root cause
 
-BloomCore One authenticated every request from a browser-wide cookie
+MaaCash authenticated every request from a browser-wide cookie
 (`bik-admin-session`, `bik-worker-session`, `bik-collector-session`,
 `bik-customer-session`, `bik-platform-session`). Cookies are scoped to an
 origin and a path, not to a tab. Every tab in the same browser profile

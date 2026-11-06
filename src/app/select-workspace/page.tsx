@@ -147,7 +147,7 @@ export default function SelectWorkspacePage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          BloomCore One{tenantName ? ` · ${tenantName}` : ""} — Built by BloomCore Technologies
+          MaaCash{tenantName ? ` · ${tenantName}` : ""} — Built by BloomCore Technologies
         </p>
       </div>
     </div>

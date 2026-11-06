@@ -37,7 +37,7 @@ const MESSAGES: Record<AppErrorCode, Omit<UserFacingError, "code">> = {
     retryable: true,
   },
   network: {
-    message: "We couldn't reach BloomCore One. Please try again.",
+    message: "We couldn't reach MaaCash. Please try again.",
     retryable: true,
   },
   timeout: {

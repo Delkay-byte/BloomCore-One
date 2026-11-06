@@ -1,5 +1,5 @@
 /**
- * Public access-link configuration for BloomCore One.
+ * Public access-link configuration for MaaCash.
  *
  * This data structure is intentionally machine-readable so QR generation can
  * be added later. Each entry is a PUBLIC login URL — never credentials,

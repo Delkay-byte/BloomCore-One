@@ -26,14 +26,14 @@ export interface ZeliAvailabilityState {
 
 export class ZeliUnavailableError extends Error {
   code = "zeli_unavailable";
-  constructor(message = "Zeli is temporarily unavailable. BloomCore One remains available.") {
+  constructor(message = "Zeli is temporarily unavailable. MaaCash remains available.") {
     super(message);
     this.name = "ZeliUnavailableError";
   }
 }
 
 const UNAVAILABLE_MESSAGE =
-  "Zeli is temporarily unavailable. BloomCore One remains available.";
+  "Zeli is temporarily unavailable. MaaCash remains available.";
 
 export async function getZeliAvailability(): Promise<ZeliAvailabilityState> {
   try {

@@ -1,4 +1,8 @@
-# BloomCore One — Multi-Tenant SaaS on Neon + Render
+# MaaCash - Multi-Tenant SaaS on Neon + Render
+
+> Formerly BloomCore One. The Render service name `bloomcore-one`, its
+> `onrender.com` hostname and the Neon project identifiers are preserved
+> infrastructure contracts. They are not product branding.
 
 **Verified on 2026-11-01.** This document describes the multi-tenant SaaS
 deployment: one Render web service, one Neon PostgreSQL database, a platform

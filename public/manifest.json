@@ -1,7 +1,7 @@
 {
-  "name": "BloomCore One — Business & Financial Operations Platform",
-  "short_name": "BloomCore One",
-  "description": "BloomCore One brings business operations, collections, people and financial records together in one connected platform.",
+  "name": "MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations",
+  "short_name": "MaaCash",
+  "description": "MaaCash brings mobile money, Susu collections, multi-branch operations and financial records together in one connected platform.",
   "id": "/workspace",
   "start_url": "/workspace",
   "scope": "/",
@@ -10,8 +10,8 @@
   "theme_color": "#0e4d34",
   "orientation": "portrait-primary",
   "icons": [
-    { "src": "/branding/bloomcore-one-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/branding/bloomcore-one-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/branding/bloomcore-one-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/branding/maacash-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/branding/maacash-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/branding/maacash-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

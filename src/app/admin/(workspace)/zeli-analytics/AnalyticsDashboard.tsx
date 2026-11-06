@@ -419,7 +419,7 @@ export default function AnalyticsDashboard({ data, filters, subscription }: Prop
       <div className="flex items-start gap-2 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-brand-900">
         <ShieldCheck size={18} className="mt-0.5 flex-none" aria-hidden />
         <p>
-          <strong>Computed from your records.</strong> These figures are calculated by BloomCore One
+          <strong>Computed from your records.</strong> These figures are calculated by MaaCash
           on the server from authorized financial records. Zeli&apos;s explanations are rule-based,
           not model-generated. External AI processing is disabled; no chart data leaves this
           application.

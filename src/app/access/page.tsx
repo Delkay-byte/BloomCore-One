@@ -89,7 +89,7 @@ export default function AccessPage() {
         {/* Brand */}
         <div className="text-center mb-6">
           <BrandLockup size={52} className="justify-center" />
-          <h1 className="sr-only">BloomCore One sign in</h1>
+          <h1 className="sr-only">MaaCash sign in</h1>
           <h2 className="text-xl font-bold text-slate-900 mt-3">How would you like to sign in?</h2>
           <p className="text-slate-500 mt-1 text-sm">Choose the option that matches your role.</p>
         </div>
@@ -175,7 +175,7 @@ export default function AccessPage() {
                 {qr[link.key] && (
                   <button
                     type="button"
-                    onClick={() => downloadSvg(`bloomcore-one-${link.key}-login.svg`, qr[link.key])}
+                    onClick={() => downloadSvg(`maacash-${link.key}-login.svg`, qr[link.key])}
                     className={`access-download-btn text-xs px-3 py-1.5 rounded-md ${
                       link.admin
                         ? "text-slate-200 hover:bg-slate-700"
@@ -199,7 +199,7 @@ export default function AccessPage() {
         `}</style>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          BloomCore One · Built by BloomCore Technologies
+          MaaCash · Built by BloomCore Technologies
         </p>
       </div>
     </div>

@@ -368,7 +368,7 @@ export default function SusuCustomerDetailPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bik-prestige-susu-statement-${customer.customerId}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `maacash-susu-statement-${customer.customerId}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

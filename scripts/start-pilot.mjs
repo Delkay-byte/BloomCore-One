@@ -1,5 +1,5 @@
 /**
- * BIK Prestige Enterprise — Pilot Startup Script
+ * MaaCash - Pilot Startup Script
  *
  * This script loads the pilot environment configuration and starts the application.
  *
@@ -81,7 +81,7 @@ else if (dbUrl.includes("bik_prestige")) badge = "STAGING";
 else if (dbUrl.includes("dev.db")) badge = "DEVELOPMENT";
 
 console.log("");
-console.log("🚀 BIK Prestige Enterprise — PILOT Mode");
+console.log("🚀 MaaCash — PILOT Mode");
 console.log("");
 console.log("   Environment: " + badge);
 console.log("   Database:    " + dbUrl.replace(/\/\/[^:]+:[^@]+@/, "//<credentials>@"));

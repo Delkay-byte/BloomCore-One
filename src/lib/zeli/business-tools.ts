@@ -140,7 +140,7 @@ export const BUSINESS_TOOLS: BusinessToolDefinition[] = [
   {
     name: "metric_definition",
     description:
-      "Explain how a BloomCore One metric is calculated. Use for questions about definitions or calculations.",
+      "Explain how a MaaCash metric is calculated. Use for questions about definitions or calculations.",
     parameters: {
       type: "object",
       properties: { metric: { type: "string", description: "Metric name, for example net cash flow." } },

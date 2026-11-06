@@ -190,7 +190,7 @@ async function submitToServer(transaction: OfflineTransaction): Promise<SyncResu
     return {
       transactionId: transaction.id,
       success: false,
-      error: "No connection to BloomCore One. This record will retry.",
+      error: "No connection to MaaCash. This record will retry.",
       isRetryable: true,
       code: "offline",
     };

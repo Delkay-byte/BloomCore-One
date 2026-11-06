@@ -3,7 +3,7 @@
  * PUBLIC MARKETING ROUTES — REGRESSION TESTS
  * ============================================================================
  *
- * The BloomCore One marketing site is public. Every other route keeps the
+ * The MaaCash marketing site is public. Every other route keeps the
  * access control it already had. These tests pin that boundary so a later
  * change cannot silently widen it.
  *
@@ -101,10 +101,12 @@ describe("Authenticated application routes stay protected", () => {
 });
 
 describe("Brand identity configuration", () => {
-  it("names the product BloomCore One", () => {
-    expect(PRODUCT_NAME).toBe("BloomCore One");
+  it("names the product MaaCash", () => {
+    expect(PRODUCT_NAME).toBe("MaaCash");
     expect(PRODUCT_TAGLINE).toBe("One platform. Clearer control.");
-    expect(PRODUCT_DESCRIPTOR).toBe("Business & Financial Operations Platform");
+    expect(PRODUCT_DESCRIPTOR).toBe(
+      "Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+    );
   });
 
   it("names the parent business BloomCore Technologies", () => {

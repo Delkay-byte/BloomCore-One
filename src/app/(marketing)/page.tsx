@@ -195,7 +195,7 @@ export default function HomePage() {
             <p>
               Operational work rarely fails because someone was careless. It
               fails because the record of it lives in a notebook, in a chat
-              message, or in one person&apos;s memory. BloomCore One puts the
+              message, or in one person&apos;s memory. MaaCash puts the
               record where the work happens: the daily account, the collection,
               the payout, the person who recorded it.
             </p>
@@ -207,7 +207,7 @@ export default function HomePage() {
               typed up later.
             </p>
             <p>
-              Businesses use BloomCore One to see how the day went while it is
+              Businesses use MaaCash to see how the day went while it is
               still happening, and to answer questions weeks later without
               searching through paper.
             </p>
@@ -249,7 +249,7 @@ export default function HomePage() {
         <SectionHeading
           eyebrow="Who we serve"
           title="Businesses whose money moves through people"
-          lead="BloomCore One is built for businesses that collect, hold and pay out money on behalf of customers — where each transaction has to be traceable to a person and a location."
+          lead="MaaCash is built for businesses that collect, hold and pay out money on behalf of customers — where each transaction has to be traceable to a person and a location."
         />
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {AUDIENCES.map((audience) => (
@@ -290,7 +290,7 @@ export default function HomePage() {
             />
             <div className="mt-6 space-y-5 text-base leading-relaxed text-ink">
               <p>
-                BloomCore One is a multi-business platform. Each business that
+                MaaCash is a multi-business platform. Each business that
                 joins gets its own workspace with its own users, locations and
                 records. Nothing is shared between businesses: a user belongs to
                 one business, sees that business&apos;s data, and reaches only the
@@ -338,10 +338,10 @@ export default function HomePage() {
         </div>
       </Section>
 
-      {/* Why BloomCore One */}
+      {/* Why MaaCash */}
       <Section tone="white">
         <SectionHeading
-          eyebrow="Why BloomCore One"
+          eyebrow="Why MaaCash"
           title="Clearer control, day to day"
         />
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -380,7 +380,7 @@ export default function HomePage() {
       <Section tone="ivory">
         <SectionHeading
           eyebrow="Getting started"
-          title="How a business joins BloomCore One"
+          title="How a business joins MaaCash"
           lead="Enrolment is deliberate: every workspace is created after a review, so businesses and their records stay properly separated from day one."
         />
         <StepList steps={STEPS} />

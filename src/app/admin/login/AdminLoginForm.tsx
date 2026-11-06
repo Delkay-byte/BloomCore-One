@@ -128,7 +128,7 @@ export default function AdminLoginForm() {
             </ul>
 
             <p className="relative mt-12 text-xs text-brand-300">
-              BloomCore One · Business &amp; Financial Operations Platform
+              MaaCash · Mobile Money, Susu &amp; Multi-Branch Operations
             </p>
           </aside>
 
@@ -138,7 +138,7 @@ export default function AdminLoginForm() {
               <div className="mb-8 lg:hidden">
                 <BrandLockup size={38} />
                 <p className="mt-2 text-[0.625rem] font-medium uppercase tracking-[0.14em] text-ink-muted">
-                  Business &amp; Financial Operations Platform
+                  Mobile Money, Susu &amp; Multi-Branch Operations
                 </p>
               </div>
 

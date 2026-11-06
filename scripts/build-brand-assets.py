@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build the BloomCore One brand SVG assets with the wordmark converted to real
+Build the MaaCash brand SVG assets with the wordmark converted to real
 vector paths.
 
 Why paths instead of <text>: the production logo must render identically on
@@ -10,17 +10,17 @@ converted to outlines here using the Noto Sans Bold outlines shipped with
 Windows.
 
 Outputs (public/branding/):
-  bloomcore-one-mark.svg              symbol, colour, light background
-  bloomcore-one-mark-mono-black.svg   symbol, black
-  bloomcore-one-mark-mono-white.svg   symbol, white
-  bloomcore-one-logo.svg              horizontal, colour, light background
-  bloomcore-one-logo-light.svg        horizontal, colour, light background (explicit)
-  bloomcore-one-logo-reversed.svg     horizontal, colour, dark background
-  bloomcore-one-logo-mono-black.svg   horizontal, black
-  bloomcore-one-logo-mono-white.svg   horizontal, white
-  bloomcore-one-logo-stacked.svg      symbol above wordmark
-  bloomcore-one-icon.svg              application icon tile
-  bloomcore-one-og.svg                1200x630 social sharing image
+  maacash-mark.svg              symbol, colour, light background
+  maacash-mark-mono-black.svg   symbol, black
+  maacash-mark-mono-white.svg   symbol, white
+  maacash-logo.svg              horizontal, colour, light background
+  maacash-logo-light.svg        horizontal, colour, light background (explicit)
+  maacash-logo-reversed.svg     horizontal, colour, dark background
+  maacash-logo-mono-black.svg   horizontal, black
+  maacash-logo-mono-white.svg   horizontal, white
+  maacash-logo-stacked.svg      symbol above wordmark
+  maacash-icon.svg              application icon tile
+  maacash-og.svg                1200x630 social sharing image
 
 Run from the repository root:
   python scripts/build-brand-assets.py
@@ -132,9 +132,9 @@ def render_group(body: str, ring: str, core: str) -> str:
 
 
 def wordmark(font: TTFont, size: float, x: float, y: float, gap: float) -> dict:
-    """'BloomCore' in ink and 'One' in the accent colour, as two path groups."""
-    core_part = text_paths(font, "BloomCore", size, x, y)
-    one_part = text_paths(font, "One", size, x + core_part["width"] + gap, y)
+    """'Maa' in ink and 'Cash' in the accent colour, as two path groups."""
+    core_part = text_paths(font, "Maa", size, x, y)
+    one_part = text_paths(font, "Cash", size, x + core_part["width"] + gap, y)
     return {"core": core_part, "one": one_part}
 
 
@@ -143,30 +143,30 @@ def main() -> None:
     font = load_font()
 
     # ---- symbol only -----------------------------------------------------
-    (OUT / "bloomcore-one-mark.svg").write_text(
+    (OUT / "maacash-mark.svg").write_text(
         svg(
             48,
             48,
             render_group(tile_group(), IVORY, GOLD),
-            "BloomCore One symbol",
+            "MaaCash symbol",
         ),
         encoding="utf-8",
     )
-    (OUT / "bloomcore-one-mark-mono-black.svg").write_text(
+    (OUT / "maacash-mark-mono-black.svg").write_text(
         svg(
             48,
             48,
             render_group(tile_group(tile=None), BLACK, BLACK),
-            "BloomCore One symbol",
+            "MaaCash symbol",
         ),
         encoding="utf-8",
     )
-    (OUT / "bloomcore-one-mark-mono-white.svg").write_text(
+    (OUT / "maacash-mark-mono-white.svg").write_text(
         svg(
             48,
             48,
             render_group(tile_group(tile=None), WHITE, WHITE),
-            "BloomCore One symbol",
+            "MaaCash symbol",
         ),
         encoding="utf-8",
     )
@@ -179,37 +179,38 @@ def main() -> None:
         text_fill: str,
         one_fill: str,
         tile: str | None = FOREST,
-        label: str = "BloomCore One",
+        label: str = "MaaCash",
     ) -> None:
         mark = render_group(tile_group(tile=tile), ring, core)
-        wm = wordmark(font, 25, 62, 31.5, 7)
+        wm = wordmark(font, 25, 62, 31.5, 0)
+        logo_width = round(62 + wm["core"]["width"] + wm["one"]["width"] + 14)
         body = (
             f'<g>{mark}</g>'
             f'<path d="{wm["core"]["d"]}" fill="{text_fill}"/>'
             f'<path d="{wm["one"]["d"]}" fill="{one_fill}"/>'
         )
-        (OUT / filename).write_text(svg(276, 48, body, label), encoding="utf-8")
+        (OUT / filename).write_text(svg(logo_width, 48, body, label), encoding="utf-8")
 
     horizontal(
-        "bloomcore-one-logo.svg", IVORY, GOLD, INK, GOLD, tile=FOREST
+        "maacash-logo.svg", IVORY, GOLD, INK, GOLD, tile=FOREST
     )
     horizontal(
-        "bloomcore-one-logo-light.svg", IVORY, GOLD, INK, GOLD, tile=FOREST
+        "maacash-logo-light.svg", IVORY, GOLD, INK, GOLD, tile=FOREST
     )
     horizontal(
-        "bloomcore-one-logo-reversed.svg", IVORY, GOLD, IVORY, GOLD, tile=None
+        "maacash-logo-reversed.svg", IVORY, GOLD, IVORY, GOLD, tile=None
     )
     horizontal(
-        "bloomcore-one-logo-mono-black.svg", BLACK, BLACK, BLACK, BLACK, tile=None
+        "maacash-logo-mono-black.svg", BLACK, BLACK, BLACK, BLACK, tile=None
     )
     horizontal(
-        "bloomcore-one-logo-mono-white.svg", WHITE, WHITE, WHITE, WHITE, tile=None
+        "maacash-logo-mono-white.svg", WHITE, WHITE, WHITE, WHITE, tile=None
     )
 
     # ---- stacked ----------------------------------------------------------
     mark = render_group(tile_group(tile=FOREST), IVORY, GOLD)
-    wm = wordmark(font, 27, 0, 0, 7)
-    wm_width = wm["core"]["width"] + 7 + wm["one"]["width"]
+    wm = wordmark(font, 27, 0, 0, 0)
+    wm_width = wm["core"]["width"] + wm["one"]["width"]
     stacked_x = round((280 - wm_width) / 2, 2)
     stacked_body = (
         f'<g transform="translate(84 4) scale(1.5)">{mark}</g>'
@@ -218,8 +219,8 @@ def main() -> None:
         f'<path d="{wm["one"]["d"]}" fill="{GOLD}"/>'
         f"</g>"
     )
-    (OUT / "bloomcore-one-logo-stacked.svg").write_text(
-        svg(280, 158, stacked_body, "BloomCore One"), encoding="utf-8"
+    (OUT / "maacash-logo-stacked.svg").write_text(
+        svg(280, 158, stacked_body, "MaaCash"), encoding="utf-8"
     )
 
     # ---- application icon -------------------------------------------------
@@ -231,14 +232,14 @@ def main() -> None:
         f'<circle cx="24" cy="24" r="{CORE_RADIUS}" fill="{GOLD}"/>'
         f"</g>"
     )
-    (OUT / "bloomcore-one-icon.svg").write_text(
-        svg(512, 512, icon_body, "BloomCore One"), encoding="utf-8"
+    (OUT / "maacash-icon.svg").write_text(
+        svg(512, 512, icon_body, "MaaCash"), encoding="utf-8"
     )
 
     # ---- social sharing image --------------------------------------------
     og_line1 = text_paths(font, "One platform.", 62, 88, 330)
     og_line2 = text_paths(font, "Clearer control.", 62, 88, 404)
-    og_small = text_paths(font, "Business & Financial Operations Platform", 26, 88, 474)
+    og_small = text_paths(font, "Mobile Money, Susu & Multi-Branch Operations", 26, 88, 474)
     og_body = (
         f'<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
         f'<stop offset="0" stop-color="{FOREST}"/>'
@@ -258,8 +259,8 @@ def main() -> None:
         f'<path d="{text_paths(font, "BloomCore Technologies", 24, 88, 540)["d"]}" '
         f'fill="{IVORY}" opacity="0.55"/>'
     )
-    (OUT / "bloomcore-one-og.svg").write_text(
-        svg(1200, 630, og_body, "BloomCore One — One platform. Clearer control."),
+    (OUT / "maacash-og.svg").write_text(
+        svg(1200, 630, og_body, "MaaCash — One platform. Clearer control."),
         encoding="utf-8",
     )
 

@@ -6,7 +6,7 @@ import {
   absoluteUrl,
 } from "./site";
 
-const OG_IMAGE = "/branding/bloomcore-one-og.png";
+const OG_IMAGE = "/branding/maacash-og.png";
 
 /**
  * Metadata for one public page.

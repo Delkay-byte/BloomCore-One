@@ -8,7 +8,7 @@ import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
 
 /**
- * Susu collector shell. The header shows the BloomCore One identity plus the
+ * Susu collector shell. The header shows the MaaCash identity plus the
  * collector's own business name, resolved server-side from the session.
  */
 export default function CollectorLayout({ children }: { children: React.ReactNode }) {
@@ -87,7 +87,7 @@ export default function CollectorLayout({ children }: { children: React.ReactNod
         <footer className="border-t border-slate-200 bg-white">
           <div className="p-4 text-center">
             <p className="text-xs text-slate-400">
-              BloomCore One{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+              MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
             </p>
           </div>
         </footer>
