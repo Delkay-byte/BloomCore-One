@@ -738,6 +738,37 @@ model TurnstileTokenUse {
 
 /// Server-side session registry. A JWT is only accepted while its `jti` row
 /// exists, is unexpired and has not been revoked.
+/// Per-tab proof-of-possession credential. The private key never leaves the
+/// browser; only the public JWK is stored. A credential is bound to exactly one
+/// server-side SessionRecord.
+model TabCredential {
+  id            String   @id @default(cuid())
+  sessionId     String   @unique
+  subjectType   String
+  subjectId     String
+  tenantId      String?
+  module        String
+  amr           String
+  payloadJson   String
+  publicKeyJwk  String
+  createdAt     DateTime @default(now())
+  lastUsedAt    DateTime @default(now())
+
+  @@index([subjectType, subjectId])
+}
+
+/// One-time proof nonces. The primary key is the nonce, so a replayed request
+/// is rejected even across instances.
+model TabProofNonce {
+  id           String   @id
+  credentialId String
+  requestId    String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
+}
+
 /// One-time proof that an MFA challenge was actually completed.
 /// The row id is the signed challenge jti; a unique primary key makes replay
 /// impossible even across concurrent requests or server instances.

@@ -14,12 +14,15 @@ describe("tab session identity", () => {
     expect(classifyIdentityChange("user-a", "user-b")).toBe("changed");
   });
 
-  it("injects the per-tab handle through the service worker, not a cookie", () => {
+  it("uses a signed per-tab proof, not a bearer header or cookie", () => {
     const worker = source("public/tab-session-sw.js");
-    expect(worker).toContain("x-bloomcore-tab-session");
+    expect(worker).toContain("x-bloomcore-tab-proof");
+    expect(worker).toContain("crypto.subtle.sign");
     expect(worker).toContain("event.resultingClientId");
     expect(worker).toContain("indexedDB");
-    expect(worker).not.toMatch(/document\.cookie|localStorage\s*\./);
+    expect(worker).toContain("privateKey");
+    expect(worker).not.toMatch(/localStorage\s*\./);
+    expect(worker).not.toContain("x-bloomcore-tab-session");
   });
 
   it("writes a legacy cookie only behind the explicit test bridge", () => {
@@ -37,7 +40,8 @@ describe("tab session identity", () => {
     const client = source("src/lib/security/tab-session-client.ts");
     expect(client).not.toMatch(/localStorage\s*\./);
     expect(client).not.toMatch(/[?&](token|session)=/);
-    expect(client).toContain("postMessage({ type: \"register\", token })");
+    expect(client).toContain('postMessage({ type: "bootstrap", token })');
+    expect(client).toContain("crypto.subtle");
   });
 
   it("sign-out never deletes pending offline records", () => {

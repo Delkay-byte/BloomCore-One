@@ -17,7 +17,9 @@ export function tabSessionsSupported(): boolean {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
-    typeof indexedDB !== "undefined"
+    typeof indexedDB !== "undefined" &&
+    typeof crypto !== "undefined" &&
+    typeof crypto.subtle !== "undefined"
   );
 }
 
@@ -41,14 +43,33 @@ async function waitForController(timeoutMs = 4000): Promise<boolean> {
   });
 }
 
+function timeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      }
+    );
+  });
+}
+
 export async function ensureTabSessionWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!tabSessionsSupported()) return null;
   try {
-    const registration = await navigator.serviceWorker.register(WORKER_URL, {
-      scope: "/",
-    });
-    await navigator.serviceWorker.ready;
-    await waitForController();
+    const registration = await timeout(
+      navigator.serviceWorker.register(WORKER_URL, { scope: "/" }),
+      5000
+    );
+    if (!registration) return null;
+    const ready = await timeout(navigator.serviceWorker.ready, 5000);
+    if (!ready) return null;
+    await waitForController(4000);
     return registration;
   } catch {
     return null;
@@ -56,10 +77,12 @@ export async function ensureTabSessionWorker(): Promise<ServiceWorkerRegistratio
 }
 
 /**
- * Give the current tab its own server session handle.
+ * Exchange the one-time login token for a non-extractable tab credential.
  *
- * Resolves true only when the worker acknowledged the registration AND the tab
- * is controlled. Timeout is a failure, never a silent success.
+ * Resolves true only when the worker acknowledged a persisted bootstrap. The
+ * token is never written to browser storage; the worker discards it after the
+ * enrollment exchange. Timeout or failure is a hard failure, never a silent
+ * cookie fallback.
  */
 export async function registerTabSession(token: string): Promise<boolean> {
   if (!token || !tabSessionsSupported()) return false;
@@ -77,12 +100,13 @@ export async function registerTabSession(token: string): Promise<boolean> {
       navigator.serviceWorker.removeEventListener("message", onMessage);
       resolve(value);
     };
-    const timer = setTimeout(() => finish(false), 2500);
+    const timer = setTimeout(() => finish(false), 8000);
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === "registered") finish(true);
+      if (event.data?.type === "bootstrapped") finish(true);
+      if (event.data?.type === "bootstrap-failed") finish(false);
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
-    controller.postMessage({ type: "register", token });
+    controller.postMessage({ type: "bootstrap", token });
   });
 }
 

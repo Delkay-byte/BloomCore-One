@@ -182,6 +182,12 @@ export async function pruneSessionRecords(now: number = Date.now()): Promise<voi
     await db.mfaChallengeUse.deleteMany({
       where: { expiresAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } },
     });
+    await db.tabProofNonce.deleteMany({
+      where: { expiresAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } },
+    });
+    await db.tabCredential.deleteMany({
+      where: { lastUsedAt: { lt: new Date(now - 30 * 24 * 60 * 60 * 1000) } },
+    });
   } catch {
     // best effort
   }

@@ -61,6 +61,36 @@ test.describe("independent tab sessions", () => {
     }
   });
 
+  test("a forced worker stop fails closed without cross-tab leakage", async ({
+    page,
+    context,
+  }) => {
+    await loginAdmin(page, ADMIN_A);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("ServiceWorker.enable");
+    await cdp.send("ServiceWorker.stopAllWorkers");
+    await page.reload();
+
+    // The forced stop may leave this tab unauthenticated until it signs in
+    // again. It must never adopt another tab's identity or a cookie.
+    if (page.url().includes("/admin/dashboard")) {
+      expect(
+        (await pageJson<{ userId: string }>(page, "/api/auth/me?module=admin")).userId
+      ).toBe("e2e-user-a");
+    } else {
+      await expect(page).toHaveURL(/\/login/);
+      expect(
+        (await context.cookies()).filter((c) =>
+          /^bik-(admin|worker|collector|customer|platform)-session$/.test(c.name)
+        )
+      ).toHaveLength(0);
+    }
+
+    const fresh = await context.newPage();
+    await fresh.goto("/admin/dashboard");
+    await expect(fresh).toHaveURL(/\/login/);
+  });
+
   test("logging out one tab leaves the other authenticated", async ({
     page,
     context,

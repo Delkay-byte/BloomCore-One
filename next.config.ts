@@ -3,31 +3,10 @@ import type { NextConfig } from "next";
 /**
  * Security headers for BIK Prestige Enterprise.
  *
- * CSP is enforced. `script-src` keeps `'unsafe-inline'` because the App Router
- * hydrates through inline bootstrap scripts; moving to a nonce requires every
- * page (including the statically generated marketing pages) to become
- * dynamically rendered. That trade-off is documented in
- * docs/security/CSP-ASSESSMENT.md and is deliberately not taken here.
- *
- * `'unsafe-eval'` is development-only: React needs it for enhanced debugging,
- * while production React/Next.js do not use `eval`.
+ * The Content-Security-Policy is emitted by `src/middleware.ts` so each
+ * dynamically rendered page receives a fresh nonce. Static configuration
+ * cannot safely do that.
  */
-const isDev = process.env.NODE_ENV === "development";
-
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://challenges.cloudflare.com`, // Next.js hydration + Turnstile
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tailwind + Google Fonts
-  "img-src 'self' data: blob:",
-  "font-src 'self' https://fonts.gstatic.com data:",
-  "connect-src 'self' https://challenges.cloudflare.com https://*.challenges.cloudflare.com data: blob:",
-  "frame-src https://challenges.cloudflare.com",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join("; ");
-
 const securityHeaders = [
   {
     key: "X-Frame-Options",
@@ -49,10 +28,6 @@ const securityHeaders = [
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
-  },
-  {
-    key: "Content-Security-Policy",
-    value: csp,
   },
   {
     key: "Cross-Origin-Opener-Policy",

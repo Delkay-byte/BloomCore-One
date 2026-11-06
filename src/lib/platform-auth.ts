@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
-import { cookies, headers } from "next/headers";
+import { cache } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -10,10 +11,8 @@ import {
   isSessionRecordActive,
   revokeSession,
 } from "./security/session-store";
-import {
-  TAB_SESSION_HEADER,
-  allowLegacyCookieSessions,
-} from "./security/tab-session";
+import { allowLegacyCookieSessions } from "./security/tab-session";
+import { verifyTabProof } from "./security/tab-proof";
 
 /**
  * ============================================================================
@@ -206,16 +205,11 @@ export async function setPlatformSession(
 
 /** Read and verify the current platform token for revocation/audit. */
 export async function getPlatformTokenPayload(): Promise<PlatformJwtPayload | null> {
+  const verified = await verifyTabProof("platform");
+  if (verified) return verified.payload as unknown as PlatformJwtPayload;
+  if (!allowLegacyCookieSessions()) return null;
   try {
-    let token: string | null = null;
-    try {
-      token = (await headers()).get(TAB_SESSION_HEADER);
-    } catch {
-      token = null;
-    }
-    if (!token && allowLegacyCookieSessions()) {
-      token = (await cookies()).get(PLATFORM_COOKIE)?.value ?? null;
-    }
+    const token = (await cookies()).get(PLATFORM_COOKIE)?.value;
     return token ? await verifyPlatformToken(token) : null;
   } catch {
     return null;
@@ -252,20 +246,16 @@ function validatePlatformTiming(p: PlatformJwtPayload): boolean {
  * Re-reads the database on every call so a deactivated or replaced platform
  * administrator loses access immediately, regardless of cookie lifetime.
  */
-export async function getPlatformSession(): Promise<PlatformSession | null> {
+export const getPlatformSession = cache(async function getPlatformSession(): Promise<PlatformSession | null> {
   try {
-    let token: string | null = null;
-    try {
-      token = (await headers()).get(TAB_SESSION_HEADER);
-    } catch {
-      token = null;
+    const verified = await verifyTabProof("platform");
+    let payload: PlatformJwtPayload | null = null;
+    if (verified) {
+      payload = verified.payload as unknown as PlatformJwtPayload;
+    } else if (allowLegacyCookieSessions()) {
+      const token = (await cookies()).get(PLATFORM_COOKIE)?.value ?? null;
+      payload = token ? await verifyPlatformToken(token) : null;
     }
-    if (!token && allowLegacyCookieSessions()) {
-      token = (await cookies()).get(PLATFORM_COOKIE)?.value ?? null;
-    }
-    if (!token) return null;
-
-    const payload = await verifyPlatformToken(token);
     if (!payload) return null;
     if (!validatePlatformTiming(payload)) return null;
     if (!(await isSessionRecordActive(payload.jti))) return null;
@@ -296,7 +286,7 @@ export async function getPlatformSession(): Promise<PlatformSession | null> {
   } catch {
     return null;
   }
-}
+});
 
 /**
  * Guard for platform pages. Redirects to the platform login on any failure.
