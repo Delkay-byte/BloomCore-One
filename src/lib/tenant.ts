@@ -5,8 +5,6 @@ import {
   getMomoSession,
   getSusuSession,
   getCustomerSession,
-  clearAllSessions,
-  readModuleCookie,
   type ModuleName,
 } from "./auth";
 
@@ -243,19 +241,9 @@ export async function requireTenantContext(
 ): Promise<TenantContext> {
   const ctx = await getTenantContext(module, requiredModule);
   if (!ctx) {
-    // Only clear sessions when a session cookie for this module existed but
-    // failed validation. An absent cookie — e.g. when an action probes the
-    // admin guard before the collector guard — must not wipe other modules'
-    // sessions. A throwing cookie store (no request scope) counts as absent.
-    let hadCookie = false;
-    try {
-      hadCookie = Boolean(await readModuleCookie(module));
-    } catch {
-      hadCookie = false;
-    }
-    if (hadCookie) {
-      await clearAllSessions();
-    }
+    // Never clear another tab's session. The server-side record for this tab
+    // is either absent, expired or revoked; the login page will establish a
+    // fresh one without touching other tabs.
     redirect("/login?reason=tenant_unavailable");
   }
   return ctx;
@@ -300,9 +288,6 @@ export async function requireTenantCollector(): Promise<TenantContext> {
 export async function requireTenantCustomer(): Promise<TenantContext> {
   const ctx = await getTenantContext("customer", "susu");
   if (!ctx) {
-    if (await readModuleCookie("customer")) {
-      await clearAllSessions();
-    }
     redirect("/login?role=customer&reason=tenant_unavailable");
   }
   return ctx;

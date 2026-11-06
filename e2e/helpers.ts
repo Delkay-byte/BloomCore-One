@@ -11,6 +11,7 @@ export async function waitForHydration(page: Page, selector: string) {
 export const ADMIN_A = "e2e-admin-a@test.local";
 export const ADMIN_B = "e2e-admin-b@test.local";
 export const PLATFORM = "e2e-platform@test.local";
+export const COLLECTOR = "e2e-collector@test.local";
 export const PASSWORD = "E2ePass123!";
 
 export async function loginAdmin(page: Page, email = ADMIN_A) {
@@ -20,10 +21,20 @@ export async function loginAdmin(page: Page, email = ADMIN_A) {
   await page.locator("#password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign In" }).click();
   await page.waitForURL(/\/admin\/(dashboard|first-login)/, { timeout: 30_000 });
-  // The app marks the tab during login. Playwright sometimes navigates before
-  // the client helper runs, so set the same tab-scoped marker explicitly. The
-  // server cookie remains the real authorization boundary.
-  await page.evaluate(() => sessionStorage.setItem("bik-tab-session", "1"));
+  // The login client hands the session to this tab's service worker before
+  // navigating. Wait for the authenticated shell to confirm that handoff.
+  await page.waitForTimeout(750);
+}
+
+export async function loginCollector(page: Page, email = COLLECTOR) {
+  await page.goto("/login");
+  await waitForHydration(page, "text=Susu Collector");
+  await page.getByRole("button", { name: /Susu Collector/ }).click();
+  await waitForHydration(page, "#identifier");
+  await page.locator("#identifier").fill(email);
+  await page.locator("#password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign In" }).click();
+  await page.waitForURL(/\/collector\/(dashboard|first-login)/, { timeout: 30_000 });
   await page.waitForTimeout(750);
 }
 
@@ -37,10 +48,51 @@ export async function loginPlatform(page: Page) {
   await page.waitForTimeout(750);
 }
 
+/** Clear only this tab's session mapping; other tabs in the context keep theirs. */
+export async function clearTabSession(page: Page) {
+  if (page.url() === "about:blank") return;
+  await page
+    .evaluate(async () => {
+      navigator.serviceWorker.controller?.postMessage({ type: "clear" });
+      sessionStorage.clear();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    })
+    .catch(() => undefined);
+}
+
 export async function resetSession(page: Page) {
+  await clearTabSession(page);
   await page.context().clearCookies();
-  await page.evaluate(() => sessionStorage.clear());
   await page.goto("/admin/login");
+}
+
+/** Fetch through the page so the service worker adds this tab's session. */
+export async function pageFetch(
+  page: Page,
+  path: string
+): Promise<{ status: number; body: string }> {
+  return page.evaluate(async (target) => {
+    const response = await fetch(target, { cache: "no-store" });
+    return { status: response.status, body: await response.text() };
+  }, path);
+}
+
+export async function pageJson<T = Record<string, unknown>>(
+  page: Page,
+  path: string
+): Promise<T> {
+  const response = await pageFetch(page, path);
+  return JSON.parse(response.body) as T;
+}
+
+/** Revoke this tab's server session through its own authenticated request. */
+export async function logoutTab(page: Page) {
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/auth/logout", { method: "POST" });
+    return response.status;
+  });
+  await clearTabSession(page);
+  return status;
 }
 
 export async function sendZeliMessage(page: Page, message: string) {

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { isPublicMarketingRoute } from "@/lib/public-routes";
+import {
+  TAB_SESSION_HEADER,
+  allowLegacyCookieSessions,
+} from "@/lib/security/tab-session";
 
 // Require JWT_SECRET — fail hard if missing
 const JWT_SECRET_RAW = process.env.JWT_SECRET;
@@ -64,6 +68,8 @@ interface TokenClaims {
   kind?: string;
   adminId?: string;
   amr?: "pwd" | "pwd+mfa";
+  tokenUse?: string;
+  aud?: string | string[];
 }
 
 /** Sessions created before MFA verification are refused while enforcing. */
@@ -88,14 +94,53 @@ function isPlatformClaims(claims: TokenClaims | null): claims is TokenClaims {
   return Boolean(claims && claims.kind === "platform" && claims.adminId);
 }
 
-async function readClaims(token: string | undefined): Promise<TokenClaims | null> {
+async function readClaims(
+  token: string | undefined | null,
+  options: { allowSelection?: boolean } = {}
+): Promise<TokenClaims | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as unknown as TokenClaims;
+    const claims = payload as unknown as TokenClaims;
+    const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    // An MFA challenge is never a login. It must not pass a route guard even
+    // if it is somehow placed in the tab transport header.
+    if (
+      claims.tokenUse === "mfa-challenge" ||
+      audience.includes("bloomcore-one:mfa-challenge")
+    ) {
+      return null;
+    }
+    // Workspace selection is public only on /select-workspace.
+    if (!options.allowSelection) {
+      if (
+        claims.kind === "workspace-selection" ||
+        claims.tokenUse === "workspace-selection"
+      ) {
+        return null;
+      }
+    }
+    return claims;
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the tab-scoped session token.
+ *
+ * The service worker injects the header for this tab only. A shared cookie is
+ * used solely by the explicit test compatibility bridge; browser cookies are
+ * never accepted as a tab identity in production.
+ */
+function sessionToken(
+  request: NextRequest,
+  cookieName: string
+): string | null {
+  const header = request.headers.get(TAB_SESSION_HEADER);
+  if (header) return header;
+  if (!allowLegacyCookieSessions()) return null;
+  return request.cookies.get(cookieName)?.value ?? null;
 }
 
 export async function middleware(request: NextRequest) {
@@ -121,22 +166,18 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/platform")) {
     // The platform login itself is public.
     if (PLATFORM_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-      // An already-authenticated operator is sent straight to the dashboard.
-      const existing = await readClaims(
-        request.cookies.get(PLATFORM_COOKIE)?.value
-      );
-      if (isPlatformClaims(existing) && pathname === "/platform/login") {
-        return redirectTo(
-          existing.forcePasswordReset
-            ? "/platform/first-login"
-            : "/platform/dashboard"
-        );
-      }
+      // Deliberately NO auto-forward here. The edge runtime can only validate
+      // the JWT's signature and timestamps, not the server-side session
+      // registry; a revoked-but-unexpired cookie would then bounce
+      // dashboard -> login -> dashboard forever. The login page performs the
+      // same forwarding using getPlatformSession(), which consults the
+      // registry, so an operator with a live session still lands on the
+      // dashboard and a revoked one simply sees the sign-in form.
       return NextResponse.next();
     }
 
     const platformClaims = await readClaims(
-      request.cookies.get(PLATFORM_COOKIE)?.value
+      sessionToken(request, PLATFORM_COOKIE)
     );
     if (!isPlatformClaims(platformClaims)) {
       return redirectTo("/platform/login");
@@ -183,7 +224,7 @@ export async function middleware(request: NextRequest) {
   // ---------------------------------------------------------------------
   if (pathname === "/workspace") {
     const platformClaims = await readClaims(
-      request.cookies.get(PLATFORM_COOKIE)?.value
+      sessionToken(request, PLATFORM_COOKIE)
     );
     if (isPlatformClaims(platformClaims)) {
       return redirectTo(
@@ -193,8 +234,9 @@ export async function middleware(request: NextRequest) {
       );
     }
     for (const [mod, cookieName] of Object.entries(SESSION_COOKIES)) {
-      const claims = await readClaims(request.cookies.get(cookieName)?.value);
+      const claims = await readClaims(sessionToken(request, cookieName));
       if (!claims) continue;
+      if (!claimsMatchModule(claims, mod as keyof typeof SESSION_COOKIES)) continue;
       if (claims.forcePasswordReset) {
         return redirectTo(
           mod === "admin"
@@ -248,7 +290,9 @@ export async function middleware(request: NextRequest) {
 
   // Customer portal: completely separate session, never mixed with staff
   if (pathname.startsWith("/customer")) {
-    const customerClaims = await readClaims(request.cookies.get(SESSION_COOKIES.customer)?.value);
+    const customerClaims = await readClaims(
+      sessionToken(request, SESSION_COOKIES.customer)
+    );
     if (!customerClaims) {
       return redirectTo("/login?role=customer");
     }
@@ -286,7 +330,9 @@ export async function middleware(request: NextRequest) {
 
   // Dual-role workspace selection page requires a valid selection token.
   if (pathname.startsWith("/select-workspace")) {
-    const claims = await readClaims(request.cookies.get(SELECTION_COOKIE)?.value);
+    const claims = await readClaims(sessionToken(request, SELECTION_COOKIE), {
+      allowSelection: true,
+    });
     if (!claims) return redirectTo("/login");
     return res();
   }
@@ -294,9 +340,13 @@ export async function middleware(request: NextRequest) {
   // Shared legacy pages keep working with any active module session.
   if (pathname.startsWith("/settings") || pathname.startsWith("/change-password")) {
     const anySession = await Promise.all(
-      Object.values(SESSION_COOKIES).map((name) => readClaims(request.cookies.get(name)?.value))
+      Object.values(SESSION_COOKIES).map((name) =>
+        readClaims(sessionToken(request, name))
+      )
     );
-    const legacy = await readClaims(request.cookies.get(LEGACY_COOKIE)?.value);
+    const legacy = allowLegacyCookieSessions()
+      ? await readClaims(request.cookies.get(LEGACY_COOKIE)?.value)
+      : null;
     if (!anySession.some(Boolean) && !legacy) return redirectTo("/login");
     return res();
   }
@@ -304,15 +354,19 @@ export async function middleware(request: NextRequest) {
   if (!pathModule) {
     // Unknown protected route — require at least some session.
     const anySession = await Promise.all(
-      Object.values(SESSION_COOKIES).map((name) => readClaims(request.cookies.get(name)?.value))
+      Object.values(SESSION_COOKIES).map((name) =>
+        readClaims(sessionToken(request, name))
+      )
     );
     if (!anySession.some(Boolean)) return redirectTo("/login");
     return res();
   }
 
   // Resolve this module's session: scoped cookie first, then legacy fallback.
-  let claims = await readClaims(request.cookies.get(SESSION_COOKIES[pathModule])?.value);
-  if (!claims) {
+  let claims = await readClaims(
+    sessionToken(request, SESSION_COOKIES[pathModule])
+  );
+  if (!claims && allowLegacyCookieSessions()) {
     const legacy = await readClaims(request.cookies.get(LEGACY_COOKIE)?.value);
     if (legacy && claimsMatchModule(legacy, pathModule)) claims = legacy;
   }

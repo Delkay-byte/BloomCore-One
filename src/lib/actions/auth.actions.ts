@@ -6,12 +6,12 @@ import {
   verifyPassword,
   setModuleSession,
   setSelectionSession,
-  clearAllSessions,
   clearModuleSession,
   getAdminSession,
   getMomoSession,
   getSusuSession,
   getCustomerSession,
+  getAnyAuthUser,
   getSelectionUser,
   isSessionCurrent,
   createSelectionToken,
@@ -24,7 +24,6 @@ import {
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { normalizeGhanaPhone } from "@/lib/utils";
-import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import {
   cooldownMessage,
@@ -59,6 +58,18 @@ export interface ActionResponse {
   error?: string;
   /** When true, the error relates to an admin attempting the shared login. */
   adminLogin?: boolean;
+  /**
+   * The tab's new session handle. Returned only to the client that completed
+   * authentication; it is never placed in a URL or a shared cookie. The client
+   * hands it to its tab-scoped service worker.
+   */
+  sessionToken?: string;
+  /** Where the client should navigate after registering the session. */
+  redirectTo?: string;
+  /** MFA step required before a session can be issued. */
+  mfa?: "verify" | "enroll";
+  /** Short-lived, tab-scoped MFA challenge (never a session). */
+  mfaToken?: string;
 }
 
 /**
@@ -142,7 +153,14 @@ export async function login(
     forcePasswordReset: user.forcePasswordReset,
     tokenVersion: user.tokenVersion,
   });
-  if (mfaStep) redirect(`/mfa/${mfaStep}`);
+  if (mfaStep) {
+    return {
+      success: true,
+      mfa: mfaStep.mode,
+      mfaToken: mfaStep.token,
+      redirectTo: `/mfa/${mfaStep.mode}`,
+    };
+  }
 
   const modules: ("momo" | "susu")[] = [];
   if (user.momoEnabled) modules.push("momo");
@@ -157,10 +175,14 @@ export async function login(
 
   // Administrators sign into the administration module.
   if (user.role === "admin") {
-    const payload = await issueModuleSession(user.id, "admin");
-    redirect(
-      payload.forcePasswordReset ? "/admin/first-login" : "/admin/dashboard"
-    );
+    const issued = await issueModuleSession(user.id, "admin");
+    return {
+      success: true,
+      sessionToken: issued.token,
+      redirectTo: issued.payload.forcePasswordReset
+        ? "/admin/first-login"
+        : "/admin/dashboard",
+    };
   }
 
   if (modules.length === 0) {
@@ -172,12 +194,14 @@ export async function login(
 
   if (modules.length === 1) {
     const mod = modules[0];
-    const payload = await issueModuleSession(user.id, mod);
-
-    if (payload.forcePasswordReset) {
-      redirect(firstLoginPathFor(mod));
-    }
-    redirect(dashboardPathFor(mod));
+    const issued = await issueModuleSession(user.id, mod);
+    return {
+      success: true,
+      sessionToken: issued.token,
+      redirectTo: issued.payload.forcePasswordReset
+        ? firstLoginPathFor(mod)
+        : dashboardPathFor(mod),
+    };
   }
 
   // Dual-role: let the person choose their workspace. No arbitrary default.
@@ -188,7 +212,11 @@ export async function login(
     modules,
   });
   await setSelectionSession(selectionToken);
-  redirect("/select-workspace");
+  return {
+    success: true,
+    sessionToken: selectionToken,
+    redirectTo: "/select-workspace",
+  };
 }
 
 function firstLoginPathFor(module: ModuleName): string {
@@ -213,19 +241,22 @@ async function buildSessionPayload(userId: string): Promise<JwtPayload> {
   };
 }
 
-/** Issue a fresh JWT for `userId` into the given module's cookie. */
+/**
+ * Issue a fresh session for `userId` for the given module.
+ * Returns the token so the calling tab can register it with its worker.
+ */
 export async function issueModuleSession(
   userId: string,
   module: ModuleName,
   mfaVerified = false
-): Promise<JwtPayload> {
+): Promise<{ payload: JwtPayload; token: string }> {
   const payload = await buildSessionPayload(userId);
   const withAmr: JwtPayload = {
     ...payload,
     amr: mfaVerified ? "pwd+mfa" : "pwd",
   };
-  await setModuleSession(module, withAmr);
-  return withAmr;
+  const token = await setModuleSession(module, withAmr);
+  return { payload: withAmr, token };
 }
 
 export async function selectWorkspace(
@@ -239,10 +270,15 @@ export async function selectWorkspace(
     return { success: false, error: "You are not authorized for this module." };
   }
 
-  await issueModuleSession(selection.userId, module);
+  const issued = await issueModuleSession(selection.userId, module);
 
-  // The selection token is single-use.
-  (await cookies()).delete(SELECTION_COOKIE_NAME);
+  // The selection token is single-use. The shared legacy cookie is removed
+  // only for migration; no new selection cookie is written.
+  try {
+    (await cookies()).delete(SELECTION_COOKIE_NAME);
+  } catch {
+    // no request cookie store outside a request scope
+  }
 
   await createAuditLog({
     userId: selection.userId,
@@ -252,7 +288,11 @@ export async function selectWorkspace(
     details: { module },
   });
 
-  return { success: true };
+  return {
+    success: true,
+    sessionToken: issued.token,
+    redirectTo: dashboardPathFor(module),
+  };
 }
 
 /**
@@ -293,7 +333,9 @@ export async function switchWorkspace(
     return { success: false, error: "You are not authorized for this module." };
   }
 
-  await setModuleSession(target, { ...payload, amr: sourceAmr });
+  const token = await setModuleSession(target, { ...payload, amr: sourceAmr });
+  // Remove only the legacy cookie for the source module; the current tab's
+  // worker mapping is replaced by the client with the new token below.
   await clearModuleSession(sourceModule);
 
   await createAuditLog({
@@ -304,17 +346,22 @@ export async function switchWorkspace(
     details: { from: sourceModule, to: target },
   });
 
-  return { success: true };
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: dashboardPathFor(target),
+  };
 }
 
-export async function logout(): Promise<void> {
-  const sessions = [
-    await getAdminSession(),
-    await getMomoSession(),
-    await getSusuSession(),
-    await getCustomerSession(),
-  ];
-  const active = sessions.find(Boolean);
+/**
+ * Sign out THIS tab only.
+ *
+ * The tab's worker header identifies exactly one server session. Revoking its
+ * `jti` leaves every other tab's session untouched. The client clears its own
+ * worker mapping after this action returns.
+ */
+export async function logout(): Promise<ActionResponse> {
+  const active = await getAnyAuthUser();
   if (active) {
     await revokeSessionToken(active, "logout");
     await createAuditLog({
@@ -324,8 +371,7 @@ export async function logout(): Promise<void> {
       entityId: active.userId,
     });
   }
-  await clearAllSessions();
-  redirect("/login");
+  return { success: true, redirectTo: "/login" };
 }
 
 /**
@@ -363,7 +409,6 @@ export async function verifyPasswordAction(
   }
 
   if (!(await isSessionCurrent(context.user))) {
-    await clearAllSessions();
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
@@ -425,7 +470,6 @@ export async function changePassword(
   const session = context.user;
 
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
@@ -475,7 +519,7 @@ export async function changePassword(
     ...(await buildSessionPayload(session.userId)),
     amr: session.amr,
   };
-  await setModuleSession(context.module, refreshed);
+  const token = await setModuleSession(context.module, refreshed);
 
   await createAuditLog({
     userId: session.userId,
@@ -484,7 +528,11 @@ export async function changePassword(
     entityId: session.userId,
   });
 
-  return { success: true };
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: dashboardPathFor(context.module),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -508,7 +556,11 @@ export async function resolveCustomerAuth(
   identifier: string,
   password: string,
   turnstileToken?: string | null
-): Promise<{ payload: JwtPayload } | { error: string } | { mfa: "verify" | "enroll" }> {
+): Promise<
+  | { payload: JwtPayload }
+  | { error: string }
+  | { mfa: "verify" | "enroll"; mfaToken: string }
+> {
   if (!identifier || !password) {
     return { error: CUSTOMER_GENERIC_ERROR };
   }
@@ -589,7 +641,7 @@ export async function resolveCustomerAuth(
     forcePasswordReset: customer.forcePortalPasswordReset ?? false,
     tokenVersion: customer.tokenVersion ?? 0,
   });
-  if (mfaStep) return { mfa: mfaStep };
+  if (mfaStep) return { mfa: mfaStep.mode, mfaToken: mfaStep.token };
 
   const payload: JwtPayload = {
     userId: customer.id,
@@ -619,7 +671,11 @@ export async function resolveStaffAuth(
   password: string,
   module: "momo" | "susu",
   turnstileToken?: string | null
-): Promise<{ payload: JwtPayload } | { error: string } | { mfa: "verify" | "enroll" }> {
+): Promise<
+  | { payload: JwtPayload }
+  | { error: string }
+  | { mfa: "verify" | "enroll"; mfaToken: string }
+> {
   if (!identifier || !password) {
     return { error: STAFF_GENERIC_ERROR };
   }
@@ -683,7 +739,7 @@ export async function resolveStaffAuth(
     forcePasswordReset: user.forcePasswordReset,
     tokenVersion: user.tokenVersion,
   });
-  if (mfaStep) return { mfa: mfaStep };
+  if (mfaStep) return { mfa: mfaStep.mode, mfaToken: mfaStep.token };
 
   const payload: JwtPayload = {
     userId: user.id,
@@ -725,15 +781,25 @@ export async function customerLogin(
     turnstileToken
   );
   if ("error" in result) return { success: false, error: result.error };
-  if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
+  if ("mfa" in result) {
+    return {
+      success: true,
+      mfa: result.mfa,
+      mfaToken: result.mfaToken,
+      redirectTo: `/mfa/${result.mfa}`,
+    };
+  }
 
-  await setModuleSession("customer", result.payload);
+  const token = await setModuleSession("customer", result.payload);
   await auditWorkspace("customer", result.payload.userId);
 
-  if (result.payload.forcePasswordReset) {
-    redirect("/customer/first-login");
-  }
-  redirect("/customer/dashboard");
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: result.payload.forcePasswordReset
+      ? "/customer/first-login"
+      : "/customer/dashboard",
+  };
 }
 
 /**
@@ -775,15 +841,25 @@ export async function unifiedLogin(
       turnstileToken
     );
     if ("error" in result) return { success: false, error: result.error };
-    if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
+    if ("mfa" in result) {
+      return {
+        success: true,
+        mfa: result.mfa,
+        mfaToken: result.mfaToken,
+        redirectTo: `/mfa/${result.mfa}`,
+      };
+    }
 
-    await setModuleSession("customer", result.payload);
+    const token = await setModuleSession("customer", result.payload);
     await auditWorkspace("customer", result.payload.userId);
 
-    if (result.payload.forcePasswordReset) {
-      redirect("/customer/first-login");
-    }
-    redirect("/customer/dashboard");
+    return {
+      success: true,
+      sessionToken: token,
+      redirectTo: result.payload.forcePasswordReset
+        ? "/customer/first-login"
+        : "/customer/dashboard",
+    };
   }
 
   // momo | susu — server re-validates the requested workspace capability.
@@ -795,15 +871,25 @@ export async function unifiedLogin(
     turnstileToken
   );
   if ("error" in result) return { success: false, error: result.error };
-  if ("mfa" in result) redirect(`/mfa/${result.mfa}`);
+  if ("mfa" in result) {
+    return {
+      success: true,
+      mfa: result.mfa,
+      mfaToken: result.mfaToken,
+      redirectTo: `/mfa/${result.mfa}`,
+    };
+  }
 
-  await setModuleSession(mod, result.payload);
+  const token = await setModuleSession(mod, result.payload);
   await auditWorkspace(mod, result.payload.userId);
 
-  if (result.payload.forcePasswordReset) {
-    redirect(firstLoginPathFor(mod));
-  }
-  redirect(dashboardPathFor(mod));
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: result.payload.forcePasswordReset
+      ? firstLoginPathFor(mod)
+      : dashboardPathFor(mod),
+  };
 }
 
 /**
@@ -863,16 +949,26 @@ export async function adminLogin(
     forcePasswordReset: user.forcePasswordReset,
     tokenVersion: user.tokenVersion,
   });
-  if (mfaStep) redirect(`/mfa/${mfaStep}`);
+  if (mfaStep) {
+    return {
+      success: true,
+      mfa: mfaStep.mode,
+      mfaToken: mfaStep.token,
+      redirectTo: `/mfa/${mfaStep.mode}`,
+    };
+  }
 
   const payload = await buildSessionPayload(user.id);
-  await setModuleSession("admin", payload);
+  const token = await setModuleSession("admin", payload);
   await auditWorkspace("admin", user.id);
 
-  if (payload.forcePasswordReset) {
-    redirect("/admin/first-login");
-  }
-  redirect("/admin/dashboard");
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: payload.forcePasswordReset
+      ? "/admin/first-login"
+      : "/admin/dashboard",
+  };
 }
 
 export async function customerChangePassword(
@@ -883,7 +979,6 @@ export async function customerChangePassword(
     return { success: false, error: "Not authenticated" };
   }
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
@@ -939,7 +1034,7 @@ export async function customerChangePassword(
     tokenVersion: (session.tokenVersion ?? 0) + 1,
     amr: session.amr,
   };
-  await setModuleSession("customer", refreshed);
+  const token = await setModuleSession("customer", refreshed);
 
   await createAuditLog({
     userId: session.userId,
@@ -948,12 +1043,14 @@ export async function customerChangePassword(
     entityId: session.userId,
   });
 
-  return { success: true };
+  return { success: true, sessionToken: token, redirectTo: "/customer/dashboard" };
 }
 
-export async function customerLogout(): Promise<void> {
+/** Sign out only the current tab's customer session. */
+export async function customerLogout(): Promise<ActionResponse> {
   const session = await getCustomerSession();
   if (session) {
+    await revokeSessionToken(session, "customer_logout");
     await createAuditLog({
       userId: session.userId,
       action: "auth.customer_logout",
@@ -961,6 +1058,5 @@ export async function customerLogout(): Promise<void> {
       entityId: session.userId,
     });
   }
-  await clearModuleSession("customer");
-  redirect("/login?role=customer");
+  return { success: true, redirectTo: "/login?role=customer" };
 }

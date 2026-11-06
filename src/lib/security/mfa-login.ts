@@ -1,10 +1,13 @@
 import { mfaPolicy } from "./config";
-import { setMfaChallenge } from "./mfa-challenge";
+import { createMfaChallenge, type MfaMode } from "./mfa-challenge";
 
 /**
- * Called by every login action after a correct password. Returns the MFA mode
- * that must be completed before a session is issued, or null when no step is
- * required. Kept separate from the server-action module to avoid an import
+ * Called by every login action after a correct password. Returns the challenge
+ * token and mode that must be completed before a session is issued, or null
+ * when no step is required.
+ *
+ * The challenge is returned to the calling tab, not written to a browser-wide
+ * cookie. It is kept separate from the server-action module to avoid an import
  * cycle with auth.actions.ts.
  */
 export async function beginMfaStepIfRequired(params: {
@@ -17,7 +20,7 @@ export async function beginMfaStepIfRequired(params: {
   mfaEnabled: boolean;
   forcePasswordReset: boolean;
   tokenVersion: number;
-}): Promise<"verify" | "enroll" | null> {
+}): Promise<{ mode: MfaMode; token: string } | null> {
   // Policy: when enforcement is on, EVERY account type must enrol. During the
   // controlled rollout ("optional") already-enrolled accounts still verify.
   const enforced = mfaPolicy() === "enforce";
@@ -25,7 +28,7 @@ export async function beginMfaStepIfRequired(params: {
   const mode = params.mfaEnabled ? "verify" : enforced ? "enroll" : null;
   if (!mode) return null;
 
-  await setMfaChallenge({
+  const token = await createMfaChallenge({
     subjectType: params.subjectType,
     subjectId: params.subjectId,
     module: params.module,
@@ -35,5 +38,5 @@ export async function beginMfaStepIfRequired(params: {
     forcePasswordReset: params.forcePasswordReset,
     tokenVersion: params.tokenVersion,
   });
-  return mode;
+  return { mode, token };
 }

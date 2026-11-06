@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import EnvironmentBadge from "@/components/EnvironmentBadge";
+import TabSessionProvider from "@/components/TabSessionProvider";
 import ToastProvider from "@/components/ui/Toast";
 import {
   PRODUCT_DESCRIPTOR,
@@ -66,6 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <ToastProvider>
+          <TabSessionProvider />
           <EnvironmentBadge />
           {children}
         </ToastProvider>

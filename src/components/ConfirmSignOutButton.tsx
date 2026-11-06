@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { LogOut, RefreshCw, ShieldAlert } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
-import { clearTabSession } from "@/components/TabSessionGuard";
+import { clearTabSession } from "@/lib/security/tab-session-client";
 import { getOfflineQueueSummary, type OfflineQueueSummary } from "@/lib/offline/store";
 import { syncBeforeSignOut, endOfflineSession } from "@/lib/offline/session";
 import { PRODUCT_NAME } from "@/lib/site";
@@ -70,12 +70,15 @@ export default function ConfirmSignOutButton({
   async function confirmSignOut() {
     setBusy(true);
     try {
-      clearTabSession();
       // Best effort: sync what can be synced, then close local access. Pending
       // records are deliberately retained on disk.
       await syncBeforeSignOut().catch(() => null);
       endOfflineSession();
-      await logout();
+      // The request still carries this tab's handle, so the server can revoke
+      // exactly this session. Only then remove the tab's local mapping.
+      const result = await logout();
+      await clearTabSession();
+      window.location.assign(result.redirectTo ?? "/login");
     } finally {
       setBusy(false);
       setOpen(false);

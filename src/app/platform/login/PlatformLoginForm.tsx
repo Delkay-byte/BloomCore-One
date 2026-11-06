@@ -1,14 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import {
+  completeTabLogin,
+  setMfaChallenge,
+} from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import { BrandLockup } from "@/components/brand/Brand";
 
-export default function PlatformLoginForm() {
+interface PlatformLoginFormProps {
+  /** Server-rendered: SSO entry point is shown only when the flag is on. */
+  ssoEnabled?: boolean;
+  /** Server-rendered SSO error/notice carried back via query params. */
+  ssoError?: string;
+  ssoNotice?: string;
+}
+
+export default function PlatformLoginForm({
+  ssoEnabled = false,
+  ssoError = "",
+  ssoNotice = "",
+}: PlatformLoginFormProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(0);
@@ -18,10 +34,26 @@ export default function PlatformLoginForm() {
     setError("");
     try {
       const result = await platformLogin(formData);
-      if (result && !result.success) {
-        setError(result.error || "Login failed");
+      if (!result || !result.success) {
+        setError(result?.error || "Login failed");
         setChallenge((value) => value + 1);
+        return;
       }
+      if (result.mfaToken && result.redirectTo) {
+        setMfaChallenge(result.mfaToken);
+        window.location.assign(result.redirectTo);
+        return;
+      }
+      if (result.sessionToken && result.redirectTo) {
+        const ready = await completeTabLogin(result.sessionToken, result.redirectTo);
+        if (!ready) {
+          setError(
+            "This browser could not establish an isolated tab session. Reload the page and sign in again."
+          );
+        }
+        return;
+      }
+      setError("Login could not establish a tab session.");
     } catch (err) {
       if (isRedirectError(err)) throw err;
       setError("An unexpected error occurred");
@@ -54,6 +86,16 @@ export default function PlatformLoginForm() {
           {error && (
             <div role="alert" className="banner banner-error mb-4">
               {error}
+            </div>
+          )}
+          {!error && ssoError && (
+            <div role="alert" className="banner banner-error mb-4">
+              {ssoError}
+            </div>
+          )}
+          {ssoNotice && (
+            <div role="status" className="banner banner-success mb-4">
+              {ssoNotice}
             </div>
           )}
 
@@ -92,6 +134,20 @@ export default function PlatformLoginForm() {
               )}
             </button>
           </form>
+
+          {ssoEnabled && (
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <a
+                href="/platform/login/sso/start"
+                className="btn btn-secondary w-full flex items-center justify-center gap-2"
+              >
+                <Fingerprint size={15} aria-hidden /> Sign in with BloomCore Identity
+              </a>
+              <p className="text-center text-[11px] text-slate-400 mt-2">
+                Central sign-in via BloomCore Identity. Local password sign-in remains available.
+              </p>
+            </div>
+          )}
 
           <div className="mt-6 pt-4 border-t border-slate-100 text-center">
             <a href="/login" className="text-xs text-slate-500 hover:text-slate-700">

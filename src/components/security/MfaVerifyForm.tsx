@@ -1,23 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { verifyMfaLoginAction } from "@/lib/security/mfa.actions";
 import { isRedirectError } from "@/lib/errors";
+import {
+  clearMfaChallenge,
+  completeTabLogin,
+  getMfaChallenge,
+} from "@/lib/security/tab-session-client";
 import { BrandLockup } from "@/components/brand/Brand";
 
 export default function MfaVerifyForm() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState("");
+
+  useEffect(() => {
+    const token = getMfaChallenge();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setChallenge(token);
+  }, [router]);
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
     setError("");
     try {
       const result = await verifyMfaLoginAction(formData);
-      if (result && !result.success) {
+      if (!result.success) {
         setError(result.error || "Verification failed");
+        return;
+      }
+      if (!result.sessionToken || !result.redirectTo) {
+        setError("Verification could not open a session. Please sign in again.");
+        return;
+      }
+      clearMfaChallenge();
+      const ready = await completeTabLogin(result.sessionToken, result.redirectTo);
+      if (!ready) {
+        setError(
+          "This browser could not establish an isolated tab session. Reload the page and sign in again."
+        );
       }
     } catch (err) {
       if (isRedirectError(err)) throw err;
@@ -49,6 +76,7 @@ export default function MfaVerifyForm() {
           )}
 
           <form action={handleSubmit} className="space-y-4">
+            <input type="hidden" name="challenge" value={challenge} />
             <div className="form-group">
               <label className="form-label" htmlFor="code">
                 Verification code

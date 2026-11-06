@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { switchWorkspace } from "@/lib/actions/auth.actions";
+import { completeTabLogin } from "@/lib/security/tab-session-client";
 
 interface MePayload {
   userId: string;
@@ -15,9 +15,9 @@ interface MePayload {
  * Renders only when the authenticated account is registered for both modules.
  */
 export default function WorkspaceSwitcher({ current }: { current: "momo" | "susu" }) {
-  const router = useRouter();
   const [bothModules, setBothModules] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -44,9 +44,17 @@ export default function WorkspaceSwitcher({ current }: { current: "momo" | "susu
     setBusy(true);
     try {
       const result = await switchWorkspace(target);
-      if (result.success) {
-        router.push(target === "momo" ? "/worker/dashboard" : "/collector/dashboard");
-        router.refresh();
+      if (result.success && result.sessionToken) {
+        const ready = await completeTabLogin(
+          result.sessionToken,
+          result.redirectTo ??
+            (target === "momo" ? "/worker/dashboard" : "/collector/dashboard")
+        );
+        if (!ready) {
+          setError("Reload this page before switching workspace.");
+        }
+      } else if (result.error) {
+        setError(result.error);
       }
     } finally {
       setBusy(false);
@@ -65,6 +73,11 @@ export default function WorkspaceSwitcher({ current }: { current: "momo" | "susu
       >
         {busy ? "Switching..." : `Switch to ${targetLabel}`}
       </button>
+      {error && (
+        <span role="alert" className="text-red-600">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

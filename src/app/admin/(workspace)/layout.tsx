@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import TabSessionGuard from "@/components/TabSessionGuard";
 import AppShell from "@/components/AppShell";
 import { navSections, type NavSection } from "@/lib/admin-nav";
 
@@ -62,17 +61,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       .filter((section) => section.items.length > 0);
   }
 
-  // TabSessionGuard gates the whole shell: a copied workspace URL opened in a
-  // new tab shows only a loading state before being sent to the login page.
+  // Tab identity is enforced by middleware and every server guard from the
+  // per-tab session header. This shell never displays data for a tab that the
+  // server has not authenticated.
   return (
-    <TabSessionGuard>
-      <AppShell
-        sections={visibleSections()}
-        subtitle="Business Management"
-        tenantName={tenantName}
-      >
-        {children}
-      </AppShell>
-    </TabSessionGuard>
+    <AppShell
+      sections={visibleSections()}
+      subtitle="Business Management"
+      tenantName={tenantName}
+    >
+      {children}
+    </AppShell>
   );
 }

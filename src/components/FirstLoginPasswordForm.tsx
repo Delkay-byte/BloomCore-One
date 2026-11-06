@@ -10,6 +10,7 @@ import {
 import { platformChangePassword } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
 import { BrandLockup } from "@/components/brand/Brand";
+import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 
 export type FirstLoginMode = "staff" | "customer" | "platform";
@@ -67,6 +68,22 @@ export default function FirstLoginPasswordForm({
 
       if (result && !result.success) {
         setError(result.error || "Could not change your password");
+        return;
+      }
+
+      // Password change rotates the session handle. Register the new handle
+      // with this tab before navigating, or the next request would use the
+      // revoked one.
+      if (result?.sessionToken) {
+        const ready = await completeTabLogin(
+          result.sessionToken,
+          result.redirectTo ?? dashboardPath
+        );
+        if (!ready) {
+          setError(
+            "This browser could not establish an isolated tab session. Reload the page and sign in again."
+          );
+        }
         return;
       }
 

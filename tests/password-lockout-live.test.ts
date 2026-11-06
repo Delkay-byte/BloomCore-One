@@ -76,9 +76,13 @@ describe("live password lockout sequence", () => {
       await clearThrottle([pairThrottleKey(admin.email, ip)]);
     }
 
-    await expect(adminLogin(form(admin.email, "Test1234!"))).rejects.toThrow(
-      /REDIRECT:\/admin\/dashboard/
+    const result = await adminLogin(form(admin.email, "Test1234!"));
+    expect(result && "success" in result && result.success).toBe(true);
+    expect(result && "sessionToken" in result && result.sessionToken).toBeTruthy();
+    expect(result && "redirectTo" in result && result.redirectTo).toBe(
+      "/admin/dashboard"
     );
+    // Test-only bridge mirrors the token into the legacy cookie map.
     expect(mockCookieStore.has("bik-admin-session")).toBe(true);
   }, 30_000);
 });

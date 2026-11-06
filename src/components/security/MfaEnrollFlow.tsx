@@ -1,25 +1,39 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   confirmMfaEnrollmentAction,
   finishMfaEnrollmentAction,
   startMfaEnrollmentAction,
 } from "@/lib/security/mfa.actions";
 import { isRedirectError } from "@/lib/errors";
+import {
+  clearMfaChallenge,
+  completeTabLogin,
+  getMfaChallenge,
+} from "@/lib/security/tab-session-client";
 import { BrandLockup } from "@/components/brand/Brand";
 
 export default function MfaEnrollFlow() {
+  const router = useRouter();
   const [qr, setQr] = useState("");
   const [manualKey, setManualKey] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState("");
   const [starting, startTransition] = useTransition();
 
   useEffect(() => {
+    const token = getMfaChallenge();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setChallenge(token);
     startTransition(async () => {
-      const result = await startMfaEnrollmentAction();
+      const result = await startMfaEnrollmentAction(token);
       if (result.success) {
         setQr(result.qrDataUrl ?? "");
         setManualKey(result.manualKey ?? "");
@@ -27,7 +41,7 @@ export default function MfaEnrollFlow() {
         setError(result.error ?? "Could not start enrolment.");
       }
     });
-  }, []);
+  }, [router]);
 
   async function handleConfirm(formData: FormData) {
     setLoading(true);
@@ -42,6 +56,32 @@ export default function MfaEnrollFlow() {
     } catch (err) {
       if (isRedirectError(err)) throw err;
       setError("Verification failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFinish() {
+    setLoading(true);
+    setError("");
+    try {
+      const payload = new FormData();
+      payload.set("challenge", challenge);
+      const result = await finishMfaEnrollmentAction(payload);
+      if (!result.success || !result.sessionToken || !result.redirectTo) {
+        setError(result.error || "Could not finish enrolment.");
+        return;
+      }
+      clearMfaChallenge();
+      const ready = await completeTabLogin(result.sessionToken, result.redirectTo);
+      if (!ready) {
+        setError(
+          "This browser could not establish an isolated tab session. Reload the page and sign in again."
+        );
+      }
+    } catch (err) {
+      if (isRedirectError(err)) throw err;
+      setError("Could not finish enrolment. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -68,9 +108,10 @@ export default function MfaEnrollFlow() {
                   <li key={code}>{code}</li>
                 ))}
               </ul>
-              <form action={finishMfaEnrollmentAction} className="mt-5">
-                <button type="submit" className="btn btn-primary w-full">
-                  I have saved my codes — continue
+              <form action={handleFinish} className="mt-5">
+                <input type="hidden" name="challenge" value={challenge} />
+                <button type="submit" className="btn btn-primary w-full" disabled={loading}>
+                  {loading ? "Opening your workspace…" : "I have saved my codes — continue"}
                 </button>
               </form>
             </>
@@ -113,6 +154,7 @@ export default function MfaEnrollFlow() {
               )}
 
               <form action={handleConfirm} className="space-y-4">
+                <input type="hidden" name="challenge" value={challenge} />
                 <div className="form-group">
                   <label className="form-label" htmlFor="code">
                     6-digit code

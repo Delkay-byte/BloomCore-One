@@ -9,6 +9,7 @@ export default defineConfig({
     env: {
       JWT_SECRET: "test-secret-for-vitest",
       NODE_ENV: "test",
+      ALLOW_LEGACY_COOKIE_SESSIONS: "1",
     },
     fileParallelism: false,
   },

@@ -45,7 +45,7 @@ const prisma = new PrismaClient();
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "AccountRecoveryRequest","SessionRecord","TurnstileTokenUse",
+    TRUNCATE TABLE "AccountRecoveryRequest","SessionRecord","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",

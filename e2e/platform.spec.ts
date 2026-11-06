@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { loginPlatform } from "./helpers";
+import { clearTabSession, loginPlatform, pageFetch } from "./helpers";
 
 test.describe("Platform Zeli control centre", () => {
   test.beforeEach(async ({ page }) => {
@@ -77,13 +77,12 @@ test.describe("Platform Zeli commerce and provider controls", () => {
   });
 
   test("unsubscribed tenant sees an honest checkout configuration state", async ({ page }) => {
-    await page.context().clearCookies();
+    await clearTabSession(page);
     await page.goto("/admin/login");
     await page.locator("#email").fill("e2e-admin-c@test.local");
     await page.locator("#password").fill("E2ePass123!");
     await page.getByRole("button", { name: "Sign In" }).click();
     await page.waitForURL(/\/admin\/dashboard/);
-    await page.evaluate(() => sessionStorage.setItem("bik-tab-session", "1"));
     await page.goto("/admin/zeli-analytics/upgrade");
     await expect(page.getByText("Analytics is not enabled for this business")).toBeVisible();
     await expect(page.getByText("Subscription checkout is not configured yet.", { exact: false })).toBeVisible();
@@ -102,22 +101,24 @@ test.describe("Global Zeli availability master switch", () => {
     await expect(panel.getByText("ZELI OFF")).toBeVisible();
 
     // Tenant-facing surfaces are unavailable while platform controls remain.
-    await page.context().clearCookies();
+    await clearTabSession(page);
     await page.goto("/admin/login");
     await page.locator("#email").fill("e2e-admin-a@test.local");
     await page.locator("#password").fill("E2ePass123!");
     await page.getByRole("button", { name: "Sign In" }).click();
     await page.waitForURL(/\/admin\/dashboard/);
-    await page.evaluate(() => sessionStorage.setItem("bik-tab-session", "1"));
     await page.goto("/zeli");
     await expect(page.getByText("Zeli is temporarily unavailable")).toBeVisible();
     await page.goto("/admin/zeli-analytics");
     await expect(page.getByText("Zeli is temporarily unavailable")).toBeVisible();
-    const exportResponse = await page.request.get("/api/zeli/analytics/export?period=this_month");
-    expect(exportResponse.status()).toBe(503);
+    const exportResponse = await pageFetch(
+      page,
+      "/api/zeli/analytics/export?period=this_month"
+    );
+    expect(exportResponse.status).toBe(503);
 
     // Platform admin can still access controls and restore service.
-    await page.context().clearCookies();
+    await clearTabSession(page);
     await page.goto("/platform/login");
     await page.locator("#email").fill("e2e-platform@test.local");
     await page.locator("#password").fill("E2ePass123!");

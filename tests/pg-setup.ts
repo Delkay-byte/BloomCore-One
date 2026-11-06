@@ -38,6 +38,7 @@ export async function cleanDatabase() {
   await prisma.offlineTransaction.deleteMany();
   await prisma.deviceEnrollment.deleteMany();
   await prisma.sessionRecord.deleteMany();
+  await prisma.mfaChallengeUse.deleteMany();
   await prisma.accountRecoveryRequest.deleteMany();
   await prisma.rateLimitCounter.deleteMany();
   await prisma.authThrottle.deleteMany();
@@ -57,6 +58,8 @@ export async function cleanDatabase() {
   await prisma.zeliConversation.deleteMany();
   await prisma.zeliUsage.deleteMany();
   await prisma.platformAuditLog.deleteMany();
+  await prisma.platformOidcSession.deleteMany();
+  await prisma.platformOidcLink.deleteMany();
   await prisma.platformSuperAdmin.deleteMany();
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
