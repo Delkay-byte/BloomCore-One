@@ -93,7 +93,7 @@ Old `bloomcore-one-*` assets were removed after all references moved.
 | Branches | Preserved |
 | PRs and issues | Untouched |
 | CI workflow | `.github/workflows/ci.yml`, reviewed, no product-name coupling |
-| Remote CI result | **Not run — branch not pushed** |
+| Remote CI result | **Running** on PR #16 (`Lint, typecheck, test, build`) |
 | Local CI equivalent | Typecheck, tests, lint, production build passed (§H) |
 
 ### Prepared rename steps (not executed)
@@ -290,7 +290,7 @@ preserved protocol identifiers.
 
 ### READY FOR OWNER APPROVAL TO DEPLOY
 
-- **Follow-up PR:** not created (branch not pushed; no credentials used).
+- **Follow-up PR:** https://github.com/Delkay-byte/BloomCore-One/pull/16
 - **Branch:** `feat/maacash-rebrand`
 - **Primary commit SHA:** `3e1daf76b2f87d6e6615ed26abacc8218234ff2b`
 - **Staging deployment SHA:** none
