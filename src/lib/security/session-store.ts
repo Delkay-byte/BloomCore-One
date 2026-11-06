@@ -113,10 +113,73 @@ export async function revokeAllSubjectSessions(
   }
 }
 
+/**
+ * Atomically consume an MFA challenge.
+ *
+ * The challenge jti is the primary key. A second call (including one racing
+ * from another tab or server instance) hits the unique constraint and gets
+ * `false`, so one challenge can never mint two sessions.
+ */
+export async function consumeMfaChallenge(input: {
+  id: string;
+  purpose: "verified" | "enrolled";
+  subjectType: "user" | "customer" | "platform";
+  subjectId: string;
+  expiresAt: Date;
+}): Promise<boolean> {
+  try {
+    await db.mfaChallengeUse.create({
+      data: {
+        id: input.id,
+        purpose: input.purpose,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        expiresAt: input.expiresAt,
+        consumedAt: input.purpose === "verified" ? new Date() : null,
+      },
+    });
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Consume the proof written by a successful enrolment confirmation.
+ * `finish` cannot run without it, so skipping the TOTP check cannot mint a
+ * session under MFA enforcement.
+ */
+export async function consumeMfaEnrollmentProof(id: string): Promise<boolean> {
+  try {
+    const result = await db.mfaChallengeUse.updateMany({
+      where: {
+        id,
+        purpose: "enrolled",
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { consumedAt: new Date() },
+    });
+    return result.count === 1;
+  } catch {
+    return false;
+  }
+}
+
 /** Remove rows that expired long ago. */
 export async function pruneSessionRecords(now: number = Date.now()): Promise<void> {
   try {
     await db.sessionRecord.deleteMany({
+      where: { expiresAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } },
+    });
+    await db.mfaChallengeUse.deleteMany({
       where: { expiresAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } },
     });
   } catch {

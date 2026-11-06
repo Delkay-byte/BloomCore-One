@@ -41,8 +41,8 @@ vi.mock("next/headers", () => ({
     set: (name: string, value: string) => {
       mockCookieStore.set(name, value);
     },
-    delete: (name: string) => {
-      mockCookieStore.delete(name);
+    delete: (name: string | { name: string }) => {
+      mockCookieStore.delete(typeof name === "string" ? name : name.name);
     },
   }),
   headers: async () => ({ get: () => null }),
@@ -55,8 +55,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { GET as callbackGet } from "@/app/platform/login/sso/callback/route";
+import { claimSsoSession } from "@/app/platform/login/sso/complete/actions";
 import { GET as startGet } from "@/app/platform/login/sso/start/route";
 import { confirmPlatformSsoLink } from "@/app/platform/login/sso/confirm/actions";
+import { SSO_HANDOFF_COOKIE } from "@/lib/security/sso-handoff";
 import {
   OIDC_FLOW_COOKIE,
   getOidcConfig,
@@ -465,12 +467,21 @@ describe("Platform OIDC SSO", () => {
     const response = await runCallback();
 
     expect(response.status).toBe(303);
-    expect(redirectTarget(response)).toBe("http://localhost:3100/platform/dashboard");
+    expect(redirectTarget(response)).toBe(
+      "http://localhost:3100/platform/login/sso/complete"
+    );
     expect(tokenEndpointCalls).toHaveLength(1);
 
-    // Native session: exact existing claims, DB-registered, resolvable.
-    const token = mockCookieStore.get(PLATFORM_COOKIE);
+    // Native session is handed to the tab through the one-time SSO handoff.
+    const token =
+      (
+        response as unknown as {
+          cookies?: { get: (name: string) => { value: string } | undefined };
+        }
+      ).cookies?.get(SSO_HANDOFF_COOKIE)?.value ??
+      mockCookieStore.get(SSO_HANDOFF_COOKIE);
     expect(token).toBeTruthy();
+    mockCookieStore.set(PLATFORM_COOKIE, token!);
     const payload = await verifyPlatformToken(token!);
     expect(payload?.kind).toBe("platform");
     expect(payload?.adminId).toBe(admin.id);
@@ -498,6 +509,35 @@ describe("Platform OIDC SSO", () => {
     expect(success?.actorEmail).toBe("owner@bloomcore.test");
   });
 
+  it("claims the tab-scoped SSO handoff exactly once", async () => {
+    const admin = await createPlatformAdmin({ email: "owner@bloomcore.test" });
+    await createLink(admin.id, "idp-sub-1");
+    ccResolveResponse = {
+      status: "verified",
+      identity_sub: "idp-sub-1",
+      email: "owner@bloomcore.test",
+    };
+    await runStart();
+    const response = await runCallback();
+    const token =
+      (
+        response as unknown as {
+          cookies?: { get: (name: string) => { value: string } | undefined };
+        }
+      ).cookies?.get(SSO_HANDOFF_COOKIE)?.value ?? null;
+    expect(token).toBeTruthy();
+
+    mockCookieStore.set(SSO_HANDOFF_COOKIE, token!);
+    const first = await claimSsoSession();
+    expect(first.success).toBe(true);
+    expect(first.sessionToken).toBe(token);
+    expect(first.redirectTo).toBe("/platform/dashboard");
+
+    const replay = await claimSsoSession();
+    expect(replay.success).toBe(false);
+    expect(replay.sessionToken).toBeUndefined();
+  });
+
   it("maps an IdP second factor to pwd+mfa and survives MFA enforcement", async () => {
     const admin = await createPlatformAdmin({ email: "owner@bloomcore.test" });
     await createLink(admin.id, "idp-sub-1");
@@ -522,8 +562,19 @@ describe("Platform OIDC SSO", () => {
     await runStart();
     const response = await runCallback();
 
-    expect(redirectTarget(response)).toBe("http://localhost:3100/platform/dashboard");
-    const payload = await verifyPlatformToken(mockCookieStore.get(PLATFORM_COOKIE)!);
+    expect(redirectTarget(response)).toBe(
+      "http://localhost:3100/platform/login/sso/complete"
+    );
+    const token =
+      (
+        response as unknown as {
+          cookies?: { get: (name: string) => { value: string } | undefined };
+        }
+      ).cookies?.get(SSO_HANDOFF_COOKIE)?.value ??
+      mockCookieStore.get(SSO_HANDOFF_COOKIE);
+    expect(token).toBeTruthy();
+    mockCookieStore.set(PLATFORM_COOKIE, token!);
+    const payload = await verifyPlatformToken(token!);
     expect(payload?.amr).toBe("pwd+mfa");
     const session = await getPlatformSession();
     expect(session?.adminId).toBe(admin.id);

@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { redirect } from "next/navigation";
@@ -12,6 +12,10 @@ import {
   revokeSession,
   touchSessionRecord,
 } from "./security/session-store";
+import {
+  TAB_SESSION_HEADER,
+  allowLegacyCookieSessions,
+} from "./security/tab-session";
 
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -55,22 +59,25 @@ export const SESSION_POLICY = {
 } as const;
 
 /**
- * MODULE-SCOPED SESSION ARCHITECTURE
+ * MODULE-SCOPED, TAB-SCOPED SESSION ARCHITECTURE
  *
- * Each business module keeps its own independent auth cookie:
+ * A session token is a signed JWT whose `jti` also exists in the server-side
+ * SessionRecord registry. The token is transported in the
+ * `x-bloomcore-tab-session` request header, which the same-origin service
+ * worker injects from a per-tab mapping. No authentication cookie is issued
+ * or trusted in production.
  *
- *   bik-admin-session     → /admin/*   (administrators)
- *   bik-worker-session    → /worker/*  (MoMo workers)
- *   bik-collector-session → /collector/* (Susu collectors)
+ * Why the header: cookies are shared by every tab in a browser profile, so a
+ * cookie can never identify a tab. The service worker can. A new tab has no
+ * mapping, so copying an authenticated URL does not transfer authentication.
  *
- * Because every login only writes ITS OWN module cookie, signing in as a
- * worker in one tab can never overwrite an administrator session in another
- * tab — the two cookies are independent browser state.
+ * The module name still scopes which surface the token may open
+ * (`/admin`, `/worker`, `/collector`, `/customer`, `/platform`). A token
+ * issued for one module cannot authenticate another.
  *
- * Standard-cookie limitation (documented deliberately): tabs of the SAME
- * origin share cookie storage, so copying a protected URL into another tab
- * still inherits that module's session. The isolation guarantee is per
- * module, not per tab — no superficial workaround is applied.
+ * The cookie names below are retained only to delete pre-migration cookies and
+ * to support the explicitly test-only compatibility bridge. Production
+ * requests with a cookie and no header are treated as unauthenticated.
  */
 
 export type ModuleName = "admin" | "momo" | "susu" | "customer";
@@ -275,22 +282,44 @@ export async function refreshLastActivity(payload: JwtPayload): Promise<string> 
 // Cookie management
 // ---------------------------------------------------------------------------
 
-async function setSessionCookie(name: string, token: string) {
-  const cookieStore = await cookies();
-  // maxAge must always be a valid positive integer (NaN would cause the browser
-  // to discard the cookie, creating an instant login loop).
-  const maxAge = Math.max(60, SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60);
-  cookieStore.set(name, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge,
-    priority: "high",
-  });
+async function readTabSessionHeader(): Promise<string | null> {
+  try {
+    const requestHeaders = await headers();
+    const value = requestHeaders.get(TAB_SESSION_HEADER);
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
-export async function setModuleSession(module: ModuleName, payload: JwtPayload) {
+/**
+ * Read the session token for a module.
+ *
+ * The header is authoritative. The cookie branch exists only for the
+ * explicitly enabled test migration bridge; it is never active in production.
+ */
+async function readSessionToken(module: ModuleName): Promise<string | null> {
+  const fromHeader = await readTabSessionHeader();
+  if (fromHeader) return fromHeader;
+
+  if (!allowLegacyCookieSessions()) return null;
+
+  try {
+    const cookieStore = await cookies();
+    return cookieStore.get(SESSION_COOKIES[module])?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create a session and return its token. The caller hands the token to the
+ * current tab's service worker; it is never written to a browser cookie.
+ */
+export async function createModuleSession(
+  module: ModuleName,
+  payload: JwtPayload
+): Promise<string> {
   const jti = payload.jti ?? randomUUID();
   const token = await createToken({ ...payload, jti });
   await createSessionRecord({
@@ -302,7 +331,33 @@ export async function setModuleSession(module: ModuleName, payload: JwtPayload) 
       Date.now() + SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS * 1000
     ),
   });
-  await setSessionCookie(SESSION_COOKIES[module], token);
+  // Test migration bridge only. Production never writes an auth cookie.
+  if (allowLegacyCookieSessions()) {
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set(SESSION_COOKIES[module], token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+      });
+    } catch {
+      // no request cookie store in a unit-test context
+    }
+  }
+  return token;
+}
+
+/**
+ * Backwards-compatible name used by existing call sites. Returns the token so
+ * a server action can hand it to the calling tab. It no longer sets a cookie.
+ */
+export async function setModuleSession(
+  module: ModuleName,
+  payload: JwtPayload
+): Promise<string> {
+  return createModuleSession(module, payload);
 }
 
 /** Revoke one session server-side (used by logout and account changes). */
@@ -323,8 +378,13 @@ export async function revokeAllUserSessions(
   await revokeAllSubjectSessions(subjectType, subjectId, reason);
 }
 
+/**
+ * Workspace-selection tokens now travel through the same tab header as a
+ * session. Kept as a no-op compatibility shim for callers that used to write
+ * the shared selection cookie.
+ */
 export async function setSelectionSession(token: string) {
-  await setSessionCookie(SELECTION_COOKIE_NAME, token);
+  void token;
 }
 
 export async function clearModuleSession(module: ModuleName) {
@@ -348,12 +408,6 @@ export async function clearAllSessions() {
 // Session readers (per module)
 // ---------------------------------------------------------------------------
 
-function legacyRoleMatchesModule(role: string, module: ModuleName): boolean {
-  if (module === "admin") return role === "admin";
-  if (module === "momo") return role === "worker";
-  return role === "collector";
-}
-
 function normalizePayload(payload: JwtPayload): JwtPayload {
   return {
     ...payload,
@@ -375,36 +429,42 @@ function normalizePayload(payload: JwtPayload): JwtPayload {
   };
 }
 
+/**
+ * Resolve a session for a module from the tab transport header.
+ *
+ * Every call validates: JWT signature/audience, module capability, MFA policy,
+ * server-side timing, and the SessionRecord registry (revocation/logout). A
+ * browser-supplied role, tenant or user id is never accepted as proof.
+ */
 export async function readModuleCookie(module: ModuleName): Promise<JwtPayload | null> {
-  const cookieStore = await cookies();
-  const name = SESSION_COOKIES[module];
+  const token = await readSessionToken(module);
+  if (!token) return null;
 
-  const scoped = cookieStore.get(name)?.value;
-  if (scoped) {
-    const payload = await verifyToken<JwtPayload>(scoped);
-    if (!payload?.userId) return null;
-    if (payload.tokenUse === "workspace-selection") return null;
-    const normalized = normalizePayload(payload);
-    if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
-    // Server-side session timing enforcement
-    const status = validateSessionTiming(normalized);
-    if (status !== "valid") return null;
-    // Server-side registry enforcement (revocation, logout, admin action).
-    if (!(await isSessionRecordActive(normalized.jti))) return null;
-    return normalized;
-  }
+  const payload = await verifyToken<JwtPayload>(token);
+  if (!payload?.userId) return null;
+  if (payload.tokenUse === "workspace-selection") return null;
 
-  // Graceful fallback to pre-hardening sessions until the next login.
-  const legacy = cookieStore.get(LEGACY_COOKIE_NAME)?.value;
-  if (!legacy) return null;
-  const payload = await verifyToken<JwtPayload>(legacy);
-  if (!payload?.userId || !legacyRoleMatchesModule(payload.role, module)) return null;
   const normalized = normalizePayload(payload);
+  if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
+
+  // A session issued for a different module must never open this surface.
+  if (!payloadMatchesModule(normalized, module)) return null;
+
   const status = validateSessionTiming(normalized);
   if (status !== "valid") return null;
-  if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
+
   if (!(await isSessionRecordActive(normalized.jti))) return null;
+
   return normalized;
+}
+
+/** True when this token was issued for the requested module surface. */
+function payloadMatchesModule(payload: JwtPayload, module: ModuleName): boolean {
+  if (module === "admin") return payload.role === "admin";
+  if (module === "customer") {
+    return payload.role === "customer" && (payload.modules ?? []).includes("customer");
+  }
+  return (payload.modules ?? []).includes(module);
 }
 
 export async function getAdminSession(): Promise<JwtPayload | null> {
@@ -429,12 +489,23 @@ export async function getAnyAuthUser(): Promise<JwtPayload | null> {
 }
 
 export async function getSelectionUser(): Promise<SelectionPayload | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SELECTION_COOKIE_NAME)?.value;
+  let token = await readTabSessionHeader();
+  if (!token && allowLegacyCookieSessions()) {
+    try {
+      token = (await cookies()).get(SELECTION_COOKIE_NAME)?.value ?? null;
+    } catch {
+      token = null;
+    }
+  }
   if (!token) return null;
   const payload = await verifyToken<SelectionPayload & { kind?: string }>(token);
   if (!payload || payload.kind !== "workspace-selection") return null;
-  return { userId: payload.userId, email: payload.email, fullName: payload.fullName, modules: payload.modules };
+  return {
+    userId: payload.userId,
+    email: payload.email,
+    fullName: payload.fullName,
+    modules: payload.modules,
+  };
 }
 
 /** True when the stored session matches the user's current tokenVersion. */
@@ -478,26 +549,19 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
  * Returns the new token so the caller can set it.
  */
 export async function refreshSession(module: ModuleName): Promise<string | null> {
-  const cookieStore = await cookies();
-  const name = SESSION_COOKIES[module];
-  const token = cookieStore.get(name)?.value;
+  const token = await readSessionToken(module);
   if (!token) return null;
   const payload = await verifyToken<JwtPayload>(token);
   if (!payload?.userId) return null;
   const normalized = normalizePayload(payload);
+  if (!payloadMatchesModule(normalized, module)) return null;
   const status = validateSessionTiming(normalized);
   if (status !== "valid") return null;
-  const newToken = await refreshLastActivity(normalized);
+  if (!(await isSessionRecordActive(normalized.jti))) return null;
   await touchSessionRecord(normalized.jti);
-  cookieStore.set(name, newToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
-    priority: "high",
-  });
-  return newToken;
+  // The token is not rotated: the service worker's mapping stays valid, and
+  // the registry remains the authoritative revocation record.
+  return token;
 }
 
 /**
@@ -527,7 +591,6 @@ export async function requireAuth(): Promise<JwtPayload> {
   const user = await getAnyAuthUser();
   if (!user) redirect("/login");
   if (!(await isSessionCurrent(user))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   return user;
@@ -537,7 +600,6 @@ export async function requireAdmin(): Promise<JwtPayload> {
   const user = await getAdminSession();
   if (!user) redirect("/login");
   if (!(await isSessionCurrent(user))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (user.role !== "admin") redirect("/unauthorized");
@@ -549,7 +611,6 @@ export async function requireWorker(): Promise<JwtPayload> {
   const user = await getMomoSession();
   if (!user) redirect("/login");
   if (!(await isSessionCurrent(user))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!(user.modules ?? []).includes("momo")) redirect("/unauthorized");
@@ -561,7 +622,6 @@ export async function requireCollector(): Promise<JwtPayload> {
   const user = await getSusuSession();
   if (!user) redirect("/login");
   if (!(await isSessionCurrent(user))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!(user.modules ?? []).includes("susu")) redirect("/unauthorized");
@@ -599,7 +659,6 @@ export async function requireCustomer(): Promise<JwtPayload> {
   const user = await getCustomerSession();
   if (!user) redirect("/login?role=customer");
   if (!(await isSessionCurrent(user))) {
-    await clearAllSessions();
     redirect("/login?role=customer&reason=session_expired");
   }
   if (!(user.modules ?? []).includes("customer")) redirect("/unauthorized");

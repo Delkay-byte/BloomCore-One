@@ -1,16 +1,17 @@
 import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
 import { randomUUID } from "crypto";
 
 /**
- * Short-lived MFA challenge.
+ * Short-lived, single-use MFA challenge.
  *
- * Set only AFTER a correct password, and exchanged for a real session only
- * after a valid TOTP or recovery code. It carries no authorization of its own:
- * middleware never treats it as a login, and every MFA route re-validates it.
+ * The challenge is NOT a session and carries no authorization. It is returned
+ * to the tab that submitted the password and supplied back to the verification
+ * action from that tab's sessionStorage. There is no browser-wide MFA cookie,
+ * so a challenge started in one tab cannot be completed from another tab.
+ *
+ * The token remains signed and time-limited (5 minutes) to prevent tampering.
  */
 
-export const MFA_CHALLENGE_COOKIE = "bik-mfa-challenge";
 const ISSUER = "bloomcore-one";
 const AUDIENCE = "bloomcore-one:mfa-challenge";
 
@@ -28,6 +29,7 @@ export interface MfaChallenge {
   tokenVersion: number;
   tokenUse: "mfa-challenge";
   jti?: string;
+  exp?: number;
 }
 
 function secret(): Uint8Array {
@@ -36,10 +38,10 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(value);
 }
 
-export async function setMfaChallenge(
+export async function createMfaChallenge(
   challenge: Omit<MfaChallenge, "tokenUse" | "jti">
-): Promise<void> {
-  const token = await new SignJWT({
+): Promise<string> {
+  return new SignJWT({
     ...challenge,
     tokenUse: "mfa-challenge",
     jti: randomUUID(),
@@ -50,23 +52,13 @@ export async function setMfaChallenge(
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
     .sign(secret());
-
-  const store = await cookies();
-  store.set(MFA_CHALLENGE_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 5 * 60,
-    priority: "high",
-  });
 }
 
-export async function readMfaChallenge(): Promise<MfaChallenge | null> {
+export async function readMfaChallenge(
+  token: string | null | undefined
+): Promise<MfaChallenge | null> {
+  if (!token) return null;
   try {
-    const store = await cookies();
-    const token = store.get(MFA_CHALLENGE_COOKIE)?.value;
-    if (!token) return null;
     const { payload } = await jwtVerify(token, secret(), {
       issuer: ISSUER,
       audience: AUDIENCE,
@@ -79,9 +71,4 @@ export async function readMfaChallenge(): Promise<MfaChallenge | null> {
   } catch {
     return null;
   }
-}
-
-export async function clearMfaChallenge(): Promise<void> {
-  const store = await cookies();
-  store.delete(MFA_CHALLENGE_COOKIE);
 }

@@ -12,6 +12,9 @@ export default defineConfig({
       JWT_SECRET: "test-secret-for-vitest",
       DATABASE_URL: "file:../tests/test.db",
       NODE_ENV: "test",
+      // Migration bridge for pre-existing cookie-seeded unit tests. Production
+      // never sets this; new tests exercise the tab header directly.
+      ALLOW_LEGACY_COOKIE_SESSIONS: "1",
     },
   },
   resolve: {

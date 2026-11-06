@@ -7,40 +7,40 @@ function source(relative: string): string {
   return readFileSync(path.join(process.cwd(), relative), "utf8");
 }
 
-describe("cross-tab session identity", () => {
-  it("accepts the first verified identity of a tab", () => {
+describe("tab session identity", () => {
+  it("classifies first, same and changed identities", () => {
     expect(classifyIdentityChange(null, "user-a")).toBe("initial");
-  });
-
-  it("keeps the tab when the same user is revalidated", () => {
     expect(classifyIdentityChange("user-a", "user-a")).toBe("same");
-  });
-
-  it("invalidates the tab when another user takes the shared cookie", () => {
     expect(classifyIdentityChange("user-a", "user-b")).toBe("changed");
   });
 
-  it("uses BroadcastChannel rather than sessionStorage events for cross-tab signals", () => {
-    const guard = source("src/components/TabSessionGuard.tsx");
-    expect(guard).toContain("BroadcastChannel");
-    expect(guard).toContain("session-changed");
-    expect(guard).not.toMatch(/addEventListener\(\s*["']storage["']/);
+  it("injects the per-tab handle through the service worker, not a cookie", () => {
+    const worker = source("public/tab-session-sw.js");
+    expect(worker).toContain("x-bloomcore-tab-session");
+    expect(worker).toContain("event.resultingClientId");
+    expect(worker).toContain("indexedDB");
+    expect(worker).not.toMatch(/document\.cookie|localStorage\s*\./);
   });
 
-  it("broadcasts no user, tenant or token data", () => {
-    const guard = source("src/components/TabSessionGuard.tsx");
-    expect(guard).toMatch(/postMessage\(\{\s*type:\s*["']session-changed["']\s*\}\)/);
-    expect(guard).not.toMatch(/postMessage\([^)]*(userId|tenantId|token|password)/i);
+  it("writes a legacy cookie only behind the explicit test bridge", () => {
+    const auth = source("src/lib/auth.ts");
+    const platform = source("src/lib/platform-auth.ts");
+    expect(auth).toMatch(
+      /if \(allowLegacyCookieSessions\(\)\) \{[\s\S]{0,400}cookieStore\.set\(\s*SESSION_COOKIES/
+    );
+    expect(platform).toMatch(
+      /if \(allowLegacyCookieSessions\(\)\) \{[\s\S]{0,400}\(await cookies\(\)\)\.set\(\s*PLATFORM_COOKIE/
+    );
   });
 
-  it("revalidates with the server and closes offline access on a signal", () => {
-    const guard = source("src/components/TabSessionGuard.tsx");
-    expect(guard).toContain("/api/auth/me");
-    expect(guard).toContain("closeCurrentOfflineSession()");
-    expect(guard).toContain("classifyIdentityChange");
+  it("keeps the credential out of URLs and localStorage", () => {
+    const client = source("src/lib/security/tab-session-client.ts");
+    expect(client).not.toMatch(/localStorage\s*\./);
+    expect(client).not.toMatch(/[?&](token|session)=/);
+    expect(client).toContain("postMessage({ type: \"register\", token })");
   });
 
-  it("sign-out never deletes pending records", () => {
+  it("sign-out never deletes pending offline records", () => {
     const button = source("src/components/ConfirmSignOutButton.tsx");
     expect(button).not.toContain("discardCurrentOfflineData");
     expect(button).toContain("endOfflineSession");

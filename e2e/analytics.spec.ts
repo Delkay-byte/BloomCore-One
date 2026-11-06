@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_A, loginAdmin, resetSession } from "./helpers";
+import { ADMIN_A, loginAdmin, pageFetch, resetSession } from "./helpers";
 
 test.describe("Zeli Business Intelligence workspace", () => {
   test.beforeEach(async ({ page }) => {
@@ -54,10 +54,10 @@ test.describe("Zeli Business Intelligence workspace", () => {
   test("does not leak tenant B in exports or analytics", async ({ page }) => {
     await page.goto("/admin/zeli-analytics");
     await expect(page.getByText("E2E Bloom Business B")).toHaveCount(0);
-    const response = await page.request.get("/api/zeli/analytics/export?period=this_month");
-    expect(response.status()).toBe(200);
-    const body = await response.text();
-    expect(body).toContain("E2E Bloom Business A");
+    const response = await pageFetch(page, "/api/zeli/analytics/export?period=this_month");
+    expect(response.status).toBe(200);
+    expect(response.body).toContain("E2E Bloom Business A");
+    const body = response.body;
     expect(body).not.toContain("E2E Bloom Business B");
     expect(body).not.toContain("E2E Customer A");
   });
@@ -67,7 +67,7 @@ test.describe("Zeli Business Intelligence workspace", () => {
     await loginAdmin(page, "e2e-admin-b@test.local");
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("link", { name: "Zeli Business Intelligence" })).toHaveCount(0);
-    const response = await page.request.get("/api/zeli/analytics/export");
-    expect(response.status()).toBe(403);
+    const response = await pageFetch(page, "/api/zeli/analytics/export");
+    expect(response.status).toBe(403);
   });
 });

@@ -1,7 +1,6 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import {
@@ -9,13 +8,12 @@ import {
   clearPlatformSession,
   getPlatformAdminOrNull,
   getPlatformSession,
+  getPlatformTokenPayload,
   hashPlatformPassword,
   requirePlatformAdmin,
   revokePlatformSession,
   setPlatformSession,
   validatePasswordPolicy,
-  verifyPlatformToken,
-  PLATFORM_COOKIE,
   type PlatformSession,
 } from "@/lib/platform-auth";
 import {
@@ -34,12 +32,17 @@ import {
 import { logSecurityEvent } from "@/lib/security/log";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
-import { headers, cookies } from "next/headers";
+import { headers } from "next/headers";
 
 export interface PlatformActionResponse {
   success: boolean;
   error?: string;
   data?: unknown;
+  /** Tab-scoped session handle, returned only to the client that logged in. */
+  sessionToken?: string;
+  redirectTo?: string;
+  mfa?: "verify" | "enroll";
+  mfaToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,9 +155,16 @@ export async function platformLogin(
     forcePasswordReset: result.admin.forcePasswordReset,
     tokenVersion: result.tokenVersion,
   });
-  if (mfaStep) redirect(`/mfa/${mfaStep}`);
+  if (mfaStep) {
+    return {
+      success: true,
+      mfa: mfaStep.mode,
+      mfaToken: mfaStep.token,
+      redirectTo: `/mfa/${mfaStep.mode}`,
+    };
+  }
 
-  await setPlatformSession({
+  const token = await setPlatformSession({
     adminId: result.admin.adminId,
     email: result.admin.email,
     fullName: result.admin.fullName,
@@ -170,17 +180,19 @@ export async function platformLogin(
     ipAddress: await safeClientIp(),
   });
 
-  if (result.admin.forcePasswordReset) {
-    redirect("/platform/first-login");
-  }
-  redirect("/platform/dashboard");
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: result.admin.forcePasswordReset
+      ? "/platform/first-login"
+      : "/platform/dashboard",
+  };
 }
 
-export async function platformLogout(): Promise<void> {
+export async function platformLogout(): Promise<PlatformActionResponse> {
   const session = await getPlatformSession();
   if (session) {
-    const token = (await cookies()).get(PLATFORM_COOKIE)?.value;
-    const payload = token ? await verifyPlatformToken(token) : null;
+    const payload = await getPlatformTokenPayload();
     await revokePlatformSession(payload, "platform_logout");
     // SSO sessions: best-effort revocation of the IdP refresh token and
     // cleanup of the companion row. Never blocks or fails local logout.
@@ -195,7 +207,7 @@ export async function platformLogout(): Promise<void> {
     await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_LOGOUT);
   }
   await clearPlatformSession();
-  redirect("/platform/login");
+  return { success: true, redirectTo: "/platform/login" };
 }
 
 export async function platformChangePassword(
@@ -243,7 +255,7 @@ export async function platformChangePassword(
 
   // Re-issue the platform session with the new tokenVersion so the operator
   // is not logged out by their own password change.
-  await setPlatformSession({
+  const token = await setPlatformSession({
     adminId: admin.id,
     email: admin.email,
     fullName: admin.fullName,
@@ -254,7 +266,11 @@ export async function platformChangePassword(
   await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_PASSWORD_CHANGED);
   revalidatePath("/platform/settings");
   revalidatePath("/platform/first-login");
-  return { success: true };
+  return {
+    success: true,
+    sessionToken: token,
+    redirectTo: "/platform/dashboard",
+  };
 }
 
 async function safeClientIp(): Promise<string | null> {

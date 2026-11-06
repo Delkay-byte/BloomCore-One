@@ -29,7 +29,12 @@ import {
  * like the local login path.
  */
 export type SsoSignInResult =
-  | { ok: true; admin: PlatformSession; forcePasswordReset: boolean }
+  | {
+      ok: true;
+      admin: PlatformSession;
+      forcePasswordReset: boolean;
+      sessionToken: string;
+    }
   | {
       ok: false;
       reason: "no_link" | "inactive" | "mfa_required";
@@ -82,7 +87,7 @@ export async function completeSsoSignIn(input: {
   }
 
   const jti = randomUUID();
-  await setPlatformSession({
+  const sessionToken = await setPlatformSession({
     adminId: admin.id,
     email: admin.email,
     fullName: admin.fullName,
@@ -125,6 +130,7 @@ export async function completeSsoSignIn(input: {
   return {
     ok: true,
     forcePasswordReset: admin.forcePasswordReset,
+    sessionToken,
     admin: {
       adminId: admin.id,
       email: admin.email,

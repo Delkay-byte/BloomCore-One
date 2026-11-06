@@ -208,7 +208,16 @@ and can be dropped later.
 * **Repeat login:** second SSO run re-used the single link (`link count` stayed
   1) and landed on the dashboard.
 
-## 6. Limitations
+## 6. Tab-session handoff
+
+The callback does not write a platform authentication cookie. It puts the
+freshly minted session in a 60-second, HttpOnly `bik-sso-handoff` cookie scoped
+to `/platform/login/sso`, redirects to `/platform/login/sso/complete`, and the
+claim action consumes the cookie exactly once and returns the handle to that
+tab's service worker. A copied URL cannot replay it after the claim, and no
+other tab inherits the platform session. See `TAB-SESSION-ARCHITECTURE.md`.
+
+## 7. Limitations
 
 * The `pending → confirm` step intentionally does **not** mint a session; one
   more SSO click is required after linking.

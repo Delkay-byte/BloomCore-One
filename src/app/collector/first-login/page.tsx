@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clearAllSessions, getSusuSession, isSessionCurrent } from "@/lib/auth";
+import { getSusuSession, isSessionCurrent } from "@/lib/auth";
 import FirstLoginPasswordForm from "@/components/FirstLoginPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,6 @@ export default async function CollectorFirstLoginPage() {
   const session = await getSusuSession();
   if (!session) redirect("/login?role=susu");
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!session.forcePasswordReset) redirect("/collector/dashboard");

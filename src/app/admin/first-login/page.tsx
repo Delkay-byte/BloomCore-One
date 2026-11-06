@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clearAllSessions, getAdminSession, isSessionCurrent } from "@/lib/auth";
+import { getAdminSession, isSessionCurrent } from "@/lib/auth";
 import FirstLoginPasswordForm from "@/components/FirstLoginPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,6 @@ export default async function AdminFirstLoginPage() {
   const session = await getAdminSession();
   if (!session) redirect("/admin/login");
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!session.forcePasswordReset) redirect("/admin/dashboard");

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clearAllSessions, getMomoSession, isSessionCurrent } from "@/lib/auth";
+import { getMomoSession, isSessionCurrent } from "@/lib/auth";
 import FirstLoginPasswordForm from "@/components/FirstLoginPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,6 @@ export default async function WorkerFirstLoginPage() {
   const session = await getMomoSession();
   if (!session) redirect("/login?role=momo");
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!session.forcePasswordReset) redirect("/worker/dashboard");

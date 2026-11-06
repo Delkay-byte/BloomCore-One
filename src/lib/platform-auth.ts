@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -10,6 +10,10 @@ import {
   isSessionRecordActive,
   revokeSession,
 } from "./security/session-store";
+import {
+  TAB_SESSION_HEADER,
+  allowLegacyCookieSessions,
+} from "./security/tab-session";
 
 /**
  * ============================================================================
@@ -161,8 +165,7 @@ export async function verifyPlatformToken(
 export async function setPlatformSession(
   payload: Omit<PlatformJwtPayload, "kind">,
   provenance?: { authSource?: "local" | "sso"; idpSub?: string | null; idpSid?: string | null }
-): Promise<void> {
-  const cookieStore = await cookies();
+): Promise<string> {
   const jti = payload.jti ?? randomUUID();
   const token = await createPlatformToken({
     ...payload,
@@ -182,14 +185,41 @@ export async function setPlatformSession(
     idpSub: provenance?.idpSub ?? null,
     idpSid: provenance?.idpSid ?? null,
   });
-  cookieStore.set(PLATFORM_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict", // stricter than tenant cookies: cross-site never needs this
-    path: "/",
-    maxAge: PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
-    priority: "high",
-  });
+  // The token is returned to the calling tab and registered with its worker.
+  // No browser-wide platform cookie is written in production. The test-only
+  // compatibility bridge keeps legacy cookie-seeded tests meaningful.
+  if (allowLegacyCookieSessions()) {
+    try {
+      (await cookies()).set(PLATFORM_COOKIE, token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict",
+        path: "/",
+        maxAge: PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+      });
+    } catch {
+      // no request cookie store in a unit-test context
+    }
+  }
+  return token;
+}
+
+/** Read and verify the current platform token for revocation/audit. */
+export async function getPlatformTokenPayload(): Promise<PlatformJwtPayload | null> {
+  try {
+    let token: string | null = null;
+    try {
+      token = (await headers()).get(TAB_SESSION_HEADER);
+    } catch {
+      token = null;
+    }
+    if (!token && allowLegacyCookieSessions()) {
+      token = (await cookies()).get(PLATFORM_COOKIE)?.value ?? null;
+    }
+    return token ? await verifyPlatformToken(token) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Revoke the current platform session server-side. */
@@ -224,8 +254,15 @@ function validatePlatformTiming(p: PlatformJwtPayload): boolean {
  */
 export async function getPlatformSession(): Promise<PlatformSession | null> {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(PLATFORM_COOKIE)?.value;
+    let token: string | null = null;
+    try {
+      token = (await headers()).get(TAB_SESSION_HEADER);
+    } catch {
+      token = null;
+    }
+    if (!token && allowLegacyCookieSessions()) {
+      token = (await cookies()).get(PLATFORM_COOKIE)?.value ?? null;
+    }
     if (!token) return null;
 
     const payload = await verifyPlatformToken(token);

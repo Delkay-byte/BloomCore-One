@@ -4,6 +4,10 @@ import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { customerChangePassword, customerLogout } from "@/lib/actions/auth.actions";
+import {
+  clearTabSession,
+  registerTabSession,
+} from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import PasswordInput from "@/components/PasswordInput";
 
@@ -83,9 +87,19 @@ export default function CustomerSettingsPage() {
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
-        // If it was a forced password reset, redirect to dashboard
-        if (profile?.forcePasswordReset) {
-          router.push("/customer/dashboard");
+        // The password change rotates the tab handle; register the new one.
+        if (result.sessionToken) {
+          const ready = await registerTabSession(result.sessionToken);
+          if (!ready) {
+            setError(
+              "Password changed, but this tab could not keep its session. Reload and sign in again."
+            );
+            return;
+          }
+          if (profile?.forcePasswordReset) {
+            window.location.assign(result.redirectTo ?? "/customer/dashboard");
+            return;
+          }
         }
       } else {
         setError(result.error || "Failed to change password");
@@ -101,7 +115,9 @@ export default function CustomerSettingsPage() {
   async function handleLogout() {
     if (!confirm("Sign out?\n\nAre you sure you want to sign out?")) return;
     try {
-      await customerLogout();
+      const result = await customerLogout();
+      await clearTabSession();
+      window.location.assign(result.redirectTo ?? "/login?role=customer");
     } catch (err) {
       if (isRedirectError(err)) throw err;
     }

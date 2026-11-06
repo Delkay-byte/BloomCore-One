@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { customerLogout } from "@/lib/actions/auth.actions";
+import { clearTabSession } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 
 import { Banknote, ClipboardList, CreditCard, Landmark, LogOut, Settings, UserRound, Wallet } from "lucide-react";
@@ -50,7 +51,9 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
   async function handleLogout() {
     if (!confirm("Sign out?\n\nAre you sure you want to sign out?")) return;
     try {
-      await customerLogout();
+      const result = await customerLogout();
+      await clearTabSession();
+      window.location.assign(result.redirectTo ?? "/login?role=customer");
     } catch (err) {
       if (isRedirectError(err)) throw err;
     }

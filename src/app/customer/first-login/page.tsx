@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clearAllSessions, getCustomerSession, isSessionCurrent } from "@/lib/auth";
+import { getCustomerSession, isSessionCurrent } from "@/lib/auth";
 import FirstLoginPasswordForm from "@/components/FirstLoginPasswordForm";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,6 @@ export default async function CustomerFirstLoginPage() {
   const session = await getCustomerSession();
   if (!session) redirect("/login?role=customer");
   if (!(await isSessionCurrent(session))) {
-    await clearAllSessions();
     redirect("/login?reason=session_expired");
   }
   if (!session.forcePasswordReset) redirect("/customer/dashboard");

@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
-import TabSessionGuard from "@/components/TabSessionGuard";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
 
@@ -32,11 +31,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  // TabSessionGuard gates the whole shell: a copied workspace URL opened in a
-  // new tab shows only a loading state before being sent to the login page.
+  // Authentication is enforced server-side per tab; the shell renders only
+  // after middleware and the page guard have accepted this tab's session.
   return (
-    <TabSessionGuard>
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
         <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
           <AppBrand tenantName={tenantName} markSize={30} href="/worker/dashboard" />
           <WorkspaceSwitcher current="momo" />
@@ -71,7 +69,6 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
             </p>
           </div>
         </footer>
-      </div>
-    </TabSessionGuard>
+    </div>
   );
 }

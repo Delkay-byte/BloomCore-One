@@ -14,6 +14,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { platformLogout } from "@/lib/actions/platform.actions";
+import { clearTabSession } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import type { PlatformSession } from "@/lib/platform-auth";
 import { BrandLockup } from "@/components/brand/Brand";
@@ -49,7 +50,9 @@ export default function PlatformShell({
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await platformLogout();
+      const result = await platformLogout();
+      await clearTabSession();
+      window.location.assign(result.redirectTo ?? "/platform/login");
     } catch (err) {
       if (isRedirectError(err)) throw err;
     } finally {

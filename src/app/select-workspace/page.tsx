@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Footprints, Smartphone } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { selectWorkspace } from "@/lib/actions/auth.actions";
-import { markTabAuthenticated } from "@/components/TabSessionGuard";
+import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { AppBrand } from "@/components/brand/AppBrand";
 
 interface Selection {
@@ -69,10 +69,16 @@ export default function SelectWorkspacePage() {
     setError("");
     try {
       const result = await selectWorkspace(moduleKey);
-      if (result.success) {
-        markTabAuthenticated();
-        router.push(MODULE_META[moduleKey].path);
-        router.refresh();
+      if (result.success && result.sessionToken) {
+        const ready = await completeTabLogin(
+          result.sessionToken,
+          result.redirectTo ?? MODULE_META[moduleKey].path
+        );
+        if (!ready) {
+          setError(
+            "This browser could not establish an isolated tab session. Reload the page and sign in again."
+          );
+        }
       } else {
         setError(result.error || "Could not open the selected workspace");
       }

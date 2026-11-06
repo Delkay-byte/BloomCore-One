@@ -743,6 +743,21 @@ model TurnstileTokenUse {
 
 /// Server-side session registry. A JWT is only accepted while its `jti` row
 /// exists, is unexpired and has not been revoked.
+/// One-time proof that an MFA challenge was actually completed.
+/// The row id is the signed challenge jti; a unique primary key makes replay
+/// impossible even across concurrent requests or server instances.
+model MfaChallengeUse {
+  id          String    @id
+  purpose     String // verified | enrolled
+  subjectType String // user | customer | platform
+  subjectId   String
+  createdAt   DateTime  @default(now())
+  consumedAt  DateTime?
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+}
+
 model SessionRecord {
   id            String    @id // JWT `jti`
   subjectType   String // user | customer | platform

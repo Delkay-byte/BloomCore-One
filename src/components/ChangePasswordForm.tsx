@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { changePassword } from "@/lib/actions/auth.actions";
+import { registerTabSession } from "@/lib/security/tab-session-client";
 import PasswordInput from "@/components/PasswordInput";
 
 const DASHBOARD_BY_ROLE: Record<string, string> = {
@@ -50,6 +51,18 @@ export default function ChangePasswordForm({
       if (module) formData.set("module", module);
       const result = await changePassword(formData);
       if (result.success) {
+        // The password change rotated this tab's handle; replace the mapping
+        // before any further request, or the next fetch would use the revoked
+        // token and sign the tab out.
+        if (result.sessionToken) {
+          const ready = await registerTabSession(result.sessionToken);
+          if (!ready) {
+            setError(
+              "Password changed, but this tab could not keep its session. Reload and sign in again."
+            );
+            return;
+          }
+        }
         setSuccess("Password changed successfully");
         if (onSuccess) {
           onSuccess();

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
+import { registerTabSession } from "@/lib/security/tab-session-client";
 import { useToast } from "@/components/ui/Toast";
 
 export default function PlatformPasswordForm() {
@@ -21,6 +22,15 @@ export default function PlatformPasswordForm() {
       if (result && !result.success) {
         setError(result.error || "Could not change password");
       } else {
+        if (result?.sessionToken) {
+          const ready = await registerTabSession(result.sessionToken);
+          if (!ready) {
+            setError(
+              "Password changed, but this tab could not keep its session. Reload and sign in again."
+            );
+            return;
+          }
+        }
         setSuccess(true);
         toast.push("success", "Password changed. All other platform sessions were signed out.");
         // Refresh server components so the forced-reset banner clears.

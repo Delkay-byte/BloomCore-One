@@ -21,9 +21,9 @@ import {
 } from "@/lib/security/oidc";
 import { completeSsoSignIn } from "@/lib/security/oidc-login";
 import {
-  PLATFORM_COOKIE,
-  PLATFORM_SESSION_POLICY,
-} from "@/lib/platform-auth";
+  SSO_HANDOFF_COOKIE,
+  SSO_HANDOFF_DESTINATION_COOKIE,
+} from "@/lib/security/sso-handoff";
 
 /**
  * GET /platform/login/sso/callback
@@ -204,25 +204,31 @@ export async function GET(request: Request): Promise<Response> {
     return redirectToLogin("error", errorParam);
   }
 
-  const destination = result.forcePasswordReset
-    ? new URL("/platform/first-login", url)
-    : new URL("/platform/dashboard", url);
+  // Hand the tab-scoped session to a one-time claim page. The handoff is a
+  // short-lived, HttpOnly cookie consumed exactly once; it is not an
+  // authentication cookie and a copied URL cannot replay it after the claim.
+  const destination = new URL("/platform/login/sso/complete", url);
   const response = NextResponse.redirect(destination, { status: 303 });
   response.cookies.delete({ name: OIDC_FLOW_COOKIE, path: "/platform/login/sso" });
-  // setPlatformSession() (inside completeSsoSignIn) wrote the cookie to the
-  // request-scoped store; carry it onto this redirect response explicitly so
-  // the session survives the 303 in every runtime. Flags mirror
-  // setPlatformSession() exactly; maxAge mirrors the platform session policy.
-  const minted = (await cookies()).get(PLATFORM_COOKIE)?.value;
-  if (minted) {
-    response.cookies.set(PLATFORM_COOKIE, minted, {
+  response.cookies.set(SSO_HANDOFF_COOKIE, result.sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/platform/login/sso",
+    maxAge: 60,
+    priority: "high",
+  });
+  response.cookies.set(
+    SSO_HANDOFF_DESTINATION_COOKIE,
+    result.forcePasswordReset ? "/platform/first-login" : "/platform/dashboard",
+    {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      maxAge: PLATFORM_SESSION_POLICY.ABSOLUTE_TIMEOUT_SECONDS + 60,
+      sameSite: "lax",
+      path: "/platform/login/sso",
+      maxAge: 60,
       priority: "high",
-    });
-  }
+    }
+  );
   return response;
 }

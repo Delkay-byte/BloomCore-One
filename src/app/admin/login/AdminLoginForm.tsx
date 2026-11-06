@@ -4,7 +4,10 @@ import { useState } from "react";
 import { adminLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
-import { markTabAuthenticated } from "@/components/TabSessionGuard";
+import {
+  completeTabLogin,
+  setMfaChallenge,
+} from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
@@ -31,13 +34,28 @@ export default function AdminLoginForm() {
   async function handleSubmit(formData: FormData) {
     setLoading(true);
     setError("");
-    markTabAuthenticated();
     try {
       const result = await adminLogin(formData);
-      if (result && !result.success) {
-        setError(result.error || "Login failed");
+      if (!result || !result.success) {
+        setError(result?.error || "Login failed");
         setChallenge((value) => value + 1);
+        return;
       }
+      if (result.mfaToken && result.redirectTo) {
+        setMfaChallenge(result.mfaToken);
+        window.location.assign(result.redirectTo);
+        return;
+      }
+      if (result.sessionToken && result.redirectTo) {
+        const ready = await completeTabLogin(result.sessionToken, result.redirectTo);
+        if (!ready) {
+          setError(
+            "This browser could not establish an isolated tab session. Reload the page and sign in again."
+          );
+        }
+        return;
+      }
+      setError("Login could not establish a tab session.");
     } catch (err) {
       if (isRedirectError(err)) throw err;
       setError("An unexpected error occurred");

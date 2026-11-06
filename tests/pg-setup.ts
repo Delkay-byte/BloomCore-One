@@ -38,6 +38,7 @@ export async function cleanDatabase() {
   await prisma.offlineTransaction.deleteMany();
   await prisma.deviceEnrollment.deleteMany();
   await prisma.sessionRecord.deleteMany();
+  await prisma.mfaChallengeUse.deleteMany();
   await prisma.accountRecoveryRequest.deleteMany();
   await prisma.rateLimitCounter.deleteMany();
   await prisma.authThrottle.deleteMany();
