@@ -131,6 +131,17 @@ to the Paystack webhook, Turnstile host allow-list and default OIDC redirect
 URI. Renaming now would break those without a coordinated, approved migration.
 The public identity is already MaaCash.
 
+### Live verification (read-only)
+
+| Endpoint | Result 2026-11-06 |
+| --- | --- |
+| `https://bloomcore-one.onrender.com/api/health` | **200**, `env: production`, commit `e890cf9` |
+| `https://bloomcore-one-staging.onrender.com/api/health` | **200**, `env: STAGING`, commit `e5b670f` |
+
+Both services are alive and still serving the pre-rebrand builds. The health
+payload still reports `app: "bloomcore-one"`; that is a preserved monitoring
+identifier, not user-facing branding.
+
 ### Configuration changes
 
 None. `render.yaml` and `render.staging.yaml` were updated with comments and
