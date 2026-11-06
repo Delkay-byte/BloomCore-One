@@ -247,6 +247,11 @@ Total legacy-name matches in tracked source, docs and scripts (excluding
 
 **Active documents updated:** `README.md`,
 `docs/NEON-RENDER-DEPLOYMENT.md`, `docs/TAB-SESSION-ARCHITECTURE.md`,
+`docs/SSO-INTEGRATION.md`, `docs/OFFLINE-RELIABILITY.md`,
+`docs/UX-PLATFORM-PATTERNS.md`,
+`docs/security/CLOUDFLARE-TURNSTILE-SETUP.md`,
+`docs/security/ADMIN-ASSISTED-RECOVERY.md`,
+`docs/security/SECURITY-ARCHITECTURE.md`, `docs/security/THREAT-MODEL.md`,
 `PRODUCTION-RELEASE-RUNBOOK.md`, `MIGRATION.md`, `SECURITY.md`,
 `ADMIN-ACCOUNT-RECOVERY.md`, `.env.example`, `.env.pilot.example`.
 

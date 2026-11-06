@@ -1,4 +1,4 @@
-# Platform UX Patterns — BloomCore One
+# Platform UX Patterns — MaaCash
 
 This document defines the five platform-wide behaviours and the shared
 components that implement them. New screens should use these patterns rather

@@ -50,7 +50,7 @@ The site key is public by design. The secret key must never be placed in a
 
 1. Sign in to <https://dash.cloudflare.com/>.
 2. Go to **Turnstile → Add widget**.
-3. Widget name: `BloomCore One`.
+3. Widget name: `MaaCash`.
 4. Hostnames: add `bloomcore-one.onrender.com` (and any custom domain you will
    use later).
 5. Widget mode: **Managed**.
