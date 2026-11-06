@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { isPublicMarketingRoute } from "@/lib/public-routes";
+import { buildCsp } from "@/lib/security/csp";
 import {
   TAB_SESSION_HEADER,
   allowLegacyCookieSessions,
 } from "@/lib/security/tab-session";
+import {
+  TAB_ASSERTION_HEADER,
+  verifyTabAssertion,
+} from "@/lib/security/tab-assertion";
 
 // Require JWT_SECRET — fail hard if missing
 const JWT_SECRET_RAW = process.env.JWT_SECRET;
@@ -64,6 +69,7 @@ const ADMIN_PUBLIC_ROUTES = ["/admin/login"];
 interface TokenClaims {
   role?: string;
   modules?: string[];
+  module?: string;
   forcePasswordReset?: boolean;
   kind?: string;
   adminId?: string;
@@ -78,6 +84,7 @@ function missingMfa(claims: TokenClaims | null): boolean {
 }
 
 function claimsMatchModule(claims: TokenClaims, module: keyof typeof SESSION_COOKIES): boolean {
+  if (claims.module) return claims.module === module;
   const explicitModules = Array.isArray(claims.modules) ? claims.modules : undefined;
   if (module === "admin") return claims.role === "admin";
   if (explicitModules) return explicitModules.includes(module);
@@ -143,13 +150,52 @@ function sessionToken(
   return request.cookies.get(cookieName)?.value ?? null;
 }
 
+/**
+ * Resolve coarse route-gating claims.
+ *
+ * Production uses the 120-second tab assertion. Server data pages still verify
+ * the signed proof-of-possession header; the assertion never authorizes data by
+ * itself. Legacy JWT cookies are read only by the test bridge.
+ */
+async function resolveClaims(
+  request: NextRequest,
+  cookieName: string
+): Promise<TokenClaims | null> {
+  const assertion = await verifyTabAssertion(
+    request.headers.get(TAB_ASSERTION_HEADER)
+  );
+  if (assertion) {
+    return {
+      role: assertion.role,
+      module: assertion.module,
+      kind: assertion.kind,
+      adminId: assertion.adminId,
+      amr: assertion.amr as TokenClaims["amr"],
+      forcePasswordReset: assertion.forcePasswordReset,
+    };
+  }
+  if (!allowLegacyCookieSessions()) return null;
+  return readClaims(sessionToken(request, cookieName));
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const nonce = crypto.randomUUID();
+  const csp = buildCsp(nonce, process.env.NODE_ENV === "development");
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+  const next = () => {
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("Content-Security-Policy", csp);
+    return response;
+  };
 
   const redirectTo = (path: string) => NextResponse.redirect(new URL(path, request.url));
 
   const res = () => {
-    const r = NextResponse.next();
+    const r = next();
     // Protected pages must never be served from browser cache/back navigation.
     r.headers.set("Cache-Control", "no-store, must-revalidate");
     return r;
@@ -173,12 +219,10 @@ export async function middleware(request: NextRequest) {
       // same forwarding using getPlatformSession(), which consults the
       // registry, so an operator with a live session still lands on the
       // dashboard and a revoked one simply sees the sign-in form.
-      return NextResponse.next();
+      return next();
     }
 
-    const platformClaims = await readClaims(
-      sessionToken(request, PLATFORM_COOKIE)
-    );
+    const platformClaims = await resolveClaims(request, PLATFORM_COOKIE);
     if (!isPlatformClaims(platformClaims)) {
       return redirectTo("/platform/login");
     }
@@ -197,7 +241,7 @@ export async function middleware(request: NextRequest) {
       return redirectTo("/platform/dashboard");
     }
 
-    const r = NextResponse.next();
+    const r = next();
     r.headers.set("Cache-Control", "no-store, must-revalidate");
     return r;
   }
@@ -211,7 +255,7 @@ export async function middleware(request: NextRequest) {
   // the application keeps exactly the guards it had.
   // ---------------------------------------------------------------------
   if (isPublicMarketingRoute(pathname)) {
-    return NextResponse.next();
+    return next();
   }
 
   // ---------------------------------------------------------------------
@@ -223,9 +267,7 @@ export async function middleware(request: NextRequest) {
   // nothing: every destination re-checks the session below.
   // ---------------------------------------------------------------------
   if (pathname === "/workspace") {
-    const platformClaims = await readClaims(
-      sessionToken(request, PLATFORM_COOKIE)
-    );
+    const platformClaims = await resolveClaims(request, PLATFORM_COOKIE);
     if (isPlatformClaims(platformClaims)) {
       return redirectTo(
         platformClaims.forcePasswordReset
@@ -234,7 +276,7 @@ export async function middleware(request: NextRequest) {
       );
     }
     for (const [mod, cookieName] of Object.entries(SESSION_COOKIES)) {
-      const claims = await readClaims(sessionToken(request, cookieName));
+      const claims = await resolveClaims(request, cookieName);
       if (!claims) continue;
       if (!claimsMatchModule(claims, mod as keyof typeof SESSION_COOKIES)) continue;
       if (claims.forcePasswordReset) {
@@ -263,35 +305,36 @@ export async function middleware(request: NextRequest) {
 
   // Allow public routes (login, health check)
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    return NextResponse.next();
+    return next();
   }
 
   // Allow customer public routes (separate from staff).
   // These are public login/recovery pages — never bounce visitors to the staff
   // login. Authenticated /customer/* data routes remain protected below.
   if (CUSTOMER_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    return NextResponse.next();
+    return next();
   }
 
   // Allow the dedicated administrator login without a session.
   if (ADMIN_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    return NextResponse.next();
+    return next();
   }
 
   // Allow static assets and Next.js internals
   if (pathname.startsWith("/_next") || pathname.includes(".")) {
-    return NextResponse.next();
+    return next();
   }
 
   // API routes perform their own authorization — never leak HTML redirects.
   if (pathname.startsWith("/api")) {
-    return NextResponse.next();
+    return next();
   }
 
   // Customer portal: completely separate session, never mixed with staff
   if (pathname.startsWith("/customer")) {
-    const customerClaims = await readClaims(
-      sessionToken(request, SESSION_COOKIES.customer)
+    const customerClaims = await resolveClaims(
+      request,
+      SESSION_COOKIES.customer
     );
     if (!customerClaims) {
       return redirectTo("/login?role=customer");
@@ -330,10 +373,11 @@ export async function middleware(request: NextRequest) {
 
   // Dual-role workspace selection page requires a valid selection token.
   if (pathname.startsWith("/select-workspace")) {
-    const claims = await readClaims(sessionToken(request, SELECTION_COOKIE), {
-      allowSelection: true,
-    });
+    const claims = await resolveClaims(request, SELECTION_COOKIE);
     if (!claims) return redirectTo("/login");
+    if (claims.module && claims.module !== "selection") {
+      return redirectTo("/login");
+    }
     return res();
   }
 
@@ -341,7 +385,7 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/settings") || pathname.startsWith("/change-password")) {
     const anySession = await Promise.all(
       Object.values(SESSION_COOKIES).map((name) =>
-        readClaims(sessionToken(request, name))
+        resolveClaims(request, name)
       )
     );
     const legacy = allowLegacyCookieSessions()
@@ -355,7 +399,7 @@ export async function middleware(request: NextRequest) {
     // Unknown protected route — require at least some session.
     const anySession = await Promise.all(
       Object.values(SESSION_COOKIES).map((name) =>
-        readClaims(sessionToken(request, name))
+        resolveClaims(request, name)
       )
     );
     if (!anySession.some(Boolean)) return redirectTo("/login");
@@ -363,9 +407,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Resolve this module's session: scoped cookie first, then legacy fallback.
-  let claims = await readClaims(
-    sessionToken(request, SESSION_COOKIES[pathModule])
-  );
+  let claims = await resolveClaims(request, SESSION_COOKIES[pathModule]);
   if (!claims && allowLegacyCookieSessions()) {
     const legacy = await readClaims(request.cookies.get(LEGACY_COOKIE)?.value);
     if (legacy && claimsMatchModule(legacy, pathModule)) claims = legacy;

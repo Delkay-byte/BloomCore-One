@@ -7,6 +7,7 @@ import TurnstileWidget from "@/components/security/TurnstileWidget";
 import {
   completeTabLogin,
   setMfaChallenge,
+  tabSessionsSupported,
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import Link from "next/link";
@@ -34,6 +35,13 @@ export default function AdminLoginForm() {
   async function handleSubmit(formData: FormData) {
     setLoading(true);
     setError("");
+    if (!tabSessionsSupported()) {
+      setError(
+        "This browser cannot safely support independent tab sessions. Enable service workers and site storage, or use a current browser."
+      );
+      setLoading(false);
+      return;
+    }
     try {
       const result = await adminLogin(formData);
       if (!result || !result.success) {

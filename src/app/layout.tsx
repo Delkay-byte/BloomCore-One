@@ -62,6 +62,10 @@ export const viewport: Viewport = {
   themeColor: "#0e4d34",
 };
 
+// Nonce-based CSP requires every HTML page to be rendered per request so
+// Next.js can attach the request nonce to its script tags.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>

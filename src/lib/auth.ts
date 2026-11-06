@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
+import { cache } from "react";
 import bcrypt from "bcryptjs";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { redirect } from "next/navigation";
@@ -12,10 +13,8 @@ import {
   revokeSession,
   touchSessionRecord,
 } from "./security/session-store";
-import {
-  TAB_SESSION_HEADER,
-  allowLegacyCookieSessions,
-} from "./security/tab-session";
+import { allowLegacyCookieSessions } from "./security/tab-session";
+import { verifyTabProof } from "./security/tab-proof";
 
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -106,6 +105,10 @@ export interface JwtPayload {
   jti?: string;
   /** Distinguishes session tokens from workspace-selection tokens. */
   tokenUse?: "session" | "workspace-selection";
+  /** Platform token marker. */
+  kind?: "platform" | "workspace-selection";
+  /** PlatformSuperAdmin.id for platform tokens. */
+  adminId?: string;
   /** Authentication methods used for this session. */
   amr?: "pwd" | "pwd+mfa";
   /** Epoch seconds — when this token was issued (server-authoritative) */
@@ -282,31 +285,27 @@ export async function refreshLastActivity(payload: JwtPayload): Promise<string> 
 // Cookie management
 // ---------------------------------------------------------------------------
 
-async function readTabSessionHeader(): Promise<string | null> {
-  try {
-    const requestHeaders = await headers();
-    const value = requestHeaders.get(TAB_SESSION_HEADER);
-    return value && value.length > 0 ? value : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Read the session token for a module.
- *
- * The header is authoritative. The cookie branch exists only for the
- * explicitly enabled test migration bridge; it is never active in production.
+ * Test-only cookie bridge. Production never reaches this branch because
+ * `allowLegacyCookieSessions()` requires NODE_ENV=test.
  */
-async function readSessionToken(module: ModuleName): Promise<string | null> {
-  const fromHeader = await readTabSessionHeader();
-  if (fromHeader) return fromHeader;
-
+async function readLegacyCookieSession(
+  module: ModuleName
+): Promise<JwtPayload | null> {
   if (!allowLegacyCookieSessions()) return null;
-
   try {
     const cookieStore = await cookies();
-    return cookieStore.get(SESSION_COOKIES[module])?.value ?? null;
+    const token = cookieStore.get(SESSION_COOKIES[module])?.value;
+    if (!token) return null;
+    const payload = await verifyToken<JwtPayload>(token);
+    if (!payload?.userId) return null;
+    if (payload.tokenUse === "workspace-selection") return null;
+    const normalized = normalizePayload(payload);
+    if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
+    if (!payloadMatchesModule(normalized, module)) return null;
+    if (validateSessionTiming(normalized) !== "valid") return null;
+    if (!(await isSessionRecordActive(normalized.jti))) return null;
+    return normalized;
   } catch {
     return null;
   }
@@ -436,27 +435,16 @@ function normalizePayload(payload: JwtPayload): JwtPayload {
  * server-side timing, and the SessionRecord registry (revocation/logout). A
  * browser-supplied role, tenant or user id is never accepted as proof.
  */
-export async function readModuleCookie(module: ModuleName): Promise<JwtPayload | null> {
-  const token = await readSessionToken(module);
-  if (!token) return null;
-
-  const payload = await verifyToken<JwtPayload>(token);
-  if (!payload?.userId) return null;
-  if (payload.tokenUse === "workspace-selection") return null;
-
-  const normalized = normalizePayload(payload);
-  if (mfaPolicy() === "enforce" && normalized.amr !== "pwd+mfa") return null;
-
-  // A session issued for a different module must never open this surface.
-  if (!payloadMatchesModule(normalized, module)) return null;
-
-  const status = validateSessionTiming(normalized);
-  if (status !== "valid") return null;
-
-  if (!(await isSessionRecordActive(normalized.jti))) return null;
-
-  return normalized;
-}
+export const readModuleCookie = cache(async function readModuleCookie(module: ModuleName): Promise<JwtPayload | null> {
+  const verified = await verifyTabProof(module);
+  if (verified) {
+    const normalized = normalizePayload(verified.payload);
+    if (!payloadMatchesModule(normalized, module)) return null;
+    if (!(await isSessionCurrent(normalized))) return null;
+    return normalized;
+  }
+  return readLegacyCookieSession(module);
+});
 
 /** True when this token was issued for the requested module surface. */
 function payloadMatchesModule(payload: JwtPayload, module: ModuleName): boolean {
@@ -489,23 +477,35 @@ export async function getAnyAuthUser(): Promise<JwtPayload | null> {
 }
 
 export async function getSelectionUser(): Promise<SelectionPayload | null> {
-  let token = await readTabSessionHeader();
-  if (!token && allowLegacyCookieSessions()) {
-    try {
-      token = (await cookies()).get(SELECTION_COOKIE_NAME)?.value ?? null;
-    } catch {
-      token = null;
-    }
+  const verified = await verifyTabProof("selection", { allowSelection: true });
+  if (verified) {
+    const payload = verified.payload as unknown as SelectionPayload & {
+      kind?: string;
+    };
+    if (payload.kind !== "workspace-selection") return null;
+    return {
+      userId: payload.userId,
+      email: payload.email,
+      fullName: payload.fullName,
+      modules: payload.modules,
+    };
   }
-  if (!token) return null;
-  const payload = await verifyToken<SelectionPayload & { kind?: string }>(token);
-  if (!payload || payload.kind !== "workspace-selection") return null;
-  return {
-    userId: payload.userId,
-    email: payload.email,
-    fullName: payload.fullName,
-    modules: payload.modules,
-  };
+
+  if (!allowLegacyCookieSessions()) return null;
+  try {
+    const token = (await cookies()).get(SELECTION_COOKIE_NAME)?.value;
+    if (!token) return null;
+    const payload = await verifyToken<SelectionPayload & { kind?: string }>(token);
+    if (!payload || payload.kind !== "workspace-selection") return null;
+    return {
+      userId: payload.userId,
+      email: payload.email,
+      fullName: payload.fullName,
+      modules: payload.modules,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** True when the stored session matches the user's current tokenVersion. */
@@ -549,19 +549,13 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
  * Returns the new token so the caller can set it.
  */
 export async function refreshSession(module: ModuleName): Promise<string | null> {
-  const token = await readSessionToken(module);
-  if (!token) return null;
-  const payload = await verifyToken<JwtPayload>(token);
-  if (!payload?.userId) return null;
-  const normalized = normalizePayload(payload);
+  const verified = await verifyTabProof(module);
+  if (!verified) return null;
+  const normalized = normalizePayload(verified.payload);
   if (!payloadMatchesModule(normalized, module)) return null;
-  const status = validateSessionTiming(normalized);
-  if (status !== "valid") return null;
-  if (!(await isSessionRecordActive(normalized.jti))) return null;
-  await touchSessionRecord(normalized.jti);
-  // The token is not rotated: the service worker's mapping stays valid, and
-  // the registry remains the authoritative revocation record.
-  return token;
+  if (!(await isSessionCurrent(normalized))) return null;
+  await touchSessionRecord(verified.sessionId);
+  return verified.sessionId;
 }
 
 /**
