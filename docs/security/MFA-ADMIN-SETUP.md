@@ -55,8 +55,21 @@ helper is `beginMfaStepIfRequired` in `src/lib/security/mfa-login.ts`.
 | `optional` | Anyone who has enrolled must verify. Unenrolled users are not blocked. Used only during the controlled rollout. |
 | `enforce` | Every account type must enrol before a session is issued. This is the required production end state. |
 
-The default is deliberately `optional` so a deploy cannot lock every
-administrator out. Enforcement is a deliberate owner action after enrolment.
+The code default remains deliberately `optional` so a fresh deploy cannot lock
+every administrator out. Production is a deliberate owner decision: the live
+`bloomcore-one` service reports `MFA_ENFORCEMENT=enforce` through the Render API,
+and the checked-in `render.yaml` now also sets `enforce` so the blueprint and the
+runbook agree. Staging uses `enforce` as well.
+
+Verification (4 November 2026):
+
+- Render API, production service `bloomcore-one`: `MFA_ENFORCEMENT=enforce`.
+- `render.yaml`: `MFA_ENFORCEMENT` value `"enforce"`.
+- `tests/release-config.test.ts`: asserts both blueprint and staging enforce and
+  that no payment secret or approved-provider constant is hardcoded.
+
+Do not weaken enforcement to make a login easier. Use the recovery procedure in
+section 5 instead.
 
 ## 3. Enrolment (owner / administrator)
 
@@ -102,14 +115,16 @@ Only after both privileged accounts (platform and each tenant administrator)
 have enrolled:
 
 1. Confirm the current time on the enrolment device is accurate.
-2. Set `MFA_ENFORCEMENT=enforce` in Render.
+2. Set `MFA_ENFORCEMENT=enforce` in Render (production already reports this).
 3. Redeploy.
 4. Test: a privileged account without MFA is redirected to `/mfa/enroll` and
    cannot reach the dashboard; an enrolled account reaches `/mfa/verify`.
 5. Keep at least one platform recovery code offline.
 
 Rollback: set `MFA_ENFORCEMENT=optional` and redeploy. Existing enrolled users
-still verify; unenrolled privileged users can sign in again.
+still verify; unenrolled privileged users can sign in again. This is a
+break-glass action: record who changed it, when and why. Do not leave production
+on `optional` after the incident.
 
 ## 5. Recovery and loss of authenticator
 

@@ -11,6 +11,7 @@ import {
   evaluateZeliAccess,
   getZeliEntitlement,
 } from "@/lib/zeli/entitlements";
+import { getZeliAvailability } from "@/lib/zeli/availability";
 
 /**
  * Return the authenticated user for the given module.
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
   const analyticsAccess = tenant
     ? evaluateZeliAccess({ role: tenant.role, entitlement })
     : null;
+  const zeliEnabled = (await getZeliAvailability()).enabled;
 
   return NextResponse.json({
     ...user,
@@ -86,6 +88,7 @@ export async function GET(request: NextRequest) {
           susuEnabled: tenant.susuEnabled,
           modules: tenant.modules,
           zeliAnalytics: Boolean(analyticsAccess?.allowed),
+          zeliEnabled,
         }
       : null,
   });

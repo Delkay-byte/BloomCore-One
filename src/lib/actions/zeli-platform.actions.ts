@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getPlatformAdminOrNull } from "@/lib/platform-auth";
 import { createPlatformAuditLog, getPlatformAuditLogs } from "@/lib/platform-audit";
-import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { getZeliProviderStatus as resolveZeliProviderStatus } from "@/lib/zeli/provider";
 import {
   ZELI_ANALYTICS_FEATURE,
   evaluateZeliAccess,
@@ -109,7 +109,7 @@ export interface ZeliPlatformOverview {
     averageDurationMs: number | null;
     latestRefreshAt: string | null;
   };
-  provider: ReturnType<typeof zeliProviderStatus>;
+  provider: Awaited<ReturnType<typeof resolveZeliProviderStatus>>;
   recentEntitlementActivity: Array<{
     id: string;
     action: string;
@@ -235,7 +235,7 @@ export async function getZeliPlatformOverview(): Promise<ZeliPlatformOverview> {
           : null,
       latestRefreshAt: latest?.toISOString() ?? null,
     },
-    provider: zeliProviderStatus(),
+    provider: await resolveZeliProviderStatus(),
     recentEntitlementActivity: recentActivity.map((row) => ({
       id: row.id,
       action: row.action,
@@ -556,5 +556,5 @@ export async function getZeliPlatformAudit(page = 1) {
  */
 export async function getZeliProviderStatus() {
   await requirePlatformRead();
-  return zeliProviderStatus();
+  return resolveZeliProviderStatus();
 }

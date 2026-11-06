@@ -599,6 +599,9 @@ model BusinessTenant {
   zeliEntitlements             ZeliEntitlement[]
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]
   zeliAnalyticsRefreshes       ZeliAnalyticsRefresh[]
+  zeliSubscriptions            ZeliSubscription[]
+  zeliPaymentEvents            ZeliPaymentEvent[]
+  zeliAiAuthorizations         ZeliAiTenantAuthorization[]
   zeliEntitlementEvents        ZeliEntitlementEvent[]
 
   @@index([status])
@@ -974,4 +977,198 @@ model ZeliProviderGatewayEvent {
   @@index([createdAt])
   @@index([tenantId, createdAt])
   @@index([decision])
+}
+
+// =====================
+// ZELI COMMERCE AND PROVIDER CONTROL
+// =====================
+
+/// Configurable Zeli subscription catalogue. Prices are owner-configured; no
+/// price is seeded by the application.
+model ZeliPlan {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  description      String?
+  billingInterval  String // month | year
+  price            Decimal
+  currency         String   @default("GHS")
+  features         String? // JSON array of feature labels
+  usageAllowance   Int?
+  trialDays        Int      @default(0)
+  providerPlanCode String? // optional Paystack plan for recurring billing
+  status           String   @default("draft") // draft | active | archived
+  isPublic         Boolean  @default(false)
+  sortOrder        Int      @default(0)
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  subscriptions ZeliSubscription[]
+
+  @@index([status])
+  @@index([isPublic])
+}
+
+/// One commercial subscription attempt/lifecycle. The provider reference is
+/// unique and is the idempotency anchor for webhooks and verification.
+model ZeliSubscription {
+  id                       String    @id @default(cuid())
+  tenantId                 String
+  planId                   String
+  status                   String    @default("pending") // pending | active | past_due | cancelled | expired | refunded | failed
+  provider                 String    @default("paystack")
+  providerReference        String    @unique
+  providerSubscriptionCode String?
+  providerCustomerCode     String?
+  amount                   Decimal
+  currency                 String    @default("GHS")
+  periodStart              DateTime?
+  periodEnd                DateTime?
+  cancelAtPeriodEnd        Boolean   @default(false)
+  cancelledAt              DateTime?
+  refundedAt               DateTime?
+  paidAt                   DateTime?
+  failureReason            String?
+  /// Set only while status = "pending". The unique index makes two concurrent
+  /// checkouts for the same tenant and plan impossible.
+  pendingKey               String?   @unique
+  /// True only when this subscription actually extended the entitlement period.
+  periodGranted            Boolean   @default(false)
+  /// none | pending | processed | failed. A refund is never reported as
+  /// processed before Paystack confirms it.
+  refundStatus             String?
+  refundReference          String?   @unique
+  refundFailureReason      String?
+  supersededByReference    String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  tenant BusinessTenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   ZeliPlan           @relation(fields: [planId], references: [id])
+  events ZeliPaymentEvent[]
+
+  @@index([tenantId, status])
+  @@index([providerReference])
+  @@index([periodEnd])
+  @@index([refundStatus])
+}
+
+/// Provider webhook/verification ledger. eventId is unique so duplicate
+/// webhooks cannot double-activate or double-charge. No raw payload is stored.
+model ZeliPaymentEvent {
+  id             String    @id @default(cuid())
+  provider       String    @default("paystack")
+  eventId        String    @unique
+  eventType      String
+  reference      String?
+  subscriptionId String?
+  tenantId       String?
+  decision       String    @default("received") // processed | ignored | failed
+  reason         String?
+  createdAt      DateTime  @default(now())
+  processedAt    DateTime?
+
+  subscription ZeliSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  tenant       BusinessTenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([reference])
+  @@index([tenantId, createdAt])
+  @@index([decision])
+}
+
+/// A payment that could not be resolved automatically and needs a human
+/// decision: a duplicate settlement, a failed automatic refund or a payment
+/// that did not match its checkout. Never contains provider secrets.
+model ZeliPaymentException {
+  id             String    @id @default(cuid())
+  /// Stable identity so repeated webhook deliveries cannot spam the queue.
+  dedupeKey      String    @unique
+  tenantId       String?
+  subscriptionId String?
+  reference      String?
+  kind           String // duplicate_payment | refund_failed | payment_mismatch | processing_failure
+  status         String    @default("open") // open | resolved
+  amount         Decimal?
+  currency       String?
+  detail         String
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([reference])
+}
+
+/// Global external-AI control. A missing row means disabled + emergency on.
+/// Production mode additionally requires reviewed code approval and
+/// environment approvals; this row cannot enable it alone.
+model ZeliProviderControl {
+  id                String   @id @default("global")
+  mode              String   @default("disabled") // disabled | synthetic | approved
+  enabled           Boolean  @default(false)
+  emergencyDisabled Boolean  @default(true)
+  approvedProvider  String? // deepseek
+  approvedPurposes  String? // JSON array
+  policyVersion     String?
+  approvalReference String?
+  reason            String?
+  updatedById       String?
+  updatedAt         DateTime @updatedAt
+}
+
+/// Per-tenant authorization for approved aggregate-only production
+/// processing. It has no effect while the global mode is disabled or the code
+/// approval remains absent.
+model ZeliAiTenantAuthorization {
+  id           String    @id @default(cuid())
+  tenantId     String    @unique
+  enabled      Boolean   @default(false)
+  reason       String
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+/// Privacy-safe provider audit/usage ledger. It stores decisions and token
+/// counts, never prompts, payload values, responses or credentials.
+model ZeliProviderUsage {
+  id             String   @id @default(cuid())
+  requestId      String   @unique
+  tenantHash     String
+  userHash       String
+  roleCategory   String
+  provider       String
+  model          String
+  purpose        String
+  schemaVersion  String
+  decision       String // allowed | denied | success | rejected | error
+  reasonCategory String?
+  latencyMs      Int?
+  inputTokens    Int?
+  outputTokens   Int?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantHash, createdAt])
+  @@index([userHash, createdAt])
+  @@index([decision, createdAt])
+  @@index([provider, createdAt])
+}
+
+/// Entire-Zeli master switch. Separate from the external-AI provider control.
+/// A missing row is treated as unavailable (fail closed); the migration inserts
+/// an enabled row so existing installations preserve availability.
+model ZeliAvailability {
+  id          String   @id @default("global")
+  enabled     Boolean  @default(true)
+  reason      String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

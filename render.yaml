@@ -45,7 +45,7 @@ services:
       - key: MFA_ENCRYPTION_KEY
         sync: false
       - key: MFA_ENFORCEMENT
-        value: "optional"
+        value: "enforce"
       - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
         sync: false
       - key: TURNSTILE_SECRET_KEY

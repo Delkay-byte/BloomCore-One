@@ -9,6 +9,7 @@ import {
   composeBranches,
   composeContributions,
   composeExceptions,
+  composeIncomeExpenses,
   composeOverview,
   composeRemittances,
   explainChart,
@@ -17,6 +18,7 @@ import {
   type ComposedAnswer,
 } from "./compose";
 import { classifyIntent, type ClassifiedIntent } from "./intents";
+import { enhanceWithProvider } from "../provider-reasoning";
 
 /**
  * Providerless responder for the business-administrator Zeli workspace.
@@ -50,6 +52,7 @@ export const SUPPORTED_QUESTIONS = [
   "Summarise today's activity.",
   "Compare this month with last month.",
   "Summarise contributions and withdrawals.",
+  "Summarise income and expenses.",
   "Summarise remittance activity.",
   "Show outstanding operational exceptions.",
   "Compare branch performance.",
@@ -118,6 +121,11 @@ function sourcesForIntent(intent: ClassifiedIntent["intent"], snapshot: Analytic
       return [
         { label: "Contributions report", href: "/susu/admin/contributions" },
         { label: "Withdrawals report", href: "/susu/admin/withdrawals" },
+        { label: "Zeli Business Intelligence", href: analytics },
+      ];
+    case "income_expenses":
+      return [
+        { label: "Money & History", href: "/admin/history" },
         { label: "Zeli Business Intelligence", href: analytics },
       ];
     case "remittances":
@@ -243,6 +251,9 @@ export async function answerAdminBusinessQuestion(params: {
     case "contributions_withdrawals":
       answer = composeContributions(snapshot);
       break;
+    case "income_expenses":
+      answer = composeIncomeExpenses(snapshot);
+      break;
     case "remittances":
       answer = composeRemittances(snapshot);
       break;
@@ -270,9 +281,18 @@ export async function answerAdminBusinessQuestion(params: {
       break;
   }
 
+  const enhancement = await enhanceWithProvider({
+    identity: params.identity,
+    intent: classified.intent,
+    snapshot,
+    localAnswer: answer,
+  });
+  const externalText = enhancement.used ? `
+
+${enhancement.text}` : "";
   const sources = sourcesForIntent(classified.intent, snapshot);
   return {
-    text: `${answer.text}\n\n[PERIOD] ${answer.period} · [SOURCE] ${answer.source} · [FRESHNESS] ${answer.freshness}\n\n[LIMITATIONS] ${answer.limitations.join(" ")}`,
+    text: `${answer.text}${externalText}\n\n[PERIOD] ${answer.period} · [SOURCE] ${answer.source} · [FRESHNESS] ${answer.freshness}\n\n[LIMITATIONS] ${answer.limitations.join(" ")}`,
     sources,
     intent: classified.intent,
     focus: answer.focus,

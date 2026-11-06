@@ -15,6 +15,9 @@ describe("Zeli intent recognition", () => {
     expect(classifyIntent("Summarise contributions and withdrawals").intent).toBe(
       "contributions_withdrawals"
     );
+    expect(classifyIntent("Summarise income and expenses this month").intent).toBe(
+      "income_expenses"
+    );
     expect(classifyIntent("Summarise remittance activity").intent).toBe("remittances");
     expect(classifyIntent("Show outstanding operational exceptions").intent).toBe("exceptions");
     expect(classifyIntent("Compare branch performance this month").intent).toBe("branches");

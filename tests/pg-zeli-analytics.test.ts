@@ -149,3 +149,57 @@ describe("PostgreSQL Zeli analytics", () => {
     ).toBe("revoked");
   });
 });
+
+describe("PostgreSQL Zeli commerce tables", () => {
+  it("persists the catalogue, subscription and unique payment event", async () => {
+    const { tenant } = await seed();
+    const plan = await prisma.zeliPlan.create({
+      data: {
+        code: `pg-plan-${Date.now()}`,
+        name: "PG Plan",
+        billingInterval: "month",
+        price: 149,
+        currency: "GHS",
+        status: "active",
+        isPublic: true,
+      },
+    });
+    const reference = refId("PG-ZSUB");
+    const subscription = await prisma.zeliSubscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: "pending",
+        provider: "paystack",
+        providerReference: reference,
+        amount: plan.price,
+        currency: "GHS",
+      },
+    });
+    const eventId = `pg-event-${Date.now()}`;
+    await prisma.zeliPaymentEvent.create({
+      data: {
+        provider: "paystack",
+        eventId,
+        eventType: "charge.success",
+        reference,
+        subscriptionId: subscription.id,
+        tenantId: tenant.id,
+        decision: "processed",
+      },
+    });
+    await expect(
+      prisma.zeliPaymentEvent.create({
+        data: {
+          provider: "paystack",
+          eventId,
+          eventType: "charge.success",
+          reference,
+          subscriptionId: subscription.id,
+          tenantId: tenant.id,
+          decision: "processed",
+        },
+      })
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+});

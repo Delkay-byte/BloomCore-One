@@ -204,6 +204,53 @@ function contributionsAndWithdrawals(snapshot: AnalyticsSnapshot): ComposedAnswe
   });
 }
 
+function changePct(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function incomeAndExpenses(snapshot: AnalyticsSnapshot): ComposedAnswer {
+  const income = snapshot.totals.cashIncome;
+  const previousIncome = snapshot.previousTotals.cashIncome;
+  return render({
+    title: "Income and expenses",
+    statements: [
+      statement(
+        "calculated_fact",
+        `Recorded cash income for ${snapshot.period.label}: ${money(income)} across ${snapshot.totals.transactionCount} transaction records. Previous period: ${money(previousIncome)}. Change: ${signedPct(changePct(income, previousIncome))}.`
+      ),
+      statement(
+        "calculated_fact",
+        `Recorded expenses: ${money(snapshot.totals.expenses)} across ${snapshot.totals.expenseCount} expense records. Previous period: ${money(snapshot.previousTotals.expenses)}. Change: ${signedPct(snapshot.comparison.expensesPct)}.`
+      ),
+      statement(
+        "calculated_fact",
+        `Calculated net cash flow: ${money(snapshot.totals.netCashFlow)}. It is contributions plus recorded cash income, minus withdrawals and expenses.`
+      ),
+      statement(
+        "automated_interpretation",
+        "Recorded cash income means commission and other income recorded by the business. It does not include customers' savings contributions, which are reported separately. Expenses are recorded expense entries in the period; reversed records are excluded."
+      ),
+      statement(
+        "suggested_action",
+        "Open Money & History to review the individual income and expense entries for the period."
+      ),
+      statement("unverified_hypothesis", "None."),
+    ],
+    period: snapshot.period.label,
+    source: snapshot.freshness.source,
+    freshness: `Last refreshed ${snapshot.freshness.refreshedAt}.`,
+    limitations: [
+      "Rule-based output, not model-generated reasoning.",
+      "Only recorded entries inside the reporting period are included.",
+    ],
+    deterministic: true,
+    provider: "internal",
+    model: "rule-based",
+    focus: "income_expenses",
+  });
+}
+
 function remittances(snapshot: AnalyticsSnapshot): ComposedAnswer {
   return render({
     title: "Remittance activity",
@@ -422,6 +469,10 @@ export function composeContributions(snapshot: AnalyticsSnapshot): ComposedAnswe
 
 export function composeRemittances(snapshot: AnalyticsSnapshot): ComposedAnswer {
   return remittances(snapshot);
+}
+
+export function composeIncomeExpenses(snapshot: AnalyticsSnapshot): ComposedAnswer {
+  return incomeAndExpenses(snapshot);
 }
 
 export function composeExceptions(snapshot: AnalyticsSnapshot): ComposedAnswer {

@@ -42,6 +42,12 @@ export async function cleanDatabase() {
   await prisma.rateLimitCounter.deleteMany();
   await prisma.authThrottle.deleteMany();
   await prisma.turnstileTokenUse.deleteMany();
+  await prisma.zeliProviderUsage.deleteMany();
+  await prisma.zeliPaymentEvent.deleteMany();
+  await prisma.zeliSubscription.deleteMany();
+  await prisma.zeliPlan.deleteMany();
+  await prisma.zeliAiTenantAuthorization.deleteMany();
+  await prisma.zeliProviderControl.deleteMany();
   await prisma.zeliProviderGatewayEvent.deleteMany();
   await prisma.zeliAnalyticsDaily.deleteMany();
   await prisma.zeliAnalyticsRefresh.deleteMany();
@@ -57,6 +63,11 @@ export async function cleanDatabase() {
   await prisma.user.deleteMany();
   await prisma.location.deleteMany();
   await prisma.businessTenant.deleteMany();
+  await prisma.zeliAvailability.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabled: true, reason: "Test default" },
+    update: { enabled: true, reason: "Test default" },
+  });
 }
 
 export function refId(prefix: string) { return `${prefix}-TEST-${randomBytes(4).toString("hex")}`; }

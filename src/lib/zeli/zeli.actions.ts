@@ -2,13 +2,14 @@
 
 import { db } from "@/lib/db";
 import { getTenantContext } from "@/lib/tenant";
-import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { getZeliProviderStatus } from "@/lib/zeli/provider";
 import {
   assertConversationOwner,
   runZeliTurn,
   ZeliUsageError,
 } from "@/lib/zeli/service";
 import type { ZeliIdentity } from "@/lib/zeli/types";
+import { getZeliAvailability, UNAVAILABLE_MESSAGE } from "@/lib/zeli/availability";
 
 export interface ZeliActionResponse<T = unknown> {
   success: boolean;
@@ -17,6 +18,7 @@ export interface ZeliActionResponse<T = unknown> {
 }
 
 async function resolveIdentity(): Promise<ZeliIdentity | null> {
+  if (!(await getZeliAvailability()).enabled) return null;
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
     const ctx = await getTenantContext(moduleName);
     if (ctx) {
@@ -64,17 +66,19 @@ const SUGGESTIONS: Record<string, string[]> = {
 
 export async function getZeliBootstrap(): Promise<
   ZeliActionResponse<{
-    status: ReturnType<typeof zeliProviderStatus>;
+    status: Awaited<ReturnType<typeof getZeliProviderStatus>>;
     suggestions: string[];
     role: string;
   }>
 > {
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) return { success: false, error: UNAVAILABLE_MESSAGE };
   const identity = await resolveIdentity();
   if (!identity) return { success: false, error: "Not authenticated" };
   return {
     success: true,
     data: {
-      status: zeliProviderStatus(),
+      status: await getZeliProviderStatus(undefined),
       suggestions: SUGGESTIONS[identity.role] ?? SUGGESTIONS.admin,
       role: identity.role,
     },

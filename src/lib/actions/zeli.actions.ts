@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getTenantContext } from "@/lib/tenant";
-import { zeliProviderStatus } from "@/lib/zeli/provider";
+import { getZeliProviderStatus } from "@/lib/zeli/provider";
 import { suggestedQuestionsForRole } from "@/lib/zeli/intelligence/intents";
 import {
   evaluateZeliAccess,
@@ -14,6 +14,10 @@ import {
   ZeliUsageError,
 } from "@/lib/zeli/service";
 import type { ZeliIdentity } from "@/lib/zeli/types";
+import {
+  getZeliAvailability,
+  UNAVAILABLE_MESSAGE,
+} from "@/lib/zeli/availability";
 
 export interface ZeliActionResponse<T = unknown> {
   success: boolean;
@@ -22,6 +26,7 @@ export interface ZeliActionResponse<T = unknown> {
 }
 
 async function resolveIdentity(): Promise<ZeliIdentity | null> {
+  if (!(await getZeliAvailability()).enabled) return null;
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
     const ctx = await getTenantContext(moduleName);
     if (ctx) {
@@ -45,12 +50,18 @@ async function requireIdentity(): Promise<ZeliIdentity> {
 
 export async function getZeliBootstrap(): Promise<
   ZeliActionResponse<{
-    status: ReturnType<typeof zeliProviderStatus>;
+    status: Awaited<ReturnType<typeof getZeliProviderStatus>>;
     suggestions: string[];
     role: string;
     analyticsAccess: boolean;
+    environment: "staging" | "production";
+    acceptanceMode: boolean;
   }>
 > {
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) {
+    return { success: false, error: UNAVAILABLE_MESSAGE };
+  }
   const identity = await resolveIdentity();
   if (!identity) return { success: false, error: "Not authenticated" };
   const entitlement = identity.tenantId
@@ -60,15 +71,21 @@ export async function getZeliBootstrap(): Promise<
     role: identity.role,
     entitlement,
   }).allowed;
+  const status = await getZeliProviderStatus(identity.tenantId);
+  const environment =
+    (process.env.APP_ENV || "").toUpperCase() === "STAGING" ? "staging" : "production";
   return {
     success: true,
     data: {
-      status: zeliProviderStatus(),
+      status,
       suggestions: suggestedQuestionsForRole(identity.role, {
         analyticsAvailable: analyticsAccess,
       }),
       role: identity.role,
       analyticsAccess,
+      environment,
+      acceptanceMode:
+        environment === "staging" && status.conversation.mode === "external",
     },
   };
 }

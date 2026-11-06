@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { buildAnalyticsSnapshot } from "@/lib/zeli/intelligence/metrics";
 import { detectInsights } from "@/lib/zeli/intelligence/insights";
 import { PeriodValidationError, type PeriodPreset } from "@/lib/zeli/intelligence/period";
+import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
 
 function csvCell(value: unknown): string {
   const text = String(value ?? "");
@@ -23,6 +24,8 @@ function line(cells: unknown[]): string {
  * The same entitlement guard as the workspace runs before any query.
  */
 export async function GET(request: NextRequest) {
+  const availability = await getZeliAvailability();
+  if (!availability.enabled) return zeliUnavailableResponse();
   const ctx = await getApiZeliAnalyticsContext();
   if (!ctx) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });

@@ -9,6 +9,10 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".prisma-pg-gen/**",
+    ".prisma-gen/**",
+    "test-results/**",
+    "playwright-report/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

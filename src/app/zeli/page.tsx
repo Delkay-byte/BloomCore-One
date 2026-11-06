@@ -58,7 +58,18 @@ export default function ZeliPage() {
     model: string;
     available: boolean;
     reason?: string;
+    message?: string;
+    external?: { state: string; allowed: boolean };
+    conversation?: {
+      mode: "local" | "external";
+      state: string;
+      message: string;
+      provider?: string | null;
+      model?: string | null;
+    };
   } | null>(null);
+  const [environment, setEnvironment] = useState<"staging" | "production">("production");
+  const [acceptanceMode, setAcceptanceMode] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analyticsAccess, setAnalyticsAccess] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -82,6 +93,8 @@ export default function ZeliPage() {
       setStatus(bootstrap.data.status);
       setSuggestions(bootstrap.data.suggestions);
       setAnalyticsAccess(Boolean(bootstrap.data.analyticsAccess));
+      setEnvironment(bootstrap.data.environment ?? "production");
+      setAcceptanceMode(Boolean(bootstrap.data.acceptanceMode));
     }
     if (list.success && list.data && list.data.length > 0) {
       setConversations(list.data);
@@ -289,14 +302,47 @@ export default function ZeliPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-3">
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
-          <p>
-            <strong>External AI processing is currently disabled.</strong> Zeli&apos;s private
-            analytics and local intelligence features remain available. Answers are computed from
-            your authorized BloomCore One records by a rule-based engine, not a language model.
-          </p>
-        </div>
+        {acceptanceMode ? (
+          <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1 font-semibold">
+                <Sparkles size={14} aria-hidden /> Enhanced AI — TEAM ACCEPTANCE MODE
+              </span>
+              <span>Provider: {status?.conversation?.provider ?? "deepseek"}</span>
+              <span>Model: {status?.conversation?.model ?? "configured model"}</span>
+              <span>Environment: {environment}</span>
+            </div>
+            <p className="mt-1 font-medium text-amber-900">
+              TEAM TEST ENVIRONMENT — Use dummy business data and fictional
+              conversations only. Do not enter real customer, employee, payment or
+              confidential business information.
+            </p>
+            <p className="mt-1">
+              Business figures come from this staging database and are calculated by
+              BloomCore One. Enhanced AI explains them; it cannot change records. If an
+              answer is labelled “Local mode — Enhanced AI unavailable or blocked”, the
+              provider was unavailable and Zeli answered locally.
+            </p>
+          </div>
+        ) : (
+          <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${
+            status?.conversation?.mode === "external"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}>
+            <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
+            <p>
+              <strong>
+                {status?.conversation?.mode === "external"
+                  ? "External AI conversation is enabled."
+                  : "Local mode."}
+              </strong>{" "}
+              {status?.conversation?.mode === "external"
+                ? "An approved external provider may help with greetings and general conversation. It never receives business records or figures; every financial answer is calculated inside BloomCore One."
+                : "Zeli runs entirely inside BloomCore One. Your messages are not sent to an external AI. Financial answers are calculated from your authorized records."}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[280px_1fr]">
@@ -431,11 +477,30 @@ export default function ZeliPage() {
                     >
                       <ThumbsDown size={12} aria-hidden /> Not helpful
                     </button>
-                    {message.role === "assistant" && message.deterministic && (
-                      <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
-                        <ShieldCheck size={12} aria-hidden /> Computed from your records
+                    {message.role === "assistant" &&
+                      message.deterministic &&
+                      !(environment === "staging" && status?.conversation?.mode === "external") && (
+                        <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
+                          <ShieldCheck size={12} aria-hidden /> Computed from your records
+                        </span>
+                      )}
+                    {message.role === "assistant" && message.provider?.startsWith("deepseek") && (
+                      <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
+                        <Sparkles size={12} aria-hidden /> External AI answer
                       </span>
                     )}
+                    {message.role === "assistant" &&
+                      environment === "staging" &&
+                      status?.conversation?.mode === "external" &&
+                      message.provider === "internal" && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900"
+                          title="The external provider was unavailable or blocked this turn. Zeli answered locally."
+                        >
+                          <ShieldCheck size={12} aria-hidden /> Local mode — Enhanced AI
+                          unavailable or blocked
+                        </span>
+                      )}
                     {message.sources?.length > 0 && (
                       <span className="text-slate-400">Sources:</span>
                     )}
@@ -492,7 +557,7 @@ export default function ZeliPage() {
               )}
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI processing is disabled.
+              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI is optional and never authoritative.
             </p>
           </form>
         </main>

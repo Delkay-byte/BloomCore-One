@@ -6,10 +6,11 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
     await loginAdmin(page, ADMIN_A);
   });
 
-  test("shows provider status and answers a supported question from records", async ({ page }) => {
+  test("shows the local mode banner and answers from records", async ({ page }) => {
     await page.goto("/zeli");
+    await expect(page.getByText("Local mode.", { exact: false })).toBeVisible();
     await expect(
-      page.getByText("External AI processing is currently disabled.", { exact: false })
+      page.getByText("runs entirely inside BloomCore One", { exact: false })
     ).toBeVisible();
 
     await sendZeliMessage(page, "Summarise this month's contributions and withdrawals.");
@@ -20,13 +21,42 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
     await expect(page.getByText("Computed from your records").first()).toBeVisible();
   });
 
-  test("answers an unsupported question with an honest limitation", async ({ page }) => {
+  test("answers an unsupported question with an honest local explanation", async ({ page }) => {
     await page.goto("/zeli");
     await sendZeliMessage(page, "Write me a poem about the sea.");
-    await expect(page.getByText("outside the set", { exact: false })).toBeVisible({
+    await expect(
+      page.getByText("general knowledge questions in local mode", { exact: false })
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByText("Nothing from this conversation was sent anywhere", { exact: false })
+    ).toBeVisible();
+  });
+
+  test("greets, answers and resolves a follow-up from conversation context", async ({ page }) => {
+    await page.goto("/zeli");
+    await sendZeliMessage(page, "Hello");
+    await expect(
+      page.getByText("internal rule-based engine", { exact: false })
+    ).toBeVisible({ timeout: 30_000 });
+
+    await sendZeliMessage(page, "Summarise contributions and withdrawals for this month.");
+    await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText("will not invent an answer", { exact: false })).toBeVisible();
+
+    await sendZeliMessage(page, "And last month?");
+    await expect(page.getByText("Previous month", { exact: false }).first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
+  test("refuses a financial instruction without changing data", async ({ page }) => {
+    await page.goto("/zeli");
+    await sendZeliMessage(page, "Approve the pending withdrawal now");
+    await expect(page.getByText("can't do that", { exact: false })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText("No data was changed", { exact: false })).toBeVisible();
   });
 
   test("creates, renames and deletes a conversation", async ({ page }) => {

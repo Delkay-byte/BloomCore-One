@@ -107,3 +107,16 @@ Owner-facing message:
   names (currently yes for their own tenant).
 - Cross-border transfer assessment for any future provider or local inference
   host.
+
+## Commerce and provider addendum (4 November 2026)
+
+- Checkout uses the server catalogue price; browser amounts are ignored.
+- Webhooks require HMAC SHA-512 over the raw body; event ids are unique.
+- Entitlement activation happens only from a verified payment event.
+- Refund suspends access; cancellation ends renewal but preserves the paid period.
+- Platform commerce changes require a platform session, reason and audit.
+- External AI is controlled by one server policy with a global emergency stop.
+- Production mode is locked by a reviewed code constant plus privacy/approval
+  gates; it is not a UI toggle.
+- Three tenants are used in browser tests to keep entitlement state independent.
+- No production resource, secret or customer record was changed.
