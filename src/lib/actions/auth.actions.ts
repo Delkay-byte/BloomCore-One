@@ -32,6 +32,8 @@ import {
   recordLoginFailure,
   recordLoginSuccess,
 } from "@/lib/security/auth-guard";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 
@@ -377,32 +379,61 @@ export async function logout(): Promise<ActionResponse> {
 
 /**
  * Verify the current user's password (for step-up reauthentication).
- * Does not log the password.  Only checks against the active session.
  *
- * Security: we prefer the admin session and refuse to fall through to
- * worker/collector sessions when the admin session is unavailable — this
- * prevents silently verifying against the wrong user if the admin cookie
- * is missing or temporarily invalid.
+ * The password is never logged or stored. Identity comes ONLY from the
+ * session named by `options.module`. Sensitive screens (Susu withdrawals,
+ * worker password reset) are administrator surfaces and must pass
+ * "admin": falling back to a MoMo worker or Susu collector session that the
+ * browser also holds would verify the wrong account's password — which is
+ * exactly how a valid administrator password can be reported as incorrect.
+ *
+ * The submitted password is compared exactly as typed. Sign-in does not trim
+ * it, so trimming here made a password that worked at sign-in fail at
+ * confirmation.
  */
 export async function verifyPasswordAction(
-  password: string
+  password: string,
+  options?: { module?: ModuleName }
 ): Promise<ActionResponse> {
-  // Trim whitespace from pasted passwords to avoid hash mismatch
-  const trimmedPassword = password.trim();
+  if (typeof password !== "string" || password.length === 0) {
+    return { success: false, error: "Password is required" };
+  }
+  if (password.length > 256) {
+    return { success: false, error: "Incorrect password" };
+  }
 
-  // Try each session, but prefer admin and log which module was used.
-  const adminUser = await getAdminSession();
-  const momoUser = await getMomoSession();
-  const susuUser = await getSusuSession();
-
+  const requestedModule = options?.module;
   let context: { module: ModuleName; user: JwtPayload } | null = null;
 
-  if (adminUser) {
-    context = { module: "admin", user: adminUser };
-  } else if (momoUser) {
-    context = { module: "momo", user: momoUser };
-  } else if (susuUser) {
-    context = { module: "susu", user: susuUser };
+  if (requestedModule) {
+    const session =
+      requestedModule === "admin"
+        ? await getAdminSession()
+        : requestedModule === "momo"
+          ? await getMomoSession()
+          : requestedModule === "susu"
+            ? await getSusuSession()
+            : await getCustomerSession();
+
+    if (!session) {
+      return {
+        success: false,
+        error: "Your session has expired. Please sign in again.",
+      };
+    }
+    context = { module: requestedModule, user: session };
+  } else {
+    // Compatibility path for callers that do not name a module.
+    const adminUser = await getAdminSession();
+    const momoUser = await getMomoSession();
+    const susuUser = await getSusuSession();
+    if (adminUser) {
+      context = { module: "admin", user: adminUser };
+    } else if (momoUser) {
+      context = { module: "momo", user: momoUser };
+    } else if (susuUser) {
+      context = { module: "susu", user: susuUser };
+    }
   }
 
   if (!context) {
@@ -413,12 +444,28 @@ export async function verifyPasswordAction(
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
-  const dbUser = await db.user.findUnique({ where: { id: context.user.userId } });
-  if (!dbUser) {
+  // Failed-attempt protection: the window applies to successful and failed
+  // attempts alike, so it cannot be used to probe passwords in bulk.
+  const rate = await consumeRateLimit(
+    "auth:reauth",
+    context.user.userId,
+    RATE_LIMITS.adminSensitive
+  );
+  if (!rate.allowed) {
+    return {
+      success: false,
+      error: "Too many password attempts. Please wait and try again.",
+    };
+  }
+
+  const dbUser = await db.user.findUnique({
+    where: { id: context.user.userId },
+  });
+  if (!dbUser || dbUser.status !== "active") {
     return { success: false, error: "User not found" };
   }
 
-  const valid = await verifyPassword(trimmedPassword, dbUser.passwordHash);
+  const valid = await verifyPassword(password, dbUser.passwordHash);
   if (!valid) {
     await createAuditLog({
       userId: context.user.userId,

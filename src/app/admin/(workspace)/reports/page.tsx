@@ -54,8 +54,10 @@ export default function ReportsPage() {
 
   function handleExportCSV() {
     if (accounts.length === 0) return;
-    const headers = ["Date","Location","Worker","Status","Opening MoMo","Opening Cash","Cash In","Cash Out","Cash Received","Cash Paid","Commission","Expenses","Closing MoMo","Closing Cash","MoMo Var","Cash Var"];
-    const rows = accounts.map((a) => [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingMomoFloat, a.openingCash, a.totalCashIn, a.totalCashOut, a.totalCashReceived, a.totalCashPaid, a.commission, a.totalExpenses, a.closingMomoFloat, a.closingCash, a.calculatedMomoVariance, a.calculatedCashVariance]);
+    // Approved business terminology. "Cash paid out" is retired: Cash out is
+    // the single record of cash paid to customers.
+    const headers = ["Date","Location","Worker","Status","Opening MoMo","Opening Cash","Customer deposit","Cash out","Cash in","Commission","Expenses","Closing MoMo","Closing Cash","MoMo difference","Cash difference"];
+    const rows = accounts.map((a) => [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingMomoFloat, a.openingCash, a.totalCashIn, a.totalCashOut, a.totalCashReceived, a.commission, a.totalExpenses, a.closingMomoFloat, a.closingCash, a.calculatedMomoVariance, a.calculatedCashVariance]);
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -65,7 +67,7 @@ export default function ReportsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <div><h1 className="text-2xl font-bold text-slate-900">Reports</h1><p className="text-slate-500 mt-1">View and filter daily account reports</p></div>
+        <div><h1 className="text-2xl font-bold text-slate-900">Reports</h1><p className="text-slate-500 mt-1">Customer deposits, cash out, cash in and the day&apos;s reconciliation</p></div>
         <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={accounts.length === 0}>📥 Export CSV</button>
       </div>
 
@@ -87,7 +89,7 @@ export default function ReportsPage() {
           <>
             <div className="table-container">
               <table>
-                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">MoMo Difference</th><th className="text-right">Cash Difference</th><th className="text-right">Expenses</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Customer deposit</th><th className="text-right">Cash out</th><th className="text-right">Cash in</th><th className="text-right">MoMo difference</th><th className="text-right">Cash difference</th><th></th></tr></thead>
                 <tbody>
                   {accounts.map((account) => (
                     <tr key={account.id}>
@@ -95,9 +97,11 @@ export default function ReportsPage() {
                       <td><div>{account.location.name}</div><div className="text-xs text-slate-500">{account.location.code}</div></td>
                       <td>{account.worker.fullName}</td>
                       <td><span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : account.status === "draft" ? "badge-yellow" : "badge-gray"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashIn} /></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashOut} /></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashReceived} /></td>
                       <td className="text-right font-mono text-sm"><span className={Number(account.calculatedMomoVariance) === 0 ? "text-green-600" : "text-red-600"}><CediAmount amount={account.calculatedMomoVariance} /></span></td>
                       <td className="text-right font-mono text-sm"><span className={Number(account.calculatedCashVariance) === 0 ? "text-green-600" : "text-red-600"}><CediAmount amount={account.calculatedCashVariance} /></span></td>
-                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalExpenses} /></td>
                       <td><Link href={`/admin/reports/${account.id}`} className="text-sm text-blue-600 hover:text-blue-800">View</Link></td>
                     </tr>
                   ))}

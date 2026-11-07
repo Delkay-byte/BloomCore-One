@@ -17,7 +17,7 @@ import FilterChips from "@/components/ui/FilterChips";
 import { NoResults, PageHeader } from "@/components/ui/DataDisplay";
 import { Download, X } from "lucide-react";
 
-type TransactionType = "" | "cash_in" | "cash_out" | "momo_added" | "momo_paid" | "commission" | "other_income" | "expenses" | "reconciliation";
+type TransactionType = "" | "cash_in" | "cash_out" | "cash_received" | "momo_added" | "momo_paid" | "commission" | "other_income" | "expenses" | "reconciliation";
 type DatePreset = "" | "today" | "yesterday" | "24h" | "48h" | "7d" | "30d" | "custom";
 
 const DATE_PRESETS: { value: DatePreset; label: string }[] = [
@@ -33,10 +33,11 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
 
 const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
   { value: "", label: "All Types" },
-  { value: "cash_in", label: "Cash Received" },
-  { value: "cash_out", label: "Cash Paid Out" },
-  { value: "momo_added", label: "Money Added to MoMo" },
-  { value: "momo_paid", label: "Money Paid from MoMo" },
+  { value: "cash_in", label: "Customer deposit" },
+  { value: "cash_out", label: "Cash out" },
+  { value: "cash_received", label: "Cash in" },
+  { value: "momo_added", label: "MoMo float increase" },
+  { value: "momo_paid", label: "MoMo float decrease" },
   { value: "commission", label: "Commission Earned" },
   { value: "other_income", label: "Other Money Received" },
   { value: "expenses", label: "Business Expenses" },
@@ -149,10 +150,11 @@ export default function MoMoHistoryPage() {
 
   function getTypeBadge(type: string) {
     switch (type) {
-      case "Cash Received": return <span className="badge badge-green">Cash Received</span>;
-      case "Cash Paid Out": return <span className="badge badge-red">Cash Paid Out</span>;
-      case "Money Added to MoMo": return <span className="badge badge-blue">MoMo Added</span>;
-      case "Money Paid from MoMo": return <span className="badge badge-yellow">MoMo Paid</span>;
+      case "Customer deposit": return <span className="badge badge-green">Customer deposit</span>;
+      case "Cash out": return <span className="badge badge-red">Cash out</span>;
+      case "Cash in": return <span className="badge badge-blue">Cash in</span>;
+      case "MoMo float increase": return <span className="badge badge-blue">Float increase</span>;
+      case "MoMo float decrease": return <span className="badge badge-yellow">Float decrease</span>;
       case "Commission Earned": return <span className="badge badge-gold">Commission</span>;
       case "Other Money Received": return <span className="badge badge-brand">Other Income</span>;
       case "Business Expense": return <span className="badge badge-red">Expense</span>;
@@ -165,7 +167,7 @@ export default function MoMoHistoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="MoMo Money & History"
-        description="Every MoMo financial transaction across dates - filter, inspect, export."
+        description="Customer deposits, cash out, cash in and reconciliation records across dates. Filter, inspect and export."
         actions={
           <button onClick={handleExportCSV} className="btn btn-secondary" disabled={records.length === 0}>
             <Download size={15} aria-hidden /> Export CSV
@@ -183,10 +185,11 @@ export default function MoMoHistoryPage() {
       {/* Summary - reconciles exactly with the filtered records */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard label="Cash Received" amount={summary.totalCashReceived} tone="text-emerald-700" />
-          <SummaryCard label="Cash Paid Out" amount={summary.totalCashPaid} tone="text-red-700" />
-          <SummaryCard label="Money Added to MoMo" amount={summary.totalMomoAdded} />
-          <SummaryCard label="Money Paid from MoMo" amount={summary.totalMomoPaid} />
+          <SummaryCard label="Customer deposit" amount={summary.totalCashIn} tone="text-emerald-700" />
+          <SummaryCard label="Cash out" amount={summary.totalCashOut} tone="text-red-700" />
+          <SummaryCard label="Cash in" amount={summary.totalCashReceived} tone="text-emerald-700" />
+          <SummaryCard label="MoMo float increase" amount={summary.totalMomoAdded} />
+          <SummaryCard label="MoMo float decrease" amount={summary.totalMomoPaid} />
           <SummaryCard label="Business Expenses" amount={summary.totalExpenses} tone="text-red-700" />
           <SummaryCard label="Commission Earned" amount={summary.totalCommission} tone="text-emerald-700" />
           <SummaryCard label="Other Money Received" amount={summary.totalOtherIncome} />

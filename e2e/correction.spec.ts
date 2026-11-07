@@ -11,7 +11,7 @@ test.describe("Daily-account correction screen", () => {
     await expect(page.getByText("Original:", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("Revision history (0)")).toBeVisible();
 
-    const cashIn = page.getByLabel("Cash received (MoMo float added)");
+    const cashIn = page.getByLabel("Customer deposit");
     await cashIn.fill("250");
     await page.locator("textarea").fill("Cash-in figure omitted from the original submission");
     await page.getByRole("button", { name: "Save correction" }).click();

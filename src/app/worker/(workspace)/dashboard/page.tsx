@@ -89,7 +89,8 @@ export default function WorkerDashboardPage() {
       {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
 
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-        <h2 className="text-lg font-semibold mb-4">Today&apos;s Account</h2>
+        <h2 className="text-lg font-semibold mb-1">Today&apos;s Account</h2>
+        <p className="text-sm text-slate-500 mb-4">Open your account in the morning, record today&apos;s customer deposit, cash out and cash in, then count your cash and confirm your MoMo balance before submitting.</p>
         {todayAccount ? (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -126,11 +127,12 @@ export default function WorkerDashboardPage() {
                     {account.status !== "draft" && (
                       <div className="text-xs mt-1">
                         {variance === 0 ? (
-                          <span className="text-green-600">✓ Matches</span>
+                          <span className="text-green-600">✓ Balanced</span>
                         ) : (
                           <span className="text-red-600">
-                            Total Difference: <CediAmount amount={variance} />
-                            <br />⚠ Check Required
+                            {variance < 0 ? "Short " : "Over "}
+                            <CediAmount amount={Math.abs(variance)} />
+                            <br />⚠ Check required
                           </span>
                         )}
                       </div>

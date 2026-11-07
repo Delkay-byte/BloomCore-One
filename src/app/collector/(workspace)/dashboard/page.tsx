@@ -595,9 +595,11 @@ export default function CollectorDashboardPage() {
                 <Info size={13} className="flex-none" aria-hidden /> Money you have already brought to the business today.
               </button>
             </div>
-            <div className={`rounded-lg p-4 ${data.difference >= 0 ? "bg-red-50" : "bg-green-50"}`}>
-              <div className="text-xs font-medium text-slate-600">Difference</div>
-              <div className={`text-2xl font-bold mt-1 ${data.difference >= 0 ? "text-red-700" : "text-green-700"}`}>
+            <div className={`rounded-lg p-4 ${data.difference > 0 ? "bg-red-50" : "bg-green-50"}`}>
+              <div className="text-xs font-medium text-slate-600">
+                {data.difference > 0 ? "Still to hand in" : data.difference < 0 ? "Over-handed" : "Hand-in balances"}
+              </div>
+              <div className={`text-2xl font-bold mt-1 ${data.difference > 0 ? "text-red-700" : "text-green-700"}`}>
                 <CediAmount amount={Math.abs(data.difference)} />
               </div>
               <button
@@ -608,6 +610,11 @@ export default function CollectorDashboardPage() {
               </button>
             </div>
           </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Collected today <span className="font-semibold text-slate-700"><CediAmount amount={data.todayContributions} /></span>
+            {" · "}handed in <span className="font-semibold text-slate-700"><CediAmount amount={data.amountHandedInToday} /></span>
+            {" · "}still to hand in <span className={`font-semibold ${data.difference > 0 ? "text-red-700" : "text-slate-700"}`}><CediAmount amount={Math.max(0, data.difference)} /></span>
+          </p>
           <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
             <div className="bg-slate-50 rounded-lg p-3 text-center">
               <div className="text-xs text-slate-500">Customers Collected</div>

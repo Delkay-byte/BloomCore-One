@@ -122,8 +122,9 @@ export default function WorkerDetailPage() {
         onClose={() => { setShowReauth(false); setPendingResetData(null); }}
         onConfirmed={executeResetPassword}
         title="Confirm your identity"
-        description="For your security, enter your password before resetting this user's password."
+        description="For your security, enter your own administrator password before resetting this user's password."
         actionLabel="Reset Password"
+        module="admin"
       />
 
       {resettingPassword && (

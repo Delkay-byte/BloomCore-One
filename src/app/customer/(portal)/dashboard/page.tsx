@@ -107,20 +107,33 @@ export default function CustomerDashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card border-l-4 border-l-green-500">
-          <div className="text-sm text-slate-500 mb-1">Current Balance</div>
+          <div className="text-sm text-slate-500 mb-1">Savings balance</div>
           <div className="text-3xl font-bold text-green-700"><CediAmount amount={currentBalance} /></div>
+          <p className="text-xs text-slate-500 mt-1">Contributions less withdrawals and commission this cycle.</p>
+        </div>
+        <div className="card border-l-4 border-l-teal-500">
+          <div className="text-sm text-slate-500 mb-1">Available to withdraw</div>
+          <div className="text-3xl font-bold text-teal-700"><CediAmount amount={Math.max(0, currentBalance)} /></div>
+          <p className="text-xs text-slate-500 mt-1">A first withdrawal in a cycle also charges one day&apos;s contribution as commission.</p>
         </div>
         <div className="card border-l-4 border-l-blue-500">
-          <div className="text-sm text-slate-500 mb-1">Total Saved This Cycle</div>
+          <div className="text-sm text-slate-500 mb-1">Paid in this cycle</div>
           <div className="text-3xl font-bold text-blue-700"><CediAmount amount={totalSaved} /></div>
         </div>
         <div className="card border-l-4 border-l-purple-500">
-          <div className="text-sm text-slate-500 mb-1">Commission Charged</div>
+          <div className="text-sm text-slate-500 mb-1">Commission charged</div>
           <div className="text-3xl font-bold text-purple-700"><CediAmount amount={totalCommission} /></div>
         </div>
       </div>
+
+      {daysOutstanding > 0 && (
+        <div className="banner banner-warning text-sm">
+          <span className="font-medium">You still have {daysOutstanding} day{daysOutstanding === 1 ? "" : "s"} to pay this cycle.</span>{" "}
+          Your daily contribution is <CediAmount amount={currentCycle?.dailyContribution || 0} />.
+        </div>
+      )}
 
       {currentCycle && (
         <div className="card border-l-4 border-l-indigo-500">

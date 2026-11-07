@@ -120,56 +120,70 @@ export async function getMoMoHistory(params?: {
       status: account.status,
     };
 
-    // Cash In
+    // Customer deposit (persisted as totalCashIn)
     if (!type || type === "cash_in") {
       if (Number(account.totalCashIn) > 0) {
         records.push({
           ...base,
           id: `${account.id}-cashin`,
-          type: "Cash Received",
+          type: "Customer deposit",
           amount: Number(account.totalCashIn),
-          notes: `Cash in for ${locName}`,
+          notes: `Customer deposit at ${locName}`,
         });
       }
     }
 
-    // Cash Out
+    // Cash out (persisted as totalCashOut)
     if (!type || type === "cash_out") {
       if (Number(account.totalCashOut) > 0) {
         records.push({
           ...base,
           id: `${account.id}-cashout`,
-          type: "Cash Paid Out",
+          type: "Cash out",
           amount: Number(account.totalCashOut),
-          notes: `Cash out for ${locName}`,
+          notes: `Cash paid to customers at ${locName}`,
         });
       }
     }
 
-    // MoMo Float Added
+    // Cash in (persisted as totalCashReceived)
+    if (!type || type === "cash_received") {
+      if (Number(account.totalCashReceived) > 0) {
+        records.push({
+          ...base,
+          id: `${account.id}-cashreceived`,
+          type: "Cash in",
+          amount: Number(account.totalCashReceived),
+          notes: `Physical cash received at ${locName}`,
+        });
+      }
+    }
+
+    // Derived MoMo float movement. This is calculated from the opening and
+    // closing balances, so it is labelled as a float movement rather than as a
+    // customer transaction (Customer deposit and Cash out are recorded above).
     if (!type || type === "momo_added") {
       const momoAdded = Number(account.closingMomoFloat) - Number(account.openingMomoFloat);
       if (momoAdded > 0) {
         records.push({
           ...base,
           id: `${account.id}-momoadd`,
-          type: "Money Added to MoMo",
+          type: "MoMo float increase",
           amount: momoAdded,
-          notes: `MoMo float: ${formatDecimal(account.openingMomoFloat)} → ${formatDecimal(account.closingMomoFloat)}`,
+          notes: `Closing float minus opening float: ${formatDecimal(account.openingMomoFloat)} → ${formatDecimal(account.closingMomoFloat)}`,
         });
       }
     }
 
-    // MoMo Float Paid Out
     if (!type || type === "momo_paid") {
       const momoPaid = Number(account.openingMomoFloat) - Number(account.closingMomoFloat);
       if (momoPaid > 0) {
         records.push({
           ...base,
           id: `${account.id}-momopaid`,
-          type: "Money Paid from MoMo",
+          type: "MoMo float decrease",
           amount: momoPaid,
-          notes: `MoMo float: ${formatDecimal(account.openingMomoFloat)} → ${formatDecimal(account.closingMomoFloat)}`,
+          notes: `Opening float minus closing float: ${formatDecimal(account.openingMomoFloat)} → ${formatDecimal(account.closingMomoFloat)}`,
         });
       }
     }
