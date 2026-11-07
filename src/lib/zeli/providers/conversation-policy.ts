@@ -77,7 +77,7 @@ export async function getConversationPolicy(
     privacyVersionPresent: control.privacyVersionPresent,
     approvalReferencePresent: control.approvalReferencePresent,
     tenantAuthorized: control.tenantAuthorized,
-    teamTesting: control.state === "team_testing",
+    teamTesting: control.control.mode === "team_testing",
     teamTesterActive: control.teamTesterActive,
     teamDisclosureAccepted: control.teamDisclosureAccepted,
     teamDisclosureVersion: control.teamDisclosureVersion,
