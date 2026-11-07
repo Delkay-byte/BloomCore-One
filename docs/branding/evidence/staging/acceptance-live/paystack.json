@@ -1,0 +1,35 @@
+{
+  "capturedAt": "2026-11-07T02:36:00Z",
+  "keyType": "TEST",
+  "checkoutInitialization": {
+    "endpoint": "https://api.paystack.co/transaction/initialize",
+    "status": true,
+    "message": "Authorization URL created",
+    "authorizationHost": "checkout.paystack.com",
+    "reference": "MAACASH-ACC-PAYSTACK-1794018195272"
+  },
+  "sandboxTestCharge": {
+    "endpoint": "https://api.paystack.co/charge",
+    "firstAttemptAmountSubunit": 100,
+    "secondAttemptAmountSubunit": 10000,
+    "secondAttemptStatus": "success",
+    "reference": "MAACASH-ACC-CHARGE2-1794018347479",
+    "currency": "GHS"
+  },
+  "webhookSuccess": {
+    "reference": "MAACASH-ACC-WEBHOOK-1794018205956",
+    "firstDecision": "processed",
+    "replayDecision": "ignored",
+    "subscriptionStatus": "active",
+    "periodGranted": true,
+    "periodEnd": "2026-12-07T02:23:32.032Z",
+    "entitlementStatus": "active",
+    "entitlementSource": "subscription"
+  },
+  "callbackMismatchCheck": {
+    "reference": "MAACASH-ACC-CHARGE-1794018233910",
+    "result": "Payment did not match the selected package.",
+    "note": "Amount was GHS 1 rather than the GHS 100 package; the callback correctly rejected the mismatch."
+  },
+  "productionPaystackConfigChanged": false
+}

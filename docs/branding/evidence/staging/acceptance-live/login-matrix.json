@@ -1,0 +1,52 @@
+{
+  "capturedAt": "2026-11-07T02:20:00Z",
+  "base": "https://bloomcore-one-staging.onrender.com",
+  "deployedSha": "791e4a78d35584abae708b5bb185ec3795ea5cd5",
+  "surfaces": [
+    {
+      "role": "customer",
+      "expectedAction": "customer_login",
+      "renderedAction": "customer_login",
+      "turnstile": "issued",
+      "mfa": "enrolled then verified on later login",
+      "finalPath": "/customer/dashboard",
+      "result": "PASS"
+    },
+    {
+      "role": "momo",
+      "expectedAction": "login",
+      "renderedAction": "login",
+      "turnstile": "issued",
+      "mfa": "enrolled",
+      "finalPath": "/worker/dashboard",
+      "result": "PASS"
+    },
+    {
+      "role": "susu",
+      "expectedAction": "login",
+      "renderedAction": "login",
+      "turnstile": "issued",
+      "mfa": "enrolled",
+      "finalPath": "/collector/dashboard",
+      "result": "PASS"
+    },
+    {
+      "role": "administrator",
+      "expectedAction": "admin_login",
+      "renderedAction": "admin_login",
+      "turnstile": "issued",
+      "mfa": "verified with existing TOTP",
+      "finalPath": "/admin/dashboard",
+      "result": "PASS"
+    },
+    {
+      "role": "platform",
+      "expectedAction": "platform_login",
+      "renderedAction": "platform_login",
+      "turnstile": "issued after one reload",
+      "mfa": "enrolled",
+      "finalPath": "/platform/dashboard",
+      "result": "PASS"
+    }
+  ]
+}

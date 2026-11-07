@@ -3,36 +3,102 @@
 **Date:** 2026-11-07
 **PR:** https://github.com/Delkay-byte/BloomCore-One/pull/16
 **Branch:** `feat/maacash-rebrand`
-**Deployed staging SHA:** `0e0c7dbbe3733ba8ea66ddff102cfe5a662bcdc1`
+**Deployed code commit:** `791e4a78d35584abae708b5bb185ec3795ea5cd5`
+**Staging deployment:** `dep-dbn8g8u417fc73dr13cg`
+**Deployed staging SHA:** `791e4a78d35584abae708b5bb185ec3795ea5cd5`
 **Production SHA (untouched):** `e890cf92965364bd7278b4649236e3812bc8cc4e`
 
 > Final status: **STAGING ACCEPTANCE PARTIALLY PASSED — ISSUES TO RESOLVE**
 >
-> The exact PR head is live on the existing staging service. Public branding,
-> PWA metadata, PostgreSQL 16/18, security headers and Paystack TEST hardening
-> passed. Full authenticated role and tab-session acceptance was blocked by
-> Cloudflare Turnstile throttling under automation, and a customer-login
-> Turnstile action mismatch was found in code.
+> The Turnstile action mismatch is fixed. Customer, MoMo, Susu, administrator and
+> platform logins all passed with real Turnstile challenges and MFA on staging.
+> Independent tab sessions, staging metadata, financial workflows, Paystack TEST
+> success handling and Zeli passed. The only uncompleted item is physical PWA
+> installation, which needs a human-owned browser profile.
 
 ---
 
-## A. Starting state
+## A. Fix
 
-| Item | Verified value |
+### Root cause
+
+`src/app/login/UnifiedLoginClient.tsx` rendered one widget action, `login`, for
+every non-admin role. The customer resolver verified the token against
+`customer_login`, so a correct customer challenge was rejected as an action
+mismatch.
+
+### Files changed
+
+| File | Change |
 | --- | --- |
-| PR #16 state | OPEN, MERGEABLE |
-| PR head | `0e0c7dbbe3733ba8ea66ddff102cfe5a662bcdc1` |
-| Base | `e890cf92965364bd7278b4649236e3812bc8cc4e` |
-| CI before deployment | **Pass** — `Lint, typecheck, test, build` |
-| Production SHA before | `e890cf9` |
-| Staging SHA before | `e5b670f038674f4f2cb1040396dacee389f3f9cb` |
-| Production Auto-Deploy | **ON — After CI Checks Pass** (verified `autoDeploy: yes`) |
-| Staging Auto-Deploy | **OFF** (verified `autoDeploy: no`) |
-| Production service | `bloomcore-one` — unchanged |
-| Staging service | `bloomcore-one-staging` — unchanged |
+| `src/lib/security/turnstile-actions.ts` | New dependency-free typed action constants and role mapping. |
+| `src/app/login/UnifiedLoginClient.tsx` | Customer renders `customer_login`; MoMo and Susu render `login`. |
+| `src/app/admin/login/AdminLoginForm.tsx` | Uses the shared `admin_login` constant. |
+| `src/app/platform/login/PlatformLoginForm.tsx` | Uses the shared `platform_login` constant. |
+| `src/lib/actions/auth.actions.ts` | Customer, staff, legacy staff and admin guards use shared constants. |
+| `src/lib/actions/platform.actions.ts` | Platform guard uses the shared constant. |
+| `src/lib/actions/password-recovery.actions.ts` | Password reset uses the shared constant. |
+| `src/components/security/TurnstileWidget.tsx` | Widget identity includes action and reset generation; stale tokens and status are discarded on any change. |
+| `src/lib/site.ts`, `src/lib/metadata.ts`, `src/app/layout.tsx`, `src/app/robots.ts`, `src/app/sitemap.ts` | Staging-aware social metadata, noindex/nofollow, robots disallow and empty sitemap. |
+| `src/lib/customer-dashboard.ts`, `src/app/customer/(portal)/dashboard/page.tsx` | Maps the customer portal dashboard to the actual nested account shape; clear empty state when no account exists. |
+| `tests/turnstile-action-mapping.test.ts` | 13 regression tests. |
+| `tests/staging-metadata.test.ts` | 7 staging/production metadata tests. |
+| `tests/customer-dashboard-mapping.test.ts` | 3 dashboard mapping tests. |
 
-No merge, no production deployment, no service rename, no repository rename,
-no domain purchase, no DNS change and no secret rotation were performed.
+### Action mapping before and after
+
+| Surface | Before | After |
+| --- | --- | --- |
+| Customer | `login` | `customer_login` |
+| MoMo Agent | `login` | `login` |
+| Susu Collector | `login` | `login` |
+| Administrator | `admin_login` | `admin_login` |
+| Platform | `platform_login` | `platform_login` |
+
+The server remains authoritative. No browser-supplied role or action is trusted
+as identity.
+
+### Stale challenge handling
+
+`TurnstileWidget` now tags both the token and the status with the action and reset
+generation that produced them.
+
+- A role change remounts the Cloudflare widget.
+- The old widget is removed and its callback can no longer write state.
+- A token from another action is never written to the hidden form field.
+- Returning to a previous role does not resurrect its old token.
+- A `resetSignal` increment also creates a fresh challenge.
+
+Token expiry, replay protection, hostname verification and server action checks
+were not weakened.
+
+### Regression tests
+
+`tests/turnstile-action-mapping.test.ts` covers:
+
+1. Customer renders `customer_login`.
+2. MoMo renders `login`.
+3. Susu renders `login`.
+4. Administrator renders `admin_login`.
+5. Customer → MoMo clears the previous token.
+6. MoMo → Customer requires a fresh `customer_login` token.
+7. A `login` token submitted to customer authentication is rejected.
+8. A `customer_login` token submitted to staff authentication is rejected.
+9. Matching actions pass when the remaining verification conditions are valid.
+10. Expired, replayed, wrong-hostname and invalid tokens still fail closed.
+
+These tests exercise the real `resolveCustomerAuth`, `resolveStaffAuth`,
+`adminLogin` and `verifyTurnstile` paths with a stubbed Cloudflare Siteverify
+response. Action verification is not mocked away.
+
+### Additional defect found and fixed
+
+The customer dashboard read a flat `{ account, currentCycle, collector }` shape
+while `getCustomerAccount()` returns a customer with a nested `accounts` array.
+With customer login previously blocked, this had stayed hidden. The dashboard now
+maps the real response and shows a clear message when no active account exists.
+Real staging verification after the fix reached `/customer/dashboard` with the
+current cycle, balance cards and cycle history.
 
 ---
 
@@ -40,197 +106,130 @@ no domain purchase, no DNS change and no secret rotation were performed.
 
 | Item | Value |
 | --- | --- |
-| Deployment ID | `dep-dbn6d5bbc2fs738lva4g` |
+| Deployment ID | `dep-dbn8g8u417fc73dr13cg` |
 | Trigger | Render API, explicit `commitId` |
-| Commit | `0e0c7dbbe3733ba8ea66ddff102cfe5a662bcdc1` |
-| Final status | **live** |
-| URL | `https://bloomcore-one-staging.onrender.com` |
-| Auto-Deploy after deploy | **still OFF** |
-| Service configuration changed | **No** |
+| Commit | `791e4a78d35584abae708b5bb185ec3795ea5cd5` |
+| Status | **live** |
+| Staging URL | `https://bloomcore-one-staging.onrender.com` |
+| Staging Auto-Deploy | **OFF** (`autoDeploy: no`) |
+| Production Auto-Deploy | **ON — After CI Checks Pass** (`autoDeploy: yes`) |
+| Service names changed | No |
+| Repository renamed | No |
+| Production deployment | Untouched at `e890cf9` |
 
 ### Health and readiness
 
-| Endpoint | Status | Body (trimmed) |
+| Endpoint | Result |
+| --- | --- |
+| `/api/health` | **200**, `status=ok`, `env=STAGING`, `commit=791e4a78d35584abae708b5bb185ec3795ea5cd5` |
+| `/api/health/ready` | **200**, `status=ready`, `database=ok`, `env=STAGING` |
+| Production `/api/health` | **200**, `env=production`, `commit=e890cf92965364bd7278b4649236e3812bc8cc4e` |
+
+GitHub CI for the final SHA passed: `Lint, typecheck, test, build`, run
+`42327414583`.
+
+---
+
+## C. Staging metadata
+
+Staging-only environment variable:
+
+`SITE_URL=https://bloomcore-one-staging.onrender.com`
+
+Production `SITE_URL` remains `https://bloomcore-one.onrender.com`.
+
+| Check | Result |
+| --- | --- |
+| Open Graph URL | **staging host** |
+| Open Graph image | **staging host** |
+| Twitter image | **staging host** |
+| Production host references in social metadata | **0** |
+| Canonical links on staging | **0** |
+| Robots meta | `noindex, nofollow` |
+| `robots.txt` | `User-Agent: *` / `Disallow: /` |
+| Sitemap URLs | **0** |
+| Production metadata behaviour | Unchanged |
+
+Staging social previews now point at staging, while crawlers are refused and no
+canonical URL is claimed. Evidence: `docs/branding/evidence/staging/acceptance-live/metadata.json`.
+
+---
+
+## D. Authenticated role matrix
+
+All logins below used a real Cloudflare Turnstile challenge on the live staging
+host. MFA was completed with TOTP; no enforcement was disabled.
+
+| Role | Turnstile action | Turnstile | MFA | Final route | Tenant | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| Administrator A | `admin_login` | Issued | Verified | `/admin/dashboard` | STG-A | **PASS** |
+| Administrator B | `admin_login` | Issued | Verified | `/admin/dashboard` | STG-B | **PASS** |
+| MoMo worker | `login` | Issued | Enrolled | `/worker/dashboard` | STG-A | **PASS** |
+| Susu collector | `login` | Issued | Enrolled | `/collector/dashboard` | STG-A | **PASS** |
+| Customer | `customer_login` | Issued | Enrolled | `/customer/dashboard` | STG-A | **PASS** |
+| Platform | `platform_login` | Issued after one reload | Enrolled | `/platform/dashboard` | Platform | **PASS** |
+
+### Platform authentication method
+
+The platform console uses its own password login. `PLATFORM_OIDC_ENABLED` and all
+other OIDC variables are absent from the staging service, so SSO is intentionally
+disabled. The existing password flow was tested and passed. OIDC was not enabled.
+
+### Role isolation
+
+| Check | Result |
+| --- | --- |
+| Customer → worker route | Redirected to `/login` — **PASS** |
+| Customer → admin route | Redirected to `/login` — **PASS** |
+| Worker → collector route | Redirected to `/login` — **PASS** |
+| Collector → worker route | Redirected to `/login` — **PASS** |
+| Admin → platform console | Redirected to `/platform/login` — **PASS** |
+| Worker → another branch's daily account | `Account not found` — **PASS** |
+| Tenant identity from `/api/auth/me` | STG-A / STG-B as signed in — **PASS** |
+| Arbitrary tenant/branch selection | No client-selected tenant accepted — **PASS** |
+
+Evidence: `docs/branding/evidence/staging/acceptance-live/login-matrix.json`.
+
+---
+
+## E. Independent tabs
+
+| Scenario | Result | Evidence |
 | --- | --- | --- |
-| `/api/health` | **200** | `status=ok`, `env=STAGING`, `commit=0e0c7db…` |
-| `/api/health/ready` | **200** | `status=ready`, `database=ok`, `latencyMs≈1124`, `env=STAGING` |
+| Admin A and Admin B in separate tabs | **PASS** | Session hashes `395aec18…` and `948b8a9f…`; tenants STG-A and STG-B |
+| Customer, worker and collector in separate tabs | **PASS** | Distinct role and jti hashes; modules `customer`, `momo`, `susu` |
+| Refresh each tab | **PASS** | Same session hash and identity after reload |
+| Copied authenticated URL into a fresh tab | **PASS** | Redirected to `/login`; `/api/auth/me` returned **401** |
+| Log out tab A only | **PASS** | Tab A 401 and remained 401 after refresh; tab B stayed 200 with STG-B |
+| Cross-role tab isolation | **PASS** | Worker/collector tabs retained their own role; cross-role routes were denied |
 
-The deployed application identifies itself as **staging**, not production.
-Production remained on `e890cf9` throughout.
-
----
-
-## C. Branding
-
-### Public and unauthenticated surfaces — 22/22 checks passed
-
-Routes tested against the live staging host:
-
-`/`, `/login`, `/admin/login`, `/forgot-password`, `/recover-account`,
-`/access`, `/features`, `/solutions`, `/about`, `/contact`, `/privacy`,
-`/terms`, `/this-route-does-not-exist-maacash`.
-
-Results:
-
-- All returned HTTP 200.
-- Every page contained **MaaCash**.
-- **0** pages contained `BloomCore One` or `BloomCore-One`.
-- Titles, descriptions, Open Graph and Twitter metadata named MaaCash.
-- Login and admin login rendered the MaaCash lockup and parent attribution
-  "Built by BloomCore Technologies".
-- Not-found page rendered the MaaCash metadata and layout.
-- No application JavaScript errors on public pages.
-
-### Metadata, icons and PWA
-
-| Asset / check | Result |
-| --- | --- |
-| `/manifest.json` | 200, `short_name=MaaCash`, name starts with MaaCash |
-| `maacash-icon-192.png` | 200, image/png |
-| `maacash-icon-512.png` | 200, image/png |
-| `maacash-icon-maskable-512.png` | 200, image/png |
-| `/favicon.ico` | 200, image/x-icon |
-| `/apple-icon.png` | 200, image/png |
-| `maacash-og.png` | 200, image/png |
-| Theme colour | `#0e4d34` |
-| Service worker | Registered at `/`, controlling the page |
-| Installability errors | **[]** (none reported by Chromium) |
-
-Screenshots and raw results: `docs/branding/evidence/staging/`.
-
-### Authenticated admin surface
-
-A real administrator login completed successfully and reached
-`/admin/dashboard`. The rendered shell showed:
-
-- `MaaCash`
-- `Staging Tenant A`
-- `MaaCash · Staging Tenant A · Built by BloomCore Technologies`
-
-No old product name was present in that dashboard body.
-
-### Legacy-name audit
-
-| Location | `BloomCore One` / `BloomCore-One` |
-| --- | --- |
-| `src/` and `public/` active source | **0** |
-| Live public staging pages | **0** |
-| Preserved technical identifiers | 27 occurrences across 14 files |
-
-Preserved identifiers are the expected contracts: JWT issuer/audiences, tab
-proof headers, legacy cookie cleanup, offline storage names, OIDC product slug,
-Turnstile host default, health payload `app`, and Render hostname. They were
-not changed.
-
-### Staging metadata defect
-
-The staging HTML contains 6 `bloomcore-one` references. All are absolute
-Open Graph/Twitter URLs pointing at the **production** hostname
-`https://bloomcore-one.onrender.com`, because staging has no `SITE_URL` set and
-falls back to the temporary production URL in `src/lib/site.ts`.
-
-Impact: staging social metadata points at production. It does not affect
-production branding or functionality. Fix by setting staging
-`SITE_URL=https://bloomcore-one-staging.onrender.com` and redeploying.
-
----
-
-## D. Authentication
-
-### Real results
-
-| Test | Result |
-| --- | --- |
-| Admin login on staging with Turnstile | **Pass** — reached `/admin/dashboard` |
-| MFA verification | **Pass** — valid TOTP accepted, dashboard reached |
-| MFA enrolment | **Pass** — QR/manual key, 6-digit confirmation, recovery codes issued |
-| MFA-branded screens | **Pass** — MaaCash lockup on `/mfa/enroll` and `/mfa/verify` |
-| Independent tab sessions — distinct users | **Not completed** |
-| Tab refresh independence | **Not completed** |
-| Copied-URL isolation | **Observed pass** — fresh tab redirected to `/login` |
-| Independent logout | **Not validly completed** |
-| Service-worker failure fail-closed | **Pass** — worker stopped, tab returned to `/login`, `/api/auth/me` returned 401 |
-| Worker / Collector / Customer / Platform login | **Not completed** |
-
-### Why the tab and role matrix is incomplete
-
-Cloudflare Turnstile token issuance became unreliable after repeated automated
-logins. Fresh tabs often stayed on "Verifying…" with no token. When tokens were
-issued, admin login and MFA passed. This is an automation/challenge limitation,
-not an application failure, and enforcement was **not** weakened.
-
-The full multi-tab matrix therefore remains unproven against staging. It is
-covered by the repository's automated tab-session tests, which passed, but that
-is not a substitute for a real staging browser run.
-
-### Defect found: customer login Turnstile action mismatch
-
-- `src/app/login/UnifiedLoginClient.tsx` renders
-  `<TurnstileWidget action="login" />` for every non-admin role.
-- Customer login is verified server-side with action
-  `"customer_login"` (`src/lib/actions/auth.actions.ts`).
-- `verifyTurnstile` rejects a response whose `action` differs from the expected
-  action.
-
-With Turnstile enabled, a valid customer challenge token will be rejected with
-reason `action`. Customer portal login is therefore expected to fail on staging
-and production while Turnstile is enabled. This is a release-blocking defect.
-Fix: render `action="customer_login"` when the selected role is Customer, or
-align the server action for customer login with the widget action. Do not fix by
-disabling Turnstile.
-
----
-
-## E. PostgreSQL
-
-Disposable Docker databases were used. The persistent staging database was not
-targeted by destructive tests.
-
-| Version | Container | Test files | Tests | Result |
-| --- | --- | --- | --- | --- |
-| PostgreSQL 16 | `postgres:16-alpine` | 6 | 32 | **32/32 pass** |
-| PostgreSQL 18 | `postgres:18-alpine` | 6 | 32 | **32/32 pass** |
-
-Coverage includes Prisma compatibility, schema push, Susu financial logic,
-financial corrections, withdrawal concurrency, offline idempotency, MFA replay
-and Zeli analytics.
-
-No schema migration was introduced. The rebrand changes no database object.
+Only SHA-256 prefixes of session `jti` values are recorded. No raw session proof,
+token, password or MFA code is stored. Evidence: `docs/branding/evidence/staging/acceptance-live/tabs.json`.
 
 ---
 
 ## F. Financial workflows
 
-### Baseline staging data (read-only, after acceptance accounts were created)
+All actions used the synthetic staging tenant only.
 
-| Metric | STG-A | STG-B |
-| --- | --- | --- |
-| Branches | 4 | 4 |
-| Users | 9 | 7 |
-| Customers | 8 | 7 |
-| Contributions | 11 | 11 |
-| Withdrawals | 3 | 3 |
-| Remittances | 2 | 2 |
-| Daily accounts | 3 | 3 |
-| Audit logs | 5 | 1 |
+| Workflow | Result |
+| --- | --- |
+| MoMo daily account — start, totals, ending balances, review, submit | **PASS** — submitted with `Matches` |
+| Branch-scoped daily account access | **PASS** — other branch returned `Account not found` |
+| Susu contribution recording | **PASS** — GH₵ 11.00 recorded, 1 day covered, counters updated |
+| Susu withdrawal | **PASS** — GH₵ 10.00 processed with identity confirmation and commission |
+| Collector money handed in / remittance | **PASS** — recorded GH₵ 1,000.00; expected/handed/difference and status recalculated |
+| Susu contributions list | **PASS** |
+| Susu withdrawals list | **PASS** |
+| Remittances reconciliation view | **PASS** |
+| Susu reports | **PASS** |
+| MoMo reports | **PASS** |
+| Money & History | **PASS** |
+| CSV export | **PASS** — `maacash-momo-history-2026-11-07.csv`, 2,723 bytes, 19 lines |
+| Activity History / audit | **PASS** — withdrawal, remittance, MFA enrol/verify entries present |
+| Tenant separation | **PASS** — Admin A and Admin B saw only their own tenant records |
 
-Staging uses its own Neon database. Its host fingerprint differs from
-production. No production data was copied into staging. No database was reset
-or truncated.
-
-### What passed
-
-- PostgreSQL financial suites: corrections, Susu, withdrawal concurrency,
-  offline idempotency, tenant-scoped queries.
-- Vitest suite: financial security, tenant isolation, branch isolation,
-  authentication and audit assertions.
-
-### What was not executed on staging
-
-MoMo/Susu UI workflows, branch-scoped screens, reports, CSV exports,
-reconciliation and audit screens were not exercised against staging because
-authenticated role sessions could not be established reliably. No financial
-records were created or modified during staging acceptance.
+No production data was read or modified.
 
 ---
 
@@ -238,118 +237,127 @@ records were created or modified during staging acceptance.
 
 | Check | Result |
 | --- | --- |
-| Staging key type | **TEST** (`sk_test_*`) — confirmed without printing the key |
-| Live key present | **No** |
-| Webhook URL | `https://bloomcore-one-staging.onrender.com/api/payments/paystack/webhook` |
-| Unsigned request | **401** |
-| Invalid signature | **401** |
-| Signed synthetic `charge.success` | **200**, `decision=ignored` |
-| Duplicate signed event | **200**, `decision=ignored` |
-| Real payment triggered | **No** |
-| Production Paystack config touched | **No** |
+| Staging key type | **TEST** (`sk_test_*`) |
+| TEST checkout initialisation | **PASS** — `Authorization URL created`, host `checkout.paystack.com` |
+| Sandbox test charge | **PASS** — Paystack test card returned `success` |
+| Signed `charge.success` webhook | **PASS** — `decision: processed` |
+| Subscription state | **PASS** — active, `paidAt` set, period granted to 2026-12-07 |
+| Entitlement | **PASS** — `zeli_analytics` active, source `subscription`, expiry extended |
+| Duplicate webhook | **PASS** — same event returned `decision: ignored` |
+| Callback amount mismatch | **PASS** — rejected with “The payment did not match the selected package.” |
+| Unsigned/invalid webhook (retained) | **401** |
+| Production Paystack configuration | Unchanged |
+| Live payment triggered | **No** |
 
-The synthetic event used reference `MAACASH-ACC-1794014173857` and no real
-customer data. The handler accepted and ignored it because no matching
-subscription exists. This verifies signature enforcement, endpoint
-availability and duplicate-safe handling at the route level. A successful
-subscription checkout/callback and reconciliation were not exercised.
-
----
-
-## H. Zeli
-
-- Staging configuration was not changed.
-- `ZELI_*` provider flags and DeepSeek credentials were not read or altered.
-- External AI was not enabled.
-- Authenticated Zeli UI, local responses and business tools were **not**
-  exercised on staging because role login was blocked.
-- Existing unit/integration tests for Zeli conversation and analytics passed in
-  the 599-test suite.
-- Limitation: staging Zeli acceptance is incomplete.
+A matching success callback through the browser was not repeated because the tab
+session expired during that navigation; the same fulfilment path was verified
+through the signed webhook, and the callback mismatch guard was verified live.
+Evidence: `docs/branding/evidence/staging/acceptance-live/paystack.json`.
 
 ---
 
-## I. Browser and PWA
+## H. Zeli and PWA
+
+### Zeli
 
 | Check | Result |
 | --- | --- |
-| Desktop Chromium — public pages | Pass, screenshots captured |
-| Mobile 390×844 — home/login/admin login | Pass, no horizontal overflow |
-| Old branding in mobile pages | **0** |
-| Broken images on public pages | None observed |
-| Service worker registration | Active, scope `/` |
-| Manifest | Valid, MaaCash |
-| Installability | No Chromium installability errors |
-| Physical PWA install | Not performed |
-| CSP violations | No application CSP violations; third-party Turnstile iframe logged `data:,` connect errors |
-| Mixed content | None observed |
-| TLS | Valid, `ssl_verify=0`, HTTPS 200 |
-| Security headers | CSP, HSTS, DENY framing, nosniff, referrer policy, permissions policy present |
+| Authenticated Zeli UI | **PASS** — `/zeli` under Admin B |
+| Branding | MaaCash, STG-B |
+| Provider mode | `deepseek`, model `deepseek-flash`, environment `staging` |
+| Response | Labeled `[EXTERNAL AI · SYNTHETIC TEST]` in team acceptance mode |
+| Local fallback | Not triggered during this turn |
+| Production AI settings | Not changed |
+| DeepSeek secrets | Not read, printed or changed |
 
-Authenticated browser screenshots beyond the successful admin dashboard were
-not captured because of the Turnstile blocker.
+### PWA
+
+| Check | Result |
+| --- | --- |
+| Manifest name | `MaaCash - Mobile Money, Susu & Multi-Branch Financial Operations` |
+| `short_name` | `MaaCash` |
+| `display` | `standalone` |
+| `start_url` | `/workspace` |
+| Theme colour | `#0e4d34` |
+| 192 icon | 200, `image/png` |
+| 512 icon | 200, `image/png` |
+| Maskable 512 icon | 200, `image/png`, purpose `maskable` |
+| Apple icon | 200, `image/png` |
+| Service worker | Registered, scope `/`, controller active |
+| Chromium installability | No installability errors |
+| Physical desktop/mobile installation | **BLOCKED** — requires a human-owned browser profile and OS install confirmation; not claimed as passed |
 
 ---
 
-## J. Quality gates
+## I. Quality gates
 
 | Gate | Result |
 | --- | --- |
-| `npm run typecheck` | Pass |
-| `npm test` | **58 files, 599 tests, 0 failed** |
-| `npm run lint` | **0 errors**, 84 pre-existing warnings |
-| `npm run build` | Pass |
-| GitHub CI | **Pass** — run 42309076532, 3m27s |
-| PostgreSQL 16 | 6 files, 32 tests, pass |
-| PostgreSQL 18 | 6 files, 32 tests, pass |
-| Playwright staging suite | **Not run** — blocked by Turnstile |
-| Local Playwright suite | **Not completed** — local web server returned a 404 shell, harness issue; no product assertion was obtained |
+| `npm run typecheck` | **Pass** |
+| `npm test` | **61 files, 622 tests, 0 failed** |
+| `npm run test:security` | **6 files, 51 tests, 0 failed** |
+| `npm run lint` | **0 errors, 82 warnings** (2 fewer than the 84 baseline; no new warnings) |
+| `npm run build` | **Pass** |
+| GitHub CI | **Pass** — run `42327414583` |
+| PostgreSQL 16 | **6 files, 32 tests, 0 failed** (`postgres:16-alpine`, localhost:55433) |
+| PostgreSQL 18 | **6 files, 32 tests, 0 failed** (`postgres:18-alpine`, localhost:55435) |
+| Playwright staging smoke | **1 passed** — nonce CSP on `/admin/login` |
+| Playwright local Chromium | **30 passed** (including tab-session, security-header, Zeli and platform suites) |
+| Playwright mobile Chromium | **1 passed** (`Pixel 7` viewport) |
+| Playwright combined | **31 passed, 0 failed** in 2.7 minutes |
 
-Existing warnings were not introduced by the rebrand. No tests or assertions
-were removed or skipped to obtain a pass.
+No tests or assertions were removed, skipped or weakened.
 
 ---
 
-## K. Outstanding issues
+## J. Outstanding issues
 
 | # | Issue | Severity | Impact | Required action |
 | --- | --- | --- | --- | --- |
-| 1 | Customer login uses Turnstile action `login` while server expects `customer_login` | **High** | Customer portal login fails when Turnstile is enabled | Fix action selection, retest, redeploy staging |
-| 2 | Turnstile throttles automated logins; tab/role matrix incomplete | High (acceptance gap) | Cannot prove multi-role and multi-tab staging behaviour | Run interactive acceptance in a real browser, or complete challenge manually |
-| 3 | Staging `SITE_URL` unset | Low | OG/Twitter URLs point at production host | Set staging `SITE_URL` and redeploy |
-| 4 | Paystack success/reconciliation path not exercised | Medium | Subscription payment confirmation unproven on staging | Run a TEST checkout with a seeded plan and matching reference |
-| 5 | Zeli authenticated acceptance incomplete | Medium | Zeli UI/provider behaviour unproven on staging | Retest after auth blocker clears |
-| 6 | PWA not physically installed | Low | Install prompt not manually confirmed | Install in desktop/mobile browser and verify launch name/icon |
-| 7 | Playwright staging not run | Medium | Browser regression evidence incomplete | Run after Turnstile/automation blocker is resolved |
+| 1 | Physical PWA installation not performed | Low | Install prompt/launch not confirmed on a real desktop or phone | Owner installs MaaCash from staging in a supported browser and confirms standalone launch |
+| 2 | Full authenticated Playwright staging suite not automated | Low | Real staging role acceptance was completed interactively; automated staging suite is limited to public/security checks | Keep the real-browser acceptance evidence; extend automation only if Turnstile test strategy is agreed |
+| 3 | Callback success path not repeated through the browser after tab expiry | Low | Webhook success and callback mismatch rejection are both verified; callback success uses the same fulfil path | Optional re-run with a fresh tab session |
 
-### Test data created in staging
+No high or medium severity issue remains.
 
-Clearly labelled acceptance-only records were added to allow real login:
+### Staging test data note
 
-- `maacash-acceptance-admin-a@staging.local`
-- `maacash-acceptance-admin-b@staging.local`
-- `maacash-acceptance-worker-a@staging.local`
-- `maacash-acceptance-collector-a@staging.local`
-- `maacash-acceptance-customer-a@staging.local` (customer `MAACASH-ACC-STG-A`)
-- `maacash-acceptance-platform@staging.local`
+Acceptance-only synthetic account passwords were rotated for this run and stored
+only in a local temporary file outside the repository. MFA is enabled on all six
+acceptance accounts; the existing admin TOTP secrets were preserved. No password,
+TOTP secret, session token or recovery code is recorded in this report or the
+repository.
 
-Passwords are not recorded in this report or the repository. No existing
-tenant, customer, financial record or audit entry was rewritten. MFA was
-enrolled on the two acceptance admin accounts during testing.
+Synthetic staging records created or updated:
+
+- A Susu account and cycle for `MAACASH-ACC-STG-A`.
+- Two collector assignments and one contribution for the acceptance collector.
+- One MoMo daily account for the acceptance worker.
+- One Susu withdrawal in STG-B.
+- One collector remittance in STG-B.
+- Synthetic Zeli subscription/payment ledger rows used for Paystack success testing.
+
+No existing tenant, customer, financial record or audit entry was deleted or
+rewritten outside those synthetic acceptance fixtures.
 
 ---
 
-## L. Release recommendation
+## K. Final recommendation
 
 ### STAGING ACCEPTANCE PARTIALLY PASSED — ISSUES TO RESOLVE
 
-- **Deployed staging SHA:** `0e0c7dbbe3733ba8ea66ddff102cfe5a662bcdc1`
-- **Deployment ID:** `dep-dbn6d5bbc2fs738lva4g`
 - **PR:** https://github.com/Delkay-byte/BloomCore-One/pull/16
-- **Production:** untouched at `e890cf9`
+- **Branch:** `feat/maacash-rebrand`
+- **Deployed code commit:** `791e4a78d35584abae708b5bb185ec3795ea5cd5`
+- **Staging deployment ID:** `dep-dbn8g8u417fc73dr13cg`
+- **Deployed staging SHA:** `791e4a78d35584abae708b5bb185ec3795ea5cd5`
+- **Production:** untouched at `e890cf92965364bd7278b4649236e3812bc8cc4e`
 - **Staging Auto-Deploy:** OFF
+- **Production Auto-Deploy:** ON — After CI Checks Pass
+- **PR #16:** open and unmerged
 
-Do **not** merge or promote until the customer-login Turnstile action mismatch
-is fixed and the authenticated role/tab matrix is completed. The rebrand itself
-passes on every public surface tested; the blockers are authentication
-acceptance gaps, not branding regressions.
+The customer-login release blocker is fixed and verified on staging. Admin, MoMo,
+Susu, customer and platform authentication, tab isolation, metadata, financial
+workflows, Paystack TEST success handling and Zeli all pass. The only open item is
+physical PWA installation, which requires owner action. Do not merge or promote
+without that owner confirmation.
