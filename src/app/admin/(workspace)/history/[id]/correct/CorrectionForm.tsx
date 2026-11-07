@@ -7,6 +7,7 @@ import {
   correctDailyAccount,
   type DailyAccountCorrectionView,
 } from "@/lib/actions/daily-account.actions";
+import { calculateReconciliation } from "@/lib/momo-reconciliation";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 
 type MoneyField =
@@ -15,38 +16,38 @@ type MoneyField =
   | "totalCashIn"
   | "totalCashOut"
   | "totalCashReceived"
-  | "totalCashPaid"
   | "commission"
   | "otherIncome"
   | "closingMomoFloat"
   | "closingCash";
 
+// Approved business terminology. "Cash paid out" is retired because it
+// duplicated Cash out; the server no longer reads it from this form.
 const FIELDS: Array<{ key: MoneyField; label: string; hint?: string }> = [
-  { key: "openingMomoFloat", label: "Opening MoMo float" },
+  { key: "openingMomoFloat", label: "Opening MoMo balance" },
   { key: "openingCash", label: "Opening cash" },
-  { key: "totalCashIn", label: "Cash received (MoMo float added)" },
-  { key: "totalCashOut", label: "Cash paid out (MoMo float paid)" },
-  { key: "totalCashReceived", label: "Cash received from customers" },
-  { key: "totalCashPaid", label: "Cash paid to customers" },
+  { key: "totalCashIn", label: "Customer deposit" },
+  { key: "totalCashOut", label: "Cash out" },
+  { key: "totalCashReceived", label: "Cash in" },
   { key: "commission", label: "Commission earned" },
   { key: "otherIncome", label: "Other income" },
-  { key: "closingMomoFloat", label: "Closing MoMo float" },
+  { key: "closingMomoFloat", label: "Closing MoMo balance" },
   { key: "closingCash", label: "Closing cash" },
 ];
 
 function calculate(values: Record<MoneyField, number>, expensesTotal: number) {
-  const expectedMomo =
-    values.openingMomoFloat + values.totalCashIn - values.totalCashOut;
-  const momoVariance = values.closingMomoFloat - expectedMomo;
-  const expectedCash =
-    values.openingCash +
-    values.totalCashReceived +
-    values.commission +
-    values.otherIncome -
-    values.totalCashPaid -
-    expensesTotal;
-  const cashVariance = values.closingCash - expectedCash;
-  return { momoVariance, cashVariance };
+  return calculateReconciliation({
+    openingMomoFloat: values.openingMomoFloat,
+    openingCash: values.openingCash,
+    customerDeposit: values.totalCashIn,
+    cashOut: values.totalCashOut,
+    cashIn: values.totalCashReceived,
+    commission: values.commission,
+    otherIncome: values.otherIncome,
+    totalExpenses: expensesTotal,
+    closingMomoFloat: values.closingMomoFloat,
+    closingCash: values.closingCash,
+  });
 }
 
 export default function CorrectionForm({
@@ -61,7 +62,6 @@ export default function CorrectionForm({
     totalCashIn: data.values.totalCashIn,
     totalCashOut: data.values.totalCashOut,
     totalCashReceived: data.values.totalCashReceived,
-    totalCashPaid: data.values.totalCashPaid,
     commission: data.values.commission,
     otherIncome: data.values.otherIncome,
     closingMomoFloat: data.values.closingMomoFloat,
@@ -167,6 +167,11 @@ export default function CorrectionForm({
               Revision {data.revisionCount + 1}
             </span>
           </div>
+          <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Customer deposit, Cash out and Cash in are the approved field names.
+            Cash out is counted once against both the MoMo balance and cash; the
+            old Cash paid out input has been retired and is not used.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((field) => (
               <label key={field.key} className="block text-sm">

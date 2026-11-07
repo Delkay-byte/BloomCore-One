@@ -81,18 +81,18 @@ export default function SusuAdminOverviewPage() {
   ];
 
   const financialCards = [
-    { label: "Today's Contributions", value: stats.todayContributions, icon: "💵", color: "bg-green-50" },
-    { label: "Today's Withdrawals", value: stats.todayWithdrawals, icon: "🏧", color: "bg-orange-50" },
-    { label: "Today's Commission", value: stats.todayCommission, icon: "💼", color: "bg-purple-50" },
-    { label: "Card Fee Income", value: stats.totalCardFees, icon: "💳", color: "bg-indigo-50" },
-    { label: "Pending Money Handed In", value: stats.pendingMoneyHandedIn, icon: "🏦", color: stats.pendingMoneyHandedIn > 0 ? "bg-red-50" : "bg-green-50" },
+    { label: "Collected from customers today", value: stats.todayContributions, icon: "💵", color: "bg-green-50" },
+    { label: "Cash paid out to customers today", value: stats.todayWithdrawals, icon: "🏧", color: "bg-orange-50" },
+    { label: "Commission earned today", value: stats.todayCommission, icon: "💼", color: "bg-purple-50" },
+    { label: "Card fee income", value: stats.totalCardFees, icon: "💳", color: "bg-indigo-50" },
+    { label: "Collected but not yet handed in", value: stats.pendingMoneyHandedIn, icon: "🏦", color: stats.pendingMoneyHandedIn > 0 ? "bg-red-50" : "bg-green-50" },
   ];
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Susu Overview</h1>
-        <p className="text-slate-500 mt-1">Susu module dashboard — today&apos;s activity at a glance</p>
+        <p className="text-slate-500 mt-1">What customers paid in, what was paid out, and what collectors still owe the business today.</p>
       </div>
 
       {/* Overview Stats */}
@@ -132,8 +132,8 @@ export default function SusuAdminOverviewPage() {
               <div>
                 <div className="flex items-center gap-1 text-sm text-slate-500">
                   {card.label}
-                  {card.label === "Pending Money Handed In" && (
-                    <InfoTooltip text="Money from collector collections that has not yet been recorded as handed in." />
+                  {card.label === "Collected but not yet handed in" && (
+                    <InfoTooltip text="Money a collector has collected from customers but has not yet handed to the business." />
                   )}
                 </div>
                 <div className="text-xl font-bold"><CediAmount amount={card.value} /></div>
@@ -173,8 +173,11 @@ export default function SusuAdminOverviewPage() {
                     <td className="text-right font-mono"><CediAmount amount={c.todayContributions} /></td>
                     <td className="text-right font-mono"><CediAmount amount={c.expectedToBringIn} /></td>
                     <td className="text-right font-mono"><CediAmount amount={c.amountHandedInToday} /></td>
-                    <td className={`text-right font-mono font-semibold ${c.difference >= 0 ? "text-red-600" : "text-green-600"}`}>
+                    <td className={`text-right font-mono font-semibold ${c.difference > 0 ? "text-red-600" : c.difference < 0 ? "text-amber-600" : "text-green-700"}`}>
                       <CediAmount amount={Math.abs(c.difference)} />
+                      <div className="text-[11px] font-normal text-slate-500">
+                        {c.difference > 0 ? "still owed" : c.difference < 0 ? "over-handed" : "balances"}
+                      </div>
                     </td>
                   </tr>
                 ))}

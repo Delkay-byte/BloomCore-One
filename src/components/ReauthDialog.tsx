@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { verifyPasswordAction } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
+import type { ModuleName } from "@/lib/auth";
 
 /**
  * Step-up reauthentication dialog.
@@ -22,6 +23,7 @@ export default function ReauthDialog({
   title = "Confirm your identity",
   description = "For your security, enter your password before continuing.",
   actionLabel = "Confirm",
+  module,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,13 +31,15 @@ export default function ReauthDialog({
   title?: string;
   description?: string;
   actionLabel?: string;
+  /** Session whose password must be confirmed. Admin screens pass "admin". */
+  module?: ModuleName;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleConfirm() {
-    if (!password.trim()) {
+    if (password.length === 0) {
       setError("Password is required");
       return;
     }
@@ -43,7 +47,11 @@ export default function ReauthDialog({
     setError("");
 
     try {
-      const result = await verifyPasswordAction(password.trim());
+      // Compare exactly what was typed: sign-in does not trim either.
+      const result = await verifyPasswordAction(
+        password,
+        module ? { module } : undefined
+      );
       if (result.success) {
         setPassword("");
         onConfirmed();

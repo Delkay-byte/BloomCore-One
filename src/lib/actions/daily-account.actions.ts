@@ -8,6 +8,7 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { dailyAccountSchema } from "@/lib/validations";
+import { calculateReconciliation } from "@/lib/momo-reconciliation";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 
@@ -17,7 +18,19 @@ export interface ActionResponse {
   data?: unknown;
 }
 
-function calculateReconciliation(data: {
+/**
+ * Map the persisted column names onto the approved business terms.
+ *
+ * totalCashIn      -> Customer deposit
+ * totalCashOut     -> Cash out
+ * totalCashReceived-> Cash in
+ *
+ * totalCashPaid is intentionally NOT read: "Cash paid out" duplicated Cash
+ * out and has been retired from the form and from every calculation path.
+ * The column stays on historical rows so their stored variances still read
+ * correctly.
+ */
+function reconcileDailyAccount(data: {
   openingMomoFloat: number;
   openingCash: number;
   totalCashIn: number;
@@ -30,20 +43,19 @@ function calculateReconciliation(data: {
   closingMomoFloat: number;
   closingCash: number;
 }) {
-  const expectedMomoFloat =
-    data.openingMomoFloat + data.totalCashIn - data.totalCashOut;
-  const momoVariance = data.closingMomoFloat - expectedMomoFloat;
-
-  const expectedCash =
-    data.openingCash +
-    data.totalCashReceived +
-    data.commission +
-    data.otherIncome -
-    data.totalCashPaid -
-    data.totalExpenses;
-  const cashVariance = data.closingCash - expectedCash;
-
-  return { momoVariance, cashVariance };
+  const result = calculateReconciliation({
+    openingMomoFloat: data.openingMomoFloat,
+    openingCash: data.openingCash,
+    customerDeposit: data.totalCashIn,
+    cashOut: data.totalCashOut,
+    cashIn: data.totalCashReceived,
+    commission: data.commission,
+    otherIncome: data.otherIncome,
+    totalExpenses: data.totalExpenses,
+    closingMomoFloat: data.closingMomoFloat,
+    closingCash: data.closingCash,
+  });
+  return { momoVariance: result.momoVariance, cashVariance: result.cashVariance };
 }
 
 /**
@@ -156,7 +168,8 @@ export async function saveDailyAccount(
     totalCashIn: moneyField("totalCashIn"),
     totalCashOut: moneyField("totalCashOut"),
     totalCashReceived: moneyField("totalCashReceived"),
-    totalCashPaid: moneyField("totalCashPaid"),
+    // Retired duplicate input. New drafts always store 0.
+    totalCashPaid: 0,
     commission: moneyField("commission"),
     otherIncome: moneyField("otherIncome"),
     closingMomoFloat: moneyField("closingMomoFloat"),
@@ -174,7 +187,7 @@ export async function saveDailyAccount(
   }
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const { momoVariance, cashVariance } = calculateReconciliation({
+  const { momoVariance, cashVariance } = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
   });
@@ -296,7 +309,7 @@ export async function correctDailyAccount(
     totalCashIn: moneyField("totalCashIn"),
     totalCashOut: moneyField("totalCashOut"),
     totalCashReceived: moneyField("totalCashReceived"),
-    totalCashPaid: moneyField("totalCashPaid"),
+    totalCashPaid: 0,
     commission: moneyField("commission"),
     otherIncome: moneyField("otherIncome"),
     closingMomoFloat: moneyField("closingMomoFloat"),
@@ -313,7 +326,7 @@ export async function correctDailyAccount(
   }
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const { momoVariance, cashVariance } = calculateReconciliation({
+  const { momoVariance, cashVariance } = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
   });
@@ -685,6 +698,19 @@ export async function getAdminDashboardStats() {
     (sum, a) => sum + Number(a.totalExpenses),
     0
   );
+  // Approved business terms: Customer deposit, Cash out, Cash in.
+  const totalCustomerDeposits = submitted.reduce(
+    (sum, a) => sum + Number(a.totalCashIn),
+    0
+  );
+  const totalCashOut = submitted.reduce(
+    (sum, a) => sum + Number(a.totalCashOut),
+    0
+  );
+  const totalCashIn = submitted.reduce(
+    (sum, a) => sum + Number(a.totalCashReceived),
+    0
+  );
   const balanced = submitted.filter(
     (a) =>
       Number(a.calculatedMomoVariance) === 0 &&
@@ -723,6 +749,9 @@ export async function getAdminDashboardStats() {
     discrepancyReports: withDiscrepancy.length,
     totalCashPosition,
     totalFloat,
+    totalCustomerDeposits,
+    totalCashOut,
+    totalCashIn,
     totalExpenses: totalExpensesToday,
     locationStatus,
   };

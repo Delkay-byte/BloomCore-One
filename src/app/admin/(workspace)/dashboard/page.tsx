@@ -29,6 +29,9 @@ interface MoMoStats {
   discrepancyReports: number;
   totalCashPosition: number;
   totalFloat: number;
+  totalCustomerDeposits: number;
+  totalCashOut: number;
+  totalCashIn: number;
   totalExpenses: number;
   locationStatus: Array<{
     location: { name: string; code: string; id: string };
@@ -198,11 +201,31 @@ export default function AdminDashboardPage() {
                 icon={<AlertTriangle />}
               />
             </div>
-            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-sm">
-              <span className="text-slate-500">MoMo cash position</span>
-              <span className="font-semibold tnum">
-                <CediAmount amount={momoStats.totalCashPosition} />
-              </span>
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Customer deposit today</span>
+                <span className="font-semibold tnum text-emerald-700">
+                  <CediAmount amount={momoStats.totalCustomerDeposits} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Cash out to customers today</span>
+                <span className="font-semibold tnum text-red-700">
+                  <CediAmount amount={momoStats.totalCashOut} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Cash in today</span>
+                <span className="font-semibold tnum">
+                  <CediAmount amount={momoStats.totalCashIn} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                <span className="text-slate-500">Cash + MoMo held at close</span>
+                <span className="font-semibold tnum">
+                  <CediAmount amount={momoStats.totalCashPosition} />
+                </span>
+              </div>
             </div>
           </section>
         )}

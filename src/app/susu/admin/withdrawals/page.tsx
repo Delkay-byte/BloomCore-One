@@ -219,8 +219,9 @@ export default function SusuWithdrawalsPage() {
         onClose={() => setShowReauth(false)}
         onConfirmed={executeWithdrawal}
         title="Confirm your identity"
-        description="For your security, enter your password before completing this withdrawal."
+        description="For your security, enter your own administrator password before completing this withdrawal."
         actionLabel="Confirm Withdrawal"
+        module="admin"
       />
 
       {/* Withdrawal Form */}
