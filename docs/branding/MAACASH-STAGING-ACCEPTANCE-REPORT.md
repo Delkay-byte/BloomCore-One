@@ -323,7 +323,7 @@ No high or medium severity issue remains.
 ### Staging test data note
 
 Acceptance-only synthetic account passwords were rotated for this run and stored
-only in a local temporary file outside the repository. MFA is enabled on all six
+only in a local user-profile file outside the repository. MFA is enabled on all six
 acceptance accounts; the existing admin TOTP secrets were preserved. No password,
 TOTP secret, session token or recovery code is recorded in this report or the
 repository.
