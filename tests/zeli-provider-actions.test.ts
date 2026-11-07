@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
-import { prisma, cleanDatabase } from "./setup";
+import { createTestTenant, prisma, cleanDatabase } from "./setup";
 
 const { mockCookieStore } = vi.hoisted(() => ({
   mockCookieStore: new Map<string, string>(),
@@ -27,6 +27,7 @@ import {
   emergencyDisableZeliProvider,
   getZeliProviderControlState,
   setZeliProviderMode,
+  setZeliTeamTesterAccess,
 } from "@/lib/actions/zeli-provider.actions";
 import { setPlatformSession } from "@/lib/platform-auth";
 import { getEffectiveProviderPolicy } from "@/lib/zeli/provider-control";
@@ -268,6 +269,56 @@ describe("platform provider controls", () => {
     expect(details.newState.mode).toBe("disabled");
     expect(typeof details.clearedAt).toBe("string");
     expect(Number.isNaN(Date.parse(details.clearedAt))).toBe(false);
+  });
+
+  it("grants and revokes team access with an audit record", async () => {
+    vi.stubEnv("ZELI_TEAM_TESTING_ALLOWED", "true");
+    vi.stubEnv("ZELI_TEAM_TESTING_TENANT_CODE", "BIK-HQ-001");
+    const actor = await platformSession();
+    const tenant = await createTestTenant();
+    await prisma.businessTenant.update({
+      where: { id: tenant.id },
+      data: { code: "BIK-HQ-001" },
+    });
+    const user = await prisma.user.create({
+      data: {
+        tenantId: tenant.id,
+        email: "team-access@test.local",
+        fullName: "Team Access",
+        role: "admin",
+        status: "active",
+        passwordHash: "not-used",
+      },
+    });
+
+    const granted = await setZeliTeamTesterAccess({
+      tenantId: tenant.id,
+      userId: user.id,
+      enabled: true,
+      reason: "Authorise this member for restricted team testing",
+    });
+    expect(granted.success).toBe(true);
+    let row = await prisma.zeliTeamTester.findUnique({
+      where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+    });
+    expect(row?.status).toBe("active");
+    const auditRow = await prisma.platformAuditLog.findFirst({
+      where: { action: "zeli.team_tester_granted" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(auditRow?.actorId).toBe(actor.id);
+
+    const revoked = await setZeliTeamTesterAccess({
+      tenantId: tenant.id,
+      userId: user.id,
+      enabled: false,
+      reason: "Revoke restricted team testing access",
+    });
+    expect(revoked.success).toBe(true);
+    row = await prisma.zeliTeamTester.findUnique({
+      where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+    });
+    expect(row?.status).toBe("revoked");
   });
 
   it("does not let a key or approval flag enable anything by itself", async () => {

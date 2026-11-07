@@ -8,7 +8,11 @@ import type { EffectiveProviderPolicy } from "./provider-control";
  * they are never used to authorize a provider call: the gateway and policy
  * checks run on the request path regardless of what the browser was told.
  */
-export type ExternalAiHeaderState = "disabled" | "synthetic" | "approved";
+export type ExternalAiHeaderState =
+  | "disabled"
+  | "synthetic"
+  | "team_testing"
+  | "approved";
 
 export interface ProviderPolicyHeaders {
   "x-zeli-external-ai": ExternalAiHeaderState;

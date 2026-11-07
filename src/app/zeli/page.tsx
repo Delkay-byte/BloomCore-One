@@ -27,6 +27,7 @@ import {
   renameZeliConversation,
   setZeliFeedback,
 } from "@/lib/actions/zeli.actions";
+import { acceptZeliTeamDisclosure } from "@/lib/actions/zeli-team.actions";
 import { AppBrand } from "@/components/brand/AppBrand";
 
 interface Conversation {
@@ -66,8 +67,13 @@ export default function ZeliPage() {
       message: string;
       provider?: string | null;
       model?: string | null;
+      teamTesting?: boolean;
+      teamTesterActive?: boolean;
+      teamDisclosureAccepted?: boolean;
+      teamDisclosureVersion?: string;
     };
   } | null>(null);
+  const [acceptingDisclosure, setAcceptingDisclosure] = useState(false);
   const [environment, setEnvironment] = useState<"staging" | "production">("production");
   const [acceptanceMode, setAcceptanceMode] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -138,8 +144,32 @@ export default function ZeliPage() {
     setError("");
   }
 
+  async function acceptDisclosure() {
+    setAcceptingDisclosure(true);
+    setError("");
+    try {
+      const result = await acceptZeliTeamDisclosure();
+      if (!result.success) {
+        setError(result.error ?? "The disclosure could not be accepted.");
+        return;
+      }
+      await boot();
+    } finally {
+      setAcceptingDisclosure(false);
+    }
+  }
+
   async function send(message: string) {
     if (!selected || sending) return;
+    if (
+      status?.conversation?.teamTesting &&
+      !status.conversation.teamDisclosureAccepted
+    ) {
+      setError(
+        "Accept the Team Testing disclosure before sending a message to DeepSeek."
+      );
+      return;
+    }
     const question = message.trim();
     if (!question) return;
     setSending(true);
@@ -285,9 +315,11 @@ export default function ZeliPage() {
               }`}
               title={status?.reason}
             >
-              {status?.available
-                ? `Provider: ${status.provider}`
-                : "External provider disabled"}
+              {status?.conversation?.teamTesting
+                ? `Team Testing · ${status.conversation.model ?? "DeepSeek"}`
+                : status?.available
+                  ? `Provider: ${status.provider}`
+                  : "External provider disabled"}
             </span>
             {analyticsAccess && (
               <Link href="/admin/zeli-analytics" className="btn btn-secondary btn-sm">
@@ -302,7 +334,40 @@ export default function ZeliPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-3">
-        {acceptanceMode ? (
+        {status?.conversation?.teamTesting ? (
+          <div className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1 font-semibold">
+                <Sparkles size={14} aria-hidden /> TEAM TESTING — LIVE DEEPSEEK API
+              </span>
+              <span>Provider: {status.conversation.provider ?? "deepseek"}</span>
+              <span>Model: {status.conversation.model ?? "configured model"}</span>
+              <span>Data: synthetic business fixtures only</span>
+            </div>
+            <p className="mt-1 font-medium text-amber-900">
+              Messages in this mode are processed by DeepSeek. Use fictional business,
+              customer and payment examples only. Do not enter real customer names,
+              telephone numbers, account details, balances or transaction records.
+            </p>
+            {!status.conversation.teamDisclosureAccepted && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-2 text-amber-950">
+                <span>
+                  Accept the external-AI disclosure (version{" "}
+                  {status.conversation.teamDisclosureVersion ?? "team"}) before your
+                  first DeepSeek conversation.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={acceptDisclosure}
+                  disabled={acceptingDisclosure}
+                >
+                  {acceptingDisclosure ? "Saving acceptance…" : "Accept disclosure"}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : acceptanceMode ? (
           <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="inline-flex items-center gap-1 font-semibold">
@@ -484,11 +549,21 @@ export default function ZeliPage() {
                           <ShieldCheck size={12} aria-hidden /> Computed from your records
                         </span>
                       )}
-                    {message.role === "assistant" && message.provider?.startsWith("deepseek") && (
-                      <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
-                        <Sparkles size={12} aria-hidden /> External AI answer
+                    {message.role === "assistant" && message.provider === "deepseek-team-testing" && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-900"
+                        title="Genuine DeepSeek API response. Synthetic business data only; no live records were sent."
+                      >
+                        <Sparkles size={12} aria-hidden /> Team Testing · live DeepSeek
                       </span>
                     )}
+                    {message.role === "assistant" &&
+                      message.provider?.startsWith("deepseek") &&
+                      message.provider !== "deepseek-team-testing" && (
+                        <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
+                          <Sparkles size={12} aria-hidden /> External AI answer
+                        </span>
+                      )}
                     {message.role === "assistant" &&
                       environment === "staging" &&
                       status?.conversation?.mode === "external" &&
@@ -544,14 +619,30 @@ export default function ZeliPage() {
                 maxLength={4000}
                 placeholder="Ask about customers, contributions, remittances or today's daily accounts…"
                 className="min-h-[48px] flex-1 resize-y"
-                disabled={sending}
+                disabled={
+                  sending ||
+                  Boolean(
+                    status?.conversation?.teamTesting &&
+                      !status.conversation.teamDisclosureAccepted
+                  )
+                }
               />
               {sending ? (
                 <button type="button" onClick={stop} className="btn btn-secondary" aria-label="Stop generation">
                   <Square size={14} aria-hidden /> Stop
                 </button>
               ) : (
-                <button type="submit" className="btn btn-primary" disabled={!input.trim()}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={
+                    !input.trim() ||
+                    Boolean(
+                      status?.conversation?.teamTesting &&
+                        !status.conversation.teamDisclosureAccepted
+                    )
+                  }
+                >
                   <Send size={15} aria-hidden /> Send
                 </button>
               )}

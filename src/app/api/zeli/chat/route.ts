@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
   // header describes whether external AI may be called, not whether Zeli works.
   // It is never used to authorize anything; the provider path re-checks policy.
   const externalAiHeaders = providerPolicyHeaders(
-    await getEffectiveProviderPolicy(who.tenantId)
+    await getEffectiveProviderPolicy(who.tenantId, who.userId)
   );
-  const conversationStatus = await getConversationStatus(who.tenantId);
+  const conversationStatus = await getConversationStatus(who.tenantId, who.userId);
 
   let body: { conversationId?: string; message?: string };
   try {

@@ -1207,6 +1207,27 @@ model ZeliProviderUsage {
   @@index([provider, createdAt])
 }
 
+/// Restricted external-AI team-testing access for one tenant member.
+/// Scalar tenant/user references keep the table additive and independent; the
+/// application re-checks tenant, role and status on every request.
+model ZeliTeamTester {
+  id                    String    @id @default(cuid())
+  tenantId              String
+  userId                String
+  status                String    @default("active") // active | revoked
+  disclosureVersion     String?
+  disclosureAcceptedAt  DateTime?
+  grantedById           String?
+  revokedById           String?
+  reason                String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+}
+
 /// Entire-Zeli master switch. Separate from the external-AI provider control.
 /// A missing row is treated as unavailable (fail closed); the migration inserts
 /// an enabled row so existing installations preserve availability.

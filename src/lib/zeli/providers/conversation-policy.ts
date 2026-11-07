@@ -29,7 +29,11 @@ export const PRODUCTION_CONVERSATION_APPROVED = false;
 export const CONVERSATION_POLICY_VERSION = "2026-11-conv.1";
 export const CONVERSATION_SCHEMA_VERSION = "zeli-conversation-v1";
 
-export type ConversationProviderState = "disabled" | "synthetic" | "approved";
+export type ConversationProviderState =
+  | "disabled"
+  | "synthetic"
+  | "team_testing"
+  | "approved";
 
 export interface ConversationProviderPolicy {
   state: ConversationProviderState;
@@ -44,6 +48,10 @@ export interface ConversationProviderPolicy {
   privacyVersionPresent: boolean;
   approvalReferencePresent: boolean;
   tenantAuthorized: boolean;
+  teamTesting?: boolean;
+  teamTesterActive?: boolean;
+  teamDisclosureAccepted?: boolean;
+  teamDisclosureVersion?: string;
   /** Underlying aggregate policy, kept for diagnostics only. */
   control: EffectiveProviderPolicy;
 }
@@ -52,9 +60,10 @@ export const CONVERSATION_DISABLED_MESSAGE =
   "External conversational AI is not approved for this workspace. Zeli continues to answer locally from your authorized records.";
 
 export async function getConversationPolicy(
-  tenantId?: string | null
+  tenantId?: string | null,
+  userId?: string | null
 ): Promise<ConversationProviderPolicy> {
-  const control = await getEffectiveProviderPolicy(tenantId);
+  const control = await getEffectiveProviderPolicy(tenantId, userId);
   const credentialConfigured = control.credentialConfigured;
   const codeApprovalPresent = PRODUCTION_CONVERSATION_APPROVED;
 
@@ -68,6 +77,10 @@ export async function getConversationPolicy(
     privacyVersionPresent: control.privacyVersionPresent,
     approvalReferencePresent: control.approvalReferencePresent,
     tenantAuthorized: control.tenantAuthorized,
+    teamTesting: control.state === "team_testing",
+    teamTesterActive: control.teamTesterActive,
+    teamDisclosureAccepted: control.teamDisclosureAccepted,
+    teamDisclosureVersion: control.teamDisclosureVersion,
   };
 
   if (control.emergencyDisabled) {
@@ -106,6 +119,26 @@ export async function getConversationPolicy(
       reason:
         "The external provider credential is not configured. Zeli remains local.",
       syntheticOnly: false,
+    };
+  }
+
+  if (control.control.mode === "team_testing") {
+    if (control.state !== "team_testing" || !control.allowed) {
+      return {
+        ...base,
+        state: "disabled",
+        allowed: false,
+        reason: control.reason,
+        syntheticOnly: true,
+      };
+    }
+    return {
+      ...base,
+      state: "team_testing",
+      allowed: true,
+      reason:
+        "Team Testing is enabled: live DeepSeek conversations with synthetic business data only.",
+      syntheticOnly: true,
     };
   }
 

@@ -7,15 +7,20 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import {
   PRODUCTION_PROVIDER_APPROVED,
+  TEAM_TESTING_APPROVED,
+  TEAM_TESTING_DISCLOSURE_VERSION,
   deepSeekModel,
   getEffectiveProviderPolicy,
   getProviderControl,
   providerStatusMessage,
   syntheticTestingEnabled,
+  teamTestingEnvAllowed,
+  teamTestingTenantCode,
 } from "@/lib/zeli/provider-control";
 import { buildSyntheticInsightPackage } from "@/lib/zeli/insight-package";
 import { evaluateInsightPackage, INSIGHT_SCHEMA_VERSION } from "@/lib/zeli/gateway";
 import { requestDeepSeekExplanation } from "@/lib/zeli/deepseek-client";
+import { requestDeepSeekConnectionProbe } from "@/lib/zeli/providers/deepseek-conversation";
 import {
   providerRequestId,
   recordProviderUsage,
@@ -49,14 +54,16 @@ async function audit(
   session: { adminId: string; email: string },
   action: string,
   reason: string,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
+  entityType = "zeli_provider_control",
+  entityId = "global"
 ) {
   await createPlatformAuditLog({
     actorId: session.adminId,
     actorEmail: session.email,
     action,
-    entityType: "zeli_provider_control",
-    entityId: "global",
+    entityType,
+    entityId,
     reason,
     details: details ?? null,
   });
@@ -67,7 +74,19 @@ export async function getZeliProviderControlState() {
   const control = await getProviderControl();
   const policy = await getEffectiveProviderPolicy();
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [usage, denied, successes, failures, tenantAuthorizations, tenants] = await Promise.all([
+  const [
+    usage,
+    denied,
+    successes,
+    failures,
+    tenantAuthorizations,
+    tenants,
+    teamTesters,
+    lastSuccess,
+    lastFailure,
+    lastRequest,
+    totalUsage,
+  ] = await Promise.all([
     db.zeliProviderUsage.count({ where: { createdAt: { gte: since } } }),
     db.zeliProviderUsage.count({
       where: { createdAt: { gte: since }, decision: "denied" },
@@ -88,15 +107,85 @@ export async function getZeliProviderControlState() {
       take: 100,
       select: { id: true, code: true, name: true },
     }),
+    db.zeliTeamTester.findMany({ orderBy: { updatedAt: "desc" }, take: 100 }),
+    db.zeliProviderUsage.findFirst({
+      where: { decision: "success" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+    db.zeliProviderUsage.findFirst({
+      where: { decision: "error" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+    db.zeliProviderUsage.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+    db.zeliProviderUsage.count(),
   ]);
+  const testerUserIds = [...new Set(teamTesters.map((row) => row.userId))];
+  const testerUsers = testerUserIds.length
+    ? await db.user.findMany({
+        where: { id: { in: testerUserIds } },
+        select: { id: true, email: true, fullName: true, tenantId: true },
+      })
+    : [];
+  const userMap = new Map(testerUsers.map((row) => [row.id, row]));
+  const expectedTeamCode = teamTestingTenantCode();
+  const teamTenant = tenants.find((row) => row.code === expectedTeamCode) ?? null;
+  const teamTenantAuthorization = teamTenant
+    ? tenantAuthorizations.find((row) => row.tenantId === teamTenant.id) ?? null
+    : null;
+  const disclosureMatched =
+    control.policyVersion === TEAM_TESTING_DISCLOSURE_VERSION;
+  const teamMembers = teamTenant
+    ? await db.user.findMany({
+        where: { tenantId: teamTenant.id, status: "active" },
+        orderBy: { fullName: "asc" },
+        take: 100,
+        select: { id: true, email: true, fullName: true, role: true },
+      })
+    : [];
+
   return {
     control,
     policy,
     message: providerStatusMessage(policy),
     productionCodeApproved: PRODUCTION_PROVIDER_APPROVED,
+    teamCodeApproved: TEAM_TESTING_APPROVED,
     syntheticEnvAllowed: syntheticTestingEnabled(),
+    teamEnvAllowed: teamTestingEnvAllowed(),
+    teamTenantCode: expectedTeamCode,
+    teamTenantId: teamTenant?.id ?? null,
+    teamTenantName: teamTenant?.name ?? null,
+    teamTenantAuthorized: Boolean(teamTenantAuthorization?.enabled),
+    teamMembers,
+    teamDisclosureVersion: TEAM_TESTING_DISCLOSURE_VERSION,
+    teamDisclosureMatched: disclosureMatched,
+    teamTesters: teamTesters.map((row) => {
+      const user = userMap.get(row.userId);
+      return {
+        id: row.id,
+        tenantId: row.tenantId,
+        userId: row.userId,
+        email: user?.email ?? null,
+        fullName: user?.fullName ?? null,
+        status: row.status,
+        disclosureVersion: row.disclosureVersion,
+        disclosureAcceptedAt: row.disclosureAcceptedAt?.toISOString() ?? null,
+        reason: row.reason,
+        updatedAt: row.updatedAt.toISOString(),
+      };
+    }),
     model: deepSeekModel(),
     usage24h: { total: usage, denied, successes, failures },
+    usageTotals: {
+      total: totalUsage,
+      lastSuccessAt: lastSuccess?.createdAt.toISOString() ?? null,
+      lastFailureAt: lastFailure?.createdAt.toISOString() ?? null,
+      lastRequestAt: lastRequest?.createdAt.toISOString() ?? null,
+    },
     tenants: tenants.map((row) => ({ id: row.id, code: row.code, name: row.name })),
     tenantAuthorizations: tenantAuthorizations.map((row) => ({
       tenantId: row.tenantId,
@@ -111,7 +200,7 @@ export async function getZeliProviderControlState() {
 
 /** Switch between disabled and synthetic testing. Approved production is locked. */
 export async function setZeliProviderMode(input: {
-  mode: "disabled" | "synthetic" | "approved";
+  mode: "disabled" | "synthetic" | "team_testing" | "approved";
   reason: string;
 }): Promise<ProviderActionResponse> {
   const session = await requirePlatformWrite();
@@ -140,11 +229,32 @@ export async function setZeliProviderMode(input: {
         "Synthetic provider testing is not enabled in this environment (ZELI_SYNTHETIC_TESTING_ALLOWED).",
     };
   }
-  if (input.mode !== "disabled" && input.mode !== "synthetic") {
+  if (input.mode === "team_testing") {
+    if (!TEAM_TESTING_APPROVED) {
+      return {
+        success: false,
+        error: "Team Testing is locked by the reviewed code policy.",
+      };
+    }
+    if (!teamTestingEnvAllowed()) {
+      return {
+        success: false,
+        error:
+          "Team Testing is not enabled in this environment (ZELI_TEAM_TESTING_ALLOWED).",
+      };
+    }
+  }
+  if (
+    input.mode !== "disabled" &&
+    input.mode !== "synthetic" &&
+    input.mode !== "team_testing"
+  ) {
     return { success: false, error: "Unknown provider mode." };
   }
 
   const disabled = input.mode === "disabled";
+  const policyVersion =
+    input.mode === "team_testing" ? TEAM_TESTING_DISCLOSURE_VERSION : "2026-11.2";
   await db.zeliProviderControl.upsert({
     where: { id: "global" },
     create: {
@@ -162,7 +272,7 @@ export async function setZeliProviderMode(input: {
         "remittance_pattern",
         "exception_explanation",
       ]),
-      policyVersion: "2026-11.2",
+      policyVersion,
       reason,
       updatedById: session.adminId,
     },
@@ -170,16 +280,24 @@ export async function setZeliProviderMode(input: {
       mode: input.mode,
       enabled: !disabled,
       // The emergency stop is a latch. It is never cleared by a mode change,
-      // including switching to synthetic: only clearZeliProviderEmergencyStop
-      // may clear it, and clearing it does not enable the provider.
+      // including switching modes: only clearZeliProviderEmergencyStop may
+      // clear it, and clearing it does not enable the provider.
       approvedProvider: disabled ? null : "deepseek",
+      policyVersion,
       reason,
       updatedById: session.adminId,
     },
   });
-  await audit(session, disabled ? "zeli.provider_disabled" : "zeli.provider_synthetic_enabled", reason, {
-    mode: input.mode,
-  });
+  await audit(
+    session,
+    disabled
+      ? "zeli.provider_disabled"
+      : input.mode === "team_testing"
+        ? "zeli.provider_team_testing_enabled"
+        : "zeli.provider_synthetic_enabled",
+    reason,
+    { mode: input.mode, policyVersion }
+  );
   return { success: true };
 }
 
@@ -390,6 +508,164 @@ export async function runSyntheticDeepSeekProbe(reason: string): Promise<
       success: false,
       error:
         "The synthetic provider probe failed. Check the key, network and provider status. No tenant data was sent.",
+    };
+  }
+}
+
+/**
+ * Grant or revoke restricted team-testing access for one member of the
+ * configured team-testing tenant. This is separate from production tenant
+ * authorization and never enables approved production processing.
+ */
+export async function setZeliTeamTesterAccess(input: {
+  tenantId: string;
+  userId: string;
+  enabled: boolean;
+  reason: string;
+}): Promise<ProviderActionResponse> {
+  const session = await requirePlatformWrite();
+  const reason = (input.reason ?? "").trim();
+  if (reason.length < 10 || reason.length > 500) {
+    return { success: false, error: "Enter a reason of at least 10 characters." };
+  }
+  const tenant = await db.businessTenant.findUnique({
+    where: { id: input.tenantId },
+    select: { id: true, code: true, name: true },
+  });
+  if (!tenant) return { success: false, error: "Business not found." };
+  if (tenant.code !== teamTestingTenantCode()) {
+    return {
+      success: false,
+      error: `Team Testing is restricted to ${teamTestingTenantCode()}.`,
+    };
+  }
+  const user = await db.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true, tenantId: true, email: true, role: true, status: true },
+  });
+  if (!user || user.tenantId !== tenant.id || user.status !== "active") {
+    return { success: false, error: "Active team member not found in this business." };
+  }
+
+  const row = await db.zeliTeamTester.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+    create: {
+      tenantId: tenant.id,
+      userId: user.id,
+      status: input.enabled ? "active" : "revoked",
+      reason,
+      grantedById: input.enabled ? session.adminId : null,
+      revokedById: input.enabled ? null : session.adminId,
+    },
+    update: {
+      status: input.enabled ? "active" : "revoked",
+      reason,
+      grantedById: input.enabled ? session.adminId : undefined,
+      revokedById: input.enabled ? null : session.adminId,
+      // A fresh grant must be accepted again by the member.
+      ...(input.enabled
+        ? { disclosureVersion: null, disclosureAcceptedAt: null }
+        : {}),
+    },
+  });
+  await audit(
+    session,
+    input.enabled ? "zeli.team_tester_granted" : "zeli.team_tester_revoked",
+    reason,
+    {
+      tenantId: tenant.id,
+      tenantCode: tenant.code,
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    },
+    "zeli_team_tester",
+    row.id
+  );
+  return { success: true };
+}
+
+/**
+ * Test the DeepSeek credential with a harmless fixed prompt. This proves real
+ * API connectivity; it does not prove conversational routing or send any tenant
+ * data.
+ */
+export async function runDeepSeekConnectionTest(reason: string): Promise<
+  ProviderActionResponse<{
+    latencyMs: number;
+    model: string;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    response: string;
+  }>
+> {
+  const session = await requirePlatformWrite();
+  const clean = (reason ?? "").trim();
+  if (clean.length < 10) {
+    return { success: false, error: "Enter a reason of at least 10 characters." };
+  }
+  const control = await getProviderControl();
+  if (control.emergencyDisabled) {
+    return {
+      success: false,
+      error: "The emergency stop is active. Clear it before testing the provider.",
+    };
+  }
+  if (!process.env.DEEPSEEK_API_KEY) {
+    return { success: false, error: "No server-side provider credential is configured." };
+  }
+  const model = deepSeekModel();
+  const requestId = providerRequestId();
+  try {
+    const result = await requestDeepSeekConnectionProbe({
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model,
+    });
+    await recordProviderUsage({
+      requestId,
+      tenantId: null,
+      userId: session.adminId,
+      roleCategory: "platform_admin",
+      provider: "deepseek",
+      model,
+      purpose: "team_connection_test",
+      schemaVersion: "zeli-team-testing-v1",
+      decision: "success",
+      latencyMs: result.latencyMs,
+      inputTokens: result.inputTokens ?? undefined,
+      outputTokens: result.outputTokens ?? undefined,
+    });
+    await audit(session, "zeli.team_connection_tested", clean, {
+      latencyMs: result.latencyMs,
+      model,
+    });
+    return {
+      success: true,
+      data: {
+        latencyMs: result.latencyMs,
+        model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        response: result.text,
+      },
+    };
+  } catch {
+    await recordProviderUsage({
+      requestId,
+      tenantId: null,
+      userId: session.adminId,
+      roleCategory: "platform_admin",
+      provider: "deepseek",
+      model,
+      purpose: "team_connection_test",
+      schemaVersion: "zeli-team-testing-v1",
+      decision: "error",
+      reasonCategory: "connection_test_failed",
+    });
+    return {
+      success: false,
+      error:
+        "DeepSeek connectivity test failed. Check the credential, network and provider status. No tenant data was sent.",
     };
   }
 }

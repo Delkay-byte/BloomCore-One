@@ -12,10 +12,9 @@ import {
 import { getZeliProviderControlState } from "@/lib/actions/zeli-provider.actions";
 import { getZeliAvailabilityAdminState } from "@/lib/actions/zeli-availability.actions";
 import ZeliControlCentre from "./ZeliControlCentre";
-import ProviderControlPanel from "./ProviderControlPanel";
+import ZeliAdminControlCentre from "./ZeliAdminControlCentre";
 import CommercePanel from "./CommercePanel";
 import PaymentExceptionsPanel from "./PaymentExceptionsPanel";
-import ZeliAvailabilityPanel from "./ZeliAvailabilityPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -41,12 +40,12 @@ export default async function PlatformZeliPage() {
     ]);
   return (
     <div className="space-y-6">
-      <ZeliAvailabilityPanel
+      <ZeliAdminControlCentre
         availability={availabilityState.availability}
         updatedByName={availabilityState.updatedByName}
+        state={providerState}
       />
       <ZeliControlCentre initialOverview={overview} initialTenants={tenants} />
-      <ProviderControlPanel state={providerState} />
       <CommercePanel
         overview={commerce}
         plans={plans}

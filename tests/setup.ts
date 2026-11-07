@@ -37,6 +37,7 @@ export async function cleanDatabase() {
     prisma.passwordResetToken.deleteMany(),
     prisma.offlineTransaction.deleteMany(),
     prisma.deviceEnrollment.deleteMany(),
+    prisma.zeliTeamTester.deleteMany(),
     prisma.zeliProviderUsage.deleteMany(),
     prisma.zeliPaymentEvent.deleteMany(),
     prisma.zeliSubscription.deleteMany(),

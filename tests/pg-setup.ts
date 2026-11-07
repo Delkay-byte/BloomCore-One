@@ -45,6 +45,7 @@ export async function cleanDatabase() {
   await prisma.rateLimitCounter.deleteMany();
   await prisma.authThrottle.deleteMany();
   await prisma.turnstileTokenUse.deleteMany();
+  await prisma.zeliTeamTester.deleteMany();
   await prisma.zeliProviderUsage.deleteMany();
   await prisma.zeliPaymentEvent.deleteMany();
   await prisma.zeliSubscription.deleteMany();

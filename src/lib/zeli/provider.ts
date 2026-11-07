@@ -22,7 +22,10 @@ export function getZeliProvider(): ZeliProvider {
 }
 
 /** Async provider status backed by the global control and effective policy. */
-export async function getZeliProviderStatus(tenantId?: string | null): Promise<{
+export async function getZeliProviderStatus(
+  tenantId?: string | null,
+  userId?: string | null
+): Promise<{
   provider: string;
   model: string;
   available: boolean;
@@ -33,8 +36,8 @@ export async function getZeliProviderStatus(tenantId?: string | null): Promise<{
 }> {
   const provider = getZeliProvider();
   const availability = provider.available();
-  const external = await getEffectiveProviderPolicy(tenantId);
-  const conversation = await getConversationStatus(tenantId);
+  const external = await getEffectiveProviderPolicy(tenantId, userId);
+  const conversation = await getConversationStatus(tenantId, userId);
   return {
     provider: provider.name,
     model: provider.model,

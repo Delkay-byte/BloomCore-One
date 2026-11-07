@@ -27,7 +27,10 @@ import {
   conversationActAnswer,
 } from "./conversation/social";
 import { detectAmbiguity } from "./conversation/clarify";
-import { generateExternalConversation } from "./providers/conversation-provider";
+import {
+  generateExternalConversation,
+  generateTeamConversation,
+} from "./providers/conversation-provider";
 import { getConversationPolicy } from "./providers/conversation-policy";
 import { runToolConversation } from "./providers/tool-orchestrator";
 
@@ -185,8 +188,14 @@ export async function runZeliTurn(params: {
       ? null
       : classifyConversationAct(question, params.identity.role);
 
-  const conversationPolicy = await getConversationPolicy(params.identity.tenantId);
-  const externalAllowed = conversationPolicy.allowed;
+  const conversationPolicy = await getConversationPolicy(
+    params.identity.tenantId,
+    params.identity.userId
+  );
+  const teamTesting = conversationPolicy.state === "team_testing";
+  const externalAllowed =
+    conversationPolicy.state === "approved" ||
+    conversationPolicy.state === "synthetic";
 
   const history = previousMessages
     .filter((message) => message.role === "user" || message.role === "assistant")
@@ -209,8 +218,46 @@ export async function runZeliTurn(params: {
   let askedFor: string | null = null;
   let numericIntegrity: "verified" | "no_figures" | null = null;
 
-  if (act) {
-    intent = act;
+  let teamHandled = false;
+
+  if (teamTesting) {
+    teamHandled = true;
+    intent = "team_testing";
+    if (act === "instruction") {
+      const local = conversationActAnswer(act, params.identity, {
+        externalAiAllowed: true,
+      });
+      text = local.text;
+      sources = local.sources;
+      askedFor = local.askedFor;
+    } else {
+      const external = await generateTeamConversation({
+        identity: params.identity,
+        message: question,
+        history,
+      });
+      if (external) {
+        text = external.text;
+        providerName = "deepseek-team-testing";
+        model = external.model;
+        deterministic = false;
+        externalAi = true;
+        conversationMode = "external";
+      } else {
+        text =
+          "Team Testing could not reach the DeepSeek API for this turn. No deterministic answer was substituted. Check the provider status and try again.";
+        providerName = "team-testing-unavailable";
+        model = conversationPolicy.model;
+        deterministic = true;
+        conversationMode = "local";
+        intent = "team_testing_unavailable";
+      }
+    }
+  }
+
+  if (!teamHandled) {
+    if (act) {
+      intent = act;
 
     if (act !== "instruction" && EXTERNAL_ELIGIBLE_ACTS.has(act)) {
       const external = await generateExternalConversation({
@@ -363,6 +410,7 @@ export async function runZeliTurn(params: {
         }
       }
     }
+  }
   }
 
   await db.zeliMessage.create({

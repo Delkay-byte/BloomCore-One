@@ -78,7 +78,7 @@ export async function getZeliBootstrap(): Promise<
   return {
     success: true,
     data: {
-      status: await getZeliProviderStatus(undefined),
+      status: await getZeliProviderStatus(identity.tenantId, identity.userId),
       suggestions: SUGGESTIONS[identity.role] ?? SUGGESTIONS.admin,
       role: identity.role,
     },

@@ -23,7 +23,7 @@ export interface ProviderEnhancement {
   used: boolean;
   text: string;
   reason?: string;
-  state?: "disabled" | "synthetic" | "approved";
+  state?: "disabled" | "synthetic" | "team_testing" | "approved";
 }
 
 /**
