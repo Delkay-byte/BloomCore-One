@@ -4,6 +4,7 @@ import { useState } from "react";
 import { adminLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
   completeTabLogin,
   setMfaChallenge,
@@ -204,7 +205,10 @@ export default function AdminLoginForm() {
                     </Link>
                   </div>
                 </div>
-                <TurnstileWidget action="admin_login" resetSignal={challenge} />
+                <TurnstileWidget
+                  action={TURNSTILE_ACTIONS.adminLogin}
+                  resetSignal={challenge}
+                />
                 <button type="submit" className="btn btn-primary w-full" disabled={loading}>
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">

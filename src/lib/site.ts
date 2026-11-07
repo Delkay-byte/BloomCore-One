@@ -53,6 +53,15 @@ export const SITE_URL = (
 export const SITE_URL_IS_PROVISIONAL =
   !readEnv(process.env.SITE_URL) && !readEnv(process.env.NEXT_PUBLIC_SITE_URL);
 
+/**
+ * True on the dedicated staging deployment (APP_ENV=STAGING).
+ *
+ * Staging social metadata may use the staging origin so previews do not point
+ * at production, but staging must never be indexed or declare a canonical URL.
+ */
+export const IS_STAGING_DEPLOYMENT =
+  (process.env.APP_ENV ?? "").trim().toUpperCase() === "STAGING";
+
 /** Public enquiry email. Null until the owner supplies one. */
 export const CONTACT_EMAIL = readEnv(process.env.CONTACT_EMAIL);
 

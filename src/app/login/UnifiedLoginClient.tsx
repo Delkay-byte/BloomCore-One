@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import { unifiedLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { turnstileActionForRole } from "@/lib/security/turnstile-actions";
 import {
   completeTabLogin,
   setMfaChallenge,
@@ -257,7 +258,10 @@ export default function UnifiedLoginClient({
                 </div>
               </div>
 
-              <TurnstileWidget action="login" resetSignal={challenge} />
+              <TurnstileWidget
+                action={turnstileActionForRole(selectedRole)}
+                resetSignal={challenge}
+              />
 
               <button
                 type="submit"

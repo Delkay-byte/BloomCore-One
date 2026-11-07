@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import {
+  IS_STAGING_DEPLOYMENT,
   PRODUCT_NAME,
   PRODUCT_TAGLINE,
   SITE_URL_IS_PROVISIONAL,
@@ -7,6 +8,15 @@ import {
 } from "./site";
 
 const OG_IMAGE = "/branding/maacash-og.png";
+
+/**
+ * Root robots directive. Staging is private acceptance infrastructure, so it
+ * is explicitly excluded from indexing. Production keeps Next.js's default
+ * behaviour (no robots meta emitted).
+ */
+export function rootRobotsMetadata(): Metadata["robots"] | undefined {
+  return IS_STAGING_DEPLOYMENT ? { index: false, follow: false } : undefined;
+}
 
 /**
  * Metadata for one public page.
@@ -56,7 +66,7 @@ export function pageMetadata({
       description,
       images: [absoluteUrl(OG_IMAGE)],
     },
-    ...(SITE_URL_IS_PROVISIONAL
+    ...(SITE_URL_IS_PROVISIONAL || IS_STAGING_DEPLOYMENT
       ? {}
       : { alternates: { canonical: path } }),
   };

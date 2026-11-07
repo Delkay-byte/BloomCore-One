@@ -11,6 +11,7 @@ import {
   SITE_URL,
   absoluteUrl,
 } from "@/lib/site";
+import { rootRobotsMetadata } from "@/lib/metadata";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -21,6 +22,9 @@ export const metadata: Metadata = {
   description: PRODUCT_POSITIONING,
   applicationName: PRODUCT_NAME,
   manifest: "/manifest.json",
+  // Staging is a private acceptance environment: never index it or ask search
+  // engines to follow its links. Production metadata is unchanged.
+  ...(rootRobotsMetadata() ? { robots: rootRobotsMetadata() } : {}),
   openGraph: {
     type: "website",
     siteName: PRODUCT_NAME,

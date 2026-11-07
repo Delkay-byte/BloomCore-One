@@ -32,6 +32,7 @@ import {
 import { logSecurityEvent } from "@/lib/security/log";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import { headers } from "next/headers";
 
 export interface PlatformActionResponse {
@@ -113,7 +114,7 @@ export async function platformLogin(
 
   const guard = await guardLogin({
     identifier: email,
-    action: "platform_login",
+    action: TURNSTILE_ACTIONS.platformLogin,
     turnstileToken,
   });
   if (!guard.ok) return { success: false, error: guard.error };

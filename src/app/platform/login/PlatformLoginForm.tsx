@@ -5,6 +5,7 @@ import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
   completeTabLogin,
   setMfaChallenge,
@@ -129,7 +130,10 @@ export default function PlatformLoginForm({
                 autoComplete="current-password"
               />
             </div>
-            <TurnstileWidget action="platform_login" resetSignal={challenge} />
+            <TurnstileWidget
+              action={TURNSTILE_ACTIONS.platformLogin}
+              resetSignal={challenge}
+            />
             <button type="submit" className="btn btn-primary w-full" disabled={loading}>
               {loading ? (
                 <>
