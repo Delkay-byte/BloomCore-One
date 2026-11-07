@@ -153,6 +153,16 @@ export default function ZeliPage() {
         setError(result.error ?? "The disclosure could not be accepted.");
         return;
       }
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              conversation: current.conversation
+                ? { ...current.conversation, teamDisclosureAccepted: true }
+                : current.conversation,
+            }
+          : current
+      );
       await boot();
     } finally {
       setAcceptingDisclosure(false);
