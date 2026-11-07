@@ -247,6 +247,7 @@ Not executed: the complete Playwright suite (only the affected correction spec w
 | Fallback auto-deploy | `dep-dbnpieivcj2c738mqbbg` → **live** at 2026-11-07T21:36:31Z, commit `4ffb170` |
 | Fallback `GET /api/health` | **200** |
 | Auto-Deploy configuration | Unchanged: `maacash` off, `bloomcore-one` on |
+| Documentation PR | [#18](https://github.com/Delkay-byte/BloomCore-One/pull/18) — CI run `42417083226` passed, squash-merged as `990ebd6`; `[skip render]` in the subject prevented a redundant rebuild, so both services stay on `4ffb170` |
 | Database connectivity | Healthy (readiness probe) |
 
 **What was not verified on production directly:** no production account was signed into, so this report does not claim a hands-on production walkthrough of the authenticated MoMo form, existing account enumeration, MFA challenge or financial-record counts. The deployed commit is identical to the commit that passed CI, the Playwright label test and the full test suite; no schema or data migration ran, and the readiness probe confirmed database access. MoMA/MFA behaviour is therefore unchanged by construction, not re-tested in production.
