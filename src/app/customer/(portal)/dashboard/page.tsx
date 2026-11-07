@@ -5,58 +5,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { getCustomerAccount, getCustomerCycles } from "@/lib/actions/susu-customer.actions";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
-
-interface CustomerAccount {
-  customer: {
-    id: string;
-    fullName: string;
-    customerId: string;
-    phone?: string | null;
-    email?: string | null;
-    address?: string | null;
-    dailyContribution: number;
-    portalEnabled: boolean;
-    status: string;
-  };
-  account: {
-    id: string;
-    accountId: string;
-    dailyContribution: number;
-    status: string;
-    cardCustody: string;
-  };
-  currentCycle: {
-    id: string;
-    cycleNumber: number;
-    startDate: Date;
-    endDate: Date;
-    dailyContribution: number;
-    status: string;
-    commissionCharged: boolean;
-      contributions: Array<{
-        id: string;
-        amount: number;
-        collectionDate: Date;
-        channel: string;
-        receivedBy?: { fullName: string } | null;
-        collector?: { user?: { fullName: string } } | null;
-        allocations: Array<{ cycleDay: number }>;
-      }>;
-    withdrawals: Array<{
-      id: string;
-      requestedAmount: number;
-      commissionAmount: number;
-      netAmount: number;
-      remainingBalance: number;
-      createdAt: Date;
-      notes?: string | null;
-    }>;
-    commissions: Array<{ id: string; amount: number; createdAt: Date }>;
-  } | null;
-  collector: { fullName: string } | null;
-}
+import {
+  mapCustomerDashboard,
+  type CustomerDashboardData,
+  type RawCustomerDashboard,
+} from "@/lib/customer-dashboard";
 
 interface CycleHistory {
   id: string;
@@ -73,7 +28,7 @@ interface CycleHistory {
 }
 
 export default function CustomerDashboardPage() {
-  const [data, setData] = useState<CustomerAccount | null>(null);
+  const [data, setData] = useState<CustomerDashboardData | null>(null);
   const [cycles, setCycles] = useState<CycleHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -85,9 +40,12 @@ export default function CustomerDashboardPage() {
           getCustomerAccount(),
           getCustomerCycles(),
         ]);
-        setData(accountResult as unknown as CustomerAccount);
+        const mapped = mapCustomerDashboard(
+          accountResult as unknown as RawCustomerDashboard | null
+        );
+        setData(mapped);
         setCycles(cyclesResult as unknown as CycleHistory[]);
-      } catch (err) {
+      } catch {
         setError("Failed to load account data");
       } finally {
         setLoading(false);
@@ -101,7 +59,10 @@ export default function CustomerDashboardPage() {
   if (error || !data) {
     return (
       <div className="text-center py-20">
-        <p className="text-slate-500">{error || "Unable to load account"}</p>
+        <p className="text-slate-500">
+          {error ||
+            "Your account is not ready yet. Contact your branch if you expect a Susu account."}
+        </p>
       </div>
     );
   }
