@@ -1,0 +1,34 @@
+{
+  "tenants": [
+    {
+      "code": "STG-A",
+      "name": "Staging Tenant A",
+      "status": "ACTIVE"
+    },
+    {
+      "code": "STG-B",
+      "name": "Staging Tenant B",
+      "status": "ACTIVE"
+    }
+  ],
+  "STG-A": {
+    "locations": 4,
+    "users": 9,
+    "customers": 8,
+    "contributions": 11,
+    "withdrawals": 3,
+    "remittances": 2,
+    "dailyAccounts": 3,
+    "auditLogs": 5
+  },
+  "STG-B": {
+    "locations": 4,
+    "users": 7,
+    "customers": 7,
+    "contributions": 11,
+    "withdrawals": 3,
+    "remittances": 2,
+    "dailyAccounts": 3,
+    "auditLogs": 1
+  }
+}
