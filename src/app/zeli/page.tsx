@@ -163,7 +163,6 @@ export default function ZeliPage() {
             }
           : current
       );
-      await boot();
     } finally {
       setAcceptingDisclosure(false);
     }
