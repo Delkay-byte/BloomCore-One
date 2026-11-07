@@ -44,7 +44,7 @@ export function conversationModeFor(policy: ConversationProviderPolicy): "local"
 export function conversationDisclosure(synthetic: boolean): string {
   return synthetic
     ? "[EXTERNAL AI · SYNTHETIC TEST] This reply came from the external provider in synthetic test mode. No tenant records were sent."
-    : "[EXTERNAL AI · CONVERSATIONAL] This reply came from an approved external provider. No business records or figures were sent. Business facts are answered only by BloomCore One's local engine.";
+    : "[EXTERNAL AI · CONVERSATIONAL] This reply came from an approved external provider. No business records or figures were sent. Business facts are answered only by MaaCash's local engine.";
 }
 
 /**

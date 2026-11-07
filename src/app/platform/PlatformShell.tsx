@@ -74,7 +74,7 @@ export default function PlatformShell({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span className="text-sm font-medium text-white">BloomCore One · Platform Admin</span>
+        <span className="text-sm font-medium text-white">MaaCash · Platform Admin</span>
         <span className="text-xs text-brand-300">{session.fullName}</span>
       </div>
 
@@ -149,7 +149,7 @@ export default function PlatformShell({
       {/* Footer */}
       <footer className="md:ml-64 border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">BloomCore One · Platform Administration · Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">MaaCash · Platform Administration · Built by BloomCore Technologies</p>
         </div>
       </footer>
     </div>

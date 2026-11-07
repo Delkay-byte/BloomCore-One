@@ -1,4 +1,7 @@
-# PostgreSQL Migration Guide — BIK Prestige Enterprise Platform
+# MaaCash — PostgreSQL Migration Guide
+
+> Formerly BloomCore One / BIK Prestige Enterprise. Database identifiers are
+> unchanged by the product rebrand.
 
 ## Overview
 

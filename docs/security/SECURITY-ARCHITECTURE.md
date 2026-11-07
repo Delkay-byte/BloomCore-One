@@ -1,4 +1,4 @@
-# BloomCore One — Security Architecture
+# MaaCash — Security Architecture
 
 ## 1. Trust boundaries
 

@@ -157,7 +157,7 @@ export default function MoneyTransactionHistoryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bik-prestige-money-history-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `maacash-money-history-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

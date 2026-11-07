@@ -36,7 +36,7 @@ export default function AppShell({
   children: React.ReactNode;
   subtitle?: string;
   homeHref?: string;
-  /** The signed-in business. Shown under the BloomCore One identity. */
+  /** The signed-in business. Shown under the MaaCash identity. */
   tenantName?: string | null;
 }) {
   const pathname = usePathname();
@@ -145,7 +145,7 @@ export default function AppShell({
       <footer className="md:ml-64 border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
           <p className="text-xs text-slate-400">
-            BloomCore One{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore
+            MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore
             Technologies
           </p>
         </div>

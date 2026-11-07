@@ -543,7 +543,7 @@ export function explainMetricDefinition(question: string): ComposedAnswer | null
       statement("unverified_hypothesis", "None."),
     ],
     period: "Definition",
-    source: "BloomCore One domain schema and server aggregation",
+    source: "MaaCash domain schema and server aggregation",
     freshness: "Definition is versioned with the application",
     limitations: ["Definitions can change only through reviewed code and migration."],
     deterministic: true,

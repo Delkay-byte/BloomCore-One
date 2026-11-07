@@ -11,7 +11,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [modules, setModules] = useState<{ momo: boolean; susu: boolean } | null>(null);
   const [analytics, setAnalytics] = useState(false);
   const [zeliEnabled, setZeliEnabled] = useState(true);
-  // The business's own name, shown beside the BloomCore One identity so a
+  // The business's own name, shown beside the MaaCash identity so a
   // tenant administrator always sees which workspace they are working in.
   const [tenantName, setTenantName] = useState<string | null>(null);
 

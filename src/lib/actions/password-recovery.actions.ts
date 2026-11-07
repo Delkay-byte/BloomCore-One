@@ -12,6 +12,7 @@ import { verifyTurnstile } from "@/lib/security/turnstile";
 import { humanizeSeconds } from "@/lib/security/auth-guard";
 import { logSecurityEvent } from "@/lib/security/log";
 import { validatePasswordPolicy } from "@/lib/platform-auth";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 
 export interface ActionResponse {
   success: boolean;
@@ -88,7 +89,7 @@ export async function requestPasswordReset(
 
   const turnstile = await verifyTurnstile({
     token: turnstileToken,
-    action: "password_reset",
+    action: TURNSTILE_ACTIONS.passwordReset,
     ip,
   });
   if (!turnstile.ok) {

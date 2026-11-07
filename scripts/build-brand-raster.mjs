@@ -33,22 +33,22 @@ function maskableSource(markSvg, size, safeRatio = 0.72) {
 }
 
 async function main() {
-  const mark = await svg("bloomcore-one-mark.svg");
-  const icon = await svg("bloomcore-one-icon.svg");
-  const og = await svg("bloomcore-one-og.svg");
+  const mark = await svg("maacash-mark.svg");
+  const icon = await svg("maacash-icon.svg");
+  const og = await svg("maacash-og.svg");
 
   const outputs = [];
 
   // Application icons.
   for (const size of [192, 512]) {
-    const file = path.join(BRANDING, `bloomcore-one-icon-${size}.png`);
+    const file = path.join(BRANDING, `maacash-icon-${size}.png`);
     await sharp(Buffer.from(icon)).resize(size, size).png().toFile(file);
     outputs.push(path.relative(ROOT, file));
   }
 
   // Maskable icon: mark on a full-bleed forest tile, inside the safe area.
   {
-    const file = path.join(BRANDING, "bloomcore-one-icon-maskable-512.png");
+    const file = path.join(BRANDING, "maacash-icon-maskable-512.png");
     const source = maskableSource(mark, 512);
     await sharp(Buffer.from(source)).png().toFile(file);
     outputs.push(path.relative(ROOT, file));
@@ -56,7 +56,7 @@ async function main() {
 
   // Small favicon sizes.
   for (const size of [16, 32, 48]) {
-    const file = path.join(BRANDING, `bloomcore-one-favicon-${size}.png`);
+    const file = path.join(BRANDING, `maacash-favicon-${size}.png`);
     await sharp(Buffer.from(mark)).resize(size, size).png().toFile(file);
     outputs.push(path.relative(ROOT, file));
   }
@@ -86,7 +86,7 @@ async function main() {
 
   // Social sharing image.
   {
-    const file = path.join(BRANDING, "bloomcore-one-og.png");
+    const file = path.join(BRANDING, "maacash-og.png");
     await sharp(Buffer.from(og)).resize(1200, 630).png().toFile(file);
     outputs.push(path.relative(ROOT, file));
   }

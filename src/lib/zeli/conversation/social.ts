@@ -77,13 +77,13 @@ const ACTION_SOURCE: Record<ZeliIdentity["role"], ZeliSource> = {
 };
 
 const ENGINE_NOTE =
-  "I run on BloomCore One's internal rule-based engine, not an external language model.";
+  "I run on MaaCash's internal rule-based engine, not an external language model.";
 
 function greeting(identity: ZeliIdentity): ConversationActAnswer {
   const capabilities = capabilitiesFor(identity.role);
   return {
     text: [
-      "Hello. I'm Zeli, BloomCore One's business assistant.",
+      "Hello. I'm Zeli, MaaCash's business assistant.",
       "",
       ENGINE_NOTE +
         " I read only the records your role is authorized to see, and every figure I report is calculated from those records.",
@@ -107,7 +107,7 @@ function help(identity: ZeliIdentity): ConversationActAnswer {
       bulletList(capabilitiesFor(identity.role)),
       "",
       "How I work:",
-      "• I answer from your authorized BloomCore One records using the internal rule-based engine.",
+      "• I answer from your authorized MaaCash records using the internal rule-based engine.",
       "• I always state the period and source for financial answers.",
       "• I am read-only. I cannot post, reverse, approve or refund anything.",
       "• If a question is outside my supported set, I say so instead of guessing.",
@@ -147,7 +147,7 @@ export function conversationActAnswer(
     case "identity":
       return {
         text: [
-          "I'm Zeli, the assistant built into BloomCore One.",
+          "I'm Zeli, the assistant built into MaaCash.",
           "",
           ENGINE_NOTE +
             " I don't browse the web, and I don't send your messages to an external AI unless an approved external mode is enabled for your business.",

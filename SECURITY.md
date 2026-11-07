@@ -1,4 +1,7 @@
-# BIK Prestige Enterprise — Security Policy
+# MaaCash — Security Policy
+
+> Formerly BloomCore One. Historical security records keep the old product
+> name where they describe events at that time.
 
 > **Status:** Security hardening complete — ready for security pilot.
 > Security testing is ongoing. No software can guarantee zero vulnerabilities.

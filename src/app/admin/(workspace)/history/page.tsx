@@ -142,7 +142,7 @@ export default function MoMoHistoryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bik-prestige-momo-history-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `maacash-momo-history-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

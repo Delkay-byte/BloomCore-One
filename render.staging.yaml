@@ -1,8 +1,12 @@
-# BloomCore One — Staging Blueprint (not applied)
+# MaaCash — Staging Blueprint (not applied)
 #
 # This file is a reviewed template. It does NOT create or deploy anything.
 # The owner must approve staging spend, create the Neon database and Render
 # service, then set secrets in the provider dashboard.
+#
+# The `bloomcore-one-staging` service name and hostname are preserved as
+# infrastructure identifiers after the MaaCash rebrand. Rename only with an
+# approved migration that updates Turnstile host checks and OIDC redirect URIs.
 #
 # Never reuse production Neon, production API keys, Paystack live keys,
 # Turnstile production keys or the legacy Render service.

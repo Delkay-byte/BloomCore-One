@@ -1,5 +1,10 @@
 import type { MetadataRoute } from "next";
-import { LEGAL_ROUTES, PUBLIC_ROUTES, absoluteUrl } from "@/lib/site";
+import {
+  IS_STAGING_DEPLOYMENT,
+  LEGAL_ROUTES,
+  PUBLIC_ROUTES,
+  absoluteUrl,
+} from "@/lib/site";
 
 /**
  * Public sitemap.
@@ -14,6 +19,10 @@ import { LEGAL_ROUTES, PUBLIC_ROUTES, absoluteUrl } from "@/lib/site";
  * follows automatically.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
+  // Staging is not a public property and must not advertise its URLs to
+  // crawlers. The production sitemap is unchanged.
+  if (IS_STAGING_DEPLOYMENT) return [];
+
   const routes = [
     ...PUBLIC_ROUTES.map((route) => ({
       url: absoluteUrl(route.path),

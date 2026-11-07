@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-11-07T01:48:00Z",
+  "stagingHost": "https://bloomcore-one-staging.onrender.com",
+  "openGraphHost": "https://bloomcore-one-staging.onrender.com",
+  "twitterImageHost": "https://bloomcore-one-staging.onrender.com",
+  "canonicalLinks": 0,
+  "robotsMeta": "noindex, nofollow",
+  "robotsTxt": "User-Agent: *\nDisallow: /",
+  "sitemapUrls": 0,
+  "productionMetadataChanged": false,
+  "result": "PASS"
+}

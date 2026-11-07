@@ -11,6 +11,7 @@ import {
   SITE_URL,
   absoluteUrl,
 } from "@/lib/site";
+import { rootRobotsMetadata } from "@/lib/metadata";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -21,6 +22,9 @@ export const metadata: Metadata = {
   description: PRODUCT_POSITIONING,
   applicationName: PRODUCT_NAME,
   manifest: "/manifest.json",
+  // Staging is a private acceptance environment: never index it or ask search
+  // engines to follow its links. Production metadata is unchanged.
+  ...(rootRobotsMetadata() ? { robots: rootRobotsMetadata() } : {}),
   openGraph: {
     type: "website",
     siteName: PRODUCT_NAME,
@@ -28,7 +32,7 @@ export const metadata: Metadata = {
     description: PRODUCT_POSITIONING,
     images: [
       {
-        url: absoluteUrl("/branding/bloomcore-one-og.png"),
+        url: absoluteUrl("/branding/maacash-og.png"),
         width: 1200,
         height: 630,
         alt: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
@@ -39,12 +43,12 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${PRODUCT_NAME} — ${PRODUCT_DESCRIPTOR}`,
     description: PRODUCT_POSITIONING,
-    images: [absoluteUrl("/branding/bloomcore-one-og.png")],
+    images: [absoluteUrl("/branding/maacash-og.png")],
   },
   icons: {
     icon: [
-      { url: "/branding/bloomcore-one-icon.svg", type: "image/svg+xml" },
-      { url: "/branding/bloomcore-one-icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/branding/maacash-icon.svg", type: "image/svg+xml" },
+      { url: "/branding/maacash-icon-192.png", sizes: "192x192", type: "image/png" },
     ],
     apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },

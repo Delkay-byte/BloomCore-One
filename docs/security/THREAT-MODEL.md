@@ -1,4 +1,4 @@
-# BloomCore One — Threat Model
+# MaaCash — Threat Model
 
 ## 1. Assets
 

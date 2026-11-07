@@ -215,7 +215,7 @@ export async function discardCurrentOfflineData(options: {
       syncing,
       failed,
       unresolved,
-      message: `${coordination.missing.length} open tab${coordination.missing.length === 1 ? " did" : "s did"} not confirm closure. Deletion was not started. Close other BloomCore One tabs, then retry.`,
+      message: `${coordination.missing.length} open tab${coordination.missing.length === 1 ? " did" : "s did"} not confirm closure. Deletion was not started. Close other MaaCash tabs, then retry.`,
     };
   }
 

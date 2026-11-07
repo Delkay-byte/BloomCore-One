@@ -1,0 +1,40 @@
+{
+  "capturedAt": "2026-11-07T02:18:00Z",
+  "tabs": {
+    "adminA": {
+      "sessionHash": "395aec18c6a2ea10",
+      "tenant": "STG-A",
+      "role": "admin"
+    },
+    "adminB": {
+      "sessionHash": "948b8a9f49844346",
+      "tenant": "STG-B",
+      "role": "admin"
+    },
+    "customer": {
+      "sessionHash": "4811c79c45bfe6ed",
+      "tenant": "STG-A",
+      "role": "customer"
+    },
+    "worker": {
+      "sessionHash": "182b6aa442b18497",
+      "tenant": "STG-A",
+      "role": "worker",
+      "modules": ["momo"]
+    },
+    "collector": {
+      "sessionHash": "58c465aa9361b36f",
+      "tenant": "STG-A",
+      "role": "collector",
+      "modules": ["susu"]
+    }
+  },
+  "scenarios": {
+    "separateTabs": "PASS",
+    "refresh": "PASS",
+    "copiedUrl": "PASS",
+    "logoutIsolation": "PASS",
+    "crossRoleIsolation": "PASS"
+  },
+  "notes": "Session hashes are SHA-256 prefixes of the server jti. No raw session proof, token or password is recorded."
+}

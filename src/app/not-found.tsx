@@ -31,7 +31,7 @@ export default function NotFound() {
             href="/"
             className="inline-flex items-center justify-center rounded-control bg-brand-700 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800"
           >
-            BloomCore One home
+            MaaCash home
           </Link>
           <Link
             href="/login"

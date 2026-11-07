@@ -232,7 +232,7 @@ export default function FirstLoginPasswordForm({
         </div>
 
         <p className="relative mt-6 text-center text-xs text-ink-faint">
-          BloomCore One · Built by BloomCore Technologies
+          MaaCash · Built by BloomCore Technologies
         </p>
       </div>
     </div>

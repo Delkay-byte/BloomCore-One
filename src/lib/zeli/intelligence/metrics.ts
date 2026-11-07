@@ -10,7 +10,7 @@ import {
 /**
  * Authoritative analytics aggregation for Zeli Business Intelligence.
  *
- * This module reads the existing BloomCore One domain tables. It never writes a
+ * This module reads the existing MaaCash domain tables. It never writes a
  * financial record and never computes an official balance in the browser. The
  * figures here must reconcile with the MoMo and Susu reports:
  *  - contributions exclude reversed rows (`reversedAt` is set),
@@ -1115,7 +1115,7 @@ export async function buildAnalyticsSnapshot(params: {
       refreshedAt: current.refreshedAt.toISOString(),
       stale: current.stale || previous.stale,
       warning: current.warning,
-      source: "BloomCore One financial records · ZeliAnalyticsDaily aggregate",
+      source: "MaaCash financial records · ZeliAnalyticsDaily aggregate",
       ttlSeconds: REFRESH_TTL_SECONDS,
     },
     currency: "GHS",

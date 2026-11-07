@@ -40,7 +40,7 @@ export async function getZeliProviderStatus(tenantId?: string | null): Promise<{
     model: provider.model,
     available: availability.ok,
     reason: availability.ok
-      ? "Zeli is answering from BloomCore One's internal deterministic engine. External AI is optional and never authoritative."
+      ? "Zeli is answering from MaaCash's internal deterministic engine. External AI is optional and never authoritative."
       : availability.reason,
     external,
     message: providerStatusMessage(external),
@@ -68,7 +68,7 @@ export function zeliProviderStatus(): {
     model: provider.model,
     available: availability.ok,
     reason: availability.ok
-      ? "Zeli is answering from BloomCore One's internal deterministic engine. No external AI provider is used."
+      ? "Zeli is answering from MaaCash's internal deterministic engine. No external AI provider is used."
       : availability.reason,
     external,
   };

@@ -21,7 +21,7 @@ export default function ForgotPasswordPage() {
         <div className="card">
           <h1 className="text-xl font-semibold mb-2">Password recovery</h1>
           <p className="text-sm text-slate-600">
-            BloomCore One uses administrator-assisted recovery. For your
+            MaaCash uses administrator-assisted recovery. For your
             security, recovery codes are never sent by email.
           </p>
 

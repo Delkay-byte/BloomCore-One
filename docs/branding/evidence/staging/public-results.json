@@ -1,0 +1,112 @@
+[
+  {
+    "name": "public:home",
+    "ok": true,
+    "detail": "status=200 maa=43 old=0 errors=0 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  },
+  {
+    "name": "metadata:home",
+    "ok": true,
+    "detail": "{\"ogTitle\":\"MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform\",\"ogImage\":\"https://bloomcore-one.onrender.com/branding/maacash-og.png\",\"ogSite\":\"MaaCash\",\"twitter\":\"summary_large_image\",\"description\":\"MaaCash brings mobile money, Susu collections, multi-branch operations and financial records together in one connected platform.\",\"manifest\":\"/manifest.json\",\"appleIcon\":\"/apple-icon.png\",\"theme\":\"#0e4d34\"}"
+  },
+  {
+    "name": "asset:manifest",
+    "ok": true,
+    "detail": "status=200 type=application/json; charset=UTF-8"
+  },
+  {
+    "name": "asset:icon192",
+    "ok": true,
+    "detail": "status=200 type=image/png"
+  },
+  {
+    "name": "asset:icon512",
+    "ok": true,
+    "detail": "status=200 type=image/png"
+  },
+  {
+    "name": "asset:maskable",
+    "ok": true,
+    "detail": "status=200 type=image/png"
+  },
+  {
+    "name": "asset:favicon",
+    "ok": true,
+    "detail": "status=200 type=image/x-icon"
+  },
+  {
+    "name": "asset:apple-icon",
+    "ok": true,
+    "detail": "status=200 type=image/png"
+  },
+  {
+    "name": "asset:og-image",
+    "ok": true,
+    "detail": "status=200 type=image/png"
+  },
+  {
+    "name": "pwa:manifest",
+    "ok": true,
+    "detail": "{\"name\":\"MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations\",\"short_name\":\"MaaCash\"}"
+  },
+  {
+    "name": "public:login",
+    "ok": true,
+    "detail": "status=200 maa=22 old=0 errors=0 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  },
+  {
+    "name": "public:admin-login",
+    "ok": true,
+    "detail": "status=200 maa=23 old=0 errors=0 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  },
+  {
+    "name": "public:forgot-password",
+    "ok": true,
+    "detail": "status=200 maa=24 old=0 errors=1 title=Password recovery · MaaCash"
+  },
+  {
+    "name": "public:recover-account",
+    "ok": true,
+    "detail": "status=200 maa=22 old=0 errors=1 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  },
+  {
+    "name": "public:access",
+    "ok": true,
+    "detail": "status=200 maa=24 old=0 errors=1 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  },
+  {
+    "name": "public:features",
+    "ok": true,
+    "detail": "status=200 maa=31 old=0 errors=1 title=Features · MaaCash"
+  },
+  {
+    "name": "public:solutions",
+    "ok": true,
+    "detail": "status=200 maa=45 old=0 errors=0 title=Who We Serve · MaaCash"
+  },
+  {
+    "name": "public:about",
+    "ok": true,
+    "detail": "status=200 maa=39 old=0 errors=0 title=About · MaaCash"
+  },
+  {
+    "name": "public:contact",
+    "ok": true,
+    "detail": "status=200 maa=27 old=0 errors=0 title=Contact · MaaCash"
+  },
+  {
+    "name": "public:privacy",
+    "ok": true,
+    "detail": "status=200 maa=31 old=0 errors=0 title=Privacy · MaaCash"
+  },
+  {
+    "name": "public:terms",
+    "ok": true,
+    "detail": "status=200 maa=37 old=0 errors=0 title=Terms · MaaCash"
+  },
+  {
+    "name": "public:not-found",
+    "ok": true,
+    "detail": "status=200 maa=22 old=0 errors=0 title=MaaCash — Mobile Money, Susu & Multi-Branch Financial Operations Platform"
+  }
+]

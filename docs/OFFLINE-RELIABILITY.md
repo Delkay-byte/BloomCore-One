@@ -1,4 +1,4 @@
-# Offline Financial Reliability — BloomCore One
+# Offline Financial Reliability — MaaCash
 
 **Status:** Implemented on `feat/bloomcore-ux-offline-reliability`
 **Scope:** Susu collector contributions, pending-record protection, synchronization and drafts.

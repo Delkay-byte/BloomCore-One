@@ -119,7 +119,7 @@ export default async function ZeliAnalyticsUpgradePage({
           <li>CSV export of aggregate figures.</li>
         </ul>
         <p className="mt-3 text-xs text-slate-500">
-          Analytics is calculated inside BloomCore One. External AI processing is currently
+          Analytics is calculated inside MaaCash. External AI processing is currently
           disabled.
         </p>
       </div>

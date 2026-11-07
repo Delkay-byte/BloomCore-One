@@ -83,7 +83,7 @@ export function validateProviderExplanation(
   return { ok: true, value };
 }
 
-const SYSTEM_PROMPT = `You explain a pre-computed business insight for BloomCore One.
+const SYSTEM_PROMPT = `You explain a pre-computed business insight for MaaCash.
 Return strict JSON with exactly: explanation, observed_pattern, interpretation, suggested_investigation, limitations.
 Rules:
 - Do not state or invent any number, amount, percentage, date, identifier, name or citation.

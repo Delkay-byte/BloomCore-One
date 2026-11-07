@@ -2,7 +2,7 @@ import { PRODUCT_DESCRIPTOR } from "@/lib/site";
 
 /**
  * ============================================================================
- * BLOOMCORE ONE BRAND COMPONENTS
+ * MAACASH BRAND COMPONENTS
  * ============================================================================
  *
  * The mark is inline SVG so it inherits the page's rendering context and needs
@@ -80,7 +80,7 @@ export function BrandLockup({
 }: {
   size?: number;
   tone?: "light" | "dark";
-  /** Show the "Business & Financial Operations Platform" descriptor line. */
+  /** Show the "Mobile Money, Susu & Multi-Branch Operations" descriptor line. */
   descriptor?: boolean;
   className?: string;
 }) {
@@ -99,8 +99,8 @@ export function BrandLockup({
               so it uses the darkened gold ramp: gold-700 clears WCAG AA
               (5.2:1 on white, 4.7:1 on ivory). On the forest surfaces the
               lighter gold has room and keeps its brightness. */}
-          BloomCore
-          <span className={dark ? "text-gold-400" : "text-gold-700"}> One</span>
+          Maa
+          <span className={dark ? "text-gold-400" : "text-gold-700"}>Cash</span>
         </span>
         {descriptor ? (
           <span

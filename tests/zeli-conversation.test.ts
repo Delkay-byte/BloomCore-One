@@ -77,7 +77,7 @@ describe("local conversational acts", () => {
       question: "Are you ChatGPT?",
     });
     expect(result.intent).toBe("identity");
-    expect(result.text).toContain("built into BloomCore One");
+    expect(result.text).toContain("built into MaaCash");
     expect(result.text.toLowerCase()).not.toContain("i am chatgpt");
   });
 

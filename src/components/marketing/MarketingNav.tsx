@@ -36,7 +36,7 @@ export default function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-ivory">
       <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-        <Link href="/" className="rounded-md" aria-label="BloomCore One home">
+        <Link href="/" className="rounded-md" aria-label="MaaCash home">
           <BrandLockup size={34} />
         </Link>
 

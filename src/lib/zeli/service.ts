@@ -131,7 +131,7 @@ const EXTERNAL_ELIGIBLE_ACTS = new Set<ZeliConversationAct>([
  *  3. optional external conversation for non-business acts.
  *
  * The local assistant is always the fallback. When external AI is disabled the
- * whole turn runs inside BloomCore One.
+ * whole turn runs inside MaaCash.
  */
 export async function runZeliTurn(params: {
   identity: ZeliIdentity;

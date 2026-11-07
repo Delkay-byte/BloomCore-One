@@ -14,7 +14,7 @@ button, and behaviour is byte-identical to before this feature existed.
 ## 1. Design
 
 ```
-Browser                     BloomCore One                     Authentik          Control Center
+Browser                     MaaCash                     Authentik          Control Center
    │  GET /platform/login/sso/start   │                            │                    │
    │─────────────────────────────────>│  discovery (cached)        │                    │
    │  303 → authorize URL             │───────────────────────────>│                    │

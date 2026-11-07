@@ -83,7 +83,7 @@ export default function OfflineDataSettings() {
           }
         }
         setNotice(
-          "Deletion is still pending in the browser. Close every other BloomCore One tab, then use Retry synchronization or reload this page to check again."
+          "Deletion is still pending in the browser. Close every other MaaCash tab, then use Retry synchronization or reload this page to check again."
         );
       }
     } finally {

@@ -1,6 +1,6 @@
 # Administrator-Assisted Account Recovery
 
-BloomCore One does not yet have a transactional email provider. Public
+MaaCash does not yet have a transactional email provider. Public
 "email me a link" recovery was removed because the previous implementation
 returned the reset token to the browser. Recovery is now administrator-assisted.
 

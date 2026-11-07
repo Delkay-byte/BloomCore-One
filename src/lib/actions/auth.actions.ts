@@ -33,6 +33,7 @@ import {
   recordLoginSuccess,
 } from "@/lib/security/auth-guard";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 
 /**
  * A valid bcrypt hash of a value nobody knows. Comparing against it for unknown
@@ -100,7 +101,7 @@ export async function login(
   // Per-IP limit + progressive cooldown + Turnstile, before any credential work.
   const guard = await guardLogin({
     identifier: rawEmail,
-    action: "login",
+    action: TURNSTILE_ACTIONS.staffLogin,
     turnstileToken,
   });
   if (!guard.ok) return { success: false, error: guard.error };
@@ -567,7 +568,7 @@ export async function resolveCustomerAuth(
 
   const guard = await guardLogin({
     identifier,
-    action: "customer_login",
+    action: TURNSTILE_ACTIONS.customerLogin,
     turnstileToken,
   });
   if (!guard.ok) return { error: guard.error };
@@ -682,7 +683,7 @@ export async function resolveStaffAuth(
 
   const guard = await guardLogin({
     identifier,
-    action: "login",
+    action: TURNSTILE_ACTIONS.staffLogin,
     turnstileToken,
   });
   if (!guard.ok) return { error: guard.error };
@@ -915,7 +916,7 @@ export async function adminLogin(
 
   const guard = await guardLogin({
     identifier: email,
-    action: "admin_login",
+    action: TURNSTILE_ACTIONS.adminLogin,
     turnstileToken,
   });
   if (!guard.ok) return { success: false, error: guard.error };

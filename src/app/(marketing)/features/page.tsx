@@ -115,7 +115,7 @@ export default function FeaturesPage() {
     <>
       <PageHero
         eyebrow="Platform capabilities"
-        title="What BloomCore One actually does"
+        title="What MaaCash actually does"
         lead="Four module groups, one set of business records. Everything described on this page exists in the current product — nothing here is planned or aspirational."
       >
         <Link
@@ -208,7 +208,7 @@ export default function FeaturesPage() {
         <SectionHeading
           eyebrow="Field realities"
           title="When the network is not cooperating"
-          lead="Collection work happens where coverage is uneven. BloomCore One supports capturing records on an enrolled device and sending them when the connection returns."
+          lead="Collection work happens where coverage is uneven. MaaCash supports capturing records on an enrolled device and sending them when the connection returns."
         />
         <div className="mt-10 grid gap-6 sm:grid-cols-3">
           <FeatureCard
@@ -259,7 +259,7 @@ export default function FeaturesPage() {
 
       <Section tone="ivory">
         <SectionHeading
-          eyebrow="What BloomCore One is not"
+          eyebrow="What MaaCash is not"
           title="Honest boundaries"
         />
         <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -282,7 +282,7 @@ export default function FeaturesPage() {
         <p className="mt-6 flex items-start gap-2 text-sm leading-relaxed text-ink-muted">
           <Building2 size={16} className="mt-0.5 flex-none" aria-hidden />
           <span>
-            BloomCore One records what a business enters. Decisions about money
+            MaaCash records what a business enters. Decisions about money
             remain with the business and the people accountable for it.
           </span>
         </p>

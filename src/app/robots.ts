@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { absoluteUrl } from "@/lib/site";
+import { IS_STAGING_DEPLOYMENT, absoluteUrl } from "@/lib/site";
 
 /**
  * robots.txt.
@@ -12,6 +12,17 @@ import { absoluteUrl } from "@/lib/site";
  * public metadata, so it follows the domain when the owner confirms it.
  */
 export default function robots(): MetadataRoute.Robots {
+  if (IS_STAGING_DEPLOYMENT) {
+    return {
+      rules: [
+        {
+          userAgent: "*",
+          disallow: "/",
+        },
+      ],
+    };
+  }
+
   return {
     rules: [
       {

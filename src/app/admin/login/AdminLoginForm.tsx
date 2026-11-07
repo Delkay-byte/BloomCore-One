@@ -4,6 +4,7 @@ import { useState } from "react";
 import { adminLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
   completeTabLogin,
   setMfaChallenge,
@@ -128,7 +129,7 @@ export default function AdminLoginForm() {
             </ul>
 
             <p className="relative mt-12 text-xs text-brand-300">
-              BloomCore One · Business &amp; Financial Operations Platform
+              MaaCash · Mobile Money, Susu &amp; Multi-Branch Operations
             </p>
           </aside>
 
@@ -138,7 +139,7 @@ export default function AdminLoginForm() {
               <div className="mb-8 lg:hidden">
                 <BrandLockup size={38} />
                 <p className="mt-2 text-[0.625rem] font-medium uppercase tracking-[0.14em] text-ink-muted">
-                  Business &amp; Financial Operations Platform
+                  Mobile Money, Susu &amp; Multi-Branch Operations
                 </p>
               </div>
 
@@ -204,7 +205,10 @@ export default function AdminLoginForm() {
                     </Link>
                   </div>
                 </div>
-                <TurnstileWidget action="admin_login" resetSignal={challenge} />
+                <TurnstileWidget
+                  action={TURNSTILE_ACTIONS.adminLogin}
+                  resetSignal={challenge}
+                />
                 <button type="submit" className="btn btn-primary w-full" disabled={loading}>
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">

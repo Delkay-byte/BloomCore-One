@@ -43,7 +43,7 @@ const MAX_TOOL_CALLS_PER_ROUND = 2;
 const MAX_TOOL_RESULT_CHARS = 6000;
 const MAX_ANSWER_CHARS = 2500;
 
-const SYSTEM_PROMPT = `You are Zeli, the business assistant built into BloomCore One, in ENHANCED AI mode.
+const SYSTEM_PROMPT = `You are Zeli, the business assistant built into MaaCash, in ENHANCED AI mode.
 Use the provided read-only tools to retrieve authoritative business facts before answering any business question.
 Rules:
 - Never invent, estimate or recalculate a number. Use only figures returned by a tool. For differences, use the provided changes values; do not calculate new totals.
@@ -304,8 +304,8 @@ export async function runToolConversation(params: {
     const footer = [
       authoritative
         ? `[AUTHORITATIVE LOCAL CALCULATION]\n${authoritative}`
-        : "[AUTHORITATIVE] Figures in this answer come from BloomCore One records.",
-      `[ENHANCED AI · ${model}] Explanation generated externally. It cannot change BloomCore One records.`,
+        : "[AUTHORITATIVE] Figures in this answer come from MaaCash records.",
+      `[ENHANCED AI · ${model}] Explanation generated externally. It cannot change MaaCash records.`,
     ].join("\n\n");
 
     recordCircuitSuccess(CIRCUIT_KEY);

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PUBLIC SITE CONFIGURATION — BloomCore One
+ * PUBLIC SITE CONFIGURATION — MaaCash
  * ============================================================================
  *
  * One place for everything the public marketing site and the application
@@ -23,12 +23,13 @@
  *   supply — it never pretends an enquiry was sent.
  */
 
-export const PRODUCT_NAME = "BloomCore One";
+export const PRODUCT_NAME = "MaaCash";
 export const COMPANY_NAME = "BloomCore Technologies";
 export const PRODUCT_TAGLINE = "One platform. Clearer control.";
-export const PRODUCT_DESCRIPTOR = "Business & Financial Operations Platform";
+export const PRODUCT_DESCRIPTOR =
+  "Mobile Money, Susu & Multi-Branch Financial Operations Platform";
 export const PRODUCT_POSITIONING =
-  "BloomCore One brings business operations, collections, people and financial records together in one connected platform.";
+  "MaaCash brings mobile money, Susu collections, multi-branch operations and financial records together in one connected platform.";
 export const COMPANY_LOCATION = "Ghana";
 export const FIRST_TENANT_NAME = "BIK Prestige Enterprise";
 export const FIRST_TENANT_CODE = "BIK-HQ-001";
@@ -51,6 +52,15 @@ export const SITE_URL = (
 /** True while the origin above is the temporary hosting URL, not a real domain. */
 export const SITE_URL_IS_PROVISIONAL =
   !readEnv(process.env.SITE_URL) && !readEnv(process.env.NEXT_PUBLIC_SITE_URL);
+
+/**
+ * True on the dedicated staging deployment (APP_ENV=STAGING).
+ *
+ * Staging social metadata may use the staging origin so previews do not point
+ * at production, but staging must never be indexed or declare a canonical URL.
+ */
+export const IS_STAGING_DEPLOYMENT =
+  (process.env.APP_ENV ?? "").trim().toUpperCase() === "STAGING";
 
 /** Public enquiry email. Null until the owner supplies one. */
 export const CONTACT_EMAIL = readEnv(process.env.CONTACT_EMAIL);

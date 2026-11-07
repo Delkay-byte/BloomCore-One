@@ -319,7 +319,7 @@ export default function ZeliPage() {
             </p>
             <p className="mt-1">
               Business figures come from this staging database and are calculated by
-              BloomCore One. Enhanced AI explains them; it cannot change records. If an
+              MaaCash. Enhanced AI explains them; it cannot change records. If an
               answer is labelled “Local mode — Enhanced AI unavailable or blocked”, the
               provider was unavailable and Zeli answered locally.
             </p>
@@ -338,8 +338,8 @@ export default function ZeliPage() {
                   : "Local mode."}
               </strong>{" "}
               {status?.conversation?.mode === "external"
-                ? "An approved external provider may help with greetings and general conversation. It never receives business records or figures; every financial answer is calculated inside BloomCore One."
-                : "Zeli runs entirely inside BloomCore One. Your messages are not sent to an external AI. Financial answers are calculated from your authorized records."}
+                ? "An approved external provider may help with greetings and general conversation. It never receives business records or figures; every financial answer is calculated inside MaaCash."
+                : "Zeli runs entirely inside MaaCash. Your messages are not sent to an external AI. Financial answers are calculated from your authorized records."}
             </p>
           </div>
         )}
@@ -480,7 +480,7 @@ export default function ZeliPage() {
                     {message.role === "assistant" &&
                       message.deterministic &&
                       !(environment === "staging" && status?.conversation?.mode === "external") && (
-                        <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from BloomCore One records by the internal rule-based engine">
+                        <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from MaaCash records by the internal rule-based engine">
                           <ShieldCheck size={12} aria-hidden /> Computed from your records
                         </span>
                       )}

@@ -25,7 +25,7 @@ export const metadata = pageMetadata({
   path: "/solutions",
   title: "Who We Serve",
   description:
-    "BloomCore One is built for mobile money operators, Susu operators and collection-based businesses that need controlled staff operations and trustworthy records.",
+    "MaaCash is built for mobile money operators, Susu operators and collection-based businesses that need controlled staff operations and trustworthy records.",
 });
 
 const SOLUTIONS = [
@@ -124,7 +124,7 @@ export default function SolutionsPage() {
       <PageHero
         eyebrow="Who we serve"
         title="Built for businesses whose money moves through people"
-        lead="BloomCore One fits businesses where someone collects, holds, records or pays out money on behalf of customers — and where that person needs to be accountable for what they recorded."
+        lead="MaaCash fits businesses where someone collects, holds, records or pays out money on behalf of customers — and where that person needs to be accountable for what they recorded."
       >
         <div className="flex flex-col gap-3 sm:flex-row">
           <Link
@@ -177,7 +177,7 @@ export default function SolutionsPage() {
                 </div>
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">
-                    With BloomCore One
+                    With MaaCash
                   </h3>
                   <ul className="mt-3 space-y-3 text-sm leading-relaxed text-ink">
                     {solution.with.map((item) => (
@@ -198,12 +198,12 @@ export default function SolutionsPage() {
         <SectionHeading
           eyebrow="Fit"
           title="What we do not claim to cover"
-          lead="A platform that tries to serve everyone serves no one properly. These are outside what BloomCore One does today."
+          lead="A platform that tries to serve everyone serves no one properly. These are outside what MaaCash does today."
         />
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           <Panel title="Banking">
             <p>
-              BloomCore One is not a bank and does not hold deposits, offer
+              MaaCash is not a bank and does not hold deposits, offer
               credit or provide savings products of its own.
             </p>
           </Panel>
@@ -227,7 +227,7 @@ export default function SolutionsPage() {
           <SectionHeading
             eyebrow="Practical fit"
             title="What a business needs before it starts"
-            lead="BloomCore One is not a product you can sign up for alone. It is enrolled by BloomCore Technologies, so two things are needed."
+            lead="MaaCash is not a product you can sign up for alone. It is enrolled by BloomCore Technologies, so two things are needed."
           />
           <ul className="space-y-4">
             {[
@@ -269,7 +269,7 @@ export default function SolutionsPage() {
 
       <CtaBand
         title="Tell us how your business operates"
-        body="A short conversation is usually enough to say whether BloomCore One fits, and which modules your business would enable."
+        body="A short conversation is usually enough to say whether MaaCash fits, and which modules your business would enable."
       />
     </>
   );

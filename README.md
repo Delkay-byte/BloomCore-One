@@ -1,12 +1,15 @@
-# BloomCore One
+# MaaCash
 
-**Business & Financial Operations Platform** — built and operated by
-[BloomCore Technologies](https://github.com/Delkay-byte/BloomCore-One).
+**Mobile Money, Susu & Multi-Branch Financial Operations Platform** — a product
+of [BloomCore Technologies](https://github.com/Delkay-byte/BloomCore-One).
 
-BloomCore One brings business operations, mobile-money (MoMo) accounts, Susu
-collections, people and financial records together in one connected platform.
+MaaCash brings mobile-money (MoMo) accounts, Susu collections, multi-branch
+operations, people and financial records together in one connected platform.
 Businesses are enrolled onto the platform with their own isolated workspace;
 each workspace has its own users, customers, records and history.
+
+> Formerly BloomCore One. The product identity changed; the platform, data,
+> accounts and financial history did not.
 
 The first tenant on the platform is **BIK Prestige Enterprise** (`BIK-HQ-001`)
 — a customer of the platform with its own identity inside its own workspace.
@@ -43,18 +46,19 @@ src/
   lib/            Auth, tenancy, actions, offline store, site configuration
   middleware.ts   Route protection (platform boundary → public marketing → tenant rules)
 prisma/           Prisma schemas (SQLite + PostgreSQL), migrations, seed
-public/branding/  BloomCore One brand assets (vector SVG + raster)
+public/branding/  MaaCash brand assets (vector SVG + raster)
 scripts/          Asset generation, deployment and verification helpers
 tests/            Vitest suite (security, tenancy, workflows, boundaries)
 ```
 
 ## Brand
 
-- Product: **BloomCore One** — never renamed per tenant.
+- Product: **MaaCash** — never renamed per tenant.
 - Parent business: **BloomCore Technologies**.
 - Palette: forest `#0E4D34`, gold `#C9A227`, ivory `#F6F5EC`, ink `#17211C`.
 - Typography: Noto Sans.
-- Assets and usage rules: `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md`.
+- Assets and usage rules: `docs/branding/MAACASH-REBRAND-INVENTORY.md` and
+  `docs/branding/MAACASH-REBRAND-MIGRATION-REPORT.md`.
 - The marketing site lives in `src/app/(marketing)/` and is public:
   `/`, `/features`, `/solutions`, `/about`, `/contact`, `/privacy`, `/terms`.
 
@@ -91,12 +95,13 @@ node scripts/build-brand-raster.mjs
 ## Deployment
 
 Production runs on Render (web service `bloomcore-one`, service ID
-`srv-dbjalrk9v7es739ifkp0`) with a Neon PostgreSQL database. `main` is the
-production branch and auto-deploys. The build command generates the
-PostgreSQL Prisma client before `next build`; database schema changes are
-applied with explicit `prisma migrate deploy` runs by the operator — never by
-a build. Full details: `docs/NEON-RENDER-DEPLOYMENT.md` and
-`PRODUCTION-RELEASE-RUNBOOK.md`.
+`srv-dbjalrk9v7es739ifkp0`) with a Neon PostgreSQL database. The service name
+and `onrender.com` hostname are preserved infrastructure identifiers; the
+public product identity is MaaCash. `main` is the production branch and
+auto-deploys. The build command generates the PostgreSQL Prisma client before
+`next build`; database schema changes are applied with explicit
+`prisma migrate deploy` runs by the operator — never by a build. Full details:
+`docs/NEON-RENDER-DEPLOYMENT.md` and `PRODUCTION-RELEASE-RUNBOOK.md`.
 
 Public configuration (set in the Render dashboard, never in Git):
 
@@ -109,6 +114,9 @@ Public configuration (set in the Render dashboard, never in Git):
 
 - `docs/NEON-RENDER-DEPLOYMENT.md` — infrastructure and deployment
 - `PRODUCTION-RELEASE-RUNBOOK.md` — release/promotion process
-- `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md` — brand and public site
-- `docs/BRANCH-REVIEW-BLOOMCORE-ONE.md` — branch review record
+- `docs/branding/MAACASH-REBRAND-INVENTORY.md` — rebrand impact inventory
+- `docs/branding/MAACASH-REBRAND-MIGRATION-REPORT.md` — rebrand record
+- `docs/branding/MAACASH-DOMAIN-OPTIONS.md` — domain research and pending decision
+- `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md` — historical brand record (formerly BloomCore One)
+- `docs/BRANCH-REVIEW-BLOOMCORE-ONE.md` — historical branch review record
 - `SECURITY.md` — security model and reporting

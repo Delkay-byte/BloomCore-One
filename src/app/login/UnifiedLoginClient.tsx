@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import { unifiedLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { turnstileActionForRole } from "@/lib/security/turnstile-actions";
 import {
   completeTabLogin,
   setMfaChallenge,
@@ -121,7 +122,7 @@ export default function UnifiedLoginClient({
         {/* Brand */}
         <div className="text-center mb-7">
           <BrandLockup size={56} className="justify-center" />
-          <p className="text-slate-500 mt-3 text-sm">Business & Financial Operations Platform</p>
+          <p className="text-slate-500 mt-3 text-sm">Mobile Money, Susu & Multi-Branch Operations</p>
         </div>
 
         {/* Invalid admin role */}
@@ -257,7 +258,10 @@ export default function UnifiedLoginClient({
                 </div>
               </div>
 
-              <TurnstileWidget action="login" resetSignal={challenge} />
+              <TurnstileWidget
+                action={turnstileActionForRole(selectedRole)}
+                resetSignal={challenge}
+              />
 
               <button
                 type="submit"

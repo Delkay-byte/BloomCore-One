@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { activeTokenForAction } from "@/lib/security/turnstile-actions";
 
 /**
  * Cloudflare Turnstile widget.
@@ -9,8 +10,9 @@ import { useEffect, useId, useRef, useState } from "react";
  * The server independently enforces TURNSTILE_ENABLED, so hiding or removing
  * this component in the browser never disables verification.
  *
- * The widget exposes loading, success, failure and expiry states and resets
- * itself after an unsuccessful submission via the `resetSignal` prop.
+ * The widget exposes loading, success, failure and expiry states. Both `action`
+ * and `resetSignal` are part of the widget identity: changing either unmounts
+ * the old challenge and mounts a fresh one.
  */
 
 interface TurnstileApi {
@@ -69,6 +71,77 @@ function loadTurnstileScript(): Promise<void> {
   return window.__bloomcoreTurnstileLoading;
 }
 
+type WidgetStatus = "loading" | "ready" | "error";
+
+/**
+ * Owns exactly one Turnstile widget. The parent keys this component by action
+ * and reset signal, so a change unmounts the old widget (and its challenge)
+ * before the replacement is rendered. No duplicate widget can survive.
+ */
+function TurnstileRenderer({
+  action,
+  siteKey,
+  onToken,
+  onStatus,
+}: {
+  action: string;
+  siteKey: string;
+  onToken: (token: string) => void;
+  onStatus: (status: WidgetStatus) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let widgetId: string | null = null;
+
+    loadTurnstileScript()
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.turnstile) return;
+        widgetId = window.turnstile.render(containerRef.current, {
+          sitekey: siteKey,
+          action,
+          theme: "light",
+          size: "flexible",
+          callback: (value) => {
+            if (cancelled) return;
+            onToken(value);
+            onStatus("ready");
+          },
+          "expired-callback": () => {
+            if (!cancelled) onToken("");
+          },
+          "timeout-callback": () => {
+            if (!cancelled) onToken("");
+          },
+          "error-callback": () => {
+            if (cancelled) return;
+            onToken("");
+            onStatus("error");
+          },
+        });
+        onStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) onStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+      if (widgetId && window.turnstile) {
+        try {
+          window.turnstile.remove(widgetId);
+        } catch {
+          // Already removed by Cloudflare; nothing else to clean up.
+        }
+        widgetId = null;
+      }
+    };
+  }, [action, siteKey, onToken, onStatus]);
+
+  return <div ref={containerRef} />;
+}
+
 export interface TurnstileWidgetProps {
   action: string;
   /** Increment after a failed submission to request a fresh token. */
@@ -80,64 +153,68 @@ export default function TurnstileWidget({
   resetSignal = 0,
 }: TurnstileWidgetProps) {
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const widgetId = useRef<string | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [token, setToken] = useState("");
+  // Token and status are tagged with the action and reset generation that
+  // produced them. A role change or reset can therefore never submit the
+  // previous challenge, even before React finishes the remount.
+  const [challenge, setChallenge] = useState<{
+    action: string;
+    resetSignal: number;
+    token: string;
+  }>({ action, resetSignal, token: "" });
+  const [statusState, setStatusState] = useState<{
+    action: string;
+    resetSignal: number;
+    status: WidgetStatus;
+  }>({ action, resetSignal, status: "loading" });
+  const [identity, setIdentity] = useState({ action, resetSignal });
+
+  // React's "adjust state when a prop changes" pattern. Switching roles (or
+  // resetting) must permanently discard the previous challenge: returning to
+  // the earlier role must not resurrect its old token.
+  if (identity.action !== action || identity.resetSignal !== resetSignal) {
+    setIdentity({ action, resetSignal });
+    setChallenge({ action, resetSignal, token: "" });
+    setStatusState({ action, resetSignal, status: "loading" });
+  }
+
+  const token =
+    challenge.action === action && challenge.resetSignal === resetSignal
+      ? activeTokenForAction(challenge.action, challenge.token, action)
+      : "";
+  const status =
+    statusState.action === action && statusState.resetSignal === resetSignal
+      ? statusState.status
+      : "loading";
   const statusId = useId();
 
-  useEffect(() => {
-    if (!siteKey) return;
-    let cancelled = false;
-
-    loadTurnstileScript()
-      .then(() => {
-        if (cancelled || !containerRef.current || !window.turnstile) return;
-        if (widgetId.current) {
-          window.turnstile.remove(widgetId.current);
-        }
-        widgetId.current = window.turnstile.render(containerRef.current, {
-          sitekey: siteKey,
-          action,
-          theme: "light",
-          size: "flexible",
-          callback: (value) => {
-            setToken(value);
-            setStatus("ready");
-          },
-          "expired-callback": () => setToken(""),
-          "timeout-callback": () => setToken(""),
-          "error-callback": () => {
-            setToken("");
-            setStatus("error");
-          },
-        });
-        setStatus((current) => (current === "error" ? current : "ready"));
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
-      });
-
-    return () => {
-      cancelled = true;
-      if (widgetId.current && window.turnstile) {
-        window.turnstile.remove(widgetId.current);
-        widgetId.current = null;
-      }
-    };
-  }, [siteKey, action]);
-
-  useEffect(() => {
-    if (!resetSignal || !window.turnstile || !widgetId.current) return;
-    window.turnstile.reset(widgetId.current);
-    setToken("");
-  }, [resetSignal]);
+  const handleToken = useCallback(
+    (value: string) => {
+      setChallenge({ action, resetSignal, token: value });
+    },
+    [action, resetSignal]
+  );
+  const handleStatus = useCallback(
+    (next: WidgetStatus) => {
+      setStatusState({ action, resetSignal, status: next });
+    },
+    [action, resetSignal]
+  );
 
   if (!siteKey) return null;
 
   return (
-    <div className="turnstile-wrap">
-      <div ref={containerRef} />
+    <div
+      className="turnstile-wrap"
+      data-turnstile-action={action}
+      data-turnstile-state={status}
+    >
+      <TurnstileRenderer
+        key={`${action}:${resetSignal}`}
+        action={action}
+        siteKey={siteKey}
+        onToken={handleToken}
+        onStatus={handleStatus}
+      />
       <input type="hidden" name="turnstileToken" value={token} />
       <p
         id={statusId}

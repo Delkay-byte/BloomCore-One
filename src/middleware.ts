@@ -247,7 +247,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // ---------------------------------------------------------------------
-  // PUBLIC MARKETING SITE — BloomCore One.
+  // PUBLIC MARKETING SITE — MaaCash.
   //
   // Evaluated AFTER the platform boundary, so no /platform route can ever be
   // made public by a marketing route match, and BEFORE every tenant rule.
@@ -366,7 +366,7 @@ export async function middleware(request: NextRequest) {
   else if (pathname.startsWith("/worker")) pathModule = "momo";
   else if (pathname.startsWith("/collector")) pathModule = "susu";
 
-  // "/" is the public BloomCore One landing page and was returned above by
+  // "/" is the public MaaCash landing page and was returned above by
   // isPublicMarketingRoute(). Signed-in people reach their workspace from the
   // landing page's Sign In link, which keeps the public page genuinely public
   // for every visitor (including signed-in ones).
