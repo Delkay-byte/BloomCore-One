@@ -406,7 +406,79 @@ a MoMo-only administrator create-form draft.
 - Metadata still uses MaaCash and BloomCore Technologies.
 - Screenshots were inspected after capture.
 
-### G5. Deployment
+### G5. Release
 
-Deployment details are recorded in the release follow-up commit after the merge
-and Render deployment. No secret, token or connection string is recorded here.
+| Item | Value |
+| --- | --- |
+| Pull request | #25 `fix(maacash): reliable drafts, stakeholder login and landing redesign` |
+| CI | **pass** (lint, typecheck, tests, build) in 3m32s |
+| Merge commit | `ddd655abe33589a78e0491a2d64a6dc1aec7ef3c` |
+| Render service | `maacash` (`srv-dbnaciff3r2c7382tjgg`) |
+| Deployment | `dep-dbo5neff3r2c73a8c86g` — **live** |
+| Deployed commit | `ddd655abe33589a78e0491a2d64a6dc1aec7ef3c` |
+| `/api/health` | **200**, `status=ok`, `env=production`, commit matches |
+| `/api/health/ready` | **200**, `database=ok`, latency ≈1.1 s |
+
+Production destination checks:
+
+| Path | Result |
+| --- | --- |
+| `/` | 200, hero copy, product sections and BloomCore attribution present |
+| `/login` | 200, role chooser renders all three roles |
+| `/login?role=momo` | 200, **MoMo Agent Login** |
+| `/login?role=susu` | 200, **Susu Collector Login** |
+| `/login?role=customer` | 200, **Welcome Back** |
+| `/login/momo` | 307 → `/login?role=momo` |
+| `/login/susu` | 307 → `/login?role=susu` |
+| `/login/customer` | 307 → `/login?role=customer` |
+| `/workspace` unauthenticated | 307 → `/login` |
+| `/customer/dashboard` unauthenticated | 307 → `/login?role=customer` |
+| `/admin/login` | 200, separate portal unchanged |
+
+Fallback service `bloomcore-one` (`srv-dbjalrk9v7es739ifkp0`) was preserved. Its
+existing Auto-Deploy setting picked up the same merge and deployed the same commit
+automatically; its health and readiness are **200** at
+`ddd655abe33589a78e0491a2d64a6dc1aec7ef3c`. No setting on that service was changed
+by this work. The new service remains Auto-Deploy **off** and was deployed
+explicitly.
+
+No database migration ran, no environment variable changed, and no financial or
+draft record was modified during release verification.
+
+### G6. Remaining limitations
+
+- The isolated E2E database and synthetic accounts were used for authenticated
+  browser verification. No authorised production account was available, so live
+  production sign-in with a real user was not performed. Public routes, auth
+  redirects, health and readiness were verified on production.
+- The final earlier full-suite transient failures were environment flakes
+  (trace-file `ENOENT` and timing); the final full suite and the isolated re-runs
+  passed.
+- `npm run lint` still reports 74 pre-existing warnings. None block CI and none
+  were introduced by this change set.
+
+---
+
+## H. Final status
+
+**DRAFT PERSISTENCE FIXED — LOGIN AND LANDING REDESIGN DEPLOYED — ALL TESTS PASSED**
+
+| Acceptance | Result |
+| --- | --- |
+| Every existing draft workflow audited | Yes (eight workflows) |
+| Root cause established | Yes (four client/storage faults and one server race) |
+| Saving terminates and confirms | Yes |
+| Failed save is retryable and keeps input | Yes |
+| Draft list shows saved drafts | Yes (server drafts on the worker dashboard) |
+| Reopening restores every supported field | Yes (E2E, all fields) |
+| Re-saving updates the same draft | Yes |
+| Older requests cannot overwrite newer values | Yes (revision ordering) |
+| Draft ownership and tenant isolation | Yes (server-derived scope, tests) |
+| Saving a draft creates no financial transaction | Yes |
+| Three stakeholder logins redesigned | Yes |
+| Auth contract, MFA and Turnstile preserved | Yes |
+| Landing page redesigned and accurate | Yes |
+| Installed UI skills inspected and used | Yes |
+| Unit, security, E2E, build, typecheck | Passed |
+| Lint | 0 errors (74 pre-existing warnings) |
+| Deployed and healthy | Yes, commit `ddd655a` |
