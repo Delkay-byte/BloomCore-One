@@ -3,6 +3,7 @@ import { SkeletonPage } from "@/components/ui/Skeletons";
 
 import { useEffect, useState } from "react";
 import { getCustomerProfile } from "@/lib/actions/susu-customer.actions";
+import { isRedirectError } from "@/lib/errors";
 import { formatDate } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 
@@ -43,8 +44,50 @@ export default function CustomerProfilePage() {
     async function loadProfile() {
       try {
         const result = await getCustomerProfile();
-        setData(result as unknown as ProfileData);
+        if (!result) {
+          setError("Unable to load profile");
+          return;
+        }
+        const account = result.accounts[0];
+        if (!account) {
+          setError("No active savings account");
+          return;
+        }
+        const assignment = result.assignments[0];
+        const cycle = account.cycles[0];
+        setData({
+          customer: {
+            id: result.id,
+            customerId: result.customerId,
+            fullName: result.fullName,
+            phone: result.phone,
+            email: result.email,
+            address: result.address,
+            dailyContribution: Number(account.dailyContribution),
+            status: result.status,
+            registeredAt: result.registeredAt,
+          },
+          account: {
+            id: account.id,
+            accountId: account.accountId,
+            dailyContribution: Number(account.dailyContribution),
+            status: account.status,
+            cardCustody: account.cardCustody,
+          },
+          currentCollector: assignment?.collector?.user
+            ? { fullName: assignment.collector.user.fullName }
+            : null,
+          currentCycle: cycle
+            ? {
+                cycleNumber: cycle.cycleNumber,
+                startDate: cycle.startDate,
+                endDate: cycle.endDate,
+                status: cycle.status,
+              }
+            : null,
+        });
       } catch (err) {
+        if (isRedirectError(err)) throw err;
         setError("Failed to load profile");
       } finally {
         setLoading(false);
@@ -164,7 +207,7 @@ export default function CustomerProfilePage() {
                 <p className="text-sm text-slate-500">
                   {formatDate(currentCycle.startDate)} – {formatDate(currentCycle.endDate)}
                 </p>
-                <span className={`badge ${currentCycle.status === "active" ? "badge-green" : "badge-blue"}`} mt-1>
+                <span className={`badge ${currentCycle.status === "active" ? "badge-green" : "badge-blue"} mt-1`}>
                   {currentCycle.status}
                 </span>
               </div>

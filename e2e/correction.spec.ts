@@ -13,7 +13,9 @@ test.describe("Daily-account correction screen", () => {
 
     const cashIn = page.getByLabel("Customer deposit");
     await cashIn.fill("250");
-    await page.locator("textarea").fill("Cash-in figure omitted from the original submission");
+    await page
+      .getByRole("textbox", { name: /Correction reason/ })
+      .fill("Cash-in figure omitted from the original submission");
     await page.getByRole("button", { name: "Save correction" }).click();
     // Confirmation is mandatory.
     await expect(

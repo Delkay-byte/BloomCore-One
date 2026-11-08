@@ -23,6 +23,22 @@ import { getZeliAvailability } from "@/lib/zeli/availability";
  * flag. The tenantId returned here is informational only — server actions
  * always re-resolve it from the session and never accept it from the client.
  */
+// This response depends on the calling tab's proof-of-possession header and on
+// live session state. It must never be stored by a browser, proxy or CDN: a
+// cached 200 could be replayed to an unauthenticated tab, and a cached 401 could
+// strand an authenticated one.
+export const dynamic = "force-dynamic";
+
+const NO_STORE = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, private",
+  Pragma: "no-cache",
+  Vary: "x-bloomcore-tab-proof, x-bloomcore-tab-request-id",
+} as const;
+
+function json(body: Record<string, unknown>, status = 200) {
+  return NextResponse.json(body, { status, headers: NO_STORE });
+}
+
 export async function GET(request: NextRequest) {
   const requestedModule = request.nextUrl.searchParams.get("module");
 
@@ -45,12 +61,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return json({ error: "Not authenticated" }, 401);
   }
 
   // Re-validate against the database (status, tokenVersion, revocation).
   if (!(await isSessionCurrent(user))) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return json({ error: "Not authenticated" }, 401);
   }
 
   // Resolve the tenant for the module the caller actually asked about.
@@ -77,7 +93,7 @@ export async function GET(request: NextRequest) {
     : null;
   const zeliEnabled = (await getZeliAvailability()).enabled;
 
-  return NextResponse.json({
+  return json({
     ...user,
     tenant: tenant
       ? {
