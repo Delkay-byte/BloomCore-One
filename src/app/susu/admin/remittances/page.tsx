@@ -12,6 +12,8 @@ import {
 } from "@/lib/actions/susu-collector.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { PromptDialog } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 interface RemittanceRecord {
   id: string;
@@ -47,6 +49,11 @@ export default function SusuRemittancesPage() {
   const [remittedAmount, setRemittedAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState<RemittanceRecord | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reverseBusy, setReverseBusy] = useState(false);
+  const [reverseError, setReverseError] = useState("");
+  const toast = useToast();
 
   useEffect(() => {
     loadRemittances();
@@ -119,23 +126,39 @@ export default function SusuRemittancesPage() {
     }
   }
 
-  async function handleReverse(record: RemittanceRecord) {
-    const reason = window.prompt(
-      "Reason for reversing this remittance (minimum 10 characters). The original record is kept and removed from active cash-handover totals."
-    );
-    if (!reason) return;
-    setError("");
-    setSuccess("");
-    const result = await reverseRemittance({
-      remittanceId: record.id,
-      reason,
-    });
-    if (!result.success) {
-      setError(result.error || "The remittance could not be reversed.");
+  function handleReverse(record: RemittanceRecord) {
+    setReverseTarget(record);
+    setReverseReason("");
+    setReverseError("");
+  }
+
+  async function submitReverse() {
+    if (!reverseTarget || reverseBusy) return;
+    if (reverseReason.trim().length < 10) {
+      setReverseError("Enter a reversal reason of at least 10 characters.");
       return;
     }
-    setSuccess("Remittance reversed. The original record remains in history.");
-    loadRemittances();
+    setReverseBusy(true);
+    setReverseError("");
+    try {
+      const result = await reverseRemittance({
+        remittanceId: reverseTarget.id,
+        reason: reverseReason.trim(),
+      });
+      if (!result.success) {
+        setReverseError(result.error || "The remittance could not be reversed.");
+        return;
+      }
+      setSuccess("Remittance reversed. The original record remains in history.");
+      toast.push("success", "Remittance reversed successfully.");
+      setReverseTarget(null);
+      setReverseReason("");
+      await loadRemittances();
+    } catch {
+      setReverseError("The remittance could not be reversed. Please try again.");
+    } finally {
+      setReverseBusy(false);
+    }
   }
 
   return (
@@ -313,6 +336,25 @@ export default function SusuRemittancesPage() {
           </>
         )}
       </div>
+
+      <PromptDialog
+        open={Boolean(reverseTarget)}
+        onClose={() => {
+          if (!reverseBusy) setReverseTarget(null);
+        }}
+        onSubmit={submitReverse}
+        title="Reverse this remittance?"
+        description="The original record is kept and removed from active cash-handover totals."
+        label="Reason for reversal (minimum 10 characters)"
+        placeholder="Explain what was wrong and what evidence supports the reversal."
+        confirmLabel="Reverse remittance"
+        required
+        loading={reverseBusy}
+        value={reverseReason}
+        onChange={setReverseReason}
+        error={reverseError}
+        multiline
+      />
     </div>
   );
 }

@@ -8,7 +8,13 @@ import DraftIndicator from "@/components/DraftIndicator";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
-import { getStaff, createStaff, toggleStaffStatus } from "@/lib/actions/staff.actions";
+import {
+  getStaff,
+  createStaff,
+  toggleStaffStatus,
+  setStaffModuleCapability,
+} from "@/lib/actions/staff.actions";
+import { ConfirmDialog } from "@/components/ui/Modal";
 import { formatDate } from "@/lib/utils";
 import PasswordInput from "@/components/PasswordInput";
 
@@ -54,6 +60,11 @@ export default function StaffPage() {
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [moduleBusyId, setModuleBusyId] = useState<string | null>(null);
+  const [removeCapability, setRemoveCapability] = useState<{
+    staff: StaffMember;
+    module: "momo" | "susu";
+  } | null>(null);
   const toast = useToast();
   const optimistic = useOptimisticAction();
 
@@ -109,6 +120,48 @@ export default function StaffPage() {
         toast.push("error", message);
       },
     });
+  }
+
+  async function handleCapability(
+    member: StaffMember,
+    module: "momo" | "susu",
+    enabled: boolean
+  ) {
+    if (enabled && module === "momo" && !member.location?.id) {
+      setError("Assign a MoMo location to this staff member before enabling MoMo.");
+      toast.push("error", "Assign a MoMo location before enabling MoMo.");
+      return;
+    }
+    setModuleBusyId(`${member.id}:${module}`);
+    setError("");
+    try {
+      const result = await setStaffModuleCapability(
+        member.id,
+        module,
+        enabled,
+        module === "momo" ? member.location?.id : undefined
+      );
+      if (result.success) {
+        toast.push(
+          "success",
+          enabled
+            ? module === "susu"
+              ? "Susu collector access enabled on the same account. The existing password still works."
+              : "MoMo agent access enabled on the same account. The existing password still works."
+            : `${module === "susu" ? "Susu" : "MoMo"} access removed. The other workspace and the password are unchanged.`
+        );
+        await loadData();
+      } else {
+        setError(result.error || "The module capability could not be updated.");
+        toast.push("error", result.error || "The module capability could not be updated.");
+      }
+    } catch (err) {
+      if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+      setError("The module capability could not be updated. Please try again.");
+    } finally {
+      setModuleBusyId(null);
+      setRemoveCapability(null);
+    }
   }
 
   const filtered = staff.filter((s) => {
@@ -294,17 +347,64 @@ export default function StaffPage() {
                     </td>
                     <td>
                       <div className="flex gap-1 flex-wrap">
-                        {s.momoEnabled && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                        {s.momoEnabled ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
                             MoMo
+                            {s.role !== "admin" && (
+                              <button
+                                type="button"
+                                onClick={() => setRemoveCapability({ staff: s, module: "momo" })}
+                                className="text-yellow-900/70 hover:text-yellow-950"
+                                aria-label={`Remove MoMo access from ${s.fullName}`}
+                              >
+                                ✕
+                              </button>
+                            )}
                           </span>
+                        ) : (
+                          s.role !== "admin" && (
+                            <button
+                              type="button"
+                              onClick={() => handleCapability(s, "momo", true)}
+                              disabled={moduleBusyId === `${s.id}:momo`}
+                              className="rounded border border-yellow-300 px-2 py-0.5 text-xs font-medium text-yellow-800 hover:bg-yellow-50 disabled:opacity-60"
+                            >
+                              {moduleBusyId === `${s.id}:momo` ? "Enabling…" : "+ MoMo"}
+                            </button>
+                          )
                         )}
-                        {s.susuEnabled && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        {s.susuEnabled ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
                             Susu
+                            {s.role !== "admin" && (
+                              <button
+                                type="button"
+                                onClick={() => setRemoveCapability({ staff: s, module: "susu" })}
+                                className="text-green-900/70 hover:text-green-950"
+                                aria-label={`Remove Susu access from ${s.fullName}`}
+                              >
+                                ✕
+                              </button>
+                            )}
                           </span>
+                        ) : (
+                          s.role !== "admin" && (
+                            <button
+                              type="button"
+                              onClick={() => handleCapability(s, "susu", true)}
+                              disabled={moduleBusyId === `${s.id}:susu`}
+                              className="rounded border border-green-300 px-2 py-0.5 text-xs font-medium text-green-800 hover:bg-green-50 disabled:opacity-60"
+                            >
+                              {moduleBusyId === `${s.id}:susu` ? "Enabling…" : "+ Susu"}
+                            </button>
+                          )
                         )}
                       </div>
+                      {s.momoEnabled && s.susuEnabled && (
+                        <p className="mt-1 text-[11px] font-medium text-emerald-700">
+                          Dual role · one password
+                        </p>
+                      )}
                     </td>
                     <td>
                       <span className={`badge ${s.status === "active" ? "badge-green" : "badge-red"}`}>
@@ -335,6 +435,27 @@ export default function StaffPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(removeCapability)}
+        onClose={() => {
+          if (!moduleBusyId) setRemoveCapability(null);
+        }}
+        onConfirm={() => {
+          if (removeCapability) {
+            void handleCapability(removeCapability.staff, removeCapability.module, false);
+          }
+        }}
+        title={`Remove ${removeCapability?.module === "susu" ? "Susu" : "MoMo"} access?`}
+        description={
+          removeCapability
+            ? `The same account, password and ${removeCapability.module === "susu" ? "MoMo" : "Susu"} workspace stay intact. Historical records are never deleted.`
+            : undefined
+        }
+        confirmLabel="Remove access"
+        tone="danger"
+        loading={Boolean(moduleBusyId)}
+      />
     </div>
   );
 }

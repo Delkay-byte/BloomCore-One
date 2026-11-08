@@ -170,17 +170,13 @@ describe("financial corrections", () => {
       dailyForm({
         openingMomoFloat: "100",
         openingCash: "50",
-        totalCashIn: "250",
-        totalCashOut: "20",
-        totalCashReceived: "80",
-        totalCashPaid: "10",
+        debtsCollected: "250",
         commission: "5",
-        otherIncome: "0",
         closingMomoFloat: "330",
         closingCash: "125",
         expenses: JSON.stringify([{ description: "Transport", amount: 5 }]),
       }),
-      "Cash-in figure omitted from the original submission"
+      "Debts collected figure omitted from the original submission"
     );
     expect(result.success).toBe(true);
 
@@ -188,7 +184,11 @@ describe("financial corrections", () => {
       where: { id: account.id },
       include: { revisions: true, expenses: true },
     });
-    expect(Number(updated.totalCashIn)).toBe(250);
+    expect(Number(updated.debtsCollected)).toBe(250);
+    // Legacy columns are preserved on the historical row but no longer edited
+    // by the simplified correction form.
+    expect(Number(updated.totalCashIn)).toBe(0);
+    expect(Number(updated.calculatedDifference)).toBe(55);
     expect(updated.revisionCount).toBe(1);
     expect(updated.correctedById).toBe(admin.id);
     expect(updated.revisions).toHaveLength(1);

@@ -85,6 +85,102 @@ export default function Modal({
   );
 }
 
+/** Standard text prompt built on Modal. Replaces window.prompt. */
+export function PromptDialog({
+  open,
+  onClose,
+  onSubmit,
+  title,
+  description,
+  label,
+  placeholder,
+  confirmLabel = "Save",
+  required = false,
+  loading = false,
+  value,
+  onChange,
+  error,
+  multiline = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: () => void;
+  title: string;
+  description?: string;
+  label: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  required?: boolean;
+  loading?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  multiline?: boolean;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!loading) onClose();
+      }}
+      title={title}
+      description={description}
+      size="sm"
+      footer={
+        <>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onSubmit}
+            disabled={loading || (required && !value.trim())}
+          >
+            {loading ? (
+              <>
+                <span className="spinner spinner-sm" aria-hidden /> Working…
+              </>
+            ) : (
+              confirmLabel
+            )}
+          </button>
+        </>
+      }
+    >
+      <label className="block text-sm">
+        <span className="font-medium text-slate-700">{label}</span>
+        {multiline ? (
+          <textarea
+            className="mt-1 w-full"
+            rows={3}
+            maxLength={500}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            autoFocus
+          />
+        ) : (
+          <input
+            type="text"
+            className="mt-1 w-full"
+            maxLength={500}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            autoFocus
+          />
+        )}
+      </label>
+      {error && (
+        <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+    </Modal>
+  );
+}
+
 /** Standard consequential-action confirmation built on Modal. */
 export function ConfirmDialog({
   open,

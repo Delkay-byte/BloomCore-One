@@ -128,10 +128,10 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#closing-cash", 600);
     await fillMoney(page, "#closing-float", 0);
 
-    await expect(page.getByText("Balanced", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("BALANCED", { exact: true }).first()).toBeVisible();
 
     const dialog = await submitFromReview(page);
-    await expect(dialog.getByText("Balanced", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("BALANCED", { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Submit account" }).click();
     await expectSubmitted(page);
 
@@ -149,10 +149,10 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#closing-cash", 650);
     await fillMoney(page, "#closing-float", 0);
 
-    await expect(page.getByText("Positive difference").first()).toBeVisible();
+    await expect(page.getByText("POSITIVE DIFFERENCE").first()).toBeVisible();
     const dialog = await submitFromReview(page);
     await expect(
-      dialog.getByText("Positive difference", { exact: true })
+      dialog.getByText("POSITIVE DIFFERENCE", { exact: true })
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Submit account" }).click();
     await expectSubmitted(page);
@@ -170,12 +170,12 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#closing-float", 0);
 
     await expect(
-      page.getByText("Shortage — Investigation Required")
+      page.getByText("SHORTAGE — INVESTIGATION REQUIRED").first()
     ).toBeVisible();
 
     const dialog = await submitFromReview(page);
     await expect(
-      dialog.getByText("Explain the shortage in section 06 before submitting.")
+      dialog.getByText("Explain the shortage in the reconciliation section before submitting.")
     ).toBeVisible();
     const submit = dialog.getByRole("button", { name: "Submit account" });
     await expect(submit).toBeDisabled();
@@ -203,7 +203,7 @@ test.describe("MoMo worker workspace", () => {
     await openDailyAccount(page, "e2e-daily-draft");
     await fillMoney(page, "#opening-cash", 77);
     await fillMoney(page, "#opening-float", 123);
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible();
 
     await page.reload();

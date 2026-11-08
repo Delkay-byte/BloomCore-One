@@ -24,7 +24,7 @@ export const ACCESS_LINKS: AccessLink[] = [
     icon: "customer",
     description: "View your Susu savings and account",
     shortPath: "/login/customer",
-    instruction: "Use your Customer ID, phone or email and password.",
+    instruction: "Use your phone number or Account Number and password.",
   },
   {
     key: "momo",

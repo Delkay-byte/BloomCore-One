@@ -88,6 +88,7 @@ export const dailyAccountSchema = z.object({
   totalCashReceived: positiveDecimal.optional(),
   totalCashPaid: positiveDecimal.optional(),
   commission: positiveDecimal,
+  debtsCollected: positiveDecimal.optional(),
   otherIncome: positiveDecimal.optional(),
   reconciliationNote: z.string().max(500).optional(),
   closingMomoFloat: positiveDecimal,

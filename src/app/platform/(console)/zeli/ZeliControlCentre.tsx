@@ -13,6 +13,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/useConfirm";
 import {
   getZeliPlatformOverview,
   getZeliTenantDetail,
@@ -51,6 +52,7 @@ export default function ZeliControlCentre({
   const [busy, setBusy] = useState<EntitlementAction | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const { confirm, confirmNode } = useConfirm();
 
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -98,11 +100,12 @@ export default function ZeliControlCentre({
     }
     if (
       (action === "revoke" || action === "suspend") &&
-      !window.confirm(
+      !(await confirm(
         `${
           action === "revoke" ? "Revoke" : "Suspend"
-        } Zeli Business Intelligence for ${detail.tenant.name}? Existing conversations remain available; the analytics workspace is closed immediately.`
-      )
+        } Zeli Business Intelligence for ${detail.tenant.name}? Existing conversations remain available; the analytics workspace is closed immediately.`,
+        { title: `${action === "revoke" ? "Revoke" : "Suspend"} Zeli access?` }
+      ))
     ) {
       return;
     }
@@ -475,6 +478,7 @@ export default function ZeliControlCentre({
           </ul>
         )}
       </section>
+      {confirmNode}
     </div>
   );
 }

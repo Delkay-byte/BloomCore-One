@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ConfirmDialog } from "@/components/ui/Modal";
 import {
   issueAccountRecoveryCode,
   resetAccountMfa,
@@ -25,6 +26,7 @@ export default function AdminRecoveryPanel() {
     requestId: string;
   } | null>(null);
   const [message, setMessage] = useState("");
+  const [mfaConfirmOpen, setMfaConfirmOpen] = useState(false);
 
   async function issue(e: React.FormEvent) {
     e.preventDefault();
@@ -51,11 +53,13 @@ export default function AdminRecoveryPanel() {
     setStepUpCode("");
   }
 
-  async function resetMfa(e: React.FormEvent) {
+  function resetMfa(e: React.FormEvent) {
     e.preventDefault();
-    if (!confirm("Reset MFA for this account? The user will enrol a new authenticator at next sign-in.")) {
-      return;
-    }
+    setMfaConfirmOpen(true);
+  }
+
+  async function performResetMfa() {
+    setMfaConfirmOpen(false);
     setBusy(true);
     setError("");
     setMessage("");
@@ -175,6 +179,19 @@ export default function AdminRecoveryPanel() {
           person&apos;s identity first (established phone number or in person).
         </p>
       </div>
+
+      <ConfirmDialog
+        open={mfaConfirmOpen}
+        onClose={() => {
+          if (!busy) setMfaConfirmOpen(false);
+        }}
+        onConfirm={performResetMfa}
+        title="Reset account MFA?"
+        description="The user will enrol a new authenticator at the next sign-in. Existing sessions are revoked."
+        confirmLabel="Reset MFA"
+        tone="danger"
+        loading={busy}
+      />
     </div>
   );
 }

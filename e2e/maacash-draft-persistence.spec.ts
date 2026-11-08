@@ -27,22 +27,20 @@ async function fillMoney(page: import("@playwright/test").Page, selector: string
 async function fillCompleteDraft(page: import("@playwright/test").Page) {
   await fillMoney(page, "#opening-cash", "77.25");
   await fillMoney(page, "#opening-float", "123.50");
-  await fillMoney(page, "#additional-cash", "10.00");
-  await fillMoney(page, "#additional-float", "20.50");
-  await fillMoney(page, "#customer-deposit", "30.75");
-  await fillMoney(page, "#cash-out", "5.25");
-  await fillMoney(page, "#airtime-sold", "2.50");
   await fillMoney(page, "#commission", "1.75");
+  await fillMoney(page, "#debts-collected", "10.00");
+  await fillMoney(page, "#expenses", "17.75");
   await fillMoney(page, "#closing-cash", "100.50");
   await fillMoney(page, "#closing-float", "50.25");
   await page.locator("#reconciliation-note").fill(
     "Short by GH₵0.50 — customer paid with a torn note. Follow up tomorrow."
   );
 
-  await page.getByRole("button", { name: /Add expense/ }).click();
+  await page.getByRole("button", { name: /Add expense details/ }).click();
+  await page.getByRole("button", { name: /Add line/ }).click();
   await page.locator("#expense-desc-0").fill("Transport — “trotro”");
   await page.locator("#expense-amount-0").fill("5.50");
-  await page.getByRole("button", { name: /Add expense/ }).click();
+  await page.getByRole("button", { name: /Add line/ }).click();
   await page.locator("#expense-desc-1").fill("Data & airtime, shop");
   await page.locator("#expense-amount-1").fill("12.25");
 }
@@ -53,7 +51,7 @@ test.describe("draft persistence", () => {
     await openDraft(page);
     await fillCompleteDraft(page);
 
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
       timeout: 30_000,
     });
@@ -64,31 +62,29 @@ test.describe("draft persistence", () => {
 
     await expect(page.locator("#opening-cash")).toHaveValue("77.25");
     await expect(page.locator("#opening-float")).toHaveValue("123.5");
-    await expect(page.locator("#additional-cash")).toHaveValue("10");
-    await expect(page.locator("#additional-float")).toHaveValue("20.5");
-    await expect(page.locator("#customer-deposit")).toHaveValue("30.75");
-    await expect(page.locator("#cash-out")).toHaveValue("5.25");
-    await expect(page.locator("#airtime-sold")).toHaveValue("2.5");
     await expect(page.locator("#commission")).toHaveValue("1.75");
+    await expect(page.locator("#debts-collected")).toHaveValue("10");
+    await expect(page.locator("#expenses")).toHaveValue("17.75");
     await expect(page.locator("#closing-cash")).toHaveValue("100.5");
     await expect(page.locator("#closing-float")).toHaveValue("50.25");
     await expect(page.locator("#reconciliation-note")).toHaveValue(
       /torn note/
     );
+    await page.getByRole("button", { name: /Add expense details/ }).click();
     await expect(page.locator("#expense-desc-0")).toHaveValue(/Transport/);
     await expect(page.locator("#expense-amount-0")).toHaveValue("5.5");
     await expect(page.locator("#expense-desc-1")).toHaveValue(/Data/);
     await expect(page.locator("#expense-amount-1")).toHaveValue("12.25");
 
     // Re-saving updates the same draft, not a duplicate record.
-    await fillMoney(page, "#cash-out", "6.00");
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await fillMoney(page, "#debts-collected", "6.00");
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
       timeout: 30_000,
     });
     await page.reload();
     await waitForHydration(page, "#opening-cash");
-    await expect(page.locator("#cash-out")).toHaveValue("6");
+    await expect(page.locator("#debts-collected")).toHaveValue("6");
   });
 
   test("unsaved input survives a refresh through the scoped local draft", async ({ page }) => {
@@ -119,12 +115,12 @@ test.describe("draft persistence", () => {
     // Take the browser offline: the server action never reaches the server.
     await context.setOffline(true);
 
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(
       page.getByText(/We couldn't save your draft/).first()
     ).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("#opening-cash")).toHaveValue("55.55");
-    await expect(page.getByRole("button", { name: "Save draft" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save as Draft" })).toBeEnabled();
 
     await context.setOffline(false);
     await page.getByRole("button", { name: /Retry save/ }).click();
@@ -138,19 +134,19 @@ test.describe("draft persistence", () => {
     await loginWorker(page);
     await openDraft(page);
 
-    await fillMoney(page, "#cash-out", "1");
-    await fillMoney(page, "#cash-out", "2");
-    await fillMoney(page, "#cash-out", "3");
+    await fillMoney(page, "#debts-collected", "1");
+    await fillMoney(page, "#debts-collected", "2");
+    await fillMoney(page, "#debts-collected", "3");
     await page.waitForTimeout(1_500);
 
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
       timeout: 30_000,
     });
 
     await page.reload();
     await waitForHydration(page, "#opening-cash");
-    await expect(page.locator("#cash-out")).toHaveValue("3");
+    await expect(page.locator("#debts-collected")).toHaveValue("3");
   });
 
   test("a draft cannot be opened from another tenant", async ({ page }) => {

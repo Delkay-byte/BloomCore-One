@@ -5,7 +5,7 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getDailyAccountById, reviewDailyAccount } from "@/lib/actions/daily-account.actions";
-import { calculateReconciliation, resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
+import { resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 
@@ -14,7 +14,7 @@ interface AccountDetail {
   openingMomoFloat: number; openingCash: number;
   additionalCashReceived: number; additionalMomoFloat: number;
   totalCashIn: number; totalCashOut: number; totalAirtimeSold: number;
-  commission: number; totalExpenses: number;
+  commission: number; debtsCollected: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
   reconciliationNote?: string | null;
@@ -55,19 +55,18 @@ export default function ReportDetailPage() {
 
   const stored = resolveStoredDifference(account);
   const difference = stored.difference;
-  const reconciled = calculateReconciliation({
-    openingMomoFloat: Number(account.openingMomoFloat),
-    openingCash: Number(account.openingCash),
-    additionalCashReceived: Number(account.additionalCashReceived),
-    additionalMomoFloat: Number(account.additionalMomoFloat),
-    customerDeposit: Number(account.totalCashIn),
-    cashOut: Number(account.totalCashOut),
-    airtimeSold: Number(account.totalAirtimeSold),
-    commission: Number(account.commission),
-    totalExpenses: Number(account.totalExpenses),
-    closingMomoFloat: Number(account.closingMomoFloat),
-    closingCash: Number(account.closingCash),
-  });
+  // Historical rows keep their stored difference. Deriving expected from
+  // actual minus the stored difference avoids recalculating an old record with
+  // the simplified formula.
+  const actualClosing =
+    Number(account.closingCash) + Number(account.closingMomoFloat);
+  const expectedClosing = actualClosing - difference;
+  const hasLegacyActivity =
+    Number(account.totalCashIn) !== 0 ||
+    Number(account.totalCashOut) !== 0 ||
+    Number(account.totalAirtimeSold) !== 0 ||
+    Number(account.additionalCashReceived) !== 0 ||
+    Number(account.additionalMomoFloat) !== 0;
   const differenceLabel = statusLabel(stored.status);
   const differenceTone =
     stored.status === "shortage" ? "text-red-600" : "text-green-600";
@@ -121,13 +120,23 @@ export default function ReportDetailPage() {
         <div className="card">
           <h3 className="font-semibold mb-4">Daily Business Totals</h3>
           <div className="space-y-2">
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Customer deposit (Cash in)</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashIn} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Cash out</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashOut} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Airtime sold</span><span className="font-mono text-sm"><CediAmount amount={account.totalAirtimeSold} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Additional cash received</span><span className="font-mono text-sm"><CediAmount amount={account.additionalCashReceived} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Additional MoMo float received</span><span className="font-mono text-sm"><CediAmount amount={account.additionalMomoFloat} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Commission earned</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
-            <div className="flex justify-between border-t pt-2"><span className="text-sm text-slate-600">Business expenses</span><span className="font-mono text-sm text-red-700"><CediAmount amount={account.totalExpenses} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Debts Collected</span><span className="font-mono text-sm"><CediAmount amount={account.debtsCollected} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Commission</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Expenses</span><span className="font-mono text-sm text-red-700"><CediAmount amount={account.totalExpenses} /></span></div>
+            {hasLegacyActivity && (
+              <details className="pt-2">
+                <summary className="cursor-pointer text-xs font-medium text-slate-500">
+                  Historical transaction totals (read-only legacy record)
+                </summary>
+                <div className="mt-2 space-y-2 border-t pt-2">
+                  <div className="flex justify-between"><span className="text-xs text-slate-500">Customer deposit (Cash in)</span><span className="font-mono text-xs"><CediAmount amount={account.totalCashIn} /></span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-500">Cash out</span><span className="font-mono text-xs"><CediAmount amount={account.totalCashOut} /></span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-500">Airtime sold</span><span className="font-mono text-xs"><CediAmount amount={account.totalAirtimeSold} /></span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-500">Additional cash received</span><span className="font-mono text-xs"><CediAmount amount={account.additionalCashReceived} /></span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-500">Additional MoMo float received</span><span className="font-mono text-xs"><CediAmount amount={account.additionalMomoFloat} /></span></div>
+                </div>
+              </details>
+            )}
           </div>
         </div>
 
@@ -136,12 +145,12 @@ export default function ReportDetailPage() {
           <div className="space-y-3">
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Expected closing accountability</div>
-              <div className="text-lg font-bold text-slate-900"><CediAmount amount={reconciled.expectedClosing} /></div>
-              <div className="text-xs text-slate-500 mt-1">Opening cash + float + additional funding + commission − expenses</div>
+              <div className="text-lg font-bold text-slate-900"><CediAmount amount={expectedClosing} /></div>
+              <div className="text-xs text-slate-500 mt-1">Opening cash + E-cash + debts collected + commission − expenses</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Actual closing accountability</div>
-              <div className="text-lg font-bold text-slate-900"><CediAmount amount={reconciled.actualClosing} /></div>
+              <div className="text-lg font-bold text-slate-900"><CediAmount amount={actualClosing} /></div>
               <div className="text-xs text-slate-500 mt-1">Closing cash + closing MoMo float</div>
             </div>
             <div className="border-t pt-3">

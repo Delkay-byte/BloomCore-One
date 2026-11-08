@@ -33,9 +33,9 @@ test.describe("Platform Zeli control centre", () => {
     const history = page.getByTestId("zeli-entitlement-panel");
     await expect(history.getByText("approved paid pilot", { exact: false })).toBeVisible();
 
-    page.once("dialog", (dialog) => dialog.accept());
     await history.locator("textarea").first().fill("Pilot ended and access must close immediately");
     await history.getByRole("button", { name: "Revoke", exact: true }).click();
+    await page.getByRole("dialog", { name: "Revoke Zeli access?" }).getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByText("Entitlement revoke recorded.")).toBeVisible();
     await expect(history.getByText("revoked", { exact: true }).first()).toBeVisible();
   });
@@ -72,8 +72,11 @@ test.describe("Platform Zeli commerce and provider controls", () => {
     const panel = page.getByTestId("provider-control");
     await panel.locator("textarea").first().fill("E2E immediate external AI stop");
     // The emergency stop is deliberately confirmed before it latches.
-    page.once("dialog", (dialog) => dialog.accept());
     await panel.getByRole("button", { name: "Emergency stop", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Activate emergency stop?" })
+      .getByRole("button", { name: "Activate stop" })
+      .click();
     // The notice renders outside the control section, next to the page-level
     // error/notice region.
     await expect(page.getByText("Provider control updated.")).toBeVisible();
@@ -104,8 +107,11 @@ test.describe("Global Zeli availability master switch", () => {
     const panel = page.getByTestId("zeli-availability");
     await expect(panel.getByText("Global Zeli Availability")).toBeVisible();
     await panel.locator("textarea").fill("E2E entire Zeli maintenance window");
-    page.once("dialog", (dialog) => dialog.accept());
     await panel.getByRole("button", { name: "Disable Zeli" }).click();
+    await page
+      .getByRole("dialog", { name: "Disable Zeli globally?" })
+      .getByRole("button", { name: "Confirm" })
+      .click();
     await expect(panel.getByText("ZELI OFF")).toBeVisible();
 
     // Tenant-facing surfaces are unavailable while platform controls remain.
@@ -136,8 +142,11 @@ test.describe("Global Zeli availability master switch", () => {
     const panelAgain = page.getByTestId("zeli-availability");
     await expect(panelAgain.getByText("ZELI OFF")).toBeVisible();
     await panelAgain.locator("textarea").fill("E2E maintenance complete and verified");
-    page.once("dialog", (dialog) => dialog.accept());
     await panelAgain.getByRole("button", { name: "Enable Zeli" }).click();
+    await page
+      .getByRole("dialog", { name: "Enable Zeli globally?" })
+      .getByRole("button", { name: "Confirm" })
+      .click();
     await expect(panelAgain.getByText("ZELI ON")).toBeVisible();
   });
 });

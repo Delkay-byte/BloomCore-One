@@ -215,6 +215,126 @@ export async function updateStaff(
   return { success: true, data: user };
 }
 
+/**
+ * Grant or remove one module capability on the SAME staff identity.
+ *
+ * Promoting an existing MoMo agent to Susu collector never creates a second
+ * user, never changes the password hash and never removes MoMo access. The
+ * Collector record is linked to the existing User row. Disabling one module
+ * deactivates only that module's record and leaves the other intact.
+ */
+export async function setStaffModuleCapability(
+  staffId: string,
+  module: "momo" | "susu",
+  enabled: boolean,
+  locationId?: string
+): Promise<ActionResponse> {
+  const ctx = await requireStaffAdmin();
+
+  if (enabled) {
+    if (module === "momo" && !ctx.momoEnabled) {
+      return {
+        success: false,
+        error: "This business is not enrolled for the MoMo module.",
+      };
+    }
+    if (module === "susu" && !ctx.susuEnabled) {
+      return {
+        success: false,
+        error: "This business is not enrolled for the Susu module.",
+      };
+    }
+  }
+
+  const target = await db.user.findFirst({
+    where: { id: staffId, tenantId: ctx.tenantId },
+  });
+  if (!target || !["worker", "collector"].includes(target.role)) {
+    return { success: false, error: "Staff member not found" };
+  }
+
+  if (module === "momo") {
+    if (enabled) {
+      if (!locationId) {
+        return {
+          success: false,
+          error: "Assign a MoMo location before enabling this module.",
+        };
+      }
+      if (!(await assertTenantEntity("location", locationId, ctx))) {
+        return { success: false, error: "Selected location is not available" };
+      }
+    }
+
+    if (target.momoEnabled === enabled) {
+      return { success: true };
+    }
+
+    await db.user.update({
+      where: { id: staffId },
+      data: {
+        momoEnabled: enabled,
+        ...(enabled ? { locationId } : {}),
+        tokenVersion: { increment: 1 },
+      },
+    });
+  } else {
+    if (target.susuEnabled === enabled) {
+      return { success: true };
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: staffId },
+        data: {
+          susuEnabled: enabled,
+          tokenVersion: { increment: 1 },
+        },
+      });
+
+      const existing = await tx.collector.findFirst({
+        where: { userId: staffId, tenantId: ctx.tenantId },
+      });
+      if (existing) {
+        // Never delete the collector or its assignments. Deactivation keeps
+        // contribution and remittance history intact.
+        await tx.collector.update({
+          where: { id: existing.id },
+          data: { status: enabled ? "active" : "inactive" },
+        });
+      } else if (enabled) {
+        await tx.collector.create({
+          data: {
+            tenantId: ctx.tenantId,
+            userId: staffId,
+            status: "active",
+          },
+        });
+      }
+    });
+  }
+
+  await createAuditLog({
+    userId: ctx.userId,
+    action: "user.module_assignment_changed",
+    entityType: "user",
+    entityId: staffId,
+    details: {
+      module,
+      enabled,
+      identityPreserved: true,
+      passwordPreserved: true,
+      ...(locationId && module === "momo" ? { locationId } : {}),
+    },
+  });
+
+  revalidatePath("/admin/staff");
+  revalidatePath(`/admin/staff/${staffId}`);
+  revalidatePath("/susu/admin/collectors");
+  revalidatePath("/admin/workers");
+  return { success: true };
+}
+
 export async function toggleStaffStatus(
   staffId: string,
   newStatus: string

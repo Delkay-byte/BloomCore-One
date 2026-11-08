@@ -12,6 +12,8 @@ import { useObjectDraft } from "@/hooks/useObjectDraft";
 import DraftIndicator from "@/components/DraftIndicator";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import SmartSearch from "@/components/SmartSearch";
+import { PromptDialog } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 interface Contribution {
   id: string;
@@ -76,6 +78,11 @@ export default function SusuContributionsPage() {
   const [receivedByName, setReceivedByName] = useState("");
   const [recordedById, setRecordedById] = useState("");
   const [recordedByName, setRecordedByName] = useState("");
+  const [reverseTarget, setReverseTarget] = useState<Contribution | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reverseBusy, setReverseBusy] = useState(false);
+  const [reverseError, setReverseError] = useState("");
+  const toast = useToast();
   // Reused across retries so a timed-out request cannot record twice.
   const contributionKeyRef = useRef<string | null>(null);
 
@@ -104,18 +111,39 @@ export default function SusuContributionsPage() {
     },
   });
 
-  async function handleReverse(c: Contribution) {
-    const reason = window.prompt(
-      "Reason for reversing this contribution (minimum 10 characters). The original entry is kept and a negative reversal entry is posted."
-    );
-    if (!reason) return;
-    const result = await reverseContribution({ contributionId: c.id, reason });
-    if (!result.success) {
-      setError(result.error || "Reversal failed");
+  function handleReverse(c: Contribution) {
+    setReverseTarget(c);
+    setReverseReason("");
+    setReverseError("");
+  }
+
+  async function submitReverse() {
+    if (!reverseTarget || reverseBusy) return;
+    if (reverseReason.trim().length < 10) {
+      setReverseError("Enter a reversal reason of at least 10 characters.");
       return;
     }
-    setSuccess("Contribution reversed. The original entry and the reversal are both in the audit trail.");
-    loadContributions();
+    setReverseBusy(true);
+    setReverseError("");
+    try {
+      const result = await reverseContribution({
+        contributionId: reverseTarget.id,
+        reason: reverseReason.trim(),
+      });
+      if (!result.success) {
+        setReverseError(result.error || "The contribution could not be reversed.");
+        return;
+      }
+      setSuccess("Contribution reversed. The original entry and the reversal are both in the audit trail.");
+      toast.push("success", "Contribution reversed successfully.");
+      setReverseTarget(null);
+      setReverseReason("");
+      await loadContributions();
+    } catch {
+      setReverseError("The contribution could not be reversed. Please try again.");
+    } finally {
+      setReverseBusy(false);
+    }
   }
 
   // Load current user and prefill Recorded By with the authenticated staff.
@@ -277,7 +305,7 @@ export default function SusuContributionsPage() {
     const headers = [
       "Date",
       "Customer",
-      "Customer ID",
+      "Account Number",
       "Account ID",
       "Amount",
       "Days Covered",
@@ -373,7 +401,7 @@ export default function SusuContributionsPage() {
                   >
                     <div className="font-medium text-sm">{c.fullName}</div>
                     <div className="text-xs text-slate-500">
-                      {c.customerId} &bull; {c.accounts[0]?.accountId} &bull;{" "}
+                      Account Number: {c.customerId} &bull;{" "}
                       <CediAmount amount={c.accounts[0]?.dailyContribution || 0} />/day
                     </div>
                   </button>
@@ -386,7 +414,7 @@ export default function SusuContributionsPage() {
             <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
               <div className="font-medium">{selectedCustomer.fullName}</div>
               <div className="text-sm text-slate-600">
-                Account: {selectedCustomer.accounts[0]?.accountId} &bull; Daily:{" "}
+                Account Number: {selectedCustomer.customerId} &bull; Daily:{" "}
                 <CediAmount amount={selectedCustomer.accounts[0]?.dailyContribution || 0} />/day
               </div>
             </div>
@@ -650,6 +678,25 @@ export default function SusuContributionsPage() {
           </>
         )}
       </div>
+
+      <PromptDialog
+        open={Boolean(reverseTarget)}
+        onClose={() => {
+          if (!reverseBusy) setReverseTarget(null);
+        }}
+        onSubmit={submitReverse}
+        title="Reverse this contribution?"
+        description="The original entry is kept and a negative reversal entry is posted to the audit trail."
+        label="Reason for reversal (minimum 10 characters)"
+        placeholder="Explain what was wrong and what evidence supports the reversal."
+        confirmLabel="Reverse contribution"
+        required
+        loading={reverseBusy}
+        value={reverseReason}
+        onChange={setReverseReason}
+        error={reverseError}
+        multiline
+      />
     </div>
   );
 }

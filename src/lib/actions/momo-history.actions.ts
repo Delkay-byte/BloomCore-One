@@ -24,6 +24,7 @@ export interface MoMoHistorySummary {
   totalCashOut: number;
   totalAirtimeSold: number;
   totalAdditionalFunding: number;
+  totalDebtsCollected: number;
   totalExpenses: number;
   totalCommission: number;
   totalMomoAdded: number;
@@ -214,6 +215,19 @@ export async function getMoMoHistory(params?: {
       }
     }
 
+    // Debts collected — money previously owed to the agent. Counted once.
+    if (!type || type === "debts_collected") {
+      if (Number(account.debtsCollected) > 0) {
+        records.push({
+          ...base,
+          id: `${account.id}-debts`,
+          type: "Debts Collected",
+          amount: Number(account.debtsCollected),
+          notes: "Money collected from people who previously owed the agent",
+        });
+      }
+    }
+
     // Commission
     if (!type || type === "commission") {
       if (Number(account.commission) > 0) {
@@ -272,6 +286,10 @@ export async function getMoMoHistory(params?: {
     totalAirtimeSold: allAccounts.reduce((sum, a) => sum + Number(a.totalAirtimeSold), 0),
     totalAdditionalFunding: allAccounts.reduce(
       (sum, a) => sum + Number(a.additionalCashReceived) + Number(a.additionalMomoFloat),
+      0
+    ),
+    totalDebtsCollected: allAccounts.reduce(
+      (sum, a) => sum + Number(a.debtsCollected),
       0
     ),
     totalExpenses: allAccounts.reduce((sum, a) => sum + Number(a.totalExpenses), 0),

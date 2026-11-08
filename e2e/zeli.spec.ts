@@ -68,13 +68,18 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
       timeout: 30_000,
     });
 
-    page.once("dialog", (dialog) => dialog.accept("Renamed analytics chat"));
     await page.getByRole("button", { name: /^Rename / }).first().click();
+    const renameDialog = page.getByRole("dialog", { name: "Rename conversation" });
+    await expect(renameDialog).toBeVisible();
+    await renameDialog.getByLabel("Conversation title").fill("Renamed analytics chat");
+    await renameDialog.getByRole("button", { name: "Save title" }).click();
     await expect(page.getByText("Renamed analytics chat").first()).toBeVisible();
 
     const renamedItem = page.locator("aside li").filter({ hasText: "Renamed analytics chat" });
-    page.once("dialog", (dialog) => dialog.accept());
     await renamedItem.getByRole("button", { name: /^Delete / }).click();
+    const deleteDialog = page.getByRole("dialog", { name: "Delete this conversation?" });
+    await expect(deleteDialog).toBeVisible();
+    await deleteDialog.getByRole("button", { name: "Delete conversation" }).click();
     await expect(page.locator("aside").getByText("Renamed analytics chat")).toHaveCount(0);
   });
 

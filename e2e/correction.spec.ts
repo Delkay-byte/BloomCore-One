@@ -11,11 +11,11 @@ test.describe("Daily-account correction screen", () => {
     await expect(page.getByText("Original:", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("Revision history (0)")).toBeVisible();
 
-    const cashIn = page.getByLabel("Customer deposit");
-    await cashIn.fill("250");
+    const debts = page.getByLabel("Debts Collected");
+    await debts.fill("250");
     await page
       .getByRole("textbox", { name: /Correction reason/ })
-      .fill("Cash-in figure omitted from the original submission");
+      .fill("Debts collected figure omitted from the original submission");
     await page.getByRole("button", { name: "Save correction" }).click();
     // Confirmation is mandatory.
     await expect(
@@ -29,7 +29,7 @@ test.describe("Daily-account correction screen", () => {
     ).toBeVisible({ timeout: 20_000 });
     await page.reload();
     await expect(page.getByText("Revision history (1)")).toBeVisible();
-    await expect(page.getByText("Cash-in figure omitted", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Debts collected figure omitted", { exact: false }).first()).toBeVisible();
   });
 
   test("denies a tenant administrator from another business", async ({ page }) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useConfirm } from "@/components/ui/useConfirm";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -145,6 +146,7 @@ export default function ZeliAdminControlCentre({
     state.teamMembers[0]?.id ?? ""
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const { confirm, confirmNode } = useConfirm();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [probe, setProbe] = useState<{
@@ -200,11 +202,12 @@ export default function ZeliAdminControlCentre({
       return;
     }
     if (
-      !window.confirm(
+      !(await confirm(
         enabled
           ? "Enable Zeli for every tenant? This does not enable external AI."
-          : "Disable all tenant-facing Zeli features immediately? Data and subscriptions are preserved."
-      )
+          : "Disable all tenant-facing Zeli features immediately? Data and subscriptions are preserved.",
+        { title: enabled ? "Enable Zeli globally?" : "Disable Zeli globally?" }
+      ))
     ) {
       return;
     }
@@ -237,9 +240,10 @@ export default function ZeliAdminControlCentre({
     const mode = selectedMode as "disabled" | "synthetic" | "team_testing";
     if (mode === "team_testing") {
       if (
-        !window.confirm(
-          "Enable Team Testing? Authorised team members will be able to send messages to the live DeepSeek API. Synthetic data only; no live business records are sent."
-        )
+        !(await confirm(
+          "Enable Team Testing? Authorised team members will be able to send messages to the live DeepSeek API. Synthetic data only; no live business records are sent.",
+          { title: "Enable Team Testing?" }
+        ))
       ) {
         return;
       }
@@ -280,11 +284,12 @@ export default function ZeliAdminControlCentre({
       return;
     }
     if (
-      !window.confirm(
+      !(await confirm(
         enabled
           ? "Grant this member access to live DeepSeek Team Testing? They must accept the synthetic-data disclosure before their first conversation."
-          : "Revoke this member's Team Testing access immediately?"
-      )
+          : "Revoke this member's Team Testing access immediately?",
+        { title: enabled ? "Grant Team Testing access?" : "Revoke Team Testing access?" }
+      ))
     ) {
       return;
     }
@@ -551,13 +556,19 @@ export default function ZeliAdminControlCentre({
             type="button"
             className="btn btn-secondary btn-sm"
             disabled={busy !== null}
-            onClick={() => {
+            onClick={async () => {
               clearMessages();
               if (aiReason.trim().length < 10) {
                 setError("Enter a reason of at least 10 characters.");
                 return;
               }
-              if (!window.confirm("Activate the emergency stop? All external AI calls stop immediately.")) return;
+              if (
+                !(await confirm("Activate the emergency stop? All external AI calls stop immediately.", {
+                  title: "Activate emergency stop?",
+                  confirmLabel: "Activate stop",
+                }))
+              )
+                return;
               void run(
                 "emergency",
                 () => emergencyDisableZeliProvider(aiReason),
@@ -572,13 +583,19 @@ export default function ZeliAdminControlCentre({
               type="button"
               className="btn btn-secondary btn-sm"
               disabled={busy !== null}
-              onClick={() => {
+              onClick={async () => {
                 clearMessages();
                 if (aiReason.trim().length < 10) {
                   setError("Enter a reason of at least 10 characters.");
                   return;
                 }
-                if (!window.confirm("Clear the emergency stop? This does not enable any mode.")) return;
+                if (
+                  !(await confirm("Clear the emergency stop? This does not enable any mode.", {
+                    title: "Clear emergency stop?",
+                    confirmLabel: "Clear stop",
+                  }))
+                )
+                  return;
                 void run(
                   "clear-stop",
                   () => clearZeliProviderEmergencyStop(aiReason),
@@ -841,6 +858,7 @@ export default function ZeliAdminControlCentre({
           {notice}
         </p>
       )}
+      {confirmNode}
     </div>
   );
 }

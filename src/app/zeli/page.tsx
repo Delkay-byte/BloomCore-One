@@ -29,6 +29,8 @@ import {
 } from "@/lib/actions/zeli.actions";
 import { acceptZeliTeamDisclosure } from "@/lib/actions/zeli-team.actions";
 import { AppBrand } from "@/components/brand/AppBrand";
+import Modal, { ConfirmDialog } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 interface Conversation {
   id: string;
@@ -74,6 +76,13 @@ export default function ZeliPage() {
     };
   } | null>(null);
   const [acceptingDisclosure, setAcceptingDisclosure] = useState(false);
+  const [showAgreement, setShowAgreement] = useState(false);
+  const [agreementChecked, setAgreementChecked] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const toast = useToast();
   const [environment, setEnvironment] = useState<"staging" | "production">("production");
   const [acceptanceMode, setAcceptanceMode] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -144,14 +153,14 @@ export default function ZeliPage() {
     setError("");
   }
 
-  async function acceptDisclosure() {
+  async function acceptDisclosure(): Promise<boolean> {
     setAcceptingDisclosure(true);
     setError("");
     try {
       const result = await acceptZeliTeamDisclosure();
       if (!result.success) {
         setError(result.error ?? "The disclosure could not be accepted.");
-        return;
+        return false;
       }
       setStatus((current) =>
         current
@@ -163,8 +172,70 @@ export default function ZeliPage() {
             }
           : current
       );
+      toast.push("success", "Zeli Usage Agreement accepted.");
+      return true;
+    } catch {
+      setError("The agreement could not be accepted. Please try again.");
+      return false;
     } finally {
       setAcceptingDisclosure(false);
+    }
+  }
+
+  async function handleAcceptAgreement() {
+    if (!agreementChecked || acceptingDisclosure) return;
+    const accepted = await acceptDisclosure();
+    if (accepted) {
+      setShowAgreement(false);
+      setAgreementChecked(false);
+    }
+  }
+
+  async function submitRename() {
+    if (!renameTarget || dialogBusy) return;
+    const title = renameValue.trim();
+    if (!title) {
+      setError("Enter a conversation title.");
+      return;
+    }
+    setDialogBusy(true);
+    try {
+      const result = await renameZeliConversation(renameTarget.id, title);
+      if (result.success) {
+        await refreshConversations();
+        toast.push("success", "Conversation renamed.");
+        setRenameTarget(null);
+      } else {
+        setError(result.error ?? "Could not rename the conversation.");
+      }
+    } catch {
+      setError("Could not rename the conversation. Please try again.");
+    } finally {
+      setDialogBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || dialogBusy) return;
+    setDialogBusy(true);
+    try {
+      const result = await deleteZeliConversation(deleteTarget.id);
+      if (!result.success) {
+        setError(result.error ?? "Could not delete the conversation.");
+        return;
+      }
+      const remaining = conversations.filter((item) => item.id !== deleteTarget.id);
+      setConversations(remaining);
+      toast.push("success", "Conversation deleted.");
+      if (selected === deleteTarget.id) {
+        if (remaining[0]) await loadConversation(remaining[0].id);
+        else await newConversation();
+      }
+      setDeleteTarget(null);
+    } catch {
+      setError("Could not delete the conversation. Please try again.");
+    } finally {
+      setDialogBusy(false);
     }
   }
 
@@ -279,27 +350,13 @@ export default function ZeliPage() {
     }
   }
 
-  async function rename(conversation: Conversation) {
-    const title = window.prompt("Rename conversation", conversation.title);
-    if (!title) return;
-    const result = await renameZeliConversation(conversation.id, title);
-    if (result.success) await refreshConversations();
-    else setError(result.error ?? "Could not rename the conversation.");
+  function openRename(conversation: Conversation) {
+    setRenameTarget(conversation);
+    setRenameValue(conversation.title);
   }
 
-  async function remove(conversation: Conversation) {
-    if (!window.confirm("Delete this conversation permanently?")) return;
-    const result = await deleteZeliConversation(conversation.id);
-    if (!result.success) {
-      setError(result.error ?? "Could not delete the conversation.");
-      return;
-    }
-    const remaining = conversations.filter((item) => item.id !== conversation.id);
-    setConversations(remaining);
-    if (selected === conversation.id) {
-      if (remaining[0]) await loadConversation(remaining[0].id);
-      else await newConversation();
-    }
+  function openDelete(conversation: Conversation) {
+    setDeleteTarget(conversation);
   }
 
   return (
@@ -368,10 +425,9 @@ export default function ZeliPage() {
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
-                  onClick={acceptDisclosure}
-                  disabled={acceptingDisclosure}
+                  onClick={() => setShowAgreement(true)}
                 >
-                  {acceptingDisclosure ? "Saving acceptance…" : "Accept disclosure"}
+                  Read and accept agreement
                 </button>
               </div>
             )}
@@ -440,7 +496,7 @@ export default function ZeliPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => rename(conversation)}
+                  onClick={() => openRename(conversation)}
                   className="rounded p-1 text-slate-400 hover:text-brand-700"
                   aria-label={`Rename ${conversation.title}`}
                 >
@@ -448,7 +504,7 @@ export default function ZeliPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => remove(conversation)}
+                  onClick={() => openDelete(conversation)}
                   className="rounded p-1 text-slate-400 hover:text-red-700"
                   aria-label={`Delete ${conversation.title}`}
                 >
@@ -478,7 +534,10 @@ export default function ZeliPage() {
             </select>
             <button
               type="button"
-              onClick={() => selected && remove(conversations.find((item) => item.id === selected) ?? conversations[0])}
+              onClick={() => {
+                const current = conversations.find((item) => item.id === selected);
+                if (current) openDelete(current);
+              }}
               className="btn btn-secondary btn-sm"
               aria-label="Delete current conversation"
               disabled={!selected}
@@ -662,6 +721,134 @@ export default function ZeliPage() {
           </form>
         </main>
       </div>
+
+      <Modal
+        open={showAgreement}
+        onClose={() => {
+          if (!acceptingDisclosure) {
+            setShowAgreement(false);
+            setAgreementChecked(false);
+          }
+        }}
+        title="Zeli Usage Agreement"
+        description="Read the agreement before using Zeli with an external AI provider."
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowAgreement(false);
+                setAgreementChecked(false);
+              }}
+              disabled={acceptingDisclosure}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleAcceptAgreement}
+              disabled={!agreementChecked || acceptingDisclosure}
+              aria-busy={acceptingDisclosure}
+            >
+              {acceptingDisclosure ? "Saving acceptance…" : "Accept and Continue"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">
+            <p className="font-semibold">Team Testing — external AI</p>
+            <p className="mt-1">
+              Messages sent in this mode may be processed by the approved external
+              provider. Use fictional business, customer and payment examples only.
+            </p>
+          </div>
+          <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
+            <li>Do not enter real customer names, phone numbers, account numbers, balances or transaction records.</li>
+            <li>Zeli can explain business figures, but it cannot create, approve, reverse or delete records.</li>
+            <li>Financial answers are calculated inside MaaCash; the external provider is never authoritative.</li>
+            <li>You may stop using Zeli at any time. Acceptance is recorded against your account.</li>
+          </ul>
+          <p className="text-xs text-slate-500">
+            Disclosure version {status?.conversation?.teamDisclosureVersion ?? "team"}.
+            Accepting means you understand these conditions and agree to use only
+            synthetic data in this mode.
+          </p>
+          <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={agreementChecked}
+              onChange={(event) => setAgreementChecked(event.target.checked)}
+            />
+            <span>I have read and accept the Zeli Usage Agreement.</span>
+          </label>
+          {error && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(renameTarget)}
+        onClose={() => {
+          if (!dialogBusy) setRenameTarget(null);
+        }}
+        title="Rename conversation"
+        description="Give this conversation a short, recognisable title."
+        size="sm"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setRenameTarget(null)}
+              disabled={dialogBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={submitRename}
+              disabled={dialogBusy || !renameValue.trim()}
+              aria-busy={dialogBusy}
+            >
+              {dialogBusy ? "Saving…" : "Save title"}
+            </button>
+          </>
+        }
+      >
+        <label className="block text-sm">
+          <span className="font-medium text-slate-700">Conversation title</span>
+          <input
+            type="text"
+            className="mt-1 w-full"
+            maxLength={120}
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            autoFocus
+          />
+        </label>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => {
+          if (!dialogBusy) setDeleteTarget(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete this conversation?"
+        description="This conversation and its messages will be permanently removed. This cannot be undone."
+        confirmLabel="Delete conversation"
+        tone="danger"
+        loading={dialogBusy}
+      />
     </div>
   );
 }

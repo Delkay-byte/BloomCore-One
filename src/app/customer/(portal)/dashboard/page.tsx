@@ -249,7 +249,7 @@ export default function CustomerDashboardPage() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
-            <div className="text-slate-500">Customer ID</div>
+            <div className="text-slate-500">Account Number</div>
             <div className="font-mono font-semibold">{customer.customerId}</div>
           </div>
           <div>

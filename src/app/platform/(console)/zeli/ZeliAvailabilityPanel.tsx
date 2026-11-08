@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Power, ShieldAlert, ShieldCheck } from "lucide-react";
 import { setZeliAvailability } from "@/lib/actions/zeli-availability.actions";
 import { formatDateTime } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/useConfirm";
 
 interface AvailabilityState {
   enabled: boolean;
@@ -26,6 +27,7 @@ export default function ZeliAvailabilityPanel({
   const [busy, setBusy] = useState<"on" | "off" | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const { confirm, confirmNode } = useConfirm();
 
   async function change(enabled: boolean) {
     setError("");
@@ -34,10 +36,11 @@ export default function ZeliAvailabilityPanel({
       setError("Enter a reason of at least 10 characters.");
       return;
     }
-    const confirmation = window.confirm(
+    const confirmation = await confirm(
       enabled
         ? "Enable Zeli for every tenant? Existing subscriptions and data are unchanged."
-        : "Disable all tenant-facing Zeli features immediately? Conversations, analytics, subscriptions and payments are preserved, but users cannot use Zeli until it is re-enabled."
+        : "Disable all tenant-facing Zeli features immediately? Conversations, analytics, subscriptions and payments are preserved, but users cannot use Zeli until it is re-enabled.",
+      { title: enabled ? "Enable Zeli globally?" : "Disable Zeli globally?" }
     );
     if (!confirmation) return;
     setBusy(enabled ? "on" : "off");
@@ -148,6 +151,7 @@ export default function ZeliAvailabilityPanel({
 
       {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{error}</p>}
       {notice && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">{notice}</p>}
+      {confirmNode}
     </section>
   );
 }

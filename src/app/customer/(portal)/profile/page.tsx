@@ -131,7 +131,7 @@ export default function CustomerProfilePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Customer ID
+              Account Number
             </label>
             <p className="text-slate-900 mt-1 font-mono font-medium">{customer.customerId}</p>
           </div>
@@ -176,9 +176,16 @@ export default function CustomerProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div className="bg-white border border-slate-200 rounded-lg p-4">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Account Number
+                Savings Plan
               </label>
-              <p className="text-slate-900 mt-1 font-mono font-semibold text-lg">{account.accountId}</p>
+              <p className="text-slate-900 mt-1 font-semibold text-lg capitalize">
+                {account.dailyContribution > 0
+                  ? `GH₵${account.dailyContribution.toLocaleString("en-GH", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} daily`
+                  : account.status}
+              </p>
             </div>
             <div className="bg-white border border-slate-200 rounded-lg p-4">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

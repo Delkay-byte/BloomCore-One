@@ -17,7 +17,7 @@ interface Account {
   openingMomoFloat: number; openingCash: number;
   additionalCashReceived: number; additionalMomoFloat: number;
   totalCashIn: number; totalCashOut: number; totalAirtimeSold: number;
-  commission: number; totalExpenses: number;
+  commission: number; debtsCollected: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
   calculatedMomoVariance?: number; calculatedCashVariance?: number;
@@ -59,12 +59,13 @@ export default function ReportsPage() {
 
   function handleExportCSV() {
     if (accounts.length === 0) return;
-    // Approved business terminology. "Cash paid out" is retired: Cash out is
-    // the single record of cash paid to customers.
-    const headers = ["Date","Location","Worker","Status","Opening MoMo","Opening Cash","Customer deposit","Cash out","Airtime sold","Additional cash","Additional float","Commission","Expenses","Closing MoMo","Closing Cash","Difference","Difference status"];
+    // Simplified closing fields. Historical records keep their stored
+    // difference; no historical row is recalculated during export.
+    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Closing Physical Cash","Closing E-cash","Actual Closing Accountability","Difference","Difference status"];
     const rows = accounts.map((a) => {
       const stored = resolveStoredDifference(a);
-      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingMomoFloat, a.openingCash, a.totalCashIn, a.totalCashOut, a.totalAirtimeSold, a.additionalCashReceived, a.additionalMomoFloat, a.commission, a.totalExpenses, a.closingMomoFloat, a.closingCash, stored.difference, stored.status];
+      const actual = Number(a.closingCash) + Number(a.closingMomoFloat);
+      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status];
     });
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -97,7 +98,7 @@ export default function ReportsPage() {
           <>
             <div className="table-container">
               <table>
-                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Customer deposit</th><th className="text-right">Cash out</th><th className="text-right">Airtime sold</th><th className="text-right">Difference</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Opening</th><th className="text-right">Debts Collected</th><th className="text-right">Commission</th><th className="text-right">Expenses</th><th className="text-right">Actual closing</th><th className="text-right">Difference</th><th></th></tr></thead>
                 <tbody>
                   {accounts.map((account) => {
                     const stored = resolveStoredDifference(account);
@@ -118,9 +119,15 @@ export default function ReportsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashIn} /></td>
-                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashOut} /></td>
-                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalAirtimeSold} /></td>
+                      <td className="text-right font-mono text-sm">
+                        <CediAmount amount={Number(account.openingCash) + Number(account.openingMomoFloat)} />
+                      </td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.debtsCollected} /></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.commission} /></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalExpenses} /></td>
+                      <td className="text-right font-mono text-sm">
+                        <CediAmount amount={Number(account.closingCash) + Number(account.closingMomoFloat)} />
+                      </td>
                       <td className="text-right font-mono text-sm">
                         <span className={stored.status === "shortage" ? "text-red-600" : "text-green-600"}>
                           <CediAmount amount={stored.difference} showSign />

@@ -17,7 +17,7 @@ import FilterChips from "@/components/ui/FilterChips";
 import { NoResults, PageHeader } from "@/components/ui/DataDisplay";
 import { Download, X } from "lucide-react";
 
-type TransactionType = "" | "cash_in" | "cash_out" | "airtime" | "additional_funding" | "momo_added" | "momo_paid" | "commission" | "expenses" | "reconciliation";
+type TransactionType = "" | "debts_collected" | "cash_in" | "cash_out" | "airtime" | "additional_funding" | "momo_added" | "momo_paid" | "commission" | "expenses" | "reconciliation";
 type DatePreset = "" | "today" | "yesterday" | "24h" | "48h" | "7d" | "30d" | "custom";
 
 const DATE_PRESETS: { value: DatePreset; label: string }[] = [
@@ -33,7 +33,8 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
 
 const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
   { value: "", label: "All Types" },
-  { value: "cash_in", label: "Customer deposit (Cash in)" },
+  { value: "debts_collected", label: "Debts Collected" },
+  { value: "cash_in", label: "Customer deposit (Cash in) — historical" },
   { value: "cash_out", label: "Cash out" },
   { value: "airtime", label: "Airtime sold" },
   { value: "additional_funding", label: "Additional funding" },
@@ -150,6 +151,7 @@ export default function MoMoHistoryPage() {
 
   function getTypeBadge(type: string) {
     switch (type) {
+      case "Debts Collected": return <span className="badge badge-green">Debts Collected</span>;
       case "Customer deposit": return <span className="badge badge-green">Customer deposit</span>;
       case "Cash out": return <span className="badge badge-red">Cash out</span>;
       case "Airtime sold": return <span className="badge badge-blue">Airtime sold</span>;
@@ -168,7 +170,7 @@ export default function MoMoHistoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="MoMo Money & History"
-        description="Customer deposits, cash out, airtime and reconciliation records across dates. Filter, inspect and export."
+        description="Debts collected, commission, expenses and reconciliation records across dates. Historical customer transaction totals remain readable."
         actions={
           <button onClick={handleExportCSV} className="btn btn-secondary" disabled={records.length === 0}>
             <Download size={15} aria-hidden /> Export CSV
@@ -186,14 +188,12 @@ export default function MoMoHistoryPage() {
       {/* Summary - reconciles exactly with the filtered records */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard label="Customer deposit (Cash in)" amount={summary.totalCashIn} tone="text-emerald-700" />
-          <SummaryCard label="Cash out" amount={summary.totalCashOut} tone="text-red-700" />
-          <SummaryCard label="Airtime sold" amount={summary.totalAirtimeSold} />
-          <SummaryCard label="Additional funding" amount={summary.totalAdditionalFunding} />
-          <SummaryCard label="MoMo float increase" amount={summary.totalMomoAdded} />
-          <SummaryCard label="MoMo float decrease" amount={summary.totalMomoPaid} />
-          <SummaryCard label="Business expenses" amount={summary.totalExpenses} tone="text-red-700" />
-          <SummaryCard label="Commission earned" amount={summary.totalCommission} tone="text-emerald-700" />
+          <SummaryCard label="Debts Collected" amount={summary.totalDebtsCollected} tone="text-emerald-700" />
+          <SummaryCard label="Commission" amount={summary.totalCommission} tone="text-emerald-700" />
+          <SummaryCard label="Expenses" amount={summary.totalExpenses} tone="text-red-700" />
+          <SummaryCard label="Historical customer deposits" amount={summary.totalCashIn} />
+          <SummaryCard label="Historical cash out" amount={summary.totalCashOut} />
+          <SummaryCard label="Historical airtime" amount={summary.totalAirtimeSold} />
           <SummaryCard
             label="Combined difference"
             amount={summary.totalDifference}
