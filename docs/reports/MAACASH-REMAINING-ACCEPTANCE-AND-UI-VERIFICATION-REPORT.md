@@ -4,8 +4,10 @@ Date: 2026-11-08
 Repository: `Delkay-byte/BloomCore-One`
 Feature branch: `fix/auth-susu-ui-acceptance`
 Base commit (`origin/main` at branch point): `1aa7a6e`
+Pull request: [#22](https://github.com/Delkay-byte/BloomCore-One/pull/22)
+Squash merge commit on `main`: `70ee74f9e145aa0df21d41194aef13335d8761da`
 Production service: `maacash` (`https://maacash.onrender.com`)
-Deployment status: recorded in section 12 after merge and deploy.
+Deployment status: **live and verified** (deploy `dep-dbo0t9gu01pc73dvi2fg`)
 
 **Evidence labels used below**
 
@@ -307,14 +309,24 @@ Documentation:
 
 ## 12. Deployment record
 
-To be completed after merge and deploy:
+| Item | Value |
+|---|---|
+| Pull request | [#22](https://github.com/Delkay-byte/BloomCore-One/pull/22) |
+| CI check | Lint, typecheck, test, build — passed (3m 31s) |
+| Squash merge commit | `70ee74f9e145aa0df21d41194aef13335d8761da` |
+| Deploy identifier | `dep-dbo0t9gu01pc73dvi2fg` |
+| Deployed commit SHA | `70ee74f9e145aa0df21d41194aef13335d8761da` |
+| `/api/health` | **200**, `status=ok`, `env=production`, commit matches |
+| `/api/health/ready` | **200**, `status=ready`, `database=ok` |
+| `/api/auth/me?module=momo` unauthenticated | **401**, `Cache-Control` contains `no-store`, `Vary` includes `x-bloomcore-tab-proof` and `x-bloomcore-tab-request-id` |
 
-- Pull request:
-- Squash merge commit:
-- Deploy identifier:
-- Health endpoint:
-- Readiness endpoint:
-- Deployed commit SHA:
+The deploy reported `live` at 2026-11-08T05:57:22Z. The health and readiness
+endpoints returned the merged commit. The unauthenticated auth response confirms
+that production does not cache the endpoint and varies on the calling tab's proof
+headers.
+
+Production authenticated flows were not exercised because no authorised
+production account was available to this agent.
 
 ---
 
