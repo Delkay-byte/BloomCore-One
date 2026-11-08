@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { cancelZeliSubscriptionAction } from "@/lib/actions/zeli-billing.actions";
+import { ConfirmDialog } from "@/components/ui/Modal";
 
 export default function SubscriptionCard({
   summary,
@@ -18,11 +19,12 @@ export default function SubscriptionCard({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (!summary) return null;
 
   async function cancel() {
-    if (!window.confirm("Cancel renewal? Access remains until the paid period ends.")) return;
+    setConfirmOpen(false);
     setBusy(true);
     setError("");
     try {
@@ -48,12 +50,25 @@ export default function SubscriptionCard({
       {summary.cancelAtPeriodEnd ? (
         <p className="mt-2 text-xs text-amber-700">Renewal is cancelled; access ends with the paid period.</p>
       ) : (
-        <button type="button" className="btn btn-secondary btn-sm mt-3" onClick={cancel} disabled={busy}>
+        <button type="button" className="btn btn-secondary btn-sm mt-3" onClick={() => setConfirmOpen(true)} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null}
           Cancel renewal
         </button>
       )}
       {error && <p className="mt-2 text-xs text-red-700" role="alert">{error}</p>}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => {
+          if (!busy) setConfirmOpen(false);
+        }}
+        onConfirm={cancel}
+        title="Cancel renewal?"
+        description="Access remains until the paid period ends."
+        confirmLabel="Cancel renewal"
+        tone="danger"
+        loading={busy}
+      />
     </div>
   );
 }

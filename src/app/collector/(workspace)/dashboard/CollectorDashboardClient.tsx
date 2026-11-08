@@ -425,7 +425,7 @@ export default function CollectorDashboardPage({
       if (result.success) {
         const data = result.data as { customer: { customerId: string; fullName: string }; susuAccount: { accountId: string } };
         setSuccess(
-          `Customer registered successfully!\n${data.customer.fullName} (${data.customer.customerId})\nAccount: ${data.susuAccount.accountId}\nDaily: ${formatCedi(dailyContributionNum)}/day`
+          `Customer Account Created Successfully. ${data.customer.fullName} — Account Number ${data.customer.customerId} — Daily ${formatCedi(dailyContributionNum)}/day`
         );
         setShowRegisterModal(false);
         setRegFullName("");

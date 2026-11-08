@@ -34,6 +34,8 @@ interface MoMoStats {
   totalCashOut: number;
   totalAirtimeSold: number;
   totalAdditionalFunding: number;
+  totalDebtsCollected: number;
+  totalCommission: number;
   totalExpenses: number;
   locationStatus: Array<{
     location: { name: string; code: string; id: string };
@@ -205,37 +207,25 @@ export default function AdminDashboardPage() {
             </div>
             <div className="mt-4 pt-4 border-t border-slate-100 space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Customer deposit today</span>
+                <span className="text-slate-500">Debts Collected today</span>
                 <span className="font-semibold tnum text-emerald-700">
-                  <CediAmount amount={momoStats.totalCustomerDeposits} />
+                  <CediAmount amount={momoStats.totalDebtsCollected} />
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Cash out to customers today</span>
-                <span className="font-semibold tnum text-red-700">
-                  <CediAmount amount={momoStats.totalCashOut} />
+                <span className="text-slate-500">Commission today</span>
+                <span className="font-semibold tnum text-emerald-700">
+                  <CediAmount amount={momoStats.totalCommission} />
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Airtime sold today</span>
-                <span className="font-semibold tnum">
-                  <CediAmount amount={momoStats.totalAirtimeSold} />
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Additional funding today</span>
-                <span className="font-semibold tnum">
-                  <CediAmount amount={momoStats.totalAdditionalFunding} />
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Business expenses today</span>
+                <span className="text-slate-500">Expenses today</span>
                 <span className="font-semibold tnum text-red-700">
                   <CediAmount amount={momoStats.totalExpenses} />
                 </span>
               </div>
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">
-                <span className="text-slate-500">Cash + MoMo held at close</span>
+                <span className="text-slate-500">Physical cash + E-cash held at close</span>
                 <span className="font-semibold tnum">
                   <CediAmount amount={momoStats.totalCashPosition} />
                 </span>

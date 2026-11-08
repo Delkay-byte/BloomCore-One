@@ -130,7 +130,7 @@ export default function MoneyTransactionHistoryPage() {
       "Date & Time",
       "Type",
       "Customer",
-      "Customer ID",
+      "Account Number",
       "Amount",
       "Channel",
       "Received By",

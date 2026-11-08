@@ -84,63 +84,95 @@ export async function createCustomer(
     };
   }
 
-  const customerId = await nextCustomerId();
-  const accountId = await nextAccountId();
-
   // Customer, account, card fee and first cycle are created together so a
-  // failure cannot leave a customer with no account.
-  const created = await db.$transaction(async (tx) => {
-    const customer = await tx.customer.create({
-      data: {
-        tenantId: ctx.tenantId,
-        customerId,
-        fullName,
-        phone,
-        address,
-        status: "active",
-      },
-    });
+  // failure cannot leave a customer with no account. Account Number allocation
+  // is retried when two concurrent creations pick the same next value; the
+  // database unique constraint is the final arbiter.
+  let created: {
+    customer: Awaited<ReturnType<typeof db.customer.create>>;
+    susuAccount: Awaited<ReturnType<typeof db.susuAccount.create>>;
+  } | null = null;
+  let customerId = "";
+  let accountId = "";
 
-    const susuAccount = await tx.susuAccount.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId,
-        customerId: customer.id,
-        dailyContribution,
-        status: "active",
-        cardCustody: "customer",
-      },
-    });
+  for (let attempt = 0; attempt < 5 && !created; attempt++) {
+    customerId = await nextCustomerId();
+    accountId = await nextAccountId();
+    try {
+      created = await db.$transaction(async (tx) => {
+        const customer = await tx.customer.create({
+          data: {
+            tenantId: ctx.tenantId,
+            customerId,
+            fullName,
+            phone,
+            address,
+            status: "active",
+          },
+        });
 
-    await tx.cardFee.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId: susuAccount.id,
-        amount: cardFee,
-        recordedById: ctx.userId,
-        notes: "Initial card purchase",
-      },
-    });
+        const susuAccount = await tx.susuAccount.create({
+          data: {
+            tenantId: ctx.tenantId,
+            accountId,
+            customerId: customer.id,
+            dailyContribution,
+            status: "active",
+            cardCustody: "customer",
+          },
+        });
 
-    const now = new Date();
-    const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
+        await tx.cardFee.create({
+          data: {
+            tenantId: ctx.tenantId,
+            accountId: susuAccount.id,
+            amount: cardFee,
+            recordedById: ctx.userId,
+            notes: "Initial card purchase",
+          },
+        });
 
-    await tx.susuCycle.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId: susuAccount.id,
-        cycleNumber: 1,
-        startDate: cycleStart,
-        endDate: cycleEnd,
-        dailyContribution,
-        status: "active",
-        commissionCharged: false,
-      },
-    });
+        const now = new Date();
+        const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
 
-    return { customer, susuAccount };
-  });
+        await tx.susuCycle.create({
+          data: {
+            tenantId: ctx.tenantId,
+            accountId: susuAccount.id,
+            cycleNumber: 1,
+            startDate: cycleStart,
+            endDate: cycleEnd,
+            dailyContribution,
+            status: "active",
+            commissionCharged: false,
+          },
+        });
+
+        return { customer, susuAccount };
+      });
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002"
+      ) {
+        continue;
+      }
+      return {
+        success: false,
+        error: "The customer account could not be created. Please try again.",
+      };
+    }
+  }
+
+  if (!created) {
+    return {
+      success: false,
+      error: "The customer account could not be created. Please try again.",
+    };
+  }
 
   let portalCreated = false;
   if (temporaryPassword) {
@@ -181,6 +213,7 @@ export async function createCustomer(
     data: {
       customer: created.customer,
       susuAccount: created.susuAccount,
+      accountNumber: created.customer.customerId,
       portalEnabled: portalCreated,
     },
   };

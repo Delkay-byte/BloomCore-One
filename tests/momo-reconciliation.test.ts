@@ -1,12 +1,12 @@
 /**
- * Approved MoMo terminology and the corrected combined-accountability model.
+ * Approved simplified MoMo daily closing.
  *
  * Business rules locked by these tests:
- *   Expected closing = opening cash + opening float + additional funding
- *                      + commission - expenses
- *   Actual closing   = closing cash + closing float
- * Customer deposits, cash out and airtime sales move money between the two
- * pockets and never change combined accountability.
+ *   Expected closing = opening physical cash + opening E-cash
+ *                      + debts collected + commission - expenses
+ *   Actual closing   = closing physical cash + closing E-cash
+ * Customer deposits, cash out and airtime move money between the two pockets
+ * and never change combined accountability, so the form does not ask for them.
  */
 
 import { readFileSync } from "node:fs";
@@ -24,76 +24,48 @@ function readSource(relativePath: string): string {
 }
 
 describe("approved MoMo field names", () => {
-  it("uses exactly the approved labels", () => {
+  it("uses exactly the approved simplified labels", () => {
     expect(MOMO_FIELD_LABELS).toEqual({
-      customerDeposit: "Customer deposit (Cash in)",
-      cashOut: "Cash out",
-      airtimeSold: "Airtime sold",
-      additionalCashReceived: "Additional cash received",
-      additionalMomoFloatReceived: "Additional MoMo float received",
-      commission: "Commission earned",
-      totalExpenses: "Business expenses",
-      openingCash: "Opening physical cash",
-      openingMomoFloat: "Opening MoMo float",
-      closingCash: "Actual closing physical cash",
-      closingMomoFloat: "Actual closing MoMo float",
+      openingCash: "Total Physical Cash",
+      openingMomoFloat: "Total E-cash",
+      closingCash: "Total Physical Cash",
+      closingMomoFloat: "Total E-cash",
+      totalExpenses: "Expenses",
+      commission: "Commission",
+      debtsCollected: "Debts Collected",
     });
   });
 
-  it("shows the approved labels on the agent end-of-day form", () => {
+  it("shows only the approved fields on the agent daily form", () => {
     const form = readSource("src/app/worker/daily/[id]/page.tsx");
-    expect(form).toContain("Customer deposit (Cash in)");
-    expect(form).toContain("Cash out");
-    expect(form).toContain("Airtime sold");
-    expect(form).toContain("Additional cash received");
-    expect(form).toContain("Additional MoMo float received");
-    expect(form).toContain("Commission earned");
-    expect(form).not.toContain("Money Added to MoMo");
-    expect(form).not.toContain("Money Paid from MoMo");
-    expect(form).not.toContain("Cash Received");
-    expect(form).not.toContain("Cash Paid Out");
-    // Retired duplicate inputs must not be rendered at all.
-    expect(form).not.toContain('formData.set("totalCashPaid"');
-    expect(form).not.toContain('formData.set("totalCashReceived"');
-  });
-
-  it("uses the approved labels in administrator views and exports", () => {
-    for (const file of [
-      "src/app/admin/(workspace)/history/page.tsx",
-      "src/app/admin/(workspace)/reports/page.tsx",
-      "src/app/admin/(workspace)/reports/[id]/page.tsx",
-      "src/app/admin/(workspace)/history/[id]/correct/CorrectionForm.tsx",
-      "src/lib/actions/momo-history.actions.ts",
-    ]) {
-      const source = readSource(file);
-      expect(source, file).toContain("Customer deposit");
-      expect(source, file).toContain("Cash out");
-      expect(source, file).not.toContain("Money Added to MoMo");
-      expect(source, file).not.toContain("Money Paid from MoMo");
-      expect(source, file).not.toContain("Cash Received");
-      expect(source, file).not.toContain("Cash Paid Out");
-    }
+    expect(form).toContain("START OF DAY");
+    expect(form).toContain("END OF DAY");
+    expect(form).toContain("Total Physical Cash");
+    expect(form).toContain("Total E-cash");
+    expect(form).toContain("Debts Collected");
+    expect(form).toContain("Commission");
+    expect(form).toContain("Expenses");
+    // The retired transaction-by-transaction inputs must not come back.
+    expect(form).not.toContain("Customer deposit (Cash in)");
+    expect(form).not.toContain("Additional cash received");
+    expect(form).not.toContain("Additional MoMo float received");
+    expect(form).not.toContain("Airtime sold");
+    expect(form).not.toContain('formData.set("totalCashIn"');
+    expect(form).not.toContain('formData.set("totalCashOut"');
   });
 });
 
-describe("combined accountability arithmetic", () => {
+describe("simplified accountability arithmetic", () => {
   it("balances when actual closing equals expected closing", () => {
-    // Opening 1000 float + 500 cash = 1500.
-    // Deposits 600, cash out 450 and airtime 100 only move money between the
-    // pockets. Commission 15 is the sole increase.
     const result = calculateReconciliation({
       openingMomoFloat: 1000,
       openingCash: 500,
-      customerDeposit: 600,
-      cashOut: 450,
-      airtimeSold: 100,
       commission: 15,
       totalExpenses: 0,
       closingMomoFloat: 765,
       closingCash: 750,
     });
     expect(result.openingTotal).toBe(1500);
-    expect(result.additionalFunding).toBe(0);
     expect(result.expectedClosing).toBe(1515);
     expect(result.actualClosing).toBe(1515);
     expect(result.difference).toBe(0);
@@ -102,7 +74,7 @@ describe("combined accountability arithmetic", () => {
     expect(statusLabel("balanced")).toBe("Balanced");
   });
 
-  it("does not change accountability when customers deposit, withdraw or buy airtime", () => {
+  it("ignores legacy customer transaction fields", () => {
     const result = calculateReconciliation({
       openingMomoFloat: 0,
       openingCash: 0,
@@ -120,19 +92,18 @@ describe("combined accountability arithmetic", () => {
     expect(result.status).toBe("balanced");
   });
 
-  it("adds additional cash and additional float once each", () => {
+  it("adds debts collected once, increasing accountability", () => {
     const result = calculateReconciliation({
       openingMomoFloat: 400,
       openingCash: 100,
-      additionalCashReceived: 200,
-      additionalMomoFloat: 300,
-      closingMomoFloat: 700,
-      closingCash: 300,
+      debtsCollected: 100,
+      closingMomoFloat: 400,
+      closingCash: 200,
     });
     expect(result.openingTotal).toBe(500);
-    expect(result.additionalFunding).toBe(500);
-    expect(result.expectedClosing).toBe(1000);
-    expect(result.actualClosing).toBe(1000);
+    expect(result.debtsCollected).toBe(100);
+    expect(result.expectedClosing).toBe(600);
+    expect(result.actualClosing).toBe(600);
     expect(result.difference).toBe(0);
   });
 
@@ -154,12 +125,8 @@ describe("combined accountability arithmetic", () => {
     const result = calculateReconciliation({
       openingMomoFloat: 1000,
       openingCash: 500,
-      customerDeposit: 400,
-      cashOut: 520,
-      airtimeSold: 0,
       commission: 12,
       totalExpenses: 0,
-      // Expected 1512; actual 1467: GH₵45 missing.
       closingMomoFloat: 955,
       closingCash: 512,
     });
@@ -171,7 +138,7 @@ describe("combined accountability arithmetic", () => {
     expect(statusLabel("shortage")).toBe("Shortage — Investigation Required");
   });
 
-  it("reports money above expectation as a positive difference", () => {
+  it("reports money above expectation as a positive (green) difference", () => {
     const result = calculateReconciliation({
       openingMomoFloat: 1000,
       openingCash: 500,
@@ -186,13 +153,11 @@ describe("combined accountability arithmetic", () => {
     expect(statusLabel("positive")).toBe("Positive difference");
   });
 
-  it("treats missing or invalid optional values as zero", () => {
+  it("treats missing or invalid values as zero", () => {
     const result = calculateReconciliation({
       openingMomoFloat: Number.NaN,
       openingCash: 100,
-      customerDeposit: Number.NaN,
-      cashOut: undefined as unknown as number,
-      airtimeSold: Number.NaN,
+      debtsCollected: Number.NaN,
       commission: Number.NaN,
       totalExpenses: Number.NaN,
       closingMomoFloat: 0,
@@ -203,19 +168,18 @@ describe("combined accountability arithmetic", () => {
     expect(result.difference).toBe(0);
   });
 
-  it("keeps the movement guides informational only", () => {
+  it("uses integer pesewas so float drift cannot change money", () => {
     const result = calculateReconciliation({
-      openingMomoFloat: 1000,
-      openingCash: 500,
-      customerDeposit: 600,
-      cashOut: 450,
-      airtimeSold: 100,
-      closingMomoFloat: 750,
-      closingCash: 750,
+      openingMomoFloat: 0.1,
+      openingCash: 0.2,
+      commission: 0,
+      totalExpenses: 0,
+      closingMomoFloat: 0,
+      closingCash: 0.3,
     });
-    expect(result.expectedMomoFloat).toBe(750);
-    expect(result.expectedCash).toBe(750);
-    // The guides agree here, and accountability is balanced.
+    expect(result.expectedClosing).toBe(0.3);
+    expect(result.actualClosing).toBe(0.3);
     expect(result.difference).toBe(0);
+    expect(result.status).toBe("balanced");
   });
 });

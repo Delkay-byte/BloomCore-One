@@ -10,6 +10,7 @@ import {
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import PasswordInput from "@/components/PasswordInput";
+import { ConfirmDialog } from "@/components/ui/Modal";
 
 interface UserProfile {
   fullName: string;
@@ -23,6 +24,8 @@ export default function CustomerSettingsPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [success, setSuccess] = useState("");
 
   // Change password form state
@@ -113,13 +116,16 @@ export default function CustomerSettingsPage() {
   }
 
   async function handleLogout() {
-    if (!confirm("Sign out?\n\nAre you sure you want to sign out?")) return;
+    setLogoutBusy(true);
     try {
       const result = await customerLogout();
       await clearTabSession();
       window.location.assign(result.redirectTo ?? "/login?role=customer");
     } catch (err) {
       if (isRedirectError(err)) throw err;
+      setError("We couldn't sign you out. Please try again.");
+      setLogoutBusy(false);
+      setLogoutOpen(false);
     }
   }
 
@@ -290,13 +296,26 @@ export default function CustomerSettingsPage() {
 
         <div className="p-6 border-t border-slate-200">
           <button
-            onClick={handleLogout}
+            onClick={() => setLogoutOpen(true)}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 w-full transition-colors"
           >
             🚪 Sign Out
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={logoutOpen}
+        onClose={() => {
+          if (!logoutBusy) setLogoutOpen(false);
+        }}
+        onConfirm={handleLogout}
+        title="Sign out?"
+        description="Are you sure you want to sign out of the customer portal?"
+        confirmLabel="Sign out"
+        tone="danger"
+        loading={logoutBusy}
+      />
     </div>
   );
 }

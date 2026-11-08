@@ -1,62 +1,51 @@
 /**
- * MoMo daily reconciliation — the corrected combined-accountability model.
+ * MoMo daily reconciliation — the approved simplified model.
  *
- * A MoMo agent holds business money in two pockets: physical cash and the
- * electronic MoMo float. Customer deposits, cash out and airtime sales move
- * value between those pockets. They never change the combined business money.
+ * The agent holds business money in two pockets: physical cash and the
+ * electronic MoMo float (E-cash). Customer deposits, withdrawals and airtime
+ * sales move value between those two pockets. They never change the combined
+ * business money, so the daily closing form does not ask for them.
  *
  * Expected closing accountability
- *   = opening cash
- *   + opening MoMo float
- *   + additional cash received
- *   + additional MoMo float received
- *   + commission earned
- *   - total business expenses
+ *   = opening physical cash + opening E-cash
+ *   + debts collected + commission - expenses
  *
  * Actual closing accountability
- *   = closing cash
- *   + closing MoMo float
+ *   = closing physical cash + closing E-cash
  *
  * Difference = actual - expected.
- *   zero      -> Balanced
+ *   zero      -> Balanced (green)
  *   positive  -> Positive difference (green)
  *   negative  -> Shortage (red, explanation required before submission)
  *
- * The old model added customer deposits to the float and subtracted cash out
- * from cash independently. That model is gone. The persisted legacy columns
- * (totalCashReceived, totalCashPaid, otherIncome, calculatedMomoVariance,
- * calculatedCashVariance) remain only so historical records stay readable.
+ * Arithmetic runs on integer pesewas so no binary floating-point drift can
+ * change a financial result. Inputs are rounded to two decimal places.
+ *
+ * Legacy columns (additionalCashReceived, additionalMomoFloat, totalCashIn,
+ * totalCashOut, totalAirtimeSold, totalCashReceived, totalCashPaid,
+ * otherIncome, calculatedMomoVariance, calculatedCashVariance) remain on
+ * historical rows for readability. They are accepted by this module for
+ * backward compatibility but never enter the simplified formula.
  */
 
 export const MOMO_FIELD_LABELS = {
-  customerDeposit: "Customer deposit (Cash in)",
-  cashOut: "Cash out",
-  airtimeSold: "Airtime sold",
-  additionalCashReceived: "Additional cash received",
-  additionalMomoFloatReceived: "Additional MoMo float received",
-  commission: "Commission earned",
-  totalExpenses: "Business expenses",
-  openingCash: "Opening physical cash",
-  openingMomoFloat: "Opening MoMo float",
-  closingCash: "Actual closing physical cash",
-  closingMomoFloat: "Actual closing MoMo float",
+  openingCash: "Total Physical Cash",
+  openingMomoFloat: "Total E-cash",
+  closingCash: "Total Physical Cash",
+  closingMomoFloat: "Total E-cash",
+  totalExpenses: "Expenses",
+  commission: "Commission",
+  debtsCollected: "Debts Collected",
 } as const;
 
 export const MOMO_FIELD_HELP = {
-  customerDeposit:
-    "Total cash customers deposited with you today. Cash in goes up, MoMo float goes down. Combined business money does not change.",
-  cashOut:
-    "Total cash you paid to customers who withdrew today. Cash goes down, MoMo float goes up. Combined business money does not change.",
-  airtimeSold:
-    "Total value of airtime you sold to customers today. Cash goes up, MoMo float goes down. Combined business money does not change.",
-  additionalCashReceived:
-    "Extra physical cash the boss or owner brought for the business today. This increases total business money.",
-  additionalMomoFloatReceived:
-    "Extra MoMo float the boss or owner sent for the business today. This increases total business money.",
-  commission:
-    "Enter the commission total shown on your MoMo provider statement. It is added once.",
-  totalExpenses:
-    "Authorised business expenses paid from cash or float. The total reduces closing accountability.",
+  openingCash: "All physical business cash available when the day starts.",
+  openingMomoFloat: "All electronic MoMo float available when the day starts.",
+  closingCash: "The physical cash you actually counted at closing.",
+  closingMomoFloat: "The MoMo E-cash balance you actually see at closing.",
+  totalExpenses: "Food, transport, data and other legitimate business costs.",
+  commission: "Enter the total commission earned today from your MoMo provider statement.",
+  debtsCollected: "Money collected from people who previously owed the agent.",
 } as const;
 
 export type ReconciliationStatus = "balanced" | "positive" | "shortage";
@@ -64,85 +53,88 @@ export type ReconciliationStatus = "balanced" | "positive" | "shortage";
 export interface ReconciliationInput {
   openingMomoFloat: number;
   openingCash: number;
+  debtsCollected?: number;
+  commission?: number;
+  totalExpenses?: number;
+  closingMomoFloat: number;
+  closingCash: number;
+  /**
+   * Legacy fields accepted for compatibility with historical callers.
+   * They are deliberately ignored by the approved simplified formula.
+   */
   additionalCashReceived?: number;
   additionalMomoFloat?: number;
   customerDeposit?: number;
   cashOut?: number;
   airtimeSold?: number;
-  commission?: number;
-  totalExpenses?: number;
-  closingMomoFloat: number;
-  closingCash: number;
 }
 
 export interface ReconciliationResult {
-  /** Opening cash + opening float. */
+  /** Opening physical cash + opening E-cash. */
   openingTotal: number;
-  /** Additional cash + additional float. */
-  additionalFunding: number;
-  /** Expected closing accountability under the combined model. */
+  /** Money collected from people who previously owed the agent. */
+  debtsCollected: number;
+  /** Commission entered once from the provider statement. */
+  commission: number;
+  /** Itemised business expenses. */
+  expenses: number;
+  /** Expected closing accountability under the simplified model. */
   expectedClosing: number;
-  /** Entered closing cash + closing float. */
+  /** Closing physical cash + closing E-cash. */
   actualClosing: number;
   /** actualClosing - expectedClosing. */
   difference: number;
   status: ReconciliationStatus;
-  /** Float movement guide: opening float + cash out - deposits - airtime. */
-  expectedMomoFloat: number;
-  /** Cash movement guide: opening cash + deposits - cash out + airtime. */
-  expectedCash: number;
 }
 
-function money(value: number): number {
+/** Convert an arbitrary money input to integer pesewas, safely. */
+export function toPesewas(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
-  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+  return Math.round((parsed + Number.EPSILON) * 100);
+}
+
+/** Convert integer pesewas back to a two-decimal money amount. */
+export function fromPesewas(value: number): number {
+  return Math.round(value) / 100;
+}
+
+function pesewas(value: unknown): number {
+  return toPesewas(value);
 }
 
 export function calculateReconciliation(
   data: ReconciliationInput
 ): ReconciliationResult {
-  const openingMomoFloat = money(data.openingMomoFloat);
-  const openingCash = money(data.openingCash);
-  const additionalCashReceived = money(data.additionalCashReceived ?? 0);
-  const additionalMomoFloat = money(data.additionalMomoFloat ?? 0);
-  const customerDeposit = money(data.customerDeposit ?? 0);
-  const cashOut = money(data.cashOut ?? 0);
-  const airtimeSold = money(data.airtimeSold ?? 0);
-  const commission = money(data.commission ?? 0);
-  const totalExpenses = money(data.totalExpenses ?? 0);
-  const closingMomoFloat = money(data.closingMomoFloat);
-  const closingCash = money(data.closingCash);
+  const openingCash = pesewas(data.openingCash);
+  const openingMomoFloat = pesewas(data.openingMomoFloat);
+  const debtsCollected = pesewas(data.debtsCollected ?? 0);
+  const commission = pesewas(data.commission ?? 0);
+  const expenses = pesewas(data.totalExpenses ?? 0);
+  const closingCash = pesewas(data.closingCash);
+  const closingMomoFloat = pesewas(data.closingMomoFloat);
 
-  const openingTotal = money(openingCash + openingMomoFloat);
-  const additionalFunding = money(additionalCashReceived + additionalMomoFloat);
-  const expectedClosing = money(
-    openingTotal + additionalFunding + commission - totalExpenses
-  );
-  const actualClosing = money(closingCash + closingMomoFloat);
-  const difference = money(actualClosing - expectedClosing);
+  const openingTotal = openingCash + openingMomoFloat;
+  const expectedClosing =
+    openingTotal + debtsCollected + commission - expenses;
+  const actualClosing = closingCash + closingMomoFloat;
+  const difference = actualClosing - expectedClosing;
 
   return {
-    openingTotal,
-    additionalFunding,
-    expectedClosing,
-    actualClosing,
-    difference,
+    openingTotal: fromPesewas(openingTotal),
+    debtsCollected: fromPesewas(debtsCollected),
+    commission: fromPesewas(commission),
+    expenses: fromPesewas(expenses),
+    expectedClosing: fromPesewas(expectedClosing),
+    actualClosing: fromPesewas(actualClosing),
+    difference: fromPesewas(difference),
     status:
       difference === 0 ? "balanced" : difference > 0 ? "positive" : "shortage",
-    // Informational guides. They explain the movement between the two pockets;
-    // they do not drive the reconciliation status.
-    expectedMomoFloat: money(
-      openingMomoFloat + cashOut - customerDeposit - airtimeSold
-    ),
-    expectedCash: money(
-      openingCash + customerDeposit - cashOut + airtimeSold
-    ),
   };
 }
 
 export function describeVariance(value: number): string {
-  const amount = money(value);
+  const amount = pesewas(value);
   if (amount === 0) return "Balanced";
   return amount < 0 ? "Shortage" : "Positive difference";
 }
@@ -156,11 +148,11 @@ export function statusLabel(status: ReconciliationStatus): string {
 /**
  * Resolve the stored difference for a persisted daily account.
  *
- * New records carry calculatedDifference and differenceStatus. Records written
- * before the correction have only the legacy split columns, and the additive
- * migration gives them calculatedDifference = 0 / differenceStatus = "balanced".
- * For those rows the legacy sum is the truthful difference, so it is used only
- * when the new value is zero and the legacy columns disagree with "balanced".
+ * New records carry calculatedDifference and differenceStatus. Historical
+ * records written under an earlier formula keep their stored difference; they
+ * are never recalculated with the simplified formula. The legacy split columns
+ * are used only when the modern value is absent/zero and they disagree with a
+ * balanced status.
  */
 export function resolveStoredDifference(account: {
   calculatedDifference?: unknown;
@@ -168,7 +160,7 @@ export function resolveStoredDifference(account: {
   calculatedMomoVariance?: unknown;
   calculatedCashVariance?: unknown;
 }): { difference: number; status: ReconciliationStatus } {
-  const modern = money(Number(account.calculatedDifference ?? 0));
+  const modern = fromPesewas(pesewas(account.calculatedDifference ?? 0));
   const declared = String(account.differenceStatus ?? "").toLowerCase();
   if (modern !== 0 || declared === "shortage" || declared === "positive") {
     return {
@@ -176,9 +168,9 @@ export function resolveStoredDifference(account: {
       status: modern === 0 ? "balanced" : modern > 0 ? "positive" : "shortage",
     };
   }
-  const legacy = money(
-    Number(account.calculatedMomoVariance ?? 0) +
-      Number(account.calculatedCashVariance ?? 0)
+  const legacy = fromPesewas(
+    pesewas(account.calculatedMomoVariance ?? 0) +
+      pesewas(account.calculatedCashVariance ?? 0)
   );
   if (legacy !== 0) {
     return {

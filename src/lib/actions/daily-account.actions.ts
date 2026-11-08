@@ -19,25 +19,17 @@ export interface ActionResponse {
 }
 
 /**
- * Map the persisted column names onto the approved business terms.
+ * Approved simplified daily closing.
  *
- * totalCashIn       -> Customer deposit (Cash in)
- * totalCashOut      -> Cash out
- * totalAirtimeSold  -> Airtime sold
- * additionalCashReceived / additionalMomoFloat -> extra owner funding
- *
- * totalCashReceived, totalCashPaid and otherIncome are retired duplicate
- * inputs. They stay on historical rows so old records remain readable, but
- * new saves store zero and they never enter any calculation.
+ * Only opening cash/E-cash, closing cash/E-cash, expenses, commission and
+ * debts collected drive the reconciliation. Customer deposits, cash out and
+ * airtime move money between the two pockets, so they are neither asked for
+ * nor counted. Legacy columns stay on historical rows.
  */
 function reconcileDailyAccount(data: {
   openingMomoFloat: number;
   openingCash: number;
-  additionalCashReceived: number;
-  additionalMomoFloat: number;
-  totalCashIn: number;
-  totalCashOut: number;
-  totalAirtimeSold: number;
+  debtsCollected: number;
   commission: number;
   totalExpenses: number;
   closingMomoFloat: number;
@@ -46,11 +38,7 @@ function reconcileDailyAccount(data: {
   const result = calculateReconciliation({
     openingMomoFloat: data.openingMomoFloat,
     openingCash: data.openingCash,
-    additionalCashReceived: data.additionalCashReceived,
-    additionalMomoFloat: data.additionalMomoFloat,
-    customerDeposit: data.totalCashIn,
-    cashOut: data.totalCashOut,
-    airtimeSold: data.totalAirtimeSold,
+    debtsCollected: data.debtsCollected,
     commission: data.commission,
     totalExpenses: data.totalExpenses,
     closingMomoFloat: data.closingMomoFloat,
@@ -188,15 +176,17 @@ export async function saveDailyAccount(
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
     openingCash: moneyField("openingCash"),
-    additionalCashReceived: optionalMoneyField("additionalCashReceived"),
-    additionalMomoFloat: optionalMoneyField("additionalMomoFloat"),
-    totalCashIn: moneyField("totalCashIn"),
-    totalCashOut: moneyField("totalCashOut"),
-    totalAirtimeSold: optionalMoneyField("totalAirtimeSold"),
-    // Retired duplicate inputs. New drafts always store 0.
+    // Legacy columns remain writable as zero for backward compatibility.
+    // They never enter the simplified formula or the current form.
+    additionalCashReceived: 0,
+    additionalMomoFloat: 0,
+    totalCashIn: 0,
+    totalCashOut: 0,
+    totalAirtimeSold: 0,
     totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
+    debtsCollected: optionalMoneyField("debtsCollected"),
     otherIncome: 0,
     closingMomoFloat: moneyField("closingMomoFloat"),
     closingCash: moneyField("closingCash"),
@@ -215,7 +205,18 @@ export async function saveDailyAccount(
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  // The approved form has one Expenses field. Optional itemised lines support
+  // the audit trail but must not silently replace the amount the agent entered.
+  const rawExpenseTotal = formData.get("totalExpenses");
+  let totalExpenses: number;
+  if (typeof rawExpenseTotal === "string" && rawExpenseTotal.trim() !== "") {
+    totalExpenses = Number(rawExpenseTotal);
+    if (!Number.isFinite(totalExpenses) || totalExpenses < 0 || totalExpenses > 999999.99) {
+      return { success: false, error: "Enter a valid expenses amount." };
+    }
+  } else {
+    totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  }
   const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
@@ -239,6 +240,7 @@ export async function saveDailyAccount(
         totalCashReceived: 0,
         totalCashPaid: 0,
         commission: parsed.commission,
+        debtsCollected: parsed.debtsCollected,
         otherIncome: 0,
         closingMomoFloat: parsed.closingMomoFloat,
         closingCash: parsed.closingCash,
@@ -359,14 +361,17 @@ export async function correctDailyAccount(
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
     openingCash: moneyField("openingCash"),
-    additionalCashReceived: optionalMoneyField("additionalCashReceived"),
-    additionalMomoFloat: optionalMoneyField("additionalMomoFloat"),
-    totalCashIn: moneyField("totalCashIn"),
-    totalCashOut: moneyField("totalCashOut"),
-    totalAirtimeSold: optionalMoneyField("totalAirtimeSold"),
+    // Legacy columns remained for historical compatibility; corrections use
+    // the same simplified fields as the current daily closing form.
+    additionalCashReceived: 0,
+    additionalMomoFloat: 0,
+    totalCashIn: 0,
+    totalCashOut: 0,
+    totalAirtimeSold: 0,
     totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
+    debtsCollected: optionalMoneyField("debtsCollected"),
     otherIncome: 0,
     closingMomoFloat: moneyField("closingMomoFloat"),
     closingCash: moneyField("closingCash"),
@@ -384,7 +389,16 @@ export async function correctDailyAccount(
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const rawExpenseTotal = formData.get("totalExpenses");
+  let totalExpenses: number;
+  if (typeof rawExpenseTotal === "string" && rawExpenseTotal.trim() !== "") {
+    totalExpenses = Number(rawExpenseTotal);
+    if (!Number.isFinite(totalExpenses) || totalExpenses < 0 || totalExpenses > 999999.99) {
+      return { success: false, error: "Enter a valid expenses amount." };
+    }
+  } else {
+    totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  }
   const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
@@ -408,6 +422,7 @@ export async function correctDailyAccount(
     totalCashReceived: Number(account.totalCashReceived),
     totalCashPaid: Number(account.totalCashPaid),
     commission: Number(account.commission),
+    debtsCollected: Number(account.debtsCollected),
     otherIncome: Number(account.otherIncome),
     closingMomoFloat: Number(account.closingMomoFloat),
     closingCash: Number(account.closingCash),
@@ -531,13 +546,11 @@ export async function submitDailyAccount(
   if (
     Number(account.openingMomoFloat) === 0 &&
     Number(account.openingCash) === 0 &&
-    Number(account.additionalCashReceived) === 0 &&
-    Number(account.additionalMomoFloat) === 0 &&
-    Number(account.totalCashIn) === 0 &&
-    Number(account.totalCashOut) === 0 &&
-    Number(account.totalAirtimeSold) === 0 &&
     Number(account.closingMomoFloat) === 0 &&
-    Number(account.closingCash) === 0
+    Number(account.closingCash) === 0 &&
+    Number(account.debtsCollected) === 0 &&
+    Number(account.commission) === 0 &&
+    Number(account.totalExpenses) === 0
   ) {
     return {
       success: false,
@@ -548,11 +561,7 @@ export async function submitDailyAccount(
   const reconciled = reconcileDailyAccount({
     openingMomoFloat: Number(account.openingMomoFloat),
     openingCash: Number(account.openingCash),
-    additionalCashReceived: Number(account.additionalCashReceived),
-    additionalMomoFloat: Number(account.additionalMomoFloat),
-    totalCashIn: Number(account.totalCashIn),
-    totalCashOut: Number(account.totalCashOut),
-    totalAirtimeSold: Number(account.totalAirtimeSold),
+    debtsCollected: Number(account.debtsCollected),
     commission: Number(account.commission),
     totalExpenses: Number(account.totalExpenses),
     closingMomoFloat: Number(account.closingMomoFloat),
@@ -823,6 +832,14 @@ export async function getAdminDashboardStats() {
       sum + Number(a.additionalCashReceived) + Number(a.additionalMomoFloat),
     0
   );
+  const totalDebtsCollected = submitted.reduce(
+    (sum, a) => sum + Number(a.debtsCollected),
+    0
+  );
+  const totalCommission = submitted.reduce(
+    (sum, a) => sum + Number(a.commission),
+    0
+  );
   const differenceOf = (a: (typeof submitted)[number]) =>
     resolveStoredDifference(a).difference;
   const balanced = submitted.filter((a) => differenceOf(a) === 0);
@@ -858,6 +875,8 @@ export async function getAdminDashboardStats() {
     totalCashOut,
     totalAirtimeSold,
     totalAdditionalFunding,
+    totalDebtsCollected,
+    totalCommission,
     totalExpenses: totalExpensesToday,
     locationStatus,
   };
@@ -886,6 +905,7 @@ export interface DailyAccountRevisionView {
     totalCashReceived: number;
     totalCashPaid: number;
     commission: number;
+    debtsCollected: number;
     otherIncome: number;
     closingMomoFloat: number;
     closingCash: number;
@@ -916,6 +936,7 @@ export interface DailyAccountCorrectionView {
     totalCashReceived: number;
     totalCashPaid: number;
     commission: number;
+    debtsCollected: number;
     otherIncome: number;
     closingMomoFloat: number;
     closingCash: number;
@@ -985,6 +1006,7 @@ export async function getDailyAccountCorrectionData(
         totalCashReceived: Number(parsed.totalCashReceived ?? 0),
         totalCashPaid: Number(parsed.totalCashPaid ?? 0),
         commission: Number(parsed.commission ?? 0),
+        debtsCollected: Number(parsed.debtsCollected ?? 0),
         otherIncome: Number(parsed.otherIncome ?? 0),
         closingMomoFloat: Number(parsed.closingMomoFloat ?? 0),
         closingCash: Number(parsed.closingCash ?? 0),
@@ -1021,6 +1043,7 @@ export async function getDailyAccountCorrectionData(
         totalCashReceived: 0,
         totalCashPaid: 0,
         commission: 0,
+        debtsCollected: 0,
         otherIncome: 0,
         closingMomoFloat: 0,
         closingCash: 0,
@@ -1061,6 +1084,7 @@ export async function getDailyAccountCorrectionData(
       totalCashReceived: Number(account.totalCashReceived),
       totalCashPaid: Number(account.totalCashPaid),
       commission: Number(account.commission),
+      debtsCollected: Number(account.debtsCollected),
       otherIncome: Number(account.otherIncome),
       closingMomoFloat: Number(account.closingMomoFloat),
       closingCash: Number(account.closingCash),

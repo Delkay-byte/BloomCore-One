@@ -96,9 +96,10 @@ const ROLES: RoleConfig[] = [
     blurb: "Your Susu savings, contributions and activity",
     heading: "Welcome Back",
     support: "Sign in to view your Susu savings, contributions and account activity.",
-    identifierLabel: "Customer ID, phone or email",
-    identifierPlaceholder: "Enter your Customer ID, phone or email",
-    identifierHint: "Your Customer ID is on the card or receipt from your collector.",
+    identifierLabel: "Phone Number or Account Number",
+    identifierPlaceholder: "Enter your phone number or Account Number",
+    identifierHint:
+      "Enter the phone number registered to your account or the Account Number given to you by the administrator.",
     bullets: [
       { icon: Wallet, text: "See your savings and contribution history" },
       { icon: CheckCircle2, text: "Review your current Susu cycle" },

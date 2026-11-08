@@ -91,6 +91,7 @@ model DailyAccount {
   totalCashReceived      Decimal @default(0)
   totalCashPaid          Decimal @default(0)
   commission             Decimal @default(0)
+  debtsCollected         Decimal @default(0)
   otherIncome            Decimal @default(0)
   closingMomoFloat       Decimal @default(0)
   closingCash            Decimal @default(0)

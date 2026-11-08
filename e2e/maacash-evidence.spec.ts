@@ -72,7 +72,7 @@ test.describe("MaaCash visual evidence", () => {
 
     await page.screenshot({ path: shotPath("draft-saving", 1280), fullPage: true });
 
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
       timeout: 30_000,
     });
@@ -86,7 +86,7 @@ test.describe("MaaCash visual evidence", () => {
     // Failure state: take the browser offline and keep the typed values.
     await page.context().setOffline(true);
     await page.locator("#opening-cash").fill("65.00");
-    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Save as Draft" }).click();
     await expect(page.getByText(/We couldn't save your draft/).first()).toBeVisible({
       timeout: 30_000,
     });

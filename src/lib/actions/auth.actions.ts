@@ -24,6 +24,11 @@ import {
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { normalizeGhanaPhone } from "@/lib/utils";
+import {
+  isAccountNumber,
+  normalizeAccountNumber,
+  SHARED_PHONE_MESSAGE,
+} from "@/lib/customer-identifiers";
 import { cookies } from "next/headers";
 import {
   cooldownMessage,
@@ -592,7 +597,7 @@ export async function changePassword(
 // re-verifies it against the account's real capabilities below.
 // ---------------------------------------------------------------------------
 
-const CUSTOMER_GENERIC_ERROR = "Invalid Customer ID, phone, email or password.";
+const CUSTOMER_GENERIC_ERROR = "Invalid phone number, Account Number or password.";
 const STAFF_GENERIC_ERROR = "Invalid email, phone or password.";
 
 /**
@@ -620,36 +625,46 @@ export async function resolveCustomerAuth(
   });
   if (!guard.ok) return { error: guard.error };
 
-  // Normalize Ghanaian phone formats so 024... and +233... match the same record.
-  const phoneCandidates = normalizeGhanaPhone(identifier);
+  // Customer sign-in accepts exactly two identifiers: the canonical Account
+  // Number or a registered phone number. Email is deliberately not accepted.
+  const accountNumber = normalizeAccountNumber(identifier);
+  const phoneCandidates = normalizeGhanaPhone(identifier).map((value) =>
+    value.trim()
+  );
+  const trimmedIdentifier = identifier.trim();
 
-  const customer = await db.customer.findFirst({
-    where: {
-      OR: [
-        { customerId: identifier },
-        { email: identifier.toLowerCase() },
-        { phone: identifier },
-        ...(phoneCandidates.length ? [{ phone: { in: phoneCandidates } }] : []),
-      ],
-    },
-  });
+  let customer: Awaited<ReturnType<typeof db.customer.findFirst>> = null;
 
-  // A portal identifier must resolve to exactly one customer. Identical emails
-  // or phone numbers across tenants are ambiguous, so the request is refused
-  // rather than silently choosing one tenant's record.
-  if (customer) {
-    const matches = await db.customer.count({
+  if (isAccountNumber(identifier)) {
+    // Globally unique and unambiguous.
+    customer = await db.customer.findFirst({
+      where: { customerId: accountNumber },
+    });
+  } else {
+    // A phone number may be shared by family members. Only active portal
+    // accounts are ambiguous; never choose one arbitrarily.
+    const phoneMatches = await db.customer.findMany({
       where: {
+        status: "active",
+        portalEnabled: true,
+        portalPasswordHash: { not: null },
         OR: [
-          { customerId: identifier },
-          { email: identifier.toLowerCase() },
-          { phone: identifier },
-          ...(phoneCandidates.length ? [{ phone: { in: phoneCandidates } }] : []),
+          { phone: trimmedIdentifier },
+          ...(phoneCandidates.length
+            ? [{ phone: { in: phoneCandidates } }]
+            : []),
         ],
       },
+      select: { id: true },
+      take: 2,
     });
-    if (matches !== 1) {
-      return { error: CUSTOMER_GENERIC_ERROR };
+    if (phoneMatches.length > 1) {
+      return { error: SHARED_PHONE_MESSAGE };
+    }
+    if (phoneMatches.length === 1) {
+      customer = await db.customer.findUnique({
+        where: { id: phoneMatches[0].id },
+      });
     }
   }
 

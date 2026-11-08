@@ -10,6 +10,7 @@ import {
   ShieldOff,
   ShieldCheck,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/useConfirm";
 import {
   clearZeliProviderEmergencyStop,
   emergencyDisableZeliProvider,
@@ -51,6 +52,7 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const { confirm, confirmNode } = useConfirm();
   const [probe, setProbe] = useState<{ latencyMs: number; inputTokens: number | null; outputTokens: number | null } | null>(null);
   const [authTenant, setAuthTenant] = useState(state.tenants[0]?.id ?? "");
   const [authReason, setAuthReason] = useState("");
@@ -106,8 +108,9 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
       setError("Enter a reason of at least 10 characters.");
       return;
     }
-    const confirmed = window.confirm(
-      "Clear the emergency stop? External AI stays disabled until a separate deliberate mode change."
+    const confirmed = await confirm(
+      "Clear the emergency stop? External AI stays disabled until a separate deliberate mode change.",
+      { title: "Clear emergency stop?", confirmLabel: "Clear stop" }
     );
     if (!confirmed) return;
     setBusy("clear-stop");
@@ -342,6 +345,7 @@ export default function ProviderControlPanel({ state }: { state: ProviderState }
           switch or the code/environment approval gates.
         </p>
       </div>
+      {confirmNode}
     </section>
   );
 }

@@ -75,12 +75,11 @@ export default function SusuReportsPage() {
 
   function handleExportCSV() {
     if (tab === "contributions" && contributions.length > 0) {
-      const headers = ["Date", "Customer", "Customer ID", "Account", "Amount", "Days Covered", "Channel"];
+      const headers = ["Date", "Customer", "Account Number", "Amount", "Days Covered", "Channel"];
       const rows = contributions.map((c) => [
         formatDate(c.collectionDate),
         c.account.customer.fullName,
         c.account.customer.customerId,
-        c.account.accountId,
         String(c.amount),
         String(c.allocations.length),
         c.channel,
@@ -94,7 +93,7 @@ export default function SusuReportsPage() {
       a.click();
       URL.revokeObjectURL(url);
     } else if (tab === "withdrawals" && withdrawals.length > 0) {
-      const headers = ["Date", "Customer", "Customer ID", "Requested", "Commission", "Net Paid", "Balance", "Cycle"];
+      const headers = ["Date", "Customer", "Account Number", "Requested", "Commission", "Net Paid", "Balance", "Cycle"];
       const rows = withdrawals.map((w) => [
         formatDate(w.createdAt),
         w.account.customer.fullName,
@@ -198,7 +197,7 @@ export default function SusuReportsPage() {
                       <td className="text-sm">{formatDateTime(c.collectionDate)}</td>
                       <td>
                         <div className="font-medium text-sm">{c.account.customer.fullName}</div>
-                        <div className="text-xs text-slate-500">{c.account.customer.customerId}</div>
+                        <div className="text-xs text-slate-500">Account Number: {c.account.customer.customerId}</div>
                       </td>
                       <td className="font-mono font-semibold"><CediAmount amount={c.amount} /></td>
                       <td><span className="badge badge-blue">{c.allocations.length}</span></td>
@@ -234,7 +233,7 @@ export default function SusuReportsPage() {
                       <td className="text-sm">{formatDateTime(w.createdAt)}</td>
                       <td>
                         <div className="font-medium text-sm">{w.account.customer.fullName}</div>
-                        <div className="text-xs text-slate-500">{w.account.customer.customerId}</div>
+                        <div className="text-xs text-slate-500">Account Number: {w.account.customer.customerId}</div>
                       </td>
                       <td className="font-mono text-sm"><CediAmount amount={w.requestedAmount} /></td>
                       <td className="font-mono text-sm">

@@ -17,39 +17,27 @@ import { formatCedi, formatDateTime } from "@/lib/utils";
 type MoneyField =
   | "openingMomoFloat"
   | "openingCash"
-  | "additionalCashReceived"
-  | "additionalMomoFloat"
-  | "totalCashIn"
-  | "totalCashOut"
-  | "totalAirtimeSold"
   | "commission"
+  | "debtsCollected"
   | "closingMomoFloat"
   | "closingCash";
 
-// Approved business terminology. Retired duplicate inputs (Cash paid out,
-// Cash in, Other income) are not read or written by this form.
+// Approved simplified closing fields. Legacy transaction columns remain on the
+// historical row but are not editable here.
 const FIELDS: Array<{ key: MoneyField; label: string; hint?: string }> = [
-  { key: "openingMomoFloat", label: "Opening MoMo float" },
-  { key: "openingCash", label: "Opening physical cash" },
-  { key: "additionalCashReceived", label: "Additional cash received" },
-  { key: "additionalMomoFloat", label: "Additional MoMo float received" },
-  { key: "totalCashIn", label: "Customer deposit (Cash in)" },
-  { key: "totalCashOut", label: "Cash out" },
-  { key: "totalAirtimeSold", label: "Airtime sold" },
-  { key: "commission", label: "Commission earned" },
-  { key: "closingMomoFloat", label: "Actual closing MoMo float" },
-  { key: "closingCash", label: "Actual closing physical cash" },
+  { key: "openingCash", label: "Start of day — Total Physical Cash" },
+  { key: "openingMomoFloat", label: "Start of day — Total E-cash" },
+  { key: "closingCash", label: "End of day — Total Physical Cash" },
+  { key: "closingMomoFloat", label: "End of day — Total E-cash" },
+  { key: "commission", label: "Commission" },
+  { key: "debtsCollected", label: "Debts Collected" },
 ];
 
 function calculate(values: Record<MoneyField, number>, expensesTotal: number) {
   return calculateReconciliation({
     openingMomoFloat: values.openingMomoFloat,
     openingCash: values.openingCash,
-    additionalCashReceived: values.additionalCashReceived,
-    additionalMomoFloat: values.additionalMomoFloat,
-    customerDeposit: values.totalCashIn,
-    cashOut: values.totalCashOut,
-    airtimeSold: values.totalAirtimeSold,
+    debtsCollected: values.debtsCollected,
     commission: values.commission,
     totalExpenses: expensesTotal,
     closingMomoFloat: values.closingMomoFloat,
@@ -66,19 +54,14 @@ export default function CorrectionForm({
   const [values, setValues] = useState<Record<MoneyField, number>>({
     openingMomoFloat: data.values.openingMomoFloat,
     openingCash: data.values.openingCash,
-    additionalCashReceived: data.values.additionalCashReceived,
-    additionalMomoFloat: data.values.additionalMomoFloat,
-    totalCashIn: data.values.totalCashIn,
-    totalCashOut: data.values.totalCashOut,
-    totalAirtimeSold: data.values.totalAirtimeSold,
     commission: data.values.commission,
+    debtsCollected: data.values.debtsCollected,
     closingMomoFloat: data.values.closingMomoFloat,
     closingCash: data.values.closingCash,
   });
+  const [expensesTotal, setExpensesTotal] = useState(data.values.totalExpenses);
   const [expenses, setExpenses] = useState(
-    data.expenses.length > 0
-      ? data.expenses
-      : [{ description: "", amount: 0 }]
+    data.expenses.length > 0 ? data.expenses : []
   );
   const [reason, setReason] = useState("");
   const [reconciliationNote, setReconciliationNote] = useState(
@@ -89,7 +72,7 @@ export default function CorrectionForm({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const expensesTotal = useMemo(
+  const itemisedTotal = useMemo(
     () => expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
     [expenses]
   );
@@ -144,6 +127,7 @@ export default function CorrectionForm({
       for (const field of FIELDS) {
         formData.set(field.key, String(values[field.key]));
       }
+      formData.set("totalExpenses", String(expensesTotal));
       formData.set("reconciliationNote", reconciliationNote.trim());
       formData.set(
         "expenses",
@@ -187,11 +171,9 @@ export default function CorrectionForm({
             </span>
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Customer deposit (Cash in), Cash out and Airtime sold move money
-            between physical cash and MoMo float. They do not change combined
-            accountability. Additional funding, commission and expenses do. The
-            retired duplicate inputs (Cash paid out, Cash in, Other income) are
-            not used.
+            Expected closing = opening cash + opening E-cash + debts collected +
+            commission − expenses. Customer deposits, withdrawals and airtime only
+            move money between the two pockets and are not part of this form.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((field) => (
@@ -234,9 +216,26 @@ export default function CorrectionForm({
                   ])
                 }
               >
-                Add expense
+                Add detail line
               </button>
             </div>
+            <label className="mb-2 block text-sm">
+              <span className="font-medium text-slate-700">Expenses total</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                className="mt-1 w-full"
+                value={expensesTotal}
+                onChange={(event) =>
+                  setExpensesTotal(Number(event.target.value) || 0)
+                }
+              />
+              <span className="mt-1 block text-xs text-slate-400">
+                Original: {formatCedi(data.values.totalExpenses)}
+              </span>
+            </label>
             <div className="space-y-2">
               {expenses.map((expense, index) => (
                 <div key={index} className="flex flex-col gap-2 sm:flex-row">
@@ -294,8 +293,8 @@ export default function CorrectionForm({
               )}
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Expenses total: {formatCedi(expensesTotal)} · Original:{" "}
-              {formatCedi(data.values.totalExpenses)}
+              Detail lines total: {formatCedi(itemisedTotal)} (optional support for
+              the audit trail; the Expenses total above is used).
             </p>
           </div>
         </section>
@@ -311,8 +310,8 @@ export default function CorrectionForm({
                 {formatCedi(proposed.expectedClosing)}
               </p>
               <p className="text-xs text-slate-400">
-                Opening {formatCedi(proposed.openingTotal)} + additional funding{" "}
-                {formatCedi(proposed.additionalFunding)} + commission{" "}
+                Opening {formatCedi(proposed.openingTotal)} + debts collected{" "}
+                {formatCedi(values.debtsCollected)} + commission{" "}
                 {formatCedi(values.commission)} − expenses {formatCedi(expensesTotal)}
               </p>
             </div>

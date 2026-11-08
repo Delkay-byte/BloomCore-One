@@ -90,7 +90,7 @@ export default function SusuCustomerDetailPage() {
 
   // Customer portal provisioning
   const [showPortalForm, setShowPortalForm] = useState(false);
-  const [portalLoginId, setPortalLoginId] = useState("");
+
   const [portalTempPassword, setPortalTempPassword] = useState("");
   const [portalProvisioning, setPortalProvisioning] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
@@ -131,13 +131,12 @@ export default function SusuCustomerDetailPage() {
     setSuccess("");
     try {
       const formData = new FormData();
-      formData.set("loginIdentifier", portalLoginId || customer.customerId);
+      formData.set("loginIdentifier", customer.customerId);
       formData.set("temporaryPassword", portalTempPassword);
       const result = await createCustomerPortalAccess(customer.id, formData);
       if (result.success) {
         setSuccess("Customer portal access created successfully.");
         setShowPortalForm(false);
-        setPortalLoginId("");
         setPortalTempPassword("");
         loadCustomer();
       } else {
@@ -386,7 +385,7 @@ export default function SusuCustomerDetailPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">{customer.fullName}</h1>
             <p className="text-slate-500 mt-1">
-              {customer.customerId} &bull; {customer.phone || "No phone"}
+              Account Number: {customer.customerId} &bull; {customer.phone || "No phone"}
               {customer.address && ` &bull; ${customer.address}`}
             </p>
           </div>
@@ -518,7 +517,7 @@ export default function SusuCustomerDetailPage() {
           <>
             <div className="card">
               <div className="text-sm text-slate-500 mb-1">Account Number</div>
-              <div className="font-mono font-semibold text-lg">{account.accountId}</div>
+              <div className="font-mono font-semibold text-lg">{customer.customerId}</div>
             </div>
             <div className="card">
               <div className="text-sm text-slate-500 mb-1">Daily Contribution</div>
@@ -639,16 +638,10 @@ export default function SusuCustomerDetailPage() {
           <div className="mt-4 p-4 bg-slate-50 rounded-lg">
             <h4 className="font-medium mb-3">Create Customer Portal Login</h4>
             <div className="space-y-3">
-              <div className="form-group">
-                <label className="form-label">Login Identifier</label>
-                <input
-                  type="text"
-                  value={portalLoginId}
-                  onChange={(e) => setPortalLoginId(e.target.value)}
-                  placeholder={customer.customerId}
-                  className="w-full"
-                />
-                <p className="form-hint">Customer will use this to sign in. Defaults to Customer ID.</p>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                <p className="text-xs font-medium text-slate-500">Account Number</p>
+                <p className="font-mono font-semibold text-slate-900">{customer.customerId}</p>
+                <p className="form-hint">The customer signs in with this Account Number or their registered phone number.</p>
               </div>
               <div className="form-group">
                 <label className="form-label">Temporary Password</label>
@@ -669,7 +662,7 @@ export default function SusuCustomerDetailPage() {
                   {portalProvisioning ? "Creating..." : "Create Login"}
                 </button>
                 <button
-                  onClick={() => { setShowPortalForm(false); setPortalLoginId(""); setPortalTempPassword(""); }}
+                  onClick={() => { setShowPortalForm(false); setPortalTempPassword(""); }}
                   className="btn btn-secondary btn-sm"
                   disabled={portalProvisioning}
                 >
@@ -964,7 +957,7 @@ export default function SusuCustomerDetailPage() {
                 <span className="font-medium">{customer.fullName}</span>
               </div>
               <div className="flex justify-between mb-1">
-                <span className="text-slate-500">Customer ID:</span>
+                <span className="text-slate-500">Account Number:</span>
                 <span className="font-mono">{customer.customerId}</span>
               </div>
               <div className="flex justify-between">

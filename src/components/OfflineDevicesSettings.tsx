@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/utils";
 import { isRedirectError } from "@/lib/errors";
 import { SkeletonCardList } from "@/components/ui/Skeletons";
+import { ConfirmDialog } from "@/components/ui/Modal";
 
 interface DeviceData {
   id: string;
@@ -22,6 +23,7 @@ export default function OfflineDevicesSettings() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
 
   async function loadDevices() {
     setLoading(true);
@@ -43,7 +45,13 @@ export default function OfflineDevicesSettings() {
   }, []);
 
   async function handleRevoke(deviceId: string) {
-    if (!confirm("Revoke this device? It will no longer be allowed to synchronize offline financial transactions.")) return;
+    setRevokeTarget(deviceId);
+  }
+
+  async function submitRevoke() {
+    if (!revokeTarget) return;
+    const deviceId = revokeTarget;
+    setRevokeTarget(null);
     setActionPending(deviceId);
     setError("");
     setSuccess("");
@@ -171,6 +179,19 @@ export default function OfflineDevicesSettings() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(revokeTarget)}
+        onClose={() => {
+          if (!actionPending) setRevokeTarget(null);
+        }}
+        onConfirm={submitRevoke}
+        title="Revoke this device?"
+        description="It will no longer be allowed to synchronize offline financial transactions. Records already on the device are kept."
+        confirmLabel="Revoke device"
+        tone="danger"
+        loading={Boolean(actionPending)}
+      />
     </div>
   );
 }

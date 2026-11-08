@@ -3,8 +3,9 @@ import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import DraftIndicator from "@/components/DraftIndicator";
 
-import { UserRound } from "lucide-react";
+import { CheckCircle2, Copy, Printer, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useToast } from "@/components/ui/Toast";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getCustomers,
@@ -42,6 +43,16 @@ interface Collector {
   user: { fullName: string };
 }
 
+interface CreatedCustomerSummary {
+  fullName: string;
+  accountNumber: string;
+  phone: string;
+  dailyContribution: number;
+  status: string;
+  collectorName: string | null;
+  portalEnabled: boolean;
+}
+
 export default function SusuCustomersPage() {
   const handleRedirect = useRedirectHandler();
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -61,6 +72,10 @@ export default function SusuCustomersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [enablePortal, setEnablePortal] = useState(false);
   const [portalPassword, setPortalPassword] = useState("");
+  const [createdCustomer, setCreatedCustomer] =
+    useState<CreatedCustomerSummary | null>(null);
+  const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
+  const toast = useToast();
 
   // Assignment modal state
   const [assignModal, setAssignModal] = useState<{ open: boolean; customerId: string; accountId: string }>({
@@ -95,22 +110,139 @@ export default function SusuCustomersPage() {
     try {
       const result = await createCustomer(formData);
       if (result.success) {
-        const portalEnabled = (result.data as { portalEnabled?: boolean } | undefined)?.portalEnabled;
-        setSuccess(
-          portalEnabled
-            ? "Customer created. Portal access enabled — share the temporary password with the customer privately."
-            : "Customer created successfully"
-        );
+        const data = result.data as
+          | {
+              customer?: {
+                fullName?: string;
+                customerId?: string;
+                phone?: string | null;
+                status?: string;
+              };
+              susuAccount?: { dailyContribution?: number };
+              accountNumber?: string;
+              portalEnabled?: boolean;
+            }
+          | undefined;
+        const accountNumber =
+          data?.accountNumber ?? data?.customer?.customerId ?? "";
+        setCreatedCustomer({
+          fullName: data?.customer?.fullName ?? "Customer",
+          accountNumber,
+          phone: data?.customer?.phone ?? "Not provided",
+          dailyContribution: Number(data?.susuAccount?.dailyContribution ?? 0),
+          status: data?.customer?.status ?? "active",
+          collectorName: null,
+          portalEnabled: Boolean(data?.portalEnabled),
+        });
+        // The success card is the confirmation. No duplicate banner or toast.
+        setSuccess("");
         setShowForm(false);
         setEnablePortal(false);
         setPortalPassword("");
         await createDraft.clearDraft();
         loadData();
       } else {
-        setError(result.error || "Failed to create customer");
+        setError(result.error || "The customer account could not be created.");
+        toast.push("error", result.error || "The customer account could not be created.");
       }
-    } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+    } catch (err) {
+      if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+      setError("The customer account could not be created. Please try again.");
+    } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function copyText(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.push("success", `${label} copied.`);
+    } catch {
+      toast.push("error", `We couldn't copy the ${label.toLowerCase()}. Please select it and copy manually.`);
+    }
+  }
+
+  function copyAccountDetails() {
+    if (!createdCustomer) return;
+    const details = [
+      "MaaCash Susu Account",
+      `Customer: ${createdCustomer.fullName}`,
+      `Account Number: ${createdCustomer.accountNumber}`,
+      `Phone: ${createdCustomer.phone}`,
+      `Daily Contribution: GH₵${createdCustomer.dailyContribution.toFixed(2)}`,
+      `Status: ${createdCustomer.status}`,
+    ].join("\n");
+    void copyText(details, "Account details");
+  }
+
+  function printAccountSummary() {
+    if (!createdCustomer) return;
+    const escape = (value: string) =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const win = window.open("", "_blank", "width=640,height=720");
+    if (!win) {
+      toast.push("error", "The print window was blocked. Allow pop-ups and try again.");
+      return;
+    }
+    win.document.write(`<!doctype html><html><head><title>Account Summary</title>
+      <style>
+        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;color:#0f172a}
+        h1{font-size:20px;margin:0 0 4px}
+        .muted{color:#64748b;font-size:13px}
+        .account{margin:24px 0;padding:20px;border:2px solid #047857;border-radius:12px}
+        .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b}
+        .number{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;font-weight:700;color:#065f46;margin-top:4px}
+        table{width:100%;border-collapse:collapse;margin-top:16px}
+        td{padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:14px}
+        td:last-child{text-align:right;font-weight:600}
+      </style></head><body>
+      <h1>MaaCash Susu Account</h1>
+      <p class="muted">Customer Account Created Successfully</p>
+      <div class="account">
+        <div class="label">Account Number</div>
+        <div class="number">${escape(createdCustomer.accountNumber)}</div>
+      </div>
+      <table>
+        <tr><td>Customer Full Name</td><td>${escape(createdCustomer.fullName)}</td></tr>
+        <tr><td>Phone Number</td><td>${escape(createdCustomer.phone)}</td></tr>
+        <tr><td>Daily Contribution</td><td>GH₵${createdCustomer.dailyContribution.toFixed(2)}</td></tr>
+        <tr><td>Assigned Collector</td><td>${escape(createdCustomer.collectorName ?? "Not assigned")}</td></tr>
+        <tr><td>Account Status</td><td>${escape(createdCustomer.status)}</td></tr>
+      </table>
+      <p class="muted" style="margin-top:28px">Keep this Account Number safe. Use it with your phone number to sign in to the customer portal.</p>
+      </body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  async function handleToggleStatus(customer: Customer, newStatus: string) {
+    if (statusBusyId) return;
+    setStatusBusyId(customer.id);
+    setError("");
+    try {
+      const result = await toggleCustomerStatus(customer.id, newStatus);
+      if (result.success) {
+        toast.push(
+          "success",
+          newStatus === "active"
+            ? "Customer account activated."
+            : "Customer account deactivated."
+        );
+        await loadData();
+      } else {
+        setError(result.error || "The customer status could not be updated.");
+        toast.push("error", result.error || "The customer status could not be updated.");
+      }
+    } catch (err) {
+      if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+      setError("The customer status could not be updated. Please try again.");
+    } finally {
+      setStatusBusyId(null);
     }
   }
 
@@ -174,6 +306,97 @@ export default function SusuCustomersPage() {
             ✕
           </button>
         </div>
+      )}
+
+      {createdCustomer && (
+        <section
+          className="mb-6 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-[var(--shadow-card)]"
+          aria-labelledby="created-customer-title"
+        >
+          <div className="flex items-start gap-3 bg-emerald-50 px-5 py-4">
+            <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-emerald-600 text-white">
+              <CheckCircle2 size={22} aria-hidden />
+            </div>
+            <div>
+              <h2 id="created-customer-title" className="text-lg font-bold text-emerald-950">
+                Customer Account Created Successfully
+              </h2>
+              <p className="text-sm text-emerald-800">
+                Give the customer their Account Number. They can sign in with it or their
+                registered phone number.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreatedCustomer(null)}
+              className="ml-auto rounded-md p-1 text-emerald-700 hover:bg-emerald-100"
+              aria-label="Dismiss created customer summary"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_240px] md:items-center">
+            <div>
+              <div className="rounded-xl border-2 border-emerald-600 bg-emerald-50/60 px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">
+                  Account Number
+                </p>
+                <p className="mt-1 font-mono text-2xl font-bold tracking-wide text-emerald-950 sm:text-3xl">
+                  {createdCustomer.accountNumber}
+                </p>
+              </div>
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-slate-500">Customer Full Name</dt>
+                  <dd className="font-semibold text-slate-900">{createdCustomer.fullName}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Phone Number</dt>
+                  <dd className="font-medium text-slate-900">{createdCustomer.phone}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Daily Contribution</dt>
+                  <dd className="font-medium text-slate-900">
+                    <CediAmount amount={createdCustomer.dailyContribution} />/day
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Assigned Collector</dt>
+                  <dd className="font-medium text-slate-900">
+                    {createdCustomer.collectorName ?? "Not assigned"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Account Status</dt>
+                  <dd>
+                    <span className="badge badge-green">{createdCustomer.status}</span>
+                  </dd>
+                </div>
+              </dl>
+              {createdCustomer.portalEnabled && (
+                <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Portal access is enabled. Share the temporary password privately. It is
+                  never displayed here.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => copyText(createdCustomer.accountNumber, "Account Number")}
+                className="btn btn-primary w-full"
+              >
+                <Copy size={15} aria-hidden /> Copy Account Number
+              </button>
+              <button type="button" onClick={copyAccountDetails} className="btn btn-secondary w-full">
+                <Copy size={15} aria-hidden /> Copy Account Details
+              </button>
+              <button type="button" onClick={printAccountSummary} className="btn btn-secondary w-full">
+                <Printer size={15} aria-hidden /> Print Account Summary
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Create Form */}
@@ -289,7 +512,7 @@ export default function SusuCustomersPage() {
             <label className="form-label">Search</label>
             <input
               type="text"
-              placeholder="Name, ID, or phone..."
+              placeholder="Name, Account Number, or phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -324,8 +547,8 @@ export default function SusuCustomersPage() {
               <thead>
                 <tr>
                   <th>Customer</th>
-                  <th>Account</th>
-                  <th>Daily Rate</th>
+                  <th>Account Number</th>
+                  <th>Daily Contribution</th>
                   <th>Cycle</th>
                   <th>Collector</th>
                   <th>Status</th>
@@ -341,13 +564,12 @@ export default function SusuCustomersPage() {
                     <tr key={customer.id}>
                       <td>
                         <div className="font-medium">{customer.fullName}</div>
-                        <div className="text-xs text-slate-500">{customer.customerId}</div>
                         {customer.phone && (
                           <div className="text-xs text-slate-400">{customer.phone}</div>
                         )}
                       </td>
-                      <td className="font-mono text-sm">
-                        {account?.accountId || "—"}
+                      <td className="font-mono text-sm font-semibold">
+                        {customer.customerId}
                       </td>
                       <td className="font-mono text-sm">
                         {account ? <><CediAmount amount={account.dailyContribution} />/day</> : "—"}
@@ -395,19 +617,24 @@ export default function SusuCustomersPage() {
                             View
                           </Link>
                           <button
-                            onClick={async () => {
-                              const newStatus =
-                                customer.status === "active" ? "inactive" : "active";
-                              await toggleCustomerStatus(customer.id, newStatus);
-                              loadData();
-                            }}
-                            className={`text-sm ${
+                            onClick={() =>
+                              handleToggleStatus(
+                                customer,
+                                customer.status === "active" ? "inactive" : "active"
+                              )
+                            }
+                            disabled={statusBusyId === customer.id}
+                            className={`text-sm disabled:opacity-60 ${
                               customer.status === "active"
                                 ? "text-red-600 hover:text-red-800"
                                 : "text-green-600 hover:text-green-800"
                             }`}
                           >
-                            {customer.status === "active" ? "Deactivate" : "Activate"}
+                            {statusBusyId === customer.id
+                              ? "Updating…"
+                              : customer.status === "active"
+                                ? "Deactivate"
+                                : "Activate"}
                           </button>
                         </div>
                       </td>
