@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { BrandLockup } from "@/components/brand/Brand";
-import { PUBLIC_ROUTES } from "@/lib/site";
+import { BUSINESS_LOGIN_PATH, PUBLIC_ROUTES } from "@/lib/site";
 
 /**
  * Public site navigation. Accessible by keyboard, closes on Escape and on
@@ -62,7 +62,7 @@ export default function MarketingNav() {
 
         <div className="hidden items-center gap-2 md:flex">
           <Link
-            href="/workspace"
+            href={BUSINESS_LOGIN_PATH}
             className="rounded-control px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50"
           >
             Sign In
@@ -114,7 +114,7 @@ export default function MarketingNav() {
                 Request a Demonstration
               </Link>
               <Link
-                href="/workspace"
+                href={BUSINESS_LOGIN_PATH}
                 className="rounded-control border border-line-strong bg-white px-4 py-2.5 text-center text-sm font-semibold text-brand-700"
               >
                 Sign In
