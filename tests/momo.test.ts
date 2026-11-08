@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma, cleanDatabase, createTestAdmin } from "./setup";
+import { calculateReconciliation } from "@/lib/momo-reconciliation";
 import bcrypt from "bcryptjs";
 
 let adminId: string;
@@ -27,69 +28,74 @@ beforeEach(async () => {
 // ============================================================
 
 describe("Reconciliation", () => {
-  it("calculates MoMo variance correctly", async () => {
-    // MoMo variance = closingMomoFloat - (openingMomoFloat + totalCashIn - totalCashOut)
-    const opening = 500;
-    const cashIn = 2000;
-    const cashOut = 1500;
-    const closing = 1000;
-
-    const expectedClosing = opening + cashIn - cashOut; // 500 + 2000 - 1500 = 1000
-    const variance = closing - expectedClosing; // 1000 - 1000 = 0
-
-    expect(variance).toBe(0);
+  it("balances combined accountability when movements only shift money between pockets", () => {
+    // Opening 1000 float + 500 cash = 1500.
+    // Deposit 2000 and cash out 1500 move money between the pockets.
+    // Commission 50 raises accountability; expenses 35 lower it.
+    const result = calculateReconciliation({
+      openingMomoFloat: 1000,
+      openingCash: 500,
+      customerDeposit: 2000,
+      cashOut: 1500,
+      airtimeSold: 0,
+      commission: 50,
+      totalExpenses: 35,
+      closingMomoFloat: 550,
+      closingCash: 965,
+    });
+    expect(result.expectedClosing).toBe(1515);
+    expect(result.actualClosing).toBe(1515);
+    expect(result.difference).toBe(0);
+    expect(result.status).toBe("balanced");
   });
 
-  it("detects MoMo discrepancy", () => {
-    const opening = 500;
-    const cashIn = 2000;
-    const cashOut = 1500;
-    const closing = 950; // Should be 1000
-
-    const expectedClosing = opening + cashIn - cashOut; // 1000
-    const variance = closing - expectedClosing; // -50
-
-    expect(variance).toBe(-50);
-  });
-
-  it("calculates cash variance correctly", () => {
-    // Cash variance = closingCash - (openingCash + totalCashReceived + commission + otherIncome - totalCashPaid - totalExpenses)
-    const openingCash = 300;
-    const cashReceived = 800;
-    const commission = 50;
-    const otherIncome = 0;
-    const cashPaid = 200;
-    const expenses = 35;
-    const closingCash = 950;
-
-    const expectedCash = openingCash + cashReceived + commission + otherIncome - cashPaid - expenses;
-    // 300 + 800 + 50 + 0 - 200 - 35 = 915
-    const variance = closingCash - expectedCash; // 950 - 915 = 35
-
-    expect(expectedCash).toBe(915);
-    expect(variance).toBe(35);
-  });
-
-  it("balanced report has zero variances", () => {
-    const data = {
+  it("detects a combined accountability shortage", () => {
+    const result = calculateReconciliation({
       openingMomoFloat: 500,
       openingCash: 300,
-      totalCashIn: 2000,
-      totalCashOut: 1500,
-      totalCashReceived: 800,
-      totalCashPaid: 200,
+      additionalCashReceived: 0,
+      additionalMomoFloat: 0,
+      customerDeposit: 2000,
+      cashOut: 1500,
+      airtimeSold: 0,
+      commission: 0,
+      totalExpenses: 0,
+      closingMomoFloat: 0,
+      closingCash: 700,
+    });
+    expect(result.expectedClosing).toBe(800);
+    expect(result.actualClosing).toBe(700);
+    expect(result.difference).toBe(-100);
+    expect(result.status).toBe("shortage");
+  });
+
+  it("is not affected by deposits, withdrawals or airtime sales", () => {
+    const result = calculateReconciliation({
+      openingMomoFloat: 1000,
+      openingCash: 300,
+      customerDeposit: 800,
+      cashOut: 200,
+      airtimeSold: 100,
+      commission: 0,
+      totalExpenses: 0,
+      closingMomoFloat: 1000 - 800 + 200 - 100,
+      closingCash: 300 + 800 - 200 + 100,
+    });
+    expect(result.difference).toBe(0);
+  });
+
+  it("counts commission once and expenses once", () => {
+    const result = calculateReconciliation({
+      openingMomoFloat: 500,
+      openingCash: 300,
       commission: 50,
-      otherIncome: 0,
       totalExpenses: 35,
-      closingMomoFloat: 1000,
-      closingCash: 915,
-    };
-
-    const momoVariance = data.closingMomoFloat - (data.openingMomoFloat + data.totalCashIn - data.totalCashOut);
-    const cashVariance = data.closingCash - (data.openingCash + data.totalCashReceived + data.commission + data.otherIncome - data.totalCashPaid - data.totalExpenses);
-
-    expect(momoVariance).toBe(0);
-    expect(cashVariance).toBe(0);
+      closingMomoFloat: 550,
+      closingCash: 265,
+    });
+    expect(result.expectedClosing).toBe(815);
+    expect(result.actualClosing).toBe(815);
+    expect(result.difference).toBe(0);
   });
 });
 

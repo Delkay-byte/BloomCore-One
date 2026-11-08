@@ -39,7 +39,7 @@ const CORE = [
       "Daily records for mobile money work: what came in, what went out, what was earned and what was spent.",
     points: [
       "Daily accounts opened per worker and location",
-      "Cash in, cash out, MoMo added, MoMo paid, commission, other income, expenses and reconciliation entries",
+      "Customer deposit (Cash in), Cash out, airtime sold, additional funding, commission, expenses and combined accountability checks",
       "Money history with filters for date range, worker and location",
       "CSV export of the filtered history",
     ],

@@ -1,101 +1,190 @@
 /**
- * MoMo daily reconciliation — approved field names and the arithmetic shared
- * by the worker form, the correction screen, the admin report detail and the
- * server actions.
+ * MoMo daily reconciliation — the corrected combined-accountability model.
  *
- * Approved labels (business owner + experienced MoMo operator):
- *   Customer deposit — money added to the MoMo float through customer deposits
- *   Cash out         — cash paid to customers (customer withdrawals)
- *   Cash in          — physical cash received during the day
+ * A MoMo agent holds business money in two pockets: physical cash and the
+ * electronic MoMo float. Customer deposits, cash out and airtime sales move
+ * value between those pockets. They never change the combined business money.
  *
- * "Cash paid out" is deliberately absent: it duplicated Cash out. The database
- * column (DailyAccount.totalCashPaid) is retained only so historical submitted
- * accounts and their stored variances remain readable. New and corrected
- * accounts store 0 there and the field never contributes to a calculation.
+ * Expected closing accountability
+ *   = opening cash
+ *   + opening MoMo float
+ *   + additional cash received
+ *   + additional MoMo float received
+ *   + commission earned
+ *   - total business expenses
+ *
+ * Actual closing accountability
+ *   = closing cash
+ *   + closing MoMo float
+ *
+ * Difference = actual - expected.
+ *   zero      -> Balanced
+ *   positive  -> Positive difference (green)
+ *   negative  -> Shortage (red, explanation required before submission)
+ *
+ * The old model added customer deposits to the float and subtracted cash out
+ * from cash independently. That model is gone. The persisted legacy columns
+ * (totalCashReceived, totalCashPaid, otherIncome, calculatedMomoVariance,
+ * calculatedCashVariance) remain only so historical records stay readable.
  */
 
 export const MOMO_FIELD_LABELS = {
-  customerDeposit: "Customer deposit",
+  customerDeposit: "Customer deposit (Cash in)",
   cashOut: "Cash out",
-  cashIn: "Cash in",
+  airtimeSold: "Airtime sold",
+  additionalCashReceived: "Additional cash received",
+  additionalMomoFloatReceived: "Additional MoMo float received",
+  commission: "Commission earned",
+  totalExpenses: "Business expenses",
+  openingCash: "Opening physical cash",
+  openingMomoFloat: "Opening MoMo float",
+  closingCash: "Actual closing physical cash",
+  closingMomoFloat: "Actual closing MoMo float",
 } as const;
 
 export const MOMO_FIELD_HELP = {
   customerDeposit:
-    "Money you added to MoMo for customers who came to deposit cash with you.",
-  cashOut: "Cash you paid to customers who came to withdraw money.",
-  cashIn: "Physical cash you received during the day.",
+    "Total cash customers deposited with you today. Cash in goes up, MoMo float goes down. Combined business money does not change.",
+  cashOut:
+    "Total cash you paid to customers who withdrew today. Cash goes down, MoMo float goes up. Combined business money does not change.",
+  airtimeSold:
+    "Total value of airtime you sold to customers today. Cash goes up, MoMo float goes down. Combined business money does not change.",
+  additionalCashReceived:
+    "Extra physical cash the boss or owner brought for the business today. This increases total business money.",
+  additionalMomoFloatReceived:
+    "Extra MoMo float the boss or owner sent for the business today. This increases total business money.",
+  commission:
+    "Enter the commission total shown on your MoMo provider statement. It is added once.",
+  totalExpenses:
+    "Authorised business expenses paid from cash or float. The total reduces closing accountability.",
 } as const;
+
+export type ReconciliationStatus = "balanced" | "positive" | "shortage";
 
 export interface ReconciliationInput {
   openingMomoFloat: number;
   openingCash: number;
-  customerDeposit: number;
-  cashOut: number;
-  cashIn: number;
-  commission: number;
-  otherIncome: number;
-  totalExpenses: number;
+  additionalCashReceived?: number;
+  additionalMomoFloat?: number;
+  customerDeposit?: number;
+  cashOut?: number;
+  airtimeSold?: number;
+  commission?: number;
+  totalExpenses?: number;
   closingMomoFloat: number;
   closingCash: number;
 }
 
 export interface ReconciliationResult {
+  /** Opening cash + opening float. */
+  openingTotal: number;
+  /** Additional cash + additional float. */
+  additionalFunding: number;
+  /** Expected closing accountability under the combined model. */
+  expectedClosing: number;
+  /** Entered closing cash + closing float. */
+  actualClosing: number;
+  /** actualClosing - expectedClosing. */
+  difference: number;
+  status: ReconciliationStatus;
+  /** Float movement guide: opening float + cash out - deposits - airtime. */
   expectedMomoFloat: number;
+  /** Cash movement guide: opening cash + deposits - cash out + airtime. */
   expectedCash: number;
-  momoVariance: number;
-  cashVariance: number;
-  totalVariance: number;
 }
 
 function money(value: number): number {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
 }
 
-/**
- * Expected MoMo float: opening float + customer deposits - cash out.
- * Expected cash:       opening cash + cash in + commission + other income
- *                      - cash out - business expenses.
- *
- * Cash out is counted exactly once on each side of the books: it reduced the
- * float and it left the cash drawer. It is never subtracted twice from cash.
- */
 export function calculateReconciliation(
   data: ReconciliationInput
 ): ReconciliationResult {
-  const openingMomoFloat = Number(data.openingMomoFloat) || 0;
-  const openingCash = Number(data.openingCash) || 0;
-  const customerDeposit = Number(data.customerDeposit) || 0;
-  const cashOut = Number(data.cashOut) || 0;
-  const cashIn = Number(data.cashIn) || 0;
-  const commission = Number(data.commission) || 0;
-  const otherIncome = Number(data.otherIncome) || 0;
-  const totalExpenses = Number(data.totalExpenses) || 0;
-  const closingMomoFloat = Number(data.closingMomoFloat) || 0;
-  const closingCash = Number(data.closingCash) || 0;
+  const openingMomoFloat = money(data.openingMomoFloat);
+  const openingCash = money(data.openingCash);
+  const additionalCashReceived = money(data.additionalCashReceived ?? 0);
+  const additionalMomoFloat = money(data.additionalMomoFloat ?? 0);
+  const customerDeposit = money(data.customerDeposit ?? 0);
+  const cashOut = money(data.cashOut ?? 0);
+  const airtimeSold = money(data.airtimeSold ?? 0);
+  const commission = money(data.commission ?? 0);
+  const totalExpenses = money(data.totalExpenses ?? 0);
+  const closingMomoFloat = money(data.closingMomoFloat);
+  const closingCash = money(data.closingCash);
 
-  const expectedMomoFloat = money(
-    openingMomoFloat + customerDeposit - cashOut
+  const openingTotal = money(openingCash + openingMomoFloat);
+  const additionalFunding = money(additionalCashReceived + additionalMomoFloat);
+  const expectedClosing = money(
+    openingTotal + additionalFunding + commission - totalExpenses
   );
-  const expectedCash = money(
-    openingCash + cashIn + commission + otherIncome - cashOut - totalExpenses
-  );
-
-  const momoVariance = money(closingMomoFloat - expectedMomoFloat);
-  const cashVariance = money(closingCash - expectedCash);
+  const actualClosing = money(closingCash + closingMomoFloat);
+  const difference = money(actualClosing - expectedClosing);
 
   return {
-    expectedMomoFloat,
-    expectedCash,
-    momoVariance,
-    cashVariance,
-    totalVariance: money(momoVariance + cashVariance),
+    openingTotal,
+    additionalFunding,
+    expectedClosing,
+    actualClosing,
+    difference,
+    status:
+      difference === 0 ? "balanced" : difference > 0 ? "positive" : "shortage",
+    // Informational guides. They explain the movement between the two pockets;
+    // they do not drive the reconciliation status.
+    expectedMomoFloat: money(
+      openingMomoFloat + cashOut - customerDeposit - airtimeSold
+    ),
+    expectedCash: money(
+      openingCash + customerDeposit - cashOut + airtimeSold
+    ),
   };
 }
 
-/** Human wording for a signed reconciliation difference (short/over/balanced). */
 export function describeVariance(value: number): string {
   const amount = money(value);
   if (amount === 0) return "Balanced";
-  return amount < 0 ? "Short" : "Over";
+  return amount < 0 ? "Shortage" : "Positive difference";
+}
+
+export function statusLabel(status: ReconciliationStatus): string {
+  if (status === "balanced") return "Balanced";
+  if (status === "positive") return "Positive difference";
+  return "Shortage — Investigation Required";
+}
+
+/**
+ * Resolve the stored difference for a persisted daily account.
+ *
+ * New records carry calculatedDifference and differenceStatus. Records written
+ * before the correction have only the legacy split columns, and the additive
+ * migration gives them calculatedDifference = 0 / differenceStatus = "balanced".
+ * For those rows the legacy sum is the truthful difference, so it is used only
+ * when the new value is zero and the legacy columns disagree with "balanced".
+ */
+export function resolveStoredDifference(account: {
+  calculatedDifference?: unknown;
+  differenceStatus?: unknown;
+  calculatedMomoVariance?: unknown;
+  calculatedCashVariance?: unknown;
+}): { difference: number; status: ReconciliationStatus } {
+  const modern = money(Number(account.calculatedDifference ?? 0));
+  const declared = String(account.differenceStatus ?? "").toLowerCase();
+  if (modern !== 0 || declared === "shortage" || declared === "positive") {
+    return {
+      difference: modern,
+      status: modern === 0 ? "balanced" : modern > 0 ? "positive" : "shortage",
+    };
+  }
+  const legacy = money(
+    Number(account.calculatedMomoVariance ?? 0) +
+      Number(account.calculatedCashVariance ?? 0)
+  );
+  if (legacy !== 0) {
+    return {
+      difference: legacy,
+      status: legacy > 0 ? "positive" : "shortage",
+    };
+  }
+  return { difference: 0, status: "balanced" };
 }

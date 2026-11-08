@@ -78,12 +78,18 @@ export const dailyAccountSchema = z.object({
   businessDate: z.string().min(1, "Business date is required"),
   openingMomoFloat: positiveDecimal,
   openingCash: positiveDecimal,
+  additionalCashReceived: positiveDecimal.optional(),
+  additionalMomoFloat: positiveDecimal.optional(),
   totalCashIn: positiveDecimal,
   totalCashOut: positiveDecimal,
-  totalCashReceived: positiveDecimal,
-  totalCashPaid: positiveDecimal,
+  totalAirtimeSold: positiveDecimal.optional(),
+  // Retired duplicate fields. Accepted only so historical correction payloads
+  // stay parseable; they never enter the corrected formula.
+  totalCashReceived: positiveDecimal.optional(),
+  totalCashPaid: positiveDecimal.optional(),
   commission: positiveDecimal,
-  otherIncome: positiveDecimal,
+  otherIncome: positiveDecimal.optional(),
+  reconciliationNote: z.string().max(500).optional(),
   closingMomoFloat: positiveDecimal,
   closingCash: positiveDecimal,
   expenses: z

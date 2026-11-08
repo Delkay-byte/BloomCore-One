@@ -27,11 +27,13 @@ interface MoMoStats {
   pendingToday: number;
   balancedReports: number;
   discrepancyReports: number;
+  positiveDifferenceReports: number;
   totalCashPosition: number;
   totalFloat: number;
   totalCustomerDeposits: number;
   totalCashOut: number;
-  totalCashIn: number;
+  totalAirtimeSold: number;
+  totalAdditionalFunding: number;
   totalExpenses: number;
   locationStatus: Array<{
     location: { name: string; code: string; id: string };
@@ -139,8 +141,8 @@ export default function AdminDashboardPage() {
   }
   if (momoStats && momoStats.discrepancyReports > 0) {
     needsAttention.push({
-      label: `${momoStats.discrepancyReports} report${momoStats.discrepancyReports === 1 ? "" : "s"} with discrepancies`,
-      detail: "Variance between expected and entered balances needs explanation.",
+      label: `${momoStats.discrepancyReports} report${momoStats.discrepancyReports === 1 ? "" : "s"} with a shortage`,
+      detail: "Closing accountability is below expected. Each shortage needs an explanation.",
       href: "/admin/reports",
       cta: "Investigate",
     });
@@ -215,9 +217,21 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Cash in today</span>
+                <span className="text-slate-500">Airtime sold today</span>
                 <span className="font-semibold tnum">
-                  <CediAmount amount={momoStats.totalCashIn} />
+                  <CediAmount amount={momoStats.totalAirtimeSold} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Additional funding today</span>
+                <span className="font-semibold tnum">
+                  <CediAmount amount={momoStats.totalAdditionalFunding} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Business expenses today</span>
+                <span className="font-semibold tnum text-red-700">
+                  <CediAmount amount={momoStats.totalExpenses} />
                 </span>
               </div>
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">
@@ -336,6 +350,10 @@ export default function AdminDashboardPage() {
                         row.difference === 0 ? (
                           <span className="text-emerald-700">
                             <CediAmount amount={0} />
+                          </span>
+                        ) : row.difference > 0 ? (
+                          <span className="text-emerald-700 font-semibold">
+                            <CediAmount amount={row.difference} showSign />
                           </span>
                         ) : (
                           <span className="text-red-700 font-semibold">

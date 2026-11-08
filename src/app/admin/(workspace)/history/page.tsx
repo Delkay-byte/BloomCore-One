@@ -17,7 +17,7 @@ import FilterChips from "@/components/ui/FilterChips";
 import { NoResults, PageHeader } from "@/components/ui/DataDisplay";
 import { Download, X } from "lucide-react";
 
-type TransactionType = "" | "cash_in" | "cash_out" | "cash_received" | "momo_added" | "momo_paid" | "commission" | "other_income" | "expenses" | "reconciliation";
+type TransactionType = "" | "cash_in" | "cash_out" | "airtime" | "additional_funding" | "momo_added" | "momo_paid" | "commission" | "expenses" | "reconciliation";
 type DatePreset = "" | "today" | "yesterday" | "24h" | "48h" | "7d" | "30d" | "custom";
 
 const DATE_PRESETS: { value: DatePreset; label: string }[] = [
@@ -33,15 +33,15 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
 
 const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
   { value: "", label: "All Types" },
-  { value: "cash_in", label: "Customer deposit" },
+  { value: "cash_in", label: "Customer deposit (Cash in)" },
   { value: "cash_out", label: "Cash out" },
-  { value: "cash_received", label: "Cash in" },
+  { value: "airtime", label: "Airtime sold" },
+  { value: "additional_funding", label: "Additional funding" },
   { value: "momo_added", label: "MoMo float increase" },
   { value: "momo_paid", label: "MoMo float decrease" },
-  { value: "commission", label: "Commission Earned" },
-  { value: "other_income", label: "Other Money Received" },
-  { value: "expenses", label: "Business Expenses" },
-  { value: "reconciliation", label: "Reconciliation Records" },
+  { value: "commission", label: "Commission earned" },
+  { value: "expenses", label: "Business expenses" },
+  { value: "reconciliation", label: "Reconciliation records" },
 ];
 
 const STATUS_OPTIONS = [
@@ -152,11 +152,12 @@ export default function MoMoHistoryPage() {
     switch (type) {
       case "Customer deposit": return <span className="badge badge-green">Customer deposit</span>;
       case "Cash out": return <span className="badge badge-red">Cash out</span>;
-      case "Cash in": return <span className="badge badge-blue">Cash in</span>;
+      case "Airtime sold": return <span className="badge badge-blue">Airtime sold</span>;
+      case "Additional cash received": return <span className="badge badge-brand">Additional cash</span>;
+      case "Additional MoMo float received": return <span className="badge badge-brand">Additional float</span>;
       case "MoMo float increase": return <span className="badge badge-blue">Float increase</span>;
       case "MoMo float decrease": return <span className="badge badge-yellow">Float decrease</span>;
       case "Commission Earned": return <span className="badge badge-gold">Commission</span>;
-      case "Other Money Received": return <span className="badge badge-brand">Other Income</span>;
       case "Business Expense": return <span className="badge badge-red">Expense</span>;
       case "Reconciliation Record": return <span className="badge badge-gray">Reconciliation</span>;
       default: return <span className="badge badge-gray">{type}</span>;
@@ -167,7 +168,7 @@ export default function MoMoHistoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="MoMo Money & History"
-        description="Customer deposits, cash out, cash in and reconciliation records across dates. Filter, inspect and export."
+        description="Customer deposits, cash out, airtime and reconciliation records across dates. Filter, inspect and export."
         actions={
           <button onClick={handleExportCSV} className="btn btn-secondary" disabled={records.length === 0}>
             <Download size={15} aria-hidden /> Export CSV
@@ -185,15 +186,21 @@ export default function MoMoHistoryPage() {
       {/* Summary - reconciles exactly with the filtered records */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard label="Customer deposit" amount={summary.totalCashIn} tone="text-emerald-700" />
+          <SummaryCard label="Customer deposit (Cash in)" amount={summary.totalCashIn} tone="text-emerald-700" />
           <SummaryCard label="Cash out" amount={summary.totalCashOut} tone="text-red-700" />
-          <SummaryCard label="Cash in" amount={summary.totalCashReceived} tone="text-emerald-700" />
+          <SummaryCard label="Airtime sold" amount={summary.totalAirtimeSold} />
+          <SummaryCard label="Additional funding" amount={summary.totalAdditionalFunding} />
           <SummaryCard label="MoMo float increase" amount={summary.totalMomoAdded} />
           <SummaryCard label="MoMo float decrease" amount={summary.totalMomoPaid} />
-          <SummaryCard label="Business Expenses" amount={summary.totalExpenses} tone="text-red-700" />
-          <SummaryCard label="Commission Earned" amount={summary.totalCommission} tone="text-emerald-700" />
-          <SummaryCard label="Other Money Received" amount={summary.totalOtherIncome} />
-          <SummaryCard label="Total Records" count={summary.recordCount} />
+          <SummaryCard label="Business expenses" amount={summary.totalExpenses} tone="text-red-700" />
+          <SummaryCard label="Commission earned" amount={summary.totalCommission} tone="text-emerald-700" />
+          <SummaryCard
+            label="Combined difference"
+            amount={summary.totalDifference}
+            tone={summary.totalDifference < 0 ? "text-red-700" : "text-emerald-700"}
+          />
+          <SummaryCard label="Shortage reports" count={summary.shortageCount} tone={summary.shortageCount > 0 ? "text-red-700" : "text-emerald-700"} />
+          <SummaryCard label="Total reports" count={summary.recordCount} />
         </div>
       )}
 
@@ -351,7 +358,11 @@ export default function MoMoHistoryPage() {
                       <td className="text-sm">{r.workerName}</td>
                       <td>{getTypeBadge(r.type)}</td>
                       <td className="num font-semibold">
-                        {r.amount > 0 ? <CediAmount amount={r.amount} /> : <span className="text-slate-400">—</span>}
+                        {r.amount !== 0 ? (
+                          <CediAmount amount={r.amount} showSign={r.type === "Reconciliation Record"} />
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td>
                         <span className={`badge ${
