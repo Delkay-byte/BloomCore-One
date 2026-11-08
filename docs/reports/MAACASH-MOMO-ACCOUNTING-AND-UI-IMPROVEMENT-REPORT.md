@@ -4,9 +4,10 @@ Date: 2026-11-08
 Repository: `Delkay-byte/BloomCore-One`
 Feature branch: `feat/momo-accounting-correction-ui`
 Base commit (`origin/main` at branch point): `42afe42`
-Pull request: pending
+Pull request: [#20](https://github.com/Delkay-byte/BloomCore-One/pull/20)
+Squash merge commit on `main`: `86e2baf15bcf95876e0b30a019435a3eda78f828`
 Production service: `maacash` (`https://maacash.onrender.com`)
-Deployment status at time of writing: **not deployed**
+Deployment status: **live and verified** (deploy `dep-dbnsoh9srm7s73abejl0`)
 
 **Evidence labels used below**
 
@@ -233,8 +234,8 @@ Focused tests:
 - **Limitation:** the interactive daily form could not be completed in the browser. The client call to `/api/auth/me?module=momo` returned `401` even though the server-rendered session was present, so the dashboard could not obtain `locationId` for the `Start Daily Account` action, and direct navigation to `/worker/daily/[id]` redirected to login. The same API path was not re-tested against `main`, so this is not confirmed as pre-existing. It is recorded as an environment/session-provenance issue, not as a passing end-to-end UI test.
 - **Limitation:** the Playwright suite was not run for this change.
 - **Limitation:** no mobile breakpoint sweep and no before/after screenshots are claimed.
-- **Limitation:** no production account, production database or real MoMo transaction was used.
-- **Limitation:** deployment and live verification are recorded separately after the pull request and deployment complete.
+- **Limitation:** no production account, production database write or real MoMo transaction was used. Production verification was limited to health, database readiness, migration status and public page responses.
+- **Verified:** deployment and live health checks completed after the pull request merged (section 11).
 
 ### 9.4 Arithmetic examples
 
@@ -310,20 +311,29 @@ Tests:
 
 | Item | Status |
 |---|---|
-| Branch pushed | pending |
-| Pull request | pending |
-| CI (`Lint, typecheck, test, build`) | pending |
-| MaaCash deploy (auto-deploy off) | pending |
+| Branch pushed | done |
+| Pull request | [#20](https://github.com/Delkay-byte/BloomCore-One/pull/20), merged |
+| CI (`Lint, typecheck, test, build`) | pass, 2m 55s |
+| MaaCash deploy (auto-deploy off) | live, deploy `dep-dbnsoh9srm7s73abejl0` |
+| Deployment commit | `86e2baf15bcf95876e0b30a019435a3eda78f828` |
 | BloomCore shared service | not touched |
-| Production health check | pending |
-| Production database migration | pending (`prisma migrate deploy` through `scripts/prepare-deploy.mjs`) |
+| Production database migration | applied: `20261108_momo_accounting_correction` |
+| Migration status after deploy | `Database schema is up to date!` (26 migrations) |
+| `GET /api/health` | **200**, `status=ok`, `env=production`, commit `86e2baf…` |
+| `GET /api/health/ready` | **200**, `status=ready`, `database=ok`, latency 103 ms |
+| `GET /` | **200** |
+| `GET /login` | **200** |
+| `GET /admin/login` | **200** |
+| `GET /worker/login` | **307** to `/login` (expected unified login redirect) |
 
-Deployment must run the additive migration before the new code serves traffic. The migration only adds columns with safe defaults, so old code remains compatible during the rollout. The shared BloomCore service reads the same database; the additive columns do not break its queries.
+The additive migration was applied with `npx prisma migrate deploy --schema=prisma/schema-pg.prisma` against the production direct URL after the deployment reached `live`. This left a window of about five minutes in which the new code ran before the new columns existed. Health and public routes stayed healthy, but an authenticated MoMo page opened in that window could have failed before the migration completed. Applying the migration before the deploy is the safer order and should be used for the next schema change.
+
+**Verified** through the Render API and live HTTP checks. No production account was used to complete an authenticated workflow.
 
 ---
 
 ## 12. Final status
 
-**COMPLETE — PENDING DEPLOYMENT**
+**COMPLETE — DEPLOYED AND VERIFIED**
 
-Implementation, migration, tests, build and local checks are complete. Deployment, CI confirmation and live verification are not yet complete, so no production success is claimed.
+Implementation, migration, automated checks, CI, production deployment, production migration and live health verification are complete. Authenticated production workflows were not exercised because no authorised production account was available; that limitation is recorded above and no end-to-end production success is claimed.
