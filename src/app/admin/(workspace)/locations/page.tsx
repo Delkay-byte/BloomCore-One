@@ -145,6 +145,7 @@ export default function LocationsPage() {
                 lastSavedAt={createDraft.lastSavedAt}
                 onDiscard={createDraft.clearDraft}
                 onAcknowledge={createDraft.acknowledgeRestored}
+                onRetry={createDraft.retry}
               />
             </div>
             <div className="flex gap-3 mt-4">

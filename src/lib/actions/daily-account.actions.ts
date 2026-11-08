@@ -221,10 +221,13 @@ export async function saveDailyAccount(
     totalExpenses,
   });
   const legacy = legacyVarianceColumns(reconciled.difference);
+  let persisted = false;
 
   await db.$transaction(async (tx) => {
-    await tx.dailyAccount.update({
-      where: { id: accountId },
+    // Conditional on the draft still being a draft. A concurrent submit wins
+    // and this save reports a conflict instead of rewriting a submitted record.
+    const updated = await tx.dailyAccount.updateMany({
+      where: { id: accountId, tenantId: ctx.tenantId, status: "draft" },
       data: {
         openingMomoFloat: parsed.openingMomoFloat,
         openingCash: parsed.openingCash,
@@ -246,6 +249,8 @@ export async function saveDailyAccount(
         ...legacy,
       },
     });
+    if (updated.count !== 1) return;
+    persisted = true;
 
     // Expense replacement is scoped to this tenant's account.
     await tx.expense.deleteMany({
@@ -262,6 +267,13 @@ export async function saveDailyAccount(
       });
     }
   });
+
+  if (!persisted) {
+    return {
+      success: false,
+      error: "This account has already been submitted. Reopen it to review the saved figures.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -558,8 +570,8 @@ export async function submitDailyAccount(
     };
   }
 
-  await db.dailyAccount.update({
-    where: { id: accountId },
+  const submitted = await db.dailyAccount.updateMany({
+    where: { id: accountId, tenantId: ctx.tenantId, workerId: ctx.userId, status: "draft" },
     data: {
       status: "submitted",
       submittedAt: new Date(),
@@ -568,6 +580,12 @@ export async function submitDailyAccount(
       ...legacyVarianceColumns(reconciled.difference),
     },
   });
+  if (submitted.count !== 1) {
+    return {
+      success: false,
+      error: "This account has already been submitted. Reopen it to review the saved figures.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,

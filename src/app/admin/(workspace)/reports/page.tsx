@@ -13,6 +13,7 @@ import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 
 interface Account {
   id: string; businessDate: Date; status: string; submittedAt?: Date | null;
+  updatedAt?: Date | string;
   openingMomoFloat: number; openingCash: number;
   additionalCashReceived: number; additionalMomoFloat: number;
   totalCashIn: number; totalCashOut: number; totalAirtimeSold: number;
@@ -105,7 +106,18 @@ export default function ReportsPage() {
                       <td className="font-medium">{formatDate(account.businessDate)}</td>
                       <td><div>{account.location.name}</div><div className="text-xs text-slate-500">{account.location.code}</div></td>
                       <td>{account.worker.fullName}</td>
-                      <td><span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : account.status === "draft" ? "badge-yellow" : "badge-gray"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span></td>
+                      <td>
+                        <span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : account.status === "draft" ? "badge-yellow" : "badge-gray"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span>
+                        {account.status === "draft" && account.updatedAt && (
+                          <div className="mt-1 text-xs text-slate-500">
+                            Last saved{" "}
+                            {new Date(account.updatedAt).toLocaleTimeString("en-GB", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        )}
+                      </td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashIn} /></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashOut} /></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalAirtimeSold} /></td>

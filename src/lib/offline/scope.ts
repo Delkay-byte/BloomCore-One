@@ -18,6 +18,13 @@ export interface OfflineScope {
 let cachedScope: OfflineScope | null = null;
 let pendingScope: Promise<OfflineScope> | null = null;
 let legacyPurged = false;
+
+/**
+ * The session lookup must always settle. Before this bound existed a stalled
+ * service-worker handshake left every draft write waiting on `pendingScope`
+ * forever, which surfaced as a save spinner that never stopped.
+ */
+const SCOPE_TIMEOUT_MS = 10_000;
 const openConnections = new Map<string, Set<IDBDatabase>>();
 const pendingDeletions = new Map<string, Promise<void>>();
 
@@ -72,21 +79,32 @@ export function offlineDatabaseName(scope: OfflineScope): string {
 }
 
 async function resolveScope(): Promise<OfflineScope> {
-  const response = await fetch("/api/auth/me?module=susu", {
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-  if (!response.ok) throw new Error("Not authenticated for offline storage");
-  const data = (await response.json()) as {
-    userId?: string;
-    tenant?: { id?: string } | null;
-  };
-  if (!data.userId || !data.tenant?.id) {
-    throw new Error("No tenant scope for offline storage");
+  // Resolve the module-neutral identity. The previous implementation always
+  // asked for `module=susu`, so a MoMo-only worker or administrator received a
+  // 401 and every draft write failed. `/api/auth/me` already resolves the
+  // caller's own role and tenant on the server; the browser cannot choose one.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SCOPE_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/auth/me", {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Not authenticated for offline storage");
+    const data = (await response.json()) as {
+      userId?: string;
+      tenant?: { id?: string } | null;
+    };
+    if (!data.userId || !data.tenant?.id) {
+      throw new Error("No tenant scope for offline storage");
+    }
+    const scope = { tenantId: data.tenant.id, userId: data.userId };
+    setOfflineScope(scope);
+    return scope;
+  } finally {
+    clearTimeout(timeout);
   }
-  const scope = { tenantId: data.tenant.id, userId: data.userId };
-  setOfflineScope(scope);
-  return scope;
 }
 
 export async function getOfflineScope(): Promise<OfflineScope> {

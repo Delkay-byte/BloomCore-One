@@ -21,6 +21,7 @@ export interface DailyAccountView {
   id: string;
   businessDate: string;
   status: string;
+  updatedAt: string;
   calculatedDifference: number;
   differenceStatus: string;
   calculatedMomoVariance: number;
@@ -209,7 +210,15 @@ export default function WorkerDashboardClient({
                       <span className={statusBadge(account.status).className}>
                         {statusBadge(account.status).label}
                       </span>
-                      {account.status !== "draft" && (
+                      {account.status === "draft" ? (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Last saved{" "}
+                          {new Date(account.updatedAt).toLocaleTimeString("en-GB", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      ) : (
                         <div className="mt-1 text-xs">
                           {stored.difference === 0 ? (
                             <span className="text-emerald-700">Balanced</span>

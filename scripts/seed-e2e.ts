@@ -47,8 +47,9 @@ async function main() {
       name: "E2E Bloom Business C",
       status: "ACTIVE",
       onboardingStatus: "COMPLETED",
+      // A MoMo-only tenant. Draft persistence must not assume the Susu module.
       momoEnabled: true,
-      susuEnabled: true,
+      susuEnabled: false,
     },
   });
 
@@ -88,7 +89,7 @@ async function main() {
       status: "active",
       passwordHash,
       momoEnabled: true,
-      susuEnabled: true,
+      susuEnabled: false,
     },
   });
   await prisma.businessTenant.update({

@@ -17,6 +17,27 @@ import { openOfflineDatabase } from "./store";
 
 export const DRAFT_SCHEMA_VERSION = 2;
 export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const DRAFT_SAVE_TIMEOUT_MS = 15_000;
+export const DRAFT_LOAD_TIMEOUT_MS = 10_000;
+
+/** Reject instead of leaving a caller pending forever on a blocked database. */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new OfflineStorageError("write_failed", `${label} timed out`));
+    }, ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 export interface DraftRecord<T = Record<string, unknown>> {
   id: string;
@@ -97,14 +118,18 @@ export async function saveDraft<T>(
   };
 
   try {
-    const db = await openOfflineDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("drafts", "readwrite");
-      tx.objectStore("drafts").put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
+    const db = await withTimeout(openOfflineDatabase(), DRAFT_SAVE_TIMEOUT_MS, "Draft storage");
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readwrite");
+        tx.objectStore("drafts").put(record);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      }),
+      DRAFT_SAVE_TIMEOUT_MS,
+      "Draft save"
+    );
     return record;
   } catch (error) {
     throw storageError(error);
@@ -121,13 +146,17 @@ export async function loadDraft<T = Record<string, unknown>>(
   if (typeof indexedDB === "undefined") return null;
   try {
     const scope = await getOfflineScope();
-    const db = await openOfflineDatabase();
-    const record = await new Promise<DraftRecord<T> | undefined>((resolve, reject) => {
-      const tx = db.transaction("drafts", "readonly");
-      const request = tx.objectStore("drafts").get(draftKey);
-      request.onsuccess = () => resolve(request.result as DraftRecord<T> | undefined);
-      request.onerror = () => reject(request.error);
-    });
+    const db = await withTimeout(openOfflineDatabase(), DRAFT_LOAD_TIMEOUT_MS, "Draft storage");
+    const record = await withTimeout(
+      new Promise<DraftRecord<T> | undefined>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readonly");
+        const request = tx.objectStore("drafts").get(draftKey);
+        request.onsuccess = () => resolve(request.result as DraftRecord<T> | undefined);
+        request.onerror = () => reject(request.error);
+      }),
+      DRAFT_LOAD_TIMEOUT_MS,
+      "Draft load"
+    );
 
     if (!record) return null;
 
@@ -149,13 +178,17 @@ export async function loadDraft<T = Record<string, unknown>>(
 export async function deleteDraft(draftKey: string): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   try {
-    const db = await openOfflineDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("drafts", "readwrite");
-      tx.objectStore("drafts").delete(draftKey);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    const db = await withTimeout(openOfflineDatabase(), DRAFT_SAVE_TIMEOUT_MS, "Draft storage");
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readwrite");
+        tx.objectStore("drafts").delete(draftKey);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      }),
+      DRAFT_SAVE_TIMEOUT_MS,
+      "Draft delete"
+    );
   } catch {
     // Best effort: a failed cleanup must never block form submission.
   }
@@ -165,14 +198,25 @@ export async function deleteDraft(draftKey: string): Promise<void> {
 export async function listDrafts(): Promise<Array<Omit<DraftRecord, "data">>> {
   if (typeof indexedDB === "undefined") return [];
   try {
-    const db = await openOfflineDatabase();
-    const records = await new Promise<DraftRecord[]>((resolve, reject) => {
-      const tx = db.transaction("drafts", "readonly");
-      const request = tx.objectStore("drafts").getAll();
-      request.onsuccess = () => resolve(request.result as DraftRecord[]);
-      request.onerror = () => reject(request.error);
-    });
+    const scope = await getOfflineScope();
+    const db = await withTimeout(openOfflineDatabase(), DRAFT_LOAD_TIMEOUT_MS, "Draft storage");
+    const records = await withTimeout(
+      new Promise<DraftRecord[]>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readonly");
+        const request = tx.objectStore("drafts").getAll();
+        request.onsuccess = () => resolve(request.result as DraftRecord[]);
+        request.onerror = () => reject(request.error);
+      }),
+      DRAFT_LOAD_TIMEOUT_MS,
+      "Draft list"
+    );
     return records
+      // The database is already scoped, but a record written by an older build
+      // or a partially migrated device must never appear to another account.
+      .filter(
+        (record) =>
+          record.tenantId === scope.tenantId && record.userId === scope.userId
+      )
       .map((record) => {
         const meta = { ...record } as Partial<DraftRecord>;
         delete meta.data;

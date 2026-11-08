@@ -110,6 +110,7 @@ export default function WorkersPage() {
                 lastSavedAt={createDraft.lastSavedAt}
                 onDiscard={createDraft.clearDraft}
                 onAcknowledge={createDraft.acknowledgeRestored}
+                onRetry={createDraft.retry}
               />
             </div>
                         <div className="flex gap-3 mt-4">

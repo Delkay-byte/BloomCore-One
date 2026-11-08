@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRAFT_SCHEMA_VERSION,
   DRAFT_TTL_MS,
@@ -126,5 +126,71 @@ describe("form drafts", () => {
         list: [{ secret: "a", value: 1 }],
       })
     ).toEqual({ nested: { keep: "z" }, list: [{ value: 1 }] });
+  });
+
+  it("preserves zero, false, decimals, arrays and long notes exactly", async () => {
+    const note = "Short by GH₵0.50 — customer paid with a torn note. ".repeat(20);
+    const payload = {
+      openingCash: 0,
+      decimal: 12.34,
+      confirmed: false,
+      note,
+      expenses: [
+        { description: "Transport", amount: 0 },
+        { description: "Data & airtime — “shop”", amount: 5.5 },
+      ],
+    };
+
+    await saveDraft("daily:roundtrip", "worker.daily_account", payload);
+    const restored = await loadDraft<typeof payload>("daily:roundtrip");
+
+    expect(restored?.data).toEqual(payload);
+    expect(restored?.data.openingCash).toBe(0);
+    expect(restored?.data.confirmed).toBe(false);
+    expect(restored?.data.decimal).toBe(12.34);
+  });
+
+  it("resolves the session without assuming the Susu module", async () => {
+    closeCurrentOfflineSession();
+    clearOfflineScope();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({ userId: "user-momo", tenant: { id: "tenant-momo" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const record = await saveDraft("worker:draft", "worker.daily_account", {
+        openingCash: 0,
+      });
+      expect(record.userId).toBe("user-momo");
+      expect(record.tenantId).toBe("tenant-momo");
+
+      const requested = String(fetchMock.mock.calls[0]?.[0]);
+      expect(requested).toBe("/api/auth/me");
+      expect(requested).not.toContain("module=susu");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports a failed session lookup instead of hanging in a saving state", async () => {
+    closeCurrentOfflineSession();
+    clearOfflineScope();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 401 }))
+    );
+
+    try {
+      await expect(
+        saveDraft("worker:auth-failure", "worker.daily_account", { openingCash: 1 })
+      ).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
