@@ -12,6 +12,8 @@ export const ADMIN_A = "e2e-admin-a@test.local";
 export const ADMIN_B = "e2e-admin-b@test.local";
 export const PLATFORM = "e2e-platform@test.local";
 export const COLLECTOR = "e2e-collector@test.local";
+export const WORKER = "e2e-worker@test.local";
+export const CUSTOMER = "e2e-customer@test.local";
 export const PASSWORD = "E2ePass123!";
 
 export async function loginAdmin(page: Page, email = ADMIN_A) {
@@ -35,6 +37,30 @@ export async function loginCollector(page: Page, email = COLLECTOR) {
   await page.locator("#password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign In" }).click();
   await page.waitForURL(/\/collector\/(dashboard|first-login)/, { timeout: 30_000 });
+  await page.waitForTimeout(750);
+}
+
+export async function loginWorker(page: Page, email = WORKER) {
+  await page.goto("/login");
+  await waitForHydration(page, "text=MoMo Agent");
+  await page.getByRole("button", { name: /MoMo Agent/ }).click();
+  await waitForHydration(page, "#identifier");
+  await page.locator("#identifier").fill(email);
+  await page.locator("#password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign In" }).click();
+  await page.waitForURL(/\/worker\/(dashboard|first-login)/, { timeout: 30_000 });
+  await page.waitForTimeout(750);
+}
+
+export async function loginCustomer(page: Page, identifier = CUSTOMER) {
+  await page.goto("/customer/login");
+  // /customer/login redirects to the unified sign-in with the customer role
+  // already selected.
+  await waitForHydration(page, "#identifier");
+  await page.locator("#identifier").fill(identifier);
+  await page.locator("#password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  await page.waitForURL(/\/customer\/(dashboard|first-login)/, { timeout: 30_000 });
   await page.waitForTimeout(750);
 }
 

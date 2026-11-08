@@ -110,6 +110,21 @@ async function main() {
     data: { locationId: locationA.id },
   });
 
+  const workerUser = await prisma.user.create({
+    data: {
+      id: "e2e-worker-user",
+      tenantId: tenantA.id,
+      email: "e2e-worker@test.local",
+      fullName: "E2E MoMo Agent",
+      role: "worker",
+      status: "active",
+      passwordHash,
+      momoEnabled: true,
+      susuEnabled: false,
+      locationId: locationA.id,
+    },
+  });
+
   const customerA = await prisma.customer.create({
     data: {
       id: "e2e-customer-a",
@@ -117,8 +132,11 @@ async function main() {
       customerId: "E2E-C-001",
       fullName: "E2E Customer A",
       phone: "+233200000901",
+      email: "e2e-customer@test.local",
       status: "active",
       registeredAt: day(2),
+      portalEnabled: true,
+      portalPasswordHash: passwordHash,
     },
   });
   const accountA = await prisma.susuAccount.create({
@@ -237,6 +255,66 @@ async function main() {
   const collector = await prisma.collector.create({
     data: { id: "e2e-collector", tenantId: tenantA.id, userId: collectorUser.id, status: "active" },
   });
+  await prisma.collectorCustomerAssignment.create({
+    data: {
+      id: "e2e-assignment-1",
+      tenantId: tenantA.id,
+      collectorId: collector.id,
+      customerId: customerA.id,
+      accountId: accountA.id,
+      active: true,
+    },
+  });
+
+  // A second assigned customer with a fresh 31-day cycle and no contribution
+  // recorded today. The collector workflow test can record a real collection
+  // for this customer without colliding with the statement fixtures above.
+  const customerB = await prisma.customer.create({
+    data: {
+      id: "e2e-customer-b",
+      tenantId: tenantA.id,
+      customerId: "E2E-C-002",
+      fullName: "E2E Customer B",
+      phone: "+233200000902",
+      email: "e2e-customer-b@test.local",
+      status: "active",
+      registeredAt: day(5),
+      portalEnabled: true,
+      portalPasswordHash: passwordHash,
+    },
+  });
+  const accountB = await prisma.susuAccount.create({
+    data: {
+      id: "e2e-account-b",
+      tenantId: tenantA.id,
+      accountId: "E2E-S-002",
+      customerId: customerB.id,
+      dailyContribution: 20,
+      status: "active",
+    },
+  });
+  await prisma.susuCycle.create({
+    data: {
+      id: "e2e-cycle-b",
+      tenantId: tenantA.id,
+      accountId: accountB.id,
+      cycleNumber: 1,
+      startDate: monthStart,
+      endDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)),
+      dailyContribution: 20,
+      status: "active",
+    },
+  });
+  await prisma.collectorCustomerAssignment.create({
+    data: {
+      id: "e2e-assignment-2",
+      tenantId: tenantA.id,
+      collectorId: collector.id,
+      customerId: customerB.id,
+      accountId: accountB.id,
+      active: true,
+    },
+  });
   await prisma.collectorRemittance.create({
     data: {
       tenantId: tenantA.id,
@@ -257,7 +335,7 @@ async function main() {
       id: "e2e-daily-a",
       tenantId: tenantA.id,
       locationId: locationA.id,
-      workerId: collectorUser.id,
+      workerId: workerUser.id,
       businessDate: yesterday,
       openingMomoFloat: 100,
       openingCash: 50,
@@ -276,6 +354,41 @@ async function main() {
         create: [{ tenantId: tenantA.id, description: "Transport", amount: 5 }],
       },
     },
+  });
+
+  // Two untouched drafts on their own business dates. The worker can open one
+  // and submit a positive or shortage reconciliation without fighting the
+  // one-account-per-location-per-day rule.
+  const positiveDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 5));
+  const shortageDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 6));
+  const draftDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 7));
+  await prisma.dailyAccount.createMany({
+    data: [
+      {
+        id: "e2e-daily-positive",
+        tenantId: tenantA.id,
+        locationId: locationA.id,
+        workerId: workerUser.id,
+        businessDate: positiveDate,
+        status: "draft",
+      },
+      {
+        id: "e2e-daily-shortage",
+        tenantId: tenantA.id,
+        locationId: locationA.id,
+        workerId: workerUser.id,
+        businessDate: shortageDate,
+        status: "draft",
+      },
+      {
+        id: "e2e-daily-draft",
+        tenantId: tenantA.id,
+        locationId: locationA.id,
+        workerId: workerUser.id,
+        businessDate: draftDate,
+        status: "draft",
+      },
+    ],
   });
 
   await prisma.zeliEntitlement.create({

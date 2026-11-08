@@ -1,15 +1,33 @@
-"use client";
+import { requireTenantAdminSusu } from "@/lib/tenant";
+import { evaluateZeliAccess, getZeliEntitlement } from "@/lib/zeli/entitlements";
+import { getZeliAvailability } from "@/lib/zeli/availability";
+import AdminWorkspaceShell from "@/components/AdminWorkspaceShell";
 
-import AppShell from "@/components/AppShell";
-import { navSections } from "@/lib/admin-nav";
+/**
+ * Susu administration workspace. It shares the tenant-administration shell with
+ * `/admin/*` but requires the administrator role AND the Susu entitlement.
+ */
+export default async function SusuAdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const ctx = await requireTenantAdminSusu();
+  const [entitlement, availability] = await Promise.all([
+    getZeliEntitlement(ctx.tenantId),
+    getZeliAvailability(),
+  ]);
+  const analytics = evaluateZeliAccess({ role: ctx.role, entitlement });
 
-export default function SusuAdminLayout({ children }: { children: React.ReactNode }) {
-  // The Susu workspace shares the tenant-administration shell and navigation.
-  // Module entitlement for the Susu section is enforced server-side by every
-  // action (fail closed) and filtered in the admin layout for /admin/* pages.
   return (
-    <AppShell sections={navSections} subtitle="Business Management">
+    <AdminWorkspaceShell
+      tenantName={ctx.tenantName}
+      momoEnabled={ctx.momoEnabled}
+      susuEnabled={ctx.susuEnabled}
+      analytics={Boolean(analytics?.allowed)}
+      zeliEnabled={availability.enabled}
+    >
       {children}
-    </AppShell>
+    </AdminWorkspaceShell>
   );
 }

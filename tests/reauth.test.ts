@@ -233,3 +233,154 @@ describe("Susu withdrawal step-up verification", () => {
     expect(await prisma.withdrawal.count()).toBe(0);
   });
 });
+
+async function seedContribution(
+  admin: { id: string; tenantId: string | null },
+  account: { id: string },
+  cycle: { id: string },
+  amount: number,
+  referenceId: string
+) {
+  await prisma.contribution.create({
+    data: {
+      tenantId: admin.tenantId!,
+      accountId: account.id,
+      cycleId: cycle.id,
+      amount,
+      collectionDate: new Date(),
+      channel: "direct_office",
+      recordedById: admin.id,
+      referenceId,
+    },
+  });
+}
+
+describe("Susu withdrawal processing and audit", () => {
+  it("rejects another administrator's valid password", async () => {
+    const admin = await createTestAdmin();
+    const other = await createTestAdmin({ tenantId: admin.tenantId! });
+    await prisma.user.update({
+      where: { id: other.id },
+      data: { passwordHash: await bcrypt.hash("OtherAdmin9!", 4) },
+    });
+    await setAdminSession(admin);
+
+    // The other administrator's genuine password is not this session's proof.
+    const result = await verifyPasswordAction("OtherAdmin9!", {
+      module: "admin",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Incorrect password");
+    const failure = await prisma.auditLog.findFirst({
+      where: { action: "auth.reauth_failed", userId: admin.id },
+    });
+    expect(failure?.entityId).toBe(admin.id);
+  });
+
+  it("processes one withdrawal after the administrator's own password is confirmed", async () => {
+    const admin = await createTestAdmin();
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "W1");
+    await seedContribution(admin, account, cycle, 100, "WDR-SEED-1");
+    await setAdminSession(admin);
+
+    const reauth = await verifyPasswordAction(ADMIN_PASSWORD, { module: "admin" });
+    expect(reauth.success).toBe(true);
+
+    const result = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "withdraw-one-key",
+    });
+    expect(result.success).toBe(true);
+
+    const withdrawals = await prisma.withdrawal.findMany();
+    expect(withdrawals).toHaveLength(1);
+    expect(withdrawals[0].authorizedById).toBe(admin.id);
+    expect(Number(withdrawals[0].netAmount)).toBe(20);
+    // A first withdrawal charges exactly one day's contribution.
+    expect(Number(withdrawals[0].commissionAmount)).toBe(10);
+    expect(Number(withdrawals[0].remainingBalance)).toBe(70);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "susu.withdrawal_processed" },
+    });
+    expect(audit?.userId).toBe(admin.id);
+    expect(audit?.entityId).toBe(withdrawals[0].id);
+    expect(audit?.tenantId).toBe(admin.tenantId);
+  });
+
+  it("does not process the same idempotency key twice", async () => {
+    const admin = await createTestAdmin();
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "W2");
+    await seedContribution(admin, account, cycle, 100, "WDR-SEED-2");
+    await setAdminSession(admin);
+
+    const first = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "duplicate-key-1",
+    });
+    expect(first.success).toBe(true);
+
+    const second = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "duplicate-key-1",
+    });
+    expect(second.success).toBe(false);
+    expect(second.error).toMatch(/already processed/i);
+    expect(await prisma.withdrawal.count()).toBe(1);
+    expect(await prisma.commission.count()).toBe(1);
+  });
+
+  it("charges commission only on the first withdrawal of a cycle", async () => {
+    const admin = await createTestAdmin();
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "W3");
+    await seedContribution(admin, account, cycle, 100, "WDR-SEED-3");
+    await setAdminSession(admin);
+
+    const first = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "commission-first",
+    });
+    expect(first.success).toBe(true);
+    const second = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 20,
+      idempotencyKey: "commission-second",
+    });
+    expect(second.success).toBe(true);
+
+    const withdrawals = await prisma.withdrawal.findMany({
+      orderBy: { createdAt: "asc" },
+    });
+    expect(withdrawals).toHaveLength(2);
+    expect(Number(withdrawals[0].commissionAmount)).toBe(10);
+    expect(Number(withdrawals[1].commissionAmount)).toBe(0);
+    // 100 contributed - 10 commission - 20 - 20 withdrawn = 50.
+    expect(Number(withdrawals[1].remainingBalance)).toBe(50);
+    expect(await prisma.commission.count()).toBe(1);
+  });
+
+  it("rejects a withdrawal larger than the available balance and creates nothing", async () => {
+    const admin = await createTestAdmin();
+    const { account, cycle } = await createTestCustomer(admin.id, 10, "W4");
+    await seedContribution(admin, account, cycle, 30, "WDR-SEED-4");
+    await setAdminSession(admin);
+
+    const result = await processWithdrawal({
+      accountId: account.id,
+      requestedAmount: 25,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/insufficient balance/i);
+    expect(await prisma.withdrawal.count()).toBe(0);
+    // The failed transaction must not leave a commission behind either.
+    expect(await prisma.commission.count()).toBe(0);
+    expect(
+      (await prisma.susuCycle.findUnique({ where: { id: cycle.id } }))
+        ?.commissionCharged
+    ).toBe(false);
+  });
+});

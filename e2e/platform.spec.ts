@@ -34,8 +34,8 @@ test.describe("Platform Zeli control centre", () => {
     await expect(history.getByText("approved paid pilot", { exact: false })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByTestId("zeli-entitlement-panel").locator("textarea").first().fill("Pilot ended and access must close immediately");
-    await page.getByRole("button", { name: "Revoke" }).click();
+    await history.locator("textarea").first().fill("Pilot ended and access must close immediately");
+    await history.getByRole("button", { name: "Revoke", exact: true }).click();
     await expect(page.getByText("Entitlement revoke recorded.")).toBeVisible();
     await expect(history.getByText("revoked", { exact: true }).first()).toBeVisible();
   });
@@ -71,9 +71,17 @@ test.describe("Platform Zeli commerce and provider controls", () => {
     await page.goto("/platform/zeli");
     const panel = page.getByTestId("provider-control");
     await panel.locator("textarea").first().fill("E2E immediate external AI stop");
+    // The emergency stop is deliberately confirmed before it latches.
+    page.once("dialog", (dialog) => dialog.accept());
     await panel.getByRole("button", { name: "Emergency stop", exact: true }).click();
-    await expect(panel.getByText("Provider control updated.")).toBeVisible();
-    await expect(panel.getByText("ACTIVE")).toBeVisible();
+    // The notice renders outside the control section, next to the page-level
+    // error/notice region.
+    await expect(page.getByText("Provider control updated.")).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "DeepSeek provider status" })
+        .getByText("ACTIVE", { exact: true })
+    ).toBeVisible();
   });
 
   test("unsubscribed tenant sees an honest checkout configuration state", async ({ page }) => {

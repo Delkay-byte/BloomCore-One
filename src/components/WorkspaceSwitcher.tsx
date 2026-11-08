@@ -13,13 +13,25 @@ interface MePayload {
 /**
  * Visible module switch for dual-role (MoMo + Susu) users.
  * Renders only when the authenticated account is registered for both modules.
+ *
+ * Workspace layouts resolve the entitlement on the server and pass
+ * `bothModules`, so a single-module agent never issues an auth request just to
+ * discover that the switch should stay hidden. The prop is omitted only by
+ * callers that still need the legacy lookup.
  */
-export default function WorkspaceSwitcher({ current }: { current: "momo" | "susu" }) {
-  const [bothModules, setBothModules] = useState(false);
+export default function WorkspaceSwitcher({
+  current,
+  bothModules: bothModulesProp,
+}: {
+  current: "momo" | "susu";
+  bothModules?: boolean;
+}) {
+  const [bothModules, setBothModules] = useState(bothModulesProp ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (bothModulesProp !== undefined) return;
     let cancelled = false;
     fetch("/api/auth/me")
       .then((res) => (res.ok ? res.json() : null))
@@ -32,7 +44,7 @@ export default function WorkspaceSwitcher({ current }: { current: "momo" | "susu
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bothModulesProp]);
 
   if (!bothModules) return null;
 

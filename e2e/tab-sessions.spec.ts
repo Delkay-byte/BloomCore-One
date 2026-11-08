@@ -5,6 +5,8 @@ import {
   clearTabSession,
   loginAdmin,
   loginCollector,
+  loginCustomer,
+  loginWorker,
   logoutTab,
   pageJson,
 } from "./helpers";
@@ -181,5 +183,83 @@ test.describe("independent tab sessions", () => {
     expect(
       (await pageJson<{ userId: string }>(page, "/api/auth/me?module=admin")).userId
     ).toBe("e2e-user-a");
+  });
+
+  test("worker and customer tabs keep module, refresh and logout isolation", async ({
+    page,
+    context,
+  }) => {
+    await loginWorker(page);
+    const customerTab = await context.newPage();
+    await loginCustomer(customerTab);
+
+    const workerMe = await pageJson<{
+      userId: string;
+      role: string;
+      modules?: string[];
+      tenant?: { id: string };
+    }>(page, "/api/auth/me?module=momo");
+    const customerMe = await pageJson<{
+      userId: string;
+      role: string;
+      modules?: string[];
+      tenant?: { id: string };
+    }>(customerTab, "/api/auth/me?module=customer");
+
+    expect(workerMe.userId).toBe("e2e-worker-user");
+    expect(workerMe.role).toBe("worker");
+    expect(workerMe.modules).toContain("momo");
+    expect(customerMe.userId).toBe("e2e-customer-a");
+    expect(customerMe.role).toBe("customer");
+    expect(workerMe.tenant?.id).toBe("e2e-tenant-a");
+    expect(customerMe.tenant?.id).toBe("e2e-tenant-a");
+
+    // Neither tab can read the other role's module session.
+    expect(
+      (await pageJson<{ error?: string }>(page, "/api/auth/me?module=customer"))
+        .error
+    ).toBe("Not authenticated");
+    expect(
+      (
+        await pageJson<{ error?: string }>(
+          customerTab,
+          "/api/auth/me?module=momo"
+        )
+      ).error
+    ).toBe("Not authenticated");
+
+    // Refresh keeps each tab bound to its own session.
+    await page.reload();
+    await customerTab.reload();
+    expect(
+      (await pageJson<{ userId: string }>(page, "/api/auth/me?module=momo"))
+        .userId
+    ).toBe("e2e-worker-user");
+    expect(
+      (
+        await pageJson<{ userId: string }>(
+          customerTab,
+          "/api/auth/me?module=customer"
+        )
+      ).userId
+    ).toBe("e2e-customer-a");
+
+    // A copied workspace URL does not inherit the source tab's session.
+    const copied = await context.newPage();
+    await copied.goto(page.url());
+    await expect(copied).toHaveURL(/\/login/, { timeout: 30_000 });
+
+    // Customer sign-out revokes only the customer tab.
+    await customerTab.getByRole("button", { name: "Open menu" }).click();
+    await customerTab.getByRole("menuitem", { name: "Sign Out" }).click();
+    await customerTab.getByRole("button", { name: "Sign out" }).click();
+    await customerTab.waitForURL(/\/login\?role=customer/, { timeout: 30_000 });
+
+    expect(
+      (await pageJson<{ userId: string }>(page, "/api/auth/me?module=momo"))
+        .userId
+    ).toBe("e2e-worker-user");
+    await page.goto("/worker/dashboard");
+    await expect(page).toHaveURL(/\/worker\/dashboard/);
   });
 });
