@@ -31,9 +31,11 @@ export interface UseFormDraftOptions {
  * submit `FormData` to a server action.
  *
  * - Saves on input/change, debounced, so a refresh loses at most a moment.
- * - Restores values on mount and announces that a draft was restored.
+ * - Restores values when the form mounts and announces that a draft was found.
  * - Skips password/file controls: credentials are never persisted.
  * - Clears the draft only when the caller confirms a successful submit.
+ * - Never leaves the indicator on `saving`: a failed write is reported with a
+ *   retry action and the typed values stay on the page.
  */
 export function useFormDraft(
   formRef: React.RefObject<HTMLFormElement | null>,
@@ -45,14 +47,41 @@ export function useFormDraft(
     onRestored,
   }: UseFormDraftOptions
 ) {
-  const [status, setStatus] = useState<DraftStatus>("idle");
+  const [status, setStatus] = useState<DraftStatus>(enabled ? "restoring" : "idle");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [ready, setReady] = useState(!enabled);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoring = useRef(true);
+  const touched = useRef(false);
   const mounted = useRef(true);
+  const saveRevision = useRef(0);
+  const onRestoredRef = useRef(onRestored);
+
+  useEffect(() => {
+    onRestoredRef.current = onRestored;
+  }, [onRestored]);
+
+  const persist = useCallback(async () => {
+    const form = formRef.current;
+    if (!form) return;
+    const data = collectFormData(form);
+    if (!data || Object.keys(data).length === 0) return;
+    const revision = ++saveRevision.current;
+    setStatus("saving");
+    try {
+      const record = await saveDraft(draftKey, workflow, data);
+      if (!mounted.current || revision !== saveRevision.current) return;
+      setLastSavedAt(record.updatedAt);
+      setStatus("saved");
+    } catch {
+      if (!mounted.current || revision !== saveRevision.current) return;
+      setStatus("error");
+    }
+  }, [draftKey, formRef, workflow]);
 
   const clearDraft = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
+    saveRevision.current += 1;
     setLastSavedAt(null);
     setStatus("idle");
     await deleteDraft(draftKey);
@@ -61,37 +90,49 @@ export function useFormDraft(
   useEffect(() => {
     mounted.current = true;
     restoring.current = true;
+    touched.current = false;
 
     if (!enabled) {
       setStatus("idle");
+      setReady(true);
       return;
     }
 
     let cancelled = false;
+    setReady(false);
+    setStatus("restoring");
+
     (async () => {
-      setStatus("restoring");
       const draft = await loadDraft<Record<string, unknown>>(draftKey);
       if (cancelled || !mounted.current) return;
-      const form = formRef.current;
 
-      if (draft && form && draft.data && Object.keys(draft.data).length > 0) {
+      // A conditional form can mount one commit after `enabled` flips. Wait for
+      // the ref instead of silently abandoning the draft, which used to reopen
+      // the form with every field empty.
+      let form = formRef.current;
+      for (let attempt = 0; !form && attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (cancelled || !mounted.current) return;
+        form = formRef.current;
+      }
+
+      if (draft && form && !touched.current && draft.data && Object.keys(draft.data).length > 0) {
         applyDraftToForm(form, draft.data);
         setLastSavedAt(draft.updatedAt);
         setStatus("restored");
-        onRestored?.(draft.updatedAt);
-      } else if (draft && !form) {
-        // Form not mounted yet (conditional render). Keep the draft; a later
-        // mount restores it through the same effect when `enabled` changes.
-        setStatus("idle");
+        onRestoredRef.current?.(draft.updatedAt);
       } else {
         setStatus("idle");
       }
 
-      // Let React finish any state updates triggered by restored fields before
-      // the change listener starts writing again.
-      setTimeout(() => {
+      setReady(true);
+      // Let React finish the state updates produced by restored fields before
+      // the change listener starts writing again. If the user typed while the
+      // read was in flight, their input wins and is saved immediately.
+      requestAnimationFrame(() => {
         restoring.current = false;
-      }, 0);
+        if (touched.current) void persist();
+      });
     })();
 
     return () => {
@@ -99,28 +140,18 @@ export function useFormDraft(
       mounted.current = false;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [draftKey, enabled, formRef, onRestored]);
+  }, [draftKey, enabled, formRef, persist]);
 
   useEffect(() => {
     const form = formRef.current;
     if (!enabled || !form) return;
 
     const schedule = () => {
+      touched.current = true;
       if (restoring.current) return;
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(async () => {
-        const data = collectFormData(form);
-        if (!data || Object.keys(data).length === 0) return;
-        setStatus("saving");
-        try {
-          const record = await saveDraft(draftKey, workflow, data);
-          if (!mounted.current) return;
-          setLastSavedAt(record.updatedAt);
-          setStatus("saved");
-        } catch {
-          if (!mounted.current) return;
-          setStatus("unavailable");
-        }
+      timer.current = setTimeout(() => {
+        void persist();
       }, debounceMs);
     };
 
@@ -131,11 +162,19 @@ export function useFormDraft(
       form.removeEventListener("change", schedule);
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [draftKey, debounceMs, enabled, formRef, workflow]);
+  }, [debounceMs, enabled, formRef, persist]);
+
+  /** Re-attempt a failed save with the values still in the form. */
+  const retry = useCallback(async () => {
+    if (!enabled || !formRef.current) return;
+    await persist();
+  }, [enabled, formRef, persist]);
 
   return {
     status,
     lastSavedAt,
+    ready,
+    retry,
     clearDraft,
     /** Show "Draft restored"; the indicator can be dismissed. */
     acknowledgeRestored: () => setStatus(lastSavedAt ? "saved" : "idle"),

@@ -26,14 +26,10 @@ import {
   PRODUCT_DESCRIPTOR,
   PRODUCT_NAME,
   PRODUCT_POSITIONING,
-  PRODUCT_TAGLINE,
 } from "@/lib/site";
 import { pageMetadata } from "@/lib/metadata";
 import WorkspacePreview from "./WorkspacePreview";
-
-// The tagline comes from one place. It is split on the sentence break so the
-// hero can set the second line as its own line.
-const [TAGLINE_FIRST, TAGLINE_SECOND = ""] = PRODUCT_TAGLINE.split(". ");
+import { MomoShowcase, Pillars, SusuShowcase } from "./ProductShowcase";
 
 export const metadata = pageMetadata({
   path: "/",
@@ -148,40 +144,55 @@ export default function HomePage() {
           <div>
             <p className="inline-flex items-center gap-2 rounded-full border border-brand-700 bg-brand-800 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-gold-300">
               <Layers size={13} aria-hidden />
-              {PRODUCT_DESCRIPTOR}
+              MoMo &amp; Susu operations
             </p>
-            <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-              {TAGLINE_FIRST}.
-              <span className="block text-gold-400">{TAGLINE_SECOND}</span>
+            <h1 className="mt-6 text-balance text-3xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
+              Manage your MoMo and Susu business
+              <span className="block text-gold-400">with greater confidence.</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-brand-100">
-              Manage your business operations, collections, people and financial
-              records through one connected business platform.
+              MaaCash brings daily MoMo operations, cash and float
+              accountability and Susu collections into one organised platform —
+              recorded against the person and location that did the work.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/contact"
+                href="/login"
                 className="inline-flex items-center justify-center gap-2 rounded-control bg-gold-500 px-5 py-3 text-sm font-semibold text-brand-950 transition-colors hover:bg-gold-400"
               >
-                Request a Demonstration
+                Sign In
                 <ArrowRight size={16} aria-hidden />
               </Link>
-              <Link
-                href="/workspace"
+              <a
+                href="#platform"
                 className="inline-flex items-center justify-center rounded-control border border-brand-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-800"
               >
-                Sign In
-              </Link>
+                Explore MaaCash
+              </a>
             </div>
             <p className="mt-5 text-sm text-brand-300">
-              Workspaces are created for verified businesses. There is no open
-              public sign-up.
+              Built by {COMPANY_NAME}. Workspaces are created for verified
+              businesses; there is no open public sign-up.
             </p>
           </div>
 
           <WorkspacePreview />
         </Container>
       </section>
+
+      {/* Product overview */}
+      <Section tone="white" id="platform">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <SectionHeading
+            eyebrow="Product overview"
+            title="Two operational areas, one connected record"
+            lead="Choose the modules your business runs. MoMo and Susu share the same customer, staff and location records, while each keeps its own controls."
+          />
+        </div>
+        <div className="mt-8">
+          <Pillars />
+        </div>
+      </Section>
 
       {/* Platform overview */}
       <Section tone="white">
@@ -239,6 +250,25 @@ export default function HomePage() {
             className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:text-brand-800"
           >
             See the full capability list
+            <ArrowRight size={15} aria-hidden />
+          </Link>
+        </div>
+      </Section>
+
+      {/* MoMo operations */}
+      <Section tone="forest" id="momo">
+        <MomoShowcase />
+      </Section>
+
+      {/* Susu management */}
+      <Section tone="white" id="susu">
+        <SusuShowcase />
+        <div className="mt-8">
+          <Link
+            href="/solutions"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:text-brand-800"
+          >
+            See how Susu collection fits a business
             <ArrowRight size={15} aria-hidden />
           </Link>
         </div>

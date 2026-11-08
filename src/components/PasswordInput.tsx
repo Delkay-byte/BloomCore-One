@@ -14,14 +14,14 @@ export default function PasswordInput({
 
   return (
     <div className="relative">
-      <input {...props} type={visible ? "text" : "password"} className={`w-full pr-10 ${className ?? ""}`} />
+      <input {...props} type={visible ? "text" : "password"} className={`w-full pr-12 ${className ?? ""}`} />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? "Hide password" : "Show password"}
+        aria-pressed={visible}
         title={visible ? "Hide password" : "Show password"}
-        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 focus:outline-none focus:text-gray-700"
-        tabIndex={0}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
       >
         {visible ? (
           // Eye-off icon

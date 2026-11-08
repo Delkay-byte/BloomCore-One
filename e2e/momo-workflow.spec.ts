@@ -204,7 +204,7 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#opening-cash", 77);
     await fillMoney(page, "#opening-float", 123);
     await page.getByRole("button", { name: "Save draft" }).click();
-    await expect(page.getByText("Draft saved. You can continue later.")).toBeVisible();
+    await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible();
 
     await page.reload();
     await waitForHydration(page, "#opening-cash");

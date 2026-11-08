@@ -120,6 +120,11 @@ body {
   outline-offset: 2px;
 }
 
+/* Anchor links must land below the sticky marketing header. */
+section[id] {
+  scroll-margin-top: 5rem;
+}
+
 /* On the forest surfaces the brand-600 ring only reaches 2.25:1, which is
    below the 3:1 a focus indicator needs. Dark surfaces use the light gold
    ring instead (8.2:1 on brand-900, 6.9:1 on brand-800). */

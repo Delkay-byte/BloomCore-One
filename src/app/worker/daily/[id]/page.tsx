@@ -16,16 +16,13 @@ import {
   X,
 } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
+import { isRedirectError } from "@/lib/errors";
 
 import { useEffect, useState } from "react";
 import { useObjectDraft } from "@/hooks/useObjectDraft";
 import DraftIndicator from "@/components/DraftIndicator";
 import { useParams, useRouter } from "next/navigation";
-import {
-  getDailyAccountById,
-  saveDailyAccount,
-  submitDailyAccount,
-} from "@/lib/actions/daily-account.actions";
+import { getDailyAccountById, saveDailyAccount, submitDailyAccount } from "@/lib/actions/daily-account.actions";
 import { formatDate } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import { calculateReconciliation } from "@/lib/momo-reconciliation";
@@ -70,6 +67,9 @@ export default function DailyAccountFormPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [serverSavedAt, setServerSavedAt] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const [openingCash, setOpeningCash] = useState(0);
   const [openingMomoFloat, setOpeningMomoFloat] = useState(0);
@@ -120,20 +120,31 @@ export default function DailyAccountFormPage() {
         reconciliationNote?: string;
         expenses?: Expense[];
       };
-      setOpeningCash(Number(value.openingCash ?? 0));
-      setOpeningMomoFloat(Number(value.openingMomoFloat ?? 0));
-      setAdditionalCashReceived(Number(value.additionalCashReceived ?? 0));
-      setAdditionalMomoFloat(Number(value.additionalMomoFloat ?? 0));
-      setCustomerDeposit(Number(value.customerDeposit ?? 0));
-      setCashOut(Number(value.cashOut ?? 0));
-      setAirtimeSold(Number(value.airtimeSold ?? 0));
-      setCommission(Number(value.commission ?? 0));
-      setClosingCash(Number(value.closingCash ?? 0));
-      setClosingMomoFloat(Number(value.closingMomoFloat ?? 0));
-      setReconciliationNote(String(value.reconciliationNote ?? ""));
-      setExpenses(Array.isArray(value.expenses) ? value.expenses : []);
+      // Only apply keys the draft actually contains. A missing property must
+      // never zero a value that came from the server record.
+      if (value.openingCash !== undefined) setOpeningCash(Number(value.openingCash));
+      if (value.openingMomoFloat !== undefined) setOpeningMomoFloat(Number(value.openingMomoFloat));
+      if (value.additionalCashReceived !== undefined) setAdditionalCashReceived(Number(value.additionalCashReceived));
+      if (value.additionalMomoFloat !== undefined) setAdditionalMomoFloat(Number(value.additionalMomoFloat));
+      if (value.customerDeposit !== undefined) setCustomerDeposit(Number(value.customerDeposit));
+      if (value.cashOut !== undefined) setCashOut(Number(value.cashOut));
+      if (value.airtimeSold !== undefined) setAirtimeSold(Number(value.airtimeSold));
+      if (value.commission !== undefined) setCommission(Number(value.commission));
+      if (value.closingCash !== undefined) setClosingCash(Number(value.closingCash));
+      if (value.closingMomoFloat !== undefined) setClosingMomoFloat(Number(value.closingMomoFloat));
+      if (value.reconciliationNote !== undefined) setReconciliationNote(String(value.reconciliationNote));
+      if (Array.isArray(value.expenses)) {
+        setExpenses(
+          value.expenses.map((expense) => ({
+            description: String(expense?.description ?? ""),
+            amount: Number(expense?.amount ?? 0),
+          }))
+        );
+      }
     },
   });
+
+  const draftReady = !account || account.status !== "draft" || dailyDraft.ready;
 
   async function loadAccount() {
     try {
@@ -155,14 +166,13 @@ export default function DailyAccountFormPage() {
       setClosingCash(Number(detail.closingCash));
       setClosingMomoFloat(Number(detail.closingMomoFloat));
       setReconciliationNote(detail.reconciliationNote ?? "");
-      if (detail.expenses?.length > 0) {
-        setExpenses(
-          detail.expenses.map((expense) => ({
-            description: expense.description,
-            amount: Number(expense.amount),
-          }))
-        );
-      }
+      setExpenses(
+        (detail.expenses ?? []).map((expense) => ({
+          description: expense.description,
+          amount: Number(expense.amount),
+        }))
+      );
+      setServerSavedAt(detail.updatedAt ? new Date(detail.updatedAt).toISOString() : null);
     } catch (err) {
       if (handleRedirect(err, setError, "Failed to load account")) return;
     } finally {
@@ -239,26 +249,52 @@ export default function DailyAccountFormPage() {
   }
 
   async function handleSave() {
+    if (saving) return;
     setSaving(true);
     setError("");
     setSuccess("");
+    setSaveFailed(false);
+    setSaveError("");
     try {
       const formData = await buildFormData();
-      const saved = await saveDailyAccount(params.id as string, formData);
+      const saved = await withTimeout(
+        saveDailyAccount(params.id as string, formData),
+        20_000
+      );
       if (saved.success) {
-        setSuccess("Draft saved. You can continue later.");
+        const savedAt = new Date();
+        setServerSavedAt(savedAt.toISOString());
+        setSuccess(
+          `Draft saved successfully. Last saved at ${savedAt.toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}.`
+        );
         dailyDraft.acknowledgeRestored?.();
       } else {
-        setError(saved.error || "Failed to save");
+        // Keep the server reason as a short detail. The banner supplies the
+        // sentence, so the user never reads the same warning twice.
+        setSaveFailed(true);
+        setSaveError(saved.error || "");
       }
     } catch (err) {
-      if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+      if (isRedirectError(err)) {
+        handleRedirect(err, setError, "");
+        return;
+      }
+      // The draft banner already says what happened. Do not also raise the
+      // generic page error, which produced two stacked alerts.
+      setSaveFailed(true);
+      setSaveError("");
     } finally {
+      // The button must always leave the saving state, even when the action
+      // rejects or never resolves.
       setSaving(false);
     }
   }
 
   async function handleSubmit() {
+    if (submitting) return;
     setSubmitting(true);
     setError("");
     try {
@@ -270,13 +306,19 @@ export default function DailyAccountFormPage() {
         return;
       }
       const formData = await buildFormData();
-      const saveResult = await saveDailyAccount(params.id as string, formData);
+      const saveResult = await withTimeout(
+        saveDailyAccount(params.id as string, formData),
+        20_000
+      );
       if (!saveResult.success) {
         setError(saveResult.error || "Failed to save");
         setConfirmOpen(false);
         return;
       }
-      const submitResult = await submitDailyAccount(params.id as string);
+      const submitResult = await withTimeout(
+        submitDailyAccount(params.id as string),
+        20_000
+      );
       if (submitResult.success) {
         setSubmitted(true);
         await dailyDraft.clearDraft();
@@ -295,6 +337,16 @@ export default function DailyAccountFormPage() {
   if (loading) {
     return (
       <div className="space-y-4 py-4" role="status" aria-label="Loading daily account">
+        <div className="skeleton h-24 rounded-xl" />
+        <div className="skeleton h-64 rounded-xl" />
+        <div className="skeleton h-40 rounded-xl" />
+      </div>
+    );
+  }
+  if (!draftReady) {
+    return (
+      <div className="space-y-4 py-4" role="status" aria-live="polite" aria-busy="true">
+        <p className="text-sm font-medium text-slate-700">Restoring your draft…</p>
         <div className="skeleton h-24 rounded-xl" />
         <div className="skeleton h-64 rounded-xl" />
         <div className="skeleton h-40 rounded-xl" />
@@ -424,12 +476,40 @@ export default function DailyAccountFormPage() {
           {success}
         </div>
       )}
+      {saveFailed && (
+        <div role="alert" className="banner banner-error flex flex-wrap items-center gap-3 text-sm">
+          <span>
+            We couldn&apos;t save your draft. Your changes are still on this page.
+            Please try again.
+            {saveError && saveError !== "Failed to save" ? ` ${saveError}` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="btn btn-secondary btn-sm"
+          >
+            {saving ? "Retrying…" : "Retry save"}
+          </button>
+        </div>
+      )}
       <DraftIndicator
         status={dailyDraft.status}
         lastSavedAt={dailyDraft.lastSavedAt}
         onDiscard={dailyDraft.clearDraft}
         onAcknowledge={dailyDraft.acknowledgeRestored}
+        onRetry={dailyDraft.retry}
       />
+      {serverSavedAt && !saving && !success && (
+        <p className="text-xs text-slate-500" role="status">
+          Last saved to the server at{" "}
+          {new Date(serverSavedAt).toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          .
+        </p>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         <div className="space-y-4">
@@ -735,9 +815,14 @@ export default function DailyAccountFormPage() {
                   </p>
                 </div>
               </div>
-              <button onClick={handleSave} className="btn btn-secondary w-full" disabled={saving}>
+              <button
+                onClick={handleSave}
+                className="btn btn-secondary w-full"
+                disabled={saving}
+                aria-busy={saving}
+              >
                 <Save size={15} aria-hidden />
-                {saving ? "Saving…" : "Save draft"}
+                {saving ? "Saving draft…" : "Save draft"}
               </button>
               <button
                 onClick={() => setConfirmOpen(true)}
@@ -979,4 +1064,26 @@ function SummaryTile({
       </p>
     </div>
   );
+}
+
+/**
+ * A server action that never settles must not pin the UI in a saving state.
+ * The caller shows a retryable error instead of waiting indefinitely.
+ */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("The save took too long. Please try again."));
+    }, ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }

@@ -301,6 +301,7 @@ export default function SusuWithdrawalsPage() {
               lastSavedAt={withdrawalDraft.lastSavedAt}
               onDiscard={withdrawalDraft.clearDraft}
               onAcknowledge={withdrawalDraft.acknowledgeRestored}
+              onRetry={withdrawalDraft.retry}
             />
           </div>
           <div className="flex gap-3 mt-4">

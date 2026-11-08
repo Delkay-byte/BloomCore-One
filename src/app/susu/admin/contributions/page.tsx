@@ -500,6 +500,7 @@ export default function SusuContributionsPage() {
               lastSavedAt={contributionDraft.lastSavedAt}
               onDiscard={contributionDraft.clearDraft}
               onAcknowledge={contributionDraft.acknowledgeRestored}
+              onRetry={contributionDraft.retry}
             />
           </div>
           <div className="flex gap-3 mt-4">
