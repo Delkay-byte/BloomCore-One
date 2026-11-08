@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 import type {
   ZeliContextBlock,
   ZeliIdentity,
@@ -258,6 +259,8 @@ export async function dailyAccountSummary(identity: ZeliIdentity): Promise<ZeliT
     select: {
       status: true,
       businessDate: true,
+      calculatedDifference: true,
+      differenceStatus: true,
       calculatedMomoVariance: true,
       calculatedCashVariance: true,
       worker: { select: { fullName: true } },
@@ -270,14 +273,17 @@ export async function dailyAccountSummary(identity: ZeliIdentity): Promise<ZeliT
     tool: "daily_account_summary",
     ok: true,
     summary: JSON.stringify(
-      rows.map((row) => ({
-        worker: row.worker.fullName,
-        location: row.location.name,
-        date: row.businessDate.toISOString().slice(0, 10),
-        status: row.status,
-        momoVariance: money(row.calculatedMomoVariance),
-        cashVariance: money(row.calculatedCashVariance),
-      }))
+      rows.map((row) => {
+        const stored = resolveStoredDifference(row);
+        return {
+          worker: row.worker.fullName,
+          location: row.location.name,
+          date: row.businessDate.toISOString().slice(0, 10),
+          status: row.status,
+          difference: stored.difference,
+          differenceStatus: stored.status,
+        };
+      })
     ),
     sources: [
       {

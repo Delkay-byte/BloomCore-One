@@ -9,13 +9,17 @@ import { getLocations } from "@/lib/actions/location.actions";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import CediAmount from "@/components/CediAmount";
+import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 
 interface Account {
   id: string; businessDate: Date; status: string; submittedAt?: Date | null;
-  openingMomoFloat: number; openingCash: number; totalCashIn: number; totalCashOut: number;
-  totalCashReceived: number; totalCashPaid: number; commission: number; totalExpenses: number;
+  openingMomoFloat: number; openingCash: number;
+  additionalCashReceived: number; additionalMomoFloat: number;
+  totalCashIn: number; totalCashOut: number; totalAirtimeSold: number;
+  commission: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
-  calculatedMomoVariance: number; calculatedCashVariance: number;
+  calculatedDifference: number; differenceStatus: string;
+  calculatedMomoVariance?: number; calculatedCashVariance?: number;
   location: { id: string; name: string; code: string };
   worker: { id: string; fullName: string; email: string };
 }
@@ -56,8 +60,11 @@ export default function ReportsPage() {
     if (accounts.length === 0) return;
     // Approved business terminology. "Cash paid out" is retired: Cash out is
     // the single record of cash paid to customers.
-    const headers = ["Date","Location","Worker","Status","Opening MoMo","Opening Cash","Customer deposit","Cash out","Cash in","Commission","Expenses","Closing MoMo","Closing Cash","MoMo difference","Cash difference"];
-    const rows = accounts.map((a) => [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingMomoFloat, a.openingCash, a.totalCashIn, a.totalCashOut, a.totalCashReceived, a.commission, a.totalExpenses, a.closingMomoFloat, a.closingCash, a.calculatedMomoVariance, a.calculatedCashVariance]);
+    const headers = ["Date","Location","Worker","Status","Opening MoMo","Opening Cash","Customer deposit","Cash out","Airtime sold","Additional cash","Additional float","Commission","Expenses","Closing MoMo","Closing Cash","Difference","Difference status"];
+    const rows = accounts.map((a) => {
+      const stored = resolveStoredDifference(a);
+      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingMomoFloat, a.openingCash, a.totalCashIn, a.totalCashOut, a.totalAirtimeSold, a.additionalCashReceived, a.additionalMomoFloat, a.commission, a.totalExpenses, a.closingMomoFloat, a.closingCash, stored.difference, stored.status];
+    });
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -67,7 +74,7 @@ export default function ReportsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <div><h1 className="text-2xl font-bold text-slate-900">Reports</h1><p className="text-slate-500 mt-1">Customer deposits, cash out, cash in and the day&apos;s reconciliation</p></div>
+        <div><h1 className="text-2xl font-bold text-slate-900">Reports</h1><p className="text-slate-500 mt-1">Daily closing accountability for every MoMo location</p></div>
         <button onClick={handleExportCSV} className="btn btn-secondary btn-sm" disabled={accounts.length === 0}>📥 Export CSV</button>
       </div>
 
@@ -89,9 +96,11 @@ export default function ReportsPage() {
           <>
             <div className="table-container">
               <table>
-                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Customer deposit</th><th className="text-right">Cash out</th><th className="text-right">Cash in</th><th className="text-right">MoMo difference</th><th className="text-right">Cash difference</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Customer deposit</th><th className="text-right">Cash out</th><th className="text-right">Airtime sold</th><th className="text-right">Difference</th><th></th></tr></thead>
                 <tbody>
-                  {accounts.map((account) => (
+                  {accounts.map((account) => {
+                    const stored = resolveStoredDifference(account);
+                    return (
                     <tr key={account.id}>
                       <td className="font-medium">{formatDate(account.businessDate)}</td>
                       <td><div>{account.location.name}</div><div className="text-xs text-slate-500">{account.location.code}</div></td>
@@ -99,12 +108,16 @@ export default function ReportsPage() {
                       <td><span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : account.status === "draft" ? "badge-yellow" : "badge-gray"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashIn} /></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashOut} /></td>
-                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalCashReceived} /></td>
-                      <td className="text-right font-mono text-sm"><span className={Number(account.calculatedMomoVariance) === 0 ? "text-green-600" : "text-red-600"}><CediAmount amount={account.calculatedMomoVariance} /></span></td>
-                      <td className="text-right font-mono text-sm"><span className={Number(account.calculatedCashVariance) === 0 ? "text-green-600" : "text-red-600"}><CediAmount amount={account.calculatedCashVariance} /></span></td>
+                      <td className="text-right font-mono text-sm"><CediAmount amount={account.totalAirtimeSold} /></td>
+                      <td className="text-right font-mono text-sm">
+                        <span className={stored.status === "shortage" ? "text-red-600" : "text-green-600"}>
+                          <CediAmount amount={stored.difference} showSign />
+                        </span>
+                      </td>
                       <td><Link href={`/admin/reports/${account.id}`} className="text-sm text-blue-600 hover:text-blue-800">View</Link></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

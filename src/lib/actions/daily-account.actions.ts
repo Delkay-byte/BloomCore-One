@@ -8,7 +8,7 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { dailyAccountSchema } from "@/lib/validations";
-import { calculateReconciliation } from "@/lib/momo-reconciliation";
+import { calculateReconciliation, resolveStoredDifference } from "@/lib/momo-reconciliation";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 
@@ -21,24 +21,24 @@ export interface ActionResponse {
 /**
  * Map the persisted column names onto the approved business terms.
  *
- * totalCashIn      -> Customer deposit
- * totalCashOut     -> Cash out
- * totalCashReceived-> Cash in
+ * totalCashIn       -> Customer deposit (Cash in)
+ * totalCashOut      -> Cash out
+ * totalAirtimeSold  -> Airtime sold
+ * additionalCashReceived / additionalMomoFloat -> extra owner funding
  *
- * totalCashPaid is intentionally NOT read: "Cash paid out" duplicated Cash
- * out and has been retired from the form and from every calculation path.
- * The column stays on historical rows so their stored variances still read
- * correctly.
+ * totalCashReceived, totalCashPaid and otherIncome are retired duplicate
+ * inputs. They stay on historical rows so old records remain readable, but
+ * new saves store zero and they never enter any calculation.
  */
 function reconcileDailyAccount(data: {
   openingMomoFloat: number;
   openingCash: number;
+  additionalCashReceived: number;
+  additionalMomoFloat: number;
   totalCashIn: number;
   totalCashOut: number;
-  totalCashReceived: number;
-  totalCashPaid: number;
+  totalAirtimeSold: number;
   commission: number;
-  otherIncome: number;
   totalExpenses: number;
   closingMomoFloat: number;
   closingCash: number;
@@ -46,16 +46,33 @@ function reconcileDailyAccount(data: {
   const result = calculateReconciliation({
     openingMomoFloat: data.openingMomoFloat,
     openingCash: data.openingCash,
+    additionalCashReceived: data.additionalCashReceived,
+    additionalMomoFloat: data.additionalMomoFloat,
     customerDeposit: data.totalCashIn,
     cashOut: data.totalCashOut,
-    cashIn: data.totalCashReceived,
+    airtimeSold: data.totalAirtimeSold,
     commission: data.commission,
-    otherIncome: data.otherIncome,
     totalExpenses: data.totalExpenses,
     closingMomoFloat: data.closingMomoFloat,
     closingCash: data.closingCash,
   });
-  return { momoVariance: result.momoVariance, cashVariance: result.cashVariance };
+  return {
+    difference: result.difference,
+    differenceStatus: result.status,
+    expectedClosing: result.expectedClosing,
+    actualClosing: result.actualClosing,
+  };
+}
+
+/** Legacy per-pocket columns are retained for old reports but no longer
+ *  drive the corrected combined reconciliation. Store the combined value in
+ *  both legacy columns so any older consumer that sums them still sees the
+ *  true difference instead of a stale split. */
+function legacyVarianceColumns(difference: number) {
+  return {
+    calculatedMomoVariance: 0,
+    calculatedCashVariance: difference,
+  };
 }
 
 /**
@@ -161,23 +178,35 @@ export async function saveDailyAccount(
     const value = Number(raw);
     return Number.isFinite(value) ? value : Number.NaN;
   };
+  // Fields added after the original form shipped default to 0, so an older
+  // client that does not post them is still accepted.
+  const optionalMoneyField = (name: string): number => {
+    const value = moneyField(name);
+    return Number.isFinite(value) ? value : 0;
+  };
 
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
     openingCash: moneyField("openingCash"),
+    additionalCashReceived: optionalMoneyField("additionalCashReceived"),
+    additionalMomoFloat: optionalMoneyField("additionalMomoFloat"),
     totalCashIn: moneyField("totalCashIn"),
     totalCashOut: moneyField("totalCashOut"),
-    totalCashReceived: moneyField("totalCashReceived"),
-    // Retired duplicate input. New drafts always store 0.
+    totalAirtimeSold: optionalMoneyField("totalAirtimeSold"),
+    // Retired duplicate inputs. New drafts always store 0.
+    totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
-    otherIncome: moneyField("otherIncome"),
+    otherIncome: 0,
     closingMomoFloat: moneyField("closingMomoFloat"),
     closingCash: moneyField("closingCash"),
   };
+  const reconciliationNote =
+    (formData.get("reconciliationNote") as string | null)?.trim() || null;
 
   const validated = dailyAccountSchema.safeParse({
     ...parsed,
+    reconciliationNote: reconciliationNote ?? undefined,
     businessDate: account.businessDate.toISOString(),
     expenses,
   });
@@ -187,10 +216,11 @@ export async function saveDailyAccount(
   }
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const { momoVariance, cashVariance } = reconcileDailyAccount({
+  const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
   });
+  const legacy = legacyVarianceColumns(reconciled.difference);
 
   await db.$transaction(async (tx) => {
     await tx.dailyAccount.update({
@@ -198,17 +228,22 @@ export async function saveDailyAccount(
       data: {
         openingMomoFloat: parsed.openingMomoFloat,
         openingCash: parsed.openingCash,
+        additionalCashReceived: parsed.additionalCashReceived,
+        additionalMomoFloat: parsed.additionalMomoFloat,
         totalCashIn: parsed.totalCashIn,
         totalCashOut: parsed.totalCashOut,
-        totalCashReceived: parsed.totalCashReceived,
-        totalCashPaid: parsed.totalCashPaid,
+        totalAirtimeSold: parsed.totalAirtimeSold,
+        totalCashReceived: 0,
+        totalCashPaid: 0,
         commission: parsed.commission,
-        otherIncome: parsed.otherIncome,
+        otherIncome: 0,
         closingMomoFloat: parsed.closingMomoFloat,
         closingCash: parsed.closingCash,
         totalExpenses,
-        calculatedMomoVariance: momoVariance,
-        calculatedCashVariance: cashVariance,
+        calculatedDifference: reconciled.difference,
+        differenceStatus: reconciled.differenceStatus,
+        reconciliationNote: reconciliationNote,
+        ...legacy,
       },
     });
 
@@ -236,8 +271,8 @@ export async function saveDailyAccount(
     entityId: accountId,
     details: {
       totalExpenses,
-      momoVariance,
-      cashVariance,
+      difference: reconciled.difference,
+      differenceStatus: reconciled.differenceStatus,
       expenseCount: expenses.length,
     },
   });
@@ -302,22 +337,34 @@ export async function correctDailyAccount(
     const value = Number(raw);
     return Number.isFinite(value) ? value : Number.NaN;
   };
+  // Fields added after the original form shipped default to 0, so an older
+  // client that does not post them is still accepted.
+  const optionalMoneyField = (name: string): number => {
+    const value = moneyField(name);
+    return Number.isFinite(value) ? value : 0;
+  };
 
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
     openingCash: moneyField("openingCash"),
+    additionalCashReceived: optionalMoneyField("additionalCashReceived"),
+    additionalMomoFloat: optionalMoneyField("additionalMomoFloat"),
     totalCashIn: moneyField("totalCashIn"),
     totalCashOut: moneyField("totalCashOut"),
-    totalCashReceived: moneyField("totalCashReceived"),
+    totalAirtimeSold: optionalMoneyField("totalAirtimeSold"),
+    totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
-    otherIncome: moneyField("otherIncome"),
+    otherIncome: 0,
     closingMomoFloat: moneyField("closingMomoFloat"),
     closingCash: moneyField("closingCash"),
   };
+  const reconciliationNote =
+    (formData.get("reconciliationNote") as string | null)?.trim() || null;
 
   const validated = dailyAccountSchema.safeParse({
     ...parsed,
+    reconciliationNote: reconciliationNote ?? undefined,
     businessDate: account.businessDate.toISOString(),
     expenses,
   });
@@ -326,10 +373,11 @@ export async function correctDailyAccount(
   }
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const { momoVariance, cashVariance } = reconcileDailyAccount({
+  const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
   });
+  const legacy = legacyVarianceColumns(reconciled.difference);
   const version = account.revisionCount + 1;
 
   const snapshot = {
@@ -340,8 +388,11 @@ export async function correctDailyAccount(
     reconciliationNote: account.reconciliationNote ?? null,
     openingMomoFloat: Number(account.openingMomoFloat),
     openingCash: Number(account.openingCash),
+    additionalCashReceived: Number(account.additionalCashReceived),
+    additionalMomoFloat: Number(account.additionalMomoFloat),
     totalCashIn: Number(account.totalCashIn),
     totalCashOut: Number(account.totalCashOut),
+    totalAirtimeSold: Number(account.totalAirtimeSold),
     totalCashReceived: Number(account.totalCashReceived),
     totalCashPaid: Number(account.totalCashPaid),
     commission: Number(account.commission),
@@ -349,6 +400,8 @@ export async function correctDailyAccount(
     closingMomoFloat: Number(account.closingMomoFloat),
     closingCash: Number(account.closingCash),
     totalExpenses: Number(account.totalExpenses),
+    calculatedDifference: Number(account.calculatedDifference),
+    differenceStatus: account.differenceStatus,
     calculatedMomoVariance: Number(account.calculatedMomoVariance),
     calculatedCashVariance: Number(account.calculatedCashVariance),
     expenses: account.expenses.map((expense) => ({
@@ -379,8 +432,10 @@ export async function correctDailyAccount(
         data: {
           ...parsed,
           totalExpenses,
-          calculatedMomoVariance: momoVariance,
-          calculatedCashVariance: cashVariance,
+          calculatedDifference: reconciled.difference,
+          differenceStatus: reconciled.differenceStatus,
+          reconciliationNote,
+          ...legacy,
           correctedAt: new Date(),
           correctedById: ctx.userId,
           correctionReason: reason,
@@ -429,8 +484,8 @@ export async function correctDailyAccount(
       reason,
       version,
       totalExpenses,
-      momoVariance,
-      cashVariance,
+      difference: reconciled.difference,
+      differenceStatus: reconciled.differenceStatus,
       previousSnapshotVersion: version,
     },
   });
@@ -464,10 +519,11 @@ export async function submitDailyAccount(
   if (
     Number(account.openingMomoFloat) === 0 &&
     Number(account.openingCash) === 0 &&
+    Number(account.additionalCashReceived) === 0 &&
+    Number(account.additionalMomoFloat) === 0 &&
     Number(account.totalCashIn) === 0 &&
     Number(account.totalCashOut) === 0 &&
-    Number(account.totalCashReceived) === 0 &&
-    Number(account.totalCashPaid) === 0 &&
+    Number(account.totalAirtimeSold) === 0 &&
     Number(account.closingMomoFloat) === 0 &&
     Number(account.closingCash) === 0
   ) {
@@ -477,9 +533,40 @@ export async function submitDailyAccount(
     };
   }
 
+  const reconciled = reconcileDailyAccount({
+    openingMomoFloat: Number(account.openingMomoFloat),
+    openingCash: Number(account.openingCash),
+    additionalCashReceived: Number(account.additionalCashReceived),
+    additionalMomoFloat: Number(account.additionalMomoFloat),
+    totalCashIn: Number(account.totalCashIn),
+    totalCashOut: Number(account.totalCashOut),
+    totalAirtimeSold: Number(account.totalAirtimeSold),
+    commission: Number(account.commission),
+    totalExpenses: Number(account.totalExpenses),
+    closingMomoFloat: Number(account.closingMomoFloat),
+    closingCash: Number(account.closingCash),
+  });
+
+  if (
+    reconciled.differenceStatus === "shortage" &&
+    !account.reconciliationNote?.trim()
+  ) {
+    return {
+      success: false,
+      error:
+        "This account has a shortage. Explain the shortage before submitting. Your cash and float figures stay unchanged.",
+    };
+  }
+
   await db.dailyAccount.update({
     where: { id: accountId },
-    data: { status: "submitted", submittedAt: new Date() },
+    data: {
+      status: "submitted",
+      submittedAt: new Date(),
+      calculatedDifference: reconciled.difference,
+      differenceStatus: reconciled.differenceStatus,
+      ...legacyVarianceColumns(reconciled.difference),
+    },
   });
 
   await createAuditLog({
@@ -490,6 +577,8 @@ export async function submitDailyAccount(
     details: {
       businessDate: account.businessDate,
       locationId: account.locationId,
+      difference: reconciled.difference,
+      differenceStatus: reconciled.differenceStatus,
     },
   });
 
@@ -698,7 +787,7 @@ export async function getAdminDashboardStats() {
     (sum, a) => sum + Number(a.totalExpenses),
     0
   );
-  // Approved business terms: Customer deposit, Cash out, Cash in.
+  // Approved business terms: Customer deposit (Cash in), Cash out, Airtime sold.
   const totalCustomerDeposits = submitted.reduce(
     (sum, a) => sum + Number(a.totalCashIn),
     0
@@ -707,20 +796,20 @@ export async function getAdminDashboardStats() {
     (sum, a) => sum + Number(a.totalCashOut),
     0
   );
-  const totalCashIn = submitted.reduce(
-    (sum, a) => sum + Number(a.totalCashReceived),
+  const totalAirtimeSold = submitted.reduce(
+    (sum, a) => sum + Number(a.totalAirtimeSold),
     0
   );
-  const balanced = submitted.filter(
-    (a) =>
-      Number(a.calculatedMomoVariance) === 0 &&
-      Number(a.calculatedCashVariance) === 0
+  const totalAdditionalFunding = submitted.reduce(
+    (sum, a) =>
+      sum + Number(a.additionalCashReceived) + Number(a.additionalMomoFloat),
+    0
   );
-  const withDiscrepancy = submitted.filter(
-    (a) =>
-      Number(a.calculatedMomoVariance) !== 0 ||
-      Number(a.calculatedCashVariance) !== 0
-  );
+  const differenceOf = (a: (typeof submitted)[number]) =>
+    resolveStoredDifference(a).difference;
+  const balanced = submitted.filter((a) => differenceOf(a) === 0);
+  const withDiscrepancy = submitted.filter((a) => differenceOf(a) < 0);
+  const positiveDifference = submitted.filter((a) => differenceOf(a) > 0);
 
   const locationStatus = allLocations.map((loc) => {
     const account = todayAccounts.find((a) => a.locationId === loc.id);
@@ -732,10 +821,7 @@ export async function getAdminDashboardStats() {
           ? "Submitted"
           : "Draft"
         : "Pending",
-      difference: account
-        ? Number(account.calculatedMomoVariance) +
-          Number(account.calculatedCashVariance)
-        : null,
+      difference: account ? differenceOf(account) : null,
     };
   });
 
@@ -747,11 +833,13 @@ export async function getAdminDashboardStats() {
     totalLocations: allLocations.length,
     balancedReports: balanced.length,
     discrepancyReports: withDiscrepancy.length,
+    positiveDifferenceReports: positiveDifference.length,
     totalCashPosition,
     totalFloat,
     totalCustomerDeposits,
     totalCashOut,
-    totalCashIn,
+    totalAirtimeSold,
+    totalAdditionalFunding,
     totalExpenses: totalExpensesToday,
     locationStatus,
   };
@@ -772,8 +860,11 @@ export interface DailyAccountRevisionView {
     status: string;
     openingMomoFloat: number;
     openingCash: number;
+    additionalCashReceived: number;
+    additionalMomoFloat: number;
     totalCashIn: number;
     totalCashOut: number;
+    totalAirtimeSold: number;
     totalCashReceived: number;
     totalCashPaid: number;
     commission: number;
@@ -781,8 +872,11 @@ export interface DailyAccountRevisionView {
     closingMomoFloat: number;
     closingCash: number;
     totalExpenses: number;
+    calculatedDifference: number;
+    differenceStatus: string;
     calculatedMomoVariance: number;
     calculatedCashVariance: number;
+    reconciliationNote: string | null;
     expenses: Array<{ description: string; amount: number }>;
   };
 }
@@ -796,8 +890,11 @@ export interface DailyAccountCorrectionView {
   values: {
     openingMomoFloat: number;
     openingCash: number;
+    additionalCashReceived: number;
+    additionalMomoFloat: number;
     totalCashIn: number;
     totalCashOut: number;
+    totalAirtimeSold: number;
     totalCashReceived: number;
     totalCashPaid: number;
     commission: number;
@@ -805,6 +902,8 @@ export interface DailyAccountCorrectionView {
     closingMomoFloat: number;
     closingCash: number;
     totalExpenses: number;
+    calculatedDifference: number;
+    differenceStatus: string;
     calculatedMomoVariance: number;
     calculatedCashVariance: number;
   };
@@ -860,8 +959,11 @@ export async function getDailyAccountCorrectionData(
         status: String(parsed.status ?? ""),
         openingMomoFloat: Number(parsed.openingMomoFloat ?? 0),
         openingCash: Number(parsed.openingCash ?? 0),
+        additionalCashReceived: Number(parsed.additionalCashReceived ?? 0),
+        additionalMomoFloat: Number(parsed.additionalMomoFloat ?? 0),
         totalCashIn: Number(parsed.totalCashIn ?? 0),
         totalCashOut: Number(parsed.totalCashOut ?? 0),
+        totalAirtimeSold: Number(parsed.totalAirtimeSold ?? 0),
         totalCashReceived: Number(parsed.totalCashReceived ?? 0),
         totalCashPaid: Number(parsed.totalCashPaid ?? 0),
         commission: Number(parsed.commission ?? 0),
@@ -869,8 +971,14 @@ export async function getDailyAccountCorrectionData(
         closingMomoFloat: Number(parsed.closingMomoFloat ?? 0),
         closingCash: Number(parsed.closingCash ?? 0),
         totalExpenses: Number(parsed.totalExpenses ?? 0),
+        calculatedDifference: Number(parsed.calculatedDifference ?? 0),
+        differenceStatus: String(parsed.differenceStatus ?? ""),
         calculatedMomoVariance: Number(parsed.calculatedMomoVariance ?? 0),
         calculatedCashVariance: Number(parsed.calculatedCashVariance ?? 0),
+        reconciliationNote:
+          typeof parsed.reconciliationNote === "string"
+            ? parsed.reconciliationNote
+            : null,
         expenses: Array.isArray(parsed.expenses)
           ? (parsed.expenses as Array<{ description?: unknown; amount?: unknown }>).map(
               (expense) => ({
@@ -887,8 +995,11 @@ export async function getDailyAccountCorrectionData(
         status: "",
         openingMomoFloat: 0,
         openingCash: 0,
+        additionalCashReceived: 0,
+        additionalMomoFloat: 0,
         totalCashIn: 0,
         totalCashOut: 0,
+        totalAirtimeSold: 0,
         totalCashReceived: 0,
         totalCashPaid: 0,
         commission: 0,
@@ -896,8 +1007,11 @@ export async function getDailyAccountCorrectionData(
         closingMomoFloat: 0,
         closingCash: 0,
         totalExpenses: 0,
+        calculatedDifference: 0,
+        differenceStatus: "",
         calculatedMomoVariance: 0,
         calculatedCashVariance: 0,
+        reconciliationNote: null,
         expenses: [],
       };
     }
@@ -921,8 +1035,11 @@ export async function getDailyAccountCorrectionData(
     values: {
       openingMomoFloat: Number(account.openingMomoFloat),
       openingCash: Number(account.openingCash),
+      additionalCashReceived: Number(account.additionalCashReceived),
+      additionalMomoFloat: Number(account.additionalMomoFloat),
       totalCashIn: Number(account.totalCashIn),
       totalCashOut: Number(account.totalCashOut),
+      totalAirtimeSold: Number(account.totalAirtimeSold),
       totalCashReceived: Number(account.totalCashReceived),
       totalCashPaid: Number(account.totalCashPaid),
       commission: Number(account.commission),
@@ -930,6 +1047,8 @@ export async function getDailyAccountCorrectionData(
       closingMomoFloat: Number(account.closingMomoFloat),
       closingCash: Number(account.closingCash),
       totalExpenses: Number(account.totalExpenses),
+      calculatedDifference: Number(account.calculatedDifference),
+      differenceStatus: account.differenceStatus || "balanced",
       calculatedMomoVariance: Number(account.calculatedMomoVariance),
       calculatedCashVariance: Number(account.calculatedCashVariance),
     },

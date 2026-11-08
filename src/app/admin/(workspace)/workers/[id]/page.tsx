@@ -9,6 +9,7 @@ import { getActiveLocations } from "@/lib/actions/location.actions";
 import PasswordInput from "@/components/PasswordInput";
 import ReauthDialog from "@/components/ReauthDialog";
 import CediAmount from "@/components/CediAmount";
+import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 
 interface WorkerDetail {
   id: string; fullName: string; email: string; phone?: string | null; role: string;
@@ -17,7 +18,8 @@ interface WorkerDetail {
   location?: { id: string; name: string; code: string } | null;
   dailyAccounts: Array<{
     id: string; businessDate: Date; status: string;
-    calculatedMomoVariance: number; calculatedCashVariance: number;
+    calculatedDifference: number; differenceStatus: string;
+    calculatedMomoVariance?: number; calculatedCashVariance?: number;
     location: { name: string };
   }>;
 }
@@ -156,7 +158,9 @@ export default function WorkerDetailPage() {
           {worker.dailyAccounts.length === 0 ? <p className="text-slate-500 text-sm">No reports submitted yet.</p> : (
             <div className="space-y-2">
               {worker.dailyAccounts.slice(0, 5).map((account) => {
-                const variance = Number(account.calculatedMomoVariance) + Number(account.calculatedCashVariance);
+                const stored = resolveStoredDifference(account);
+                const difference = stored.difference;
+                const shortage = stored.status === "shortage";
                 const statusLabel = account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status;
                 return (
                   <div key={account.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-50">
@@ -165,12 +169,16 @@ export default function WorkerDetailPage() {
                       <span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : "badge-yellow"}`}>{statusLabel}</span>
                       {account.status !== "draft" && (
                         <div className="text-xs mt-1">
-                          {variance === 0 ? (
-                            <span className="text-green-600">✓ Matches</span>
-                          ) : (
+                          {difference === 0 ? (
+                            <span className="text-green-600">✓ Balanced</span>
+                          ) : shortage ? (
                             <span className="text-red-600">
-                              Total Difference: <CediAmount amount={variance} />
-                              <br />⚠ Check Required
+                              Shortage: <CediAmount amount={Math.abs(difference)} />
+                              <br />⚠ Investigation required
+                            </span>
+                          ) : (
+                            <span className="text-green-600">
+                              Positive difference: <CediAmount amount={difference} showSign />
                             </span>
                           )}
                         </div>

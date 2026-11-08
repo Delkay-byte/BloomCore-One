@@ -8,10 +8,12 @@ import { getWorkerDailyAccounts, createDailyAccount } from "@/lib/actions/daily-
 import { formatDate, getGreeting, getTodayString, getDailyQuote } from "@/lib/utils";
 import Link from "next/link";
 import CediAmount from "@/components/CediAmount";
+import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 
 interface DailyAccount {
   id: string; businessDate: Date; status: string;
-  calculatedMomoVariance: number; calculatedCashVariance: number;
+  calculatedDifference: number; differenceStatus: string;
+  calculatedMomoVariance?: number; calculatedCashVariance?: number;
   location: { name: string };
 }
 
@@ -90,7 +92,7 @@ export default function WorkerDashboardPage() {
 
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h2 className="text-lg font-semibold mb-1">Today&apos;s Account</h2>
-        <p className="text-sm text-slate-500 mb-4">Open your account in the morning, record today&apos;s customer deposit, cash out and cash in, then count your cash and confirm your MoMo balance before submitting.</p>
+        <p className="text-sm text-slate-500 mb-4">Open your account in the morning, record today&apos;s customer deposit, cash out, airtime sales and any additional funding, then count your cash and confirm your MoMo float before submitting.</p>
         {todayAccount ? (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -118,7 +120,9 @@ export default function WorkerDashboardPage() {
         ) : (
           <div className="space-y-2">
             {accounts.slice(0, 10).map((account) => {
-              const variance = Number(account.calculatedMomoVariance) + Number(account.calculatedCashVariance);
+              const stored = resolveStoredDifference(account);
+              const difference = stored.difference;
+              const shortage = stored.status === "shortage";
               return (
                 <Link key={account.id} href={`/worker/daily/${account.id}`} className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 border border-slate-100 transition-colors">
                   <div className="font-medium text-sm">{formatDate(account.businessDate)}</div>
@@ -126,13 +130,16 @@ export default function WorkerDashboardPage() {
                     <span className={`badge ${account.status === "submitted" ? "badge-green" : account.status === "reviewed" ? "badge-blue" : "badge-yellow"}`}>{account.status === "draft" ? "Draft Saved" : account.status === "submitted" ? "Submitted" : account.status === "reviewed" ? "Reviewed" : account.status}</span>
                     {account.status !== "draft" && (
                       <div className="text-xs mt-1">
-                        {variance === 0 ? (
+                        {difference === 0 ? (
                           <span className="text-green-600">✓ Balanced</span>
-                        ) : (
+                        ) : shortage ? (
                           <span className="text-red-600">
-                            {variance < 0 ? "Short " : "Over "}
-                            <CediAmount amount={Math.abs(variance)} />
-                            <br />⚠ Check required
+                            Short <CediAmount amount={Math.abs(difference)} />
+                            <br />⚠ Explanation required
+                          </span>
+                        ) : (
+                          <span className="text-green-600">
+                            Positive difference <CediAmount amount={difference} showSign />
                           </span>
                         )}
                       </div>

@@ -26,7 +26,7 @@ export default function WorkspacePreview() {
   ];
 
   const panels = [
-    { title: "Daily account", body: "Cash in, cash out, commission and expenses recorded per day." },
+    { title: "Daily account", body: "Customer deposits, cash out, airtime, commission and expenses recorded per day." },
     { title: "Contributions", body: "Susu contributions with allocation to customer accounts." },
     { title: "Withdrawals", body: "Approved payouts with a full record of who recorded them." },
   ];

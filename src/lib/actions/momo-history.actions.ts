@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminMomo } from "@/lib/tenant";
+import { resolveStoredDifference } from "@/lib/momo-reconciliation";
 
 export interface MoMoHistoryRecord {
   id: string;
@@ -21,13 +22,14 @@ export interface MoMoHistoryRecord {
 export interface MoMoHistorySummary {
   totalCashIn: number;
   totalCashOut: number;
-  totalCashReceived: number;
-  totalCashPaid: number;
+  totalAirtimeSold: number;
+  totalAdditionalFunding: number;
   totalExpenses: number;
   totalCommission: number;
-  totalOtherIncome: number;
   totalMomoAdded: number;
   totalMomoPaid: number;
+  totalDifference: number;
+  shortageCount: number;
   recordCount: number;
 }
 
@@ -146,15 +148,39 @@ export async function getMoMoHistory(params?: {
       }
     }
 
-    // Cash in (persisted as totalCashReceived)
-    if (!type || type === "cash_received") {
-      if (Number(account.totalCashReceived) > 0) {
+    // Airtime sold (persisted as totalAirtimeSold)
+    if (!type || type === "airtime") {
+      if (Number(account.totalAirtimeSold) > 0) {
         records.push({
           ...base,
-          id: `${account.id}-cashreceived`,
-          type: "Cash in",
-          amount: Number(account.totalCashReceived),
-          notes: `Physical cash received at ${locName}`,
+          id: `${account.id}-airtime`,
+          type: "Airtime sold",
+          amount: Number(account.totalAirtimeSold),
+          notes: `Airtime sold at ${locName}`,
+        });
+      }
+    }
+
+    // Additional funding received from the owner
+    if (!type || type === "additional_funding") {
+      const additionalCash = Number(account.additionalCashReceived);
+      const additionalFloat = Number(account.additionalMomoFloat);
+      if (additionalCash > 0) {
+        records.push({
+          ...base,
+          id: `${account.id}-additionalcash`,
+          type: "Additional cash received",
+          amount: additionalCash,
+          notes: "Extra physical cash received for the business",
+        });
+      }
+      if (additionalFloat > 0) {
+        records.push({
+          ...base,
+          id: `${account.id}-additionalfloat`,
+          type: "Additional MoMo float received",
+          amount: additionalFloat,
+          notes: "Extra MoMo float received for the business",
         });
       }
     }
@@ -201,19 +227,6 @@ export async function getMoMoHistory(params?: {
       }
     }
 
-    // Other Income
-    if (!type || type === "other_income") {
-      if (Number(account.otherIncome) > 0) {
-        records.push({
-          ...base,
-          id: `${account.id}-otherincome`,
-          type: "Other Money Received",
-          amount: Number(account.otherIncome),
-          notes: "Other income recorded",
-        });
-      }
-    }
-
     // Expenses
     if (!type || type === "expenses") {
       for (const expense of account.expenses) {
@@ -229,13 +242,16 @@ export async function getMoMoHistory(params?: {
 
     // Reconciliation
     if (!type || type === "reconciliation") {
-      if (account.reconciliationNote) {
+      const stored = resolveStoredDifference(account);
+      if (account.reconciliationNote || stored.difference !== 0) {
         records.push({
           ...base,
           id: `${account.id}-recon`,
           type: "Reconciliation Record",
-          amount: 0,
-          notes: account.reconciliationNote,
+          amount: stored.difference,
+          notes:
+            account.reconciliationNote ||
+            `Difference ${formatDecimal(stored.difference)} (${stored.status})`,
         });
       }
     }
@@ -253,11 +269,13 @@ export async function getMoMoHistory(params?: {
   const summary: MoMoHistorySummary = {
     totalCashIn: allAccounts.reduce((sum, a) => sum + Number(a.totalCashIn), 0),
     totalCashOut: allAccounts.reduce((sum, a) => sum + Number(a.totalCashOut), 0),
-    totalCashReceived: allAccounts.reduce((sum, a) => sum + Number(a.totalCashReceived), 0),
-    totalCashPaid: allAccounts.reduce((sum, a) => sum + Number(a.totalCashPaid), 0),
+    totalAirtimeSold: allAccounts.reduce((sum, a) => sum + Number(a.totalAirtimeSold), 0),
+    totalAdditionalFunding: allAccounts.reduce(
+      (sum, a) => sum + Number(a.additionalCashReceived) + Number(a.additionalMomoFloat),
+      0
+    ),
     totalExpenses: allAccounts.reduce((sum, a) => sum + Number(a.totalExpenses), 0),
     totalCommission: allAccounts.reduce((sum, a) => sum + Number(a.commission), 0),
-    totalOtherIncome: allAccounts.reduce((sum, a) => sum + Number(a.otherIncome), 0),
     totalMomoAdded: allAccounts.reduce((sum, a) => {
       const diff = Number(a.closingMomoFloat) - Number(a.openingMomoFloat);
       return sum + (diff > 0 ? diff : 0);
@@ -266,6 +284,13 @@ export async function getMoMoHistory(params?: {
       const diff = Number(a.openingMomoFloat) - Number(a.closingMomoFloat);
       return sum + (diff > 0 ? diff : 0);
     }, 0),
+    totalDifference: allAccounts.reduce(
+      (sum, a) => sum + resolveStoredDifference(a).difference,
+      0
+    ),
+    shortageCount: allAccounts.filter(
+      (a) => resolveStoredDifference(a).status === "shortage"
+    ).length,
     recordCount: total,
   };
 

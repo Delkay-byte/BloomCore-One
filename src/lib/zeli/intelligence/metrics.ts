@@ -314,6 +314,8 @@ async function aggregateRange(
       }),
       db.dailyAccount.findMany({
         where: dailyAccountWhere,
+        // `otherIncome` is retired for new saves (always 0) but still holds
+        // historical cash income, so reporting keeps counting it.
         select: { commission: true, otherIncome: true, businessDate: true },
       }),
       db.expense.findMany({

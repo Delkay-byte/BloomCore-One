@@ -7,43 +7,50 @@ import {
   correctDailyAccount,
   type DailyAccountCorrectionView,
 } from "@/lib/actions/daily-account.actions";
-import { calculateReconciliation } from "@/lib/momo-reconciliation";
+import {
+  calculateReconciliation,
+  resolveStoredDifference,
+  statusLabel,
+} from "@/lib/momo-reconciliation";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 
 type MoneyField =
   | "openingMomoFloat"
   | "openingCash"
+  | "additionalCashReceived"
+  | "additionalMomoFloat"
   | "totalCashIn"
   | "totalCashOut"
-  | "totalCashReceived"
+  | "totalAirtimeSold"
   | "commission"
-  | "otherIncome"
   | "closingMomoFloat"
   | "closingCash";
 
-// Approved business terminology. "Cash paid out" is retired because it
-// duplicated Cash out; the server no longer reads it from this form.
+// Approved business terminology. Retired duplicate inputs (Cash paid out,
+// Cash in, Other income) are not read or written by this form.
 const FIELDS: Array<{ key: MoneyField; label: string; hint?: string }> = [
-  { key: "openingMomoFloat", label: "Opening MoMo balance" },
-  { key: "openingCash", label: "Opening cash" },
-  { key: "totalCashIn", label: "Customer deposit" },
+  { key: "openingMomoFloat", label: "Opening MoMo float" },
+  { key: "openingCash", label: "Opening physical cash" },
+  { key: "additionalCashReceived", label: "Additional cash received" },
+  { key: "additionalMomoFloat", label: "Additional MoMo float received" },
+  { key: "totalCashIn", label: "Customer deposit (Cash in)" },
   { key: "totalCashOut", label: "Cash out" },
-  { key: "totalCashReceived", label: "Cash in" },
+  { key: "totalAirtimeSold", label: "Airtime sold" },
   { key: "commission", label: "Commission earned" },
-  { key: "otherIncome", label: "Other income" },
-  { key: "closingMomoFloat", label: "Closing MoMo balance" },
-  { key: "closingCash", label: "Closing cash" },
+  { key: "closingMomoFloat", label: "Actual closing MoMo float" },
+  { key: "closingCash", label: "Actual closing physical cash" },
 ];
 
 function calculate(values: Record<MoneyField, number>, expensesTotal: number) {
   return calculateReconciliation({
     openingMomoFloat: values.openingMomoFloat,
     openingCash: values.openingCash,
+    additionalCashReceived: values.additionalCashReceived,
+    additionalMomoFloat: values.additionalMomoFloat,
     customerDeposit: values.totalCashIn,
     cashOut: values.totalCashOut,
-    cashIn: values.totalCashReceived,
+    airtimeSold: values.totalAirtimeSold,
     commission: values.commission,
-    otherIncome: values.otherIncome,
     totalExpenses: expensesTotal,
     closingMomoFloat: values.closingMomoFloat,
     closingCash: values.closingCash,
@@ -59,11 +66,12 @@ export default function CorrectionForm({
   const [values, setValues] = useState<Record<MoneyField, number>>({
     openingMomoFloat: data.values.openingMomoFloat,
     openingCash: data.values.openingCash,
+    additionalCashReceived: data.values.additionalCashReceived,
+    additionalMomoFloat: data.values.additionalMomoFloat,
     totalCashIn: data.values.totalCashIn,
     totalCashOut: data.values.totalCashOut,
-    totalCashReceived: data.values.totalCashReceived,
+    totalAirtimeSold: data.values.totalAirtimeSold,
     commission: data.values.commission,
-    otherIncome: data.values.otherIncome,
     closingMomoFloat: data.values.closingMomoFloat,
     closingCash: data.values.closingCash,
   });
@@ -73,6 +81,9 @@ export default function CorrectionForm({
       : [{ description: "", amount: 0 }]
   );
   const [reason, setReason] = useState("");
+  const [reconciliationNote, setReconciliationNote] = useState(
+    data.reconciliationNote ?? ""
+  );
   const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -91,9 +102,10 @@ export default function CorrectionForm({
     return (
       FIELDS.some((field) => values[field.key] !== data.values[field.key]) ||
       expensesTotal !== data.values.totalExpenses ||
-      expenses.length !== data.expenses.length
+      expenses.length !== data.expenses.length ||
+      reconciliationNote.trim() !== (data.reconciliationNote ?? "").trim()
     );
-  }, [values, expenses.length, expensesTotal, data.values, data.expenses.length]);
+  }, [values, expenses.length, expensesTotal, data.values, data.expenses.length, reconciliationNote, data.reconciliationNote]);
 
   function updateField(key: MoneyField, raw: string) {
     const parsed = raw === "" ? 0 : Number(raw);
@@ -119,6 +131,12 @@ export default function CorrectionForm({
       setError("Confirm that you have reviewed the original and proposed values.");
       return;
     }
+    if (proposed.status === "shortage" && reconciliationNote.trim().length === 0) {
+      setError(
+        "This correction leaves a shortage. Explain the shortage before saving. The figures stay unchanged."
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -126,6 +144,7 @@ export default function CorrectionForm({
       for (const field of FIELDS) {
         formData.set(field.key, String(values[field.key]));
       }
+      formData.set("reconciliationNote", reconciliationNote.trim());
       formData.set(
         "expenses",
         JSON.stringify(
@@ -168,9 +187,11 @@ export default function CorrectionForm({
             </span>
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Customer deposit, Cash out and Cash in are the approved field names.
-            Cash out is counted once against both the MoMo balance and cash; the
-            old Cash paid out input has been retired and is not used.
+            Customer deposit (Cash in), Cash out and Airtime sold move money
+            between physical cash and MoMo float. They do not change combined
+            accountability. Additional funding, commission and expenses do. The
+            retired duplicate inputs (Cash paid out, Cash in, Other income) are
+            not used.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((field) => (
@@ -284,27 +305,63 @@ export default function CorrectionForm({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">
-                MoMo variance
+                Expected closing accountability
               </p>
               <p className="mt-1 text-lg font-bold tnum text-slate-900">
-                {formatCedi(proposed.momoVariance)}
+                {formatCedi(proposed.expectedClosing)}
               </p>
               <p className="text-xs text-slate-400">
-                Original {formatCedi(data.values.calculatedMomoVariance)}
+                Opening {formatCedi(proposed.openingTotal)} + additional funding{" "}
+                {formatCedi(proposed.additionalFunding)} + commission{" "}
+                {formatCedi(values.commission)} − expenses {formatCedi(expensesTotal)}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">
-                Cash variance
+                Actual closing accountability
               </p>
               <p className="mt-1 text-lg font-bold tnum text-slate-900">
-                {formatCedi(proposed.cashVariance)}
+                {formatCedi(proposed.actualClosing)}
               </p>
               <p className="text-xs text-slate-400">
-                Original {formatCedi(data.values.calculatedCashVariance)}
+                Closing cash {formatCedi(values.closingCash)} + closing float{" "}
+                {formatCedi(values.closingMomoFloat)}
               </p>
             </div>
           </div>
+          <div
+            className={`mt-3 rounded-lg p-3 ${
+              proposed.status === "shortage"
+                ? "bg-red-50 text-red-800"
+                : "bg-emerald-50 text-emerald-800"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">
+                {statusLabel(proposed.status)}
+              </span>
+              <span className="text-lg font-bold tnum">
+                {formatCedi(proposed.difference)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs opacity-80">
+              Original recorded difference{" "}
+              {formatCedi(resolveStoredDifference(data.values).difference)}
+            </p>
+          </div>
+          <label className="mt-4 block text-sm">
+            <span className="font-medium text-slate-700">
+              Shortage explanation
+              {proposed.status === "shortage" ? " (required)" : " (optional)"}
+            </span>
+            <textarea
+              className="mt-1 w-full"
+              rows={2}
+              maxLength={500}
+              value={reconciliationNote}
+              onChange={(event) => setReconciliationNote(event.target.value)}
+            />
+          </label>
         </section>
 
         <section className="card bg-white">
@@ -424,10 +481,10 @@ export default function CorrectionForm({
                     {revision.reason}
                   </p>
                   <p className="mt-2 text-xs text-slate-500">
-                    Values replaced: MoMo variance{" "}
-                    {formatCedi(revision.snapshot.calculatedMomoVariance)}, cash
-                    variance {formatCedi(revision.snapshot.calculatedCashVariance)},
-                    expenses {formatCedi(revision.snapshot.totalExpenses)}.
+                    Values replaced: difference{" "}
+                    {formatCedi(revision.snapshot.calculatedDifference ?? 0)}, airtime{" "}
+                    {formatCedi(revision.snapshot.totalAirtimeSold ?? 0)}, expenses{" "}
+                    {formatCedi(revision.snapshot.totalExpenses)}.
                   </p>
                 </li>
               ))}

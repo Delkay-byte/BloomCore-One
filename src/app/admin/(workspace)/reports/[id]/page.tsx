@@ -5,16 +5,19 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getDailyAccountById, reviewDailyAccount } from "@/lib/actions/daily-account.actions";
-import { calculateReconciliation } from "@/lib/momo-reconciliation";
+import { calculateReconciliation, resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 
 interface AccountDetail {
   id: string; businessDate: Date; status: string; submittedAt?: Date | null; reviewedAt?: Date | null;
-  openingMomoFloat: number; openingCash: number; totalCashIn: number; totalCashOut: number;
-  totalCashReceived: number; totalCashPaid: number; commission: number; otherIncome: number;
-  closingMomoFloat: number; closingCash: number; totalExpenses: number;
-  calculatedMomoVariance: number; calculatedCashVariance: number;
+  openingMomoFloat: number; openingCash: number;
+  additionalCashReceived: number; additionalMomoFloat: number;
+  totalCashIn: number; totalCashOut: number; totalAirtimeSold: number;
+  commission: number; totalExpenses: number;
+  closingMomoFloat: number; closingCash: number;
+  calculatedDifference: number; differenceStatus: string;
+  reconciliationNote?: string | null;
   location: { id: string; name: string; code: string; address?: string | null; contactPhone?: string | null };
   worker: { id: string; fullName: string; email: string; phone?: string | null };
   expenses: Array<{ id: string; description: string; amount: number }>;
@@ -50,21 +53,24 @@ export default function ReportDetailPage() {
   if (loading) return <SkeletonPage variant="detail" />;
   if (!account) return <div className="text-center py-20"><p className="text-slate-500">Report not found</p><button onClick={() => router.push("/admin/reports")} className="btn btn-primary mt-4">Back to Reports</button></div>;
 
-  const momoVariance = Number(account.calculatedMomoVariance);
-  const cashVariance = Number(account.calculatedCashVariance);
-  const totalVariance = momoVariance + cashVariance;
-  const expected = calculateReconciliation({
+  const stored = resolveStoredDifference(account);
+  const difference = stored.difference;
+  const reconciled = calculateReconciliation({
     openingMomoFloat: Number(account.openingMomoFloat),
     openingCash: Number(account.openingCash),
+    additionalCashReceived: Number(account.additionalCashReceived),
+    additionalMomoFloat: Number(account.additionalMomoFloat),
     customerDeposit: Number(account.totalCashIn),
     cashOut: Number(account.totalCashOut),
-    cashIn: Number(account.totalCashReceived),
+    airtimeSold: Number(account.totalAirtimeSold),
     commission: Number(account.commission),
-    otherIncome: Number(account.otherIncome),
     totalExpenses: Number(account.totalExpenses),
     closingMomoFloat: Number(account.closingMomoFloat),
     closingCash: Number(account.closingCash),
   });
+  const differenceLabel = statusLabel(stored.status);
+  const differenceTone =
+    stored.status === "shortage" ? "text-red-600" : "text-green-600";
 
   return (
     <div>
@@ -115,11 +121,13 @@ export default function ReportDetailPage() {
         <div className="card">
           <h3 className="font-semibold mb-4">Daily Business Totals</h3>
           <div className="space-y-2">
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Customer deposit</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashIn} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Customer deposit (Cash in)</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashIn} /></span></div>
             <div className="flex justify-between"><span className="text-sm text-slate-600">Cash out</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashOut} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Cash in</span><span className="font-mono text-sm"><CediAmount amount={account.totalCashReceived} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Commission Earned</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
-            <div className="flex justify-between"><span className="text-sm text-slate-600">Other Income</span><span className="font-mono text-sm"><CediAmount amount={account.otherIncome} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Airtime sold</span><span className="font-mono text-sm"><CediAmount amount={account.totalAirtimeSold} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Additional cash received</span><span className="font-mono text-sm"><CediAmount amount={account.additionalCashReceived} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Additional MoMo float received</span><span className="font-mono text-sm"><CediAmount amount={account.additionalMomoFloat} /></span></div>
+            <div className="flex justify-between"><span className="text-sm text-slate-600">Commission earned</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
+            <div className="flex justify-between border-t pt-2"><span className="text-sm text-slate-600">Business expenses</span><span className="font-mono text-sm text-red-700"><CediAmount amount={account.totalExpenses} /></span></div>
           </div>
         </div>
 
@@ -127,21 +135,27 @@ export default function ReportDetailPage() {
           <h3 className="font-semibold mb-4">Account Check</h3>
           <div className="space-y-3">
             <div className="bg-slate-50 rounded-lg p-3">
-              <div className="text-sm text-slate-600 mb-1">MoMo difference</div>
-              <div className={`text-lg font-bold ${momoVariance === 0 ? "text-green-600" : "text-red-600"}`}><CediAmount amount={momoVariance} /></div>
-              <div className="text-xs text-slate-500 mt-1">Expected: <CediAmount amount={expected.expectedMomoFloat} /> &bull; Reported: <CediAmount amount={account.closingMomoFloat} /></div>
+              <div className="text-sm text-slate-600 mb-1">Expected closing accountability</div>
+              <div className="text-lg font-bold text-slate-900"><CediAmount amount={reconciled.expectedClosing} /></div>
+              <div className="text-xs text-slate-500 mt-1">Opening cash + float + additional funding + commission − expenses</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
-              <div className="text-sm text-slate-600 mb-1">Cash difference</div>
-              <div className={`text-lg font-bold ${cashVariance === 0 ? "text-green-600" : "text-red-600"}`}><CediAmount amount={cashVariance} /></div>
-              <div className="text-xs text-slate-500 mt-1">Expected: <CediAmount amount={expected.expectedCash} /> &bull; Reported: <CediAmount amount={account.closingCash} /></div>
+              <div className="text-sm text-slate-600 mb-1">Actual closing accountability</div>
+              <div className="text-lg font-bold text-slate-900"><CediAmount amount={reconciled.actualClosing} /></div>
+              <div className="text-xs text-slate-500 mt-1">Closing cash + closing MoMo float</div>
             </div>
             <div className="border-t pt-3">
               <div className="flex justify-between items-center">
-                <span className="font-medium">Total Difference</span>
-                <span className={`text-xl font-bold ${totalVariance === 0 ? "text-green-600" : "text-red-600"}`}><CediAmount amount={totalVariance} /></span>
+                <span className="font-medium">Difference</span>
+                <span className={`text-xl font-bold ${differenceTone}`}><CediAmount amount={difference} showSign /></span>
               </div>
-              <div className="text-right"><span className={`badge ${totalVariance === 0 ? "badge-green" : "badge-red"} mt-1`}>{totalVariance === 0 ? "Matches" : "⚠ Check Required"}</span></div>
+              <div className="text-right"><span className={`badge ${stored.status === "shortage" ? "badge-red" : "badge-green"} mt-1`}>{differenceLabel}</span></div>
+              {stored.status === "shortage" && account.reconciliationNote && (
+                <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                  <div className="font-medium">Explanation</div>
+                  <p className="mt-1">{account.reconciliationNote}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

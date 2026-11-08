@@ -88,8 +88,11 @@ model DailyAccount {
 
   openingMomoFloat       Decimal @default(0)
   openingCash            Decimal @default(0)
+  additionalCashReceived Decimal @default(0)
+  additionalMomoFloat    Decimal @default(0)
   totalCashIn            Decimal @default(0)
   totalCashOut           Decimal @default(0)
+  totalAirtimeSold       Decimal @default(0)
   totalCashReceived      Decimal @default(0)
   totalCashPaid          Decimal @default(0)
   commission             Decimal @default(0)
@@ -99,6 +102,8 @@ model DailyAccount {
   totalExpenses          Decimal @default(0)
   calculatedMomoVariance Decimal @default(0)
   calculatedCashVariance Decimal @default(0)
+  calculatedDifference   Decimal @default(0)
+  differenceStatus       String  @default("balanced")
   reconciliationNote     String?
 
   status           String    @default("draft")
