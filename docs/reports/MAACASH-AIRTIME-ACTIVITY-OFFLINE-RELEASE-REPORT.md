@@ -101,12 +101,15 @@ it, and the full fresh chain then reported no difference.
 
 - Release branch: `release/maacash-airtime-activity-offline`
 - Commit SHA: `eba3bbb3d4bc2bfbd2914989560fed9224b4e73f`
-- PR: [#30](https://github.com/Delkay-byte/BloomCore-One/pull/30)
+- PR: [#30](https://github.com/Delkay-byte/BloomCore-One/pull/30) (release),
+  [#31](https://github.com/Delkay-byte/BloomCore-One/pull/31) (evidence)
 - Review status: no independent reviewer identity was available; `main` has no
   branch protection or required review rule. The work was not represented as
   independently reviewed.
 - CI status: PASS — SQLite, PostgreSQL rehearsal/integration and mobile browser
-- Merge commit: `5c3888b988c754b8ae414586815f88ea8845800e`
+  on both pull requests
+- Merge commits: `5c3888b988c754b8ae414586815f88ea8845800e` (application),
+  `7a978824b2433a36e5c1e921950c955356b7c448` (evidence documentation)
 
 ## D. Database
 
@@ -138,7 +141,7 @@ User 12. Migration rows moved from 27 to 29.
 - Primary URL: `https://maacash.bloomcoretech.com`
 - Fallback service: `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0`
 - Deployment identifiers: `dep-dbp0cpbl550s73eokgh0` (maacash),
-  `dep-dbp0ct6c6qcc7394eahg` (bloomcore-one)
+  `dep-dbp0eop5efls73cjrur0` (bloomcore-one, live after the auto-deploy refresh)
 - Deployed commit SHA: `5c3888b988c754b8ae414586815f88ea8845800e` on both
 - Deployment outcome: LIVE on both services
 - Health endpoint: `status=ok`, commit `5c3888b…` on all three hosts
