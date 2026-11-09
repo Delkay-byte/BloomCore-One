@@ -95,13 +95,13 @@ node scripts/build-brand-raster.mjs
 ## Deployment
 
 Production runs on Render with a Neon PostgreSQL database. The canonical
-public origin is `https://maacash.bloomcoretech.com` on the primary `maacash`
-service (`srv-dbnaciff3r2c7382tjgg`). The `bloomcore-one` service
-(`srv-dbjalrk9v7es739ifkp0`) is the fallback, and
-`https://bloomcore-one.onrender.com` plus
-`https://maacash.onrender.com` stay reachable as transition addresses. Their
-`onrender.com` hostnames are preserved infrastructure identifiers, not the
-public identity.
+public origin is `https://maacash.bloomcoretech.com` on the `maacash` service
+(`srv-dbnaciff3r2c7382tjgg`). The former `bloomcore-one` service
+(`srv-dbjalrk9v7es739ifkp0`) was deleted as a duplicate runtime of the same
+repository and database. `https://maacash.onrender.com` stays reachable only
+as a transition address for devices that still hold offline records created on
+that origin. It is not the public identity and is retired after those records
+synchronize.
 
 `main` is the production branch. The build command generates the PostgreSQL
 Prisma client before `next build`; database schema changes are applied with

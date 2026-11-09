@@ -47,7 +47,7 @@ export async function GET() {
         database: "ok",
         latencyMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
-        app: "bloomcore-one",
+        app: "maacash",
         env: process.env.APP_ENV || process.env.NODE_ENV || "unknown",
         commit: deployedCommitSha(),
       },
@@ -60,7 +60,7 @@ export async function GET() {
         database: "error",
         latencyMs: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
-        app: "bloomcore-one",
+        app: "maacash",
         commit: deployedCommitSha(),
       },
       { status: 503, headers: { "Cache-Control": "no-store" } }

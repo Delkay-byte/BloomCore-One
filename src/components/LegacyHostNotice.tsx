@@ -33,6 +33,11 @@ export default function LegacyHostNotice() {
             there. Locally saved financial records stay on this device until
             server synchronization is confirmed.
           </p>
+          <p className="mt-2">
+            <a className="font-semibold underline underline-offset-2" href="/migrate">
+              Check and synchronize this device&apos;s offline records
+            </a>
+          </p>
         </div>
         <a
           className="shrink-0 font-semibold underline underline-offset-2"

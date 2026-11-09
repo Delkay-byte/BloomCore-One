@@ -25,7 +25,7 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    app: "bloomcore-one",
+    app: "maacash",
     env: process.env.APP_ENV || process.env.NODE_ENV || "unknown",
     commit: deployedCommitSha(),
   });

@@ -15,10 +15,11 @@
  *   all follow this value. Canonical <link> tags are suppressed on local and
  *   staging deployments so they never claim to be the public production home.
  *
- *   The old Render hostnames remain operational as transition addresses. They
- *   are listed in LEGACY_PUBLIC_HOSTNAMES and receive a visible migration
- *   notice; they are not redirected, because offline IndexedDB records and
- *   cookies are origin-scoped and must be synchronized before they can retire.
+ *   The old primary Render hostname remains operational as a transition
+ *   address. It is listed in LEGACY_PUBLIC_HOSTNAMES and receives a visible
+ *   migration notice; it is not redirected, because offline IndexedDB records
+ *   and cookies are origin-scoped and must be synchronized before it can
+ *   retire.
  *
  * CONTACT_EMAIL / CONTACT_PHONE
  *   The public enquiry channel. No verified BloomCore Technologies business
@@ -44,16 +45,17 @@ export const CANONICAL_PRODUCTION_URL = "https://maacash.bloomcoretech.com";
 export const CANONICAL_PRODUCTION_HOSTNAME = "maacash.bloomcoretech.com";
 
 /**
- * Old production origins kept reachable during the domain transition.
+ * Old production origin kept reachable during the domain transition.
  *
  * Offline financial records, cookies and service-worker caches are scoped to
- * the origin that created them. These hosts stay live until the owner confirms
+ * the origin that created them. This host stays live until the owner confirms
  * outstanding records have synchronized; never add a blanket redirect here.
+ *
+ * `bloomcore-one.onrender.com` was retired with its duplicate Render service.
+ * The `bloomcore-one` identifiers in JWT audiences and the OIDC product slug
+ * are internal contracts and are intentionally not renamed.
  */
-export const LEGACY_PUBLIC_HOSTNAMES = [
-  "maacash.onrender.com",
-  "bloomcore-one.onrender.com",
-] as const;
+export const LEGACY_PUBLIC_HOSTNAMES = ["maacash.onrender.com"] as const;
 
 const LOCAL_DEVELOPMENT_URL = "http://localhost:3000";
 const STAGING_DEPLOYMENT_URL = "https://bloomcore-one-staging.onrender.com";

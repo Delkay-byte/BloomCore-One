@@ -1,16 +1,22 @@
 # Render Deployment Blueprint — MaaCash (Neon)
 # https://render.com/docs/blueprint-spec
 #
-# Scope: describes the Neon-backed recovery service `bloomcore-one`
-# (srv-dbjalrk9v7es739ifkp0). The primary MaaCash service is `maacash`
-# (srv-dbnaciff3r2c7382tjgg); its canonical public origin is
-# https://maacash.bloomcoretech.com. The `bloomcore-one` identifier and its
-# onrender.com hostname are intentionally preserved: they are infrastructure
-# contracts used by Paystack webhooks, Turnstile host checks and OIDC redirect
-# URIs. Keep both Render hostnames reachable during the domain transition,
-# because offline records are origin-scoped.
-# Do not run "New → Blueprint" against this branch unless both services are
-# first deleted, or a duplicate will be created.
+# Scope: describes the canonical MaaCash service `maacash`
+# (srv-dbnaciff3r2c7382tjgg). Its public origin is
+# https://maacash.bloomcoretech.com.
+#
+# The former `bloomcore-one` Render service (srv-dbjalrk9v7es739ifkp0) was a
+# duplicate runtime of the same repository and database. It was deleted after
+# its hostname and Paystack responsibilities were verified to be unused. Do not
+# recreate it.
+#
+# `maacash.onrender.com` remains reachable only while devices synchronize
+# offline records that were created on that browser origin. It is a transition
+# address, not a second product identity.
+#
+# The `bloomcore-one` string still appears in JWT audiences and the OIDC product
+# slug. Those are internal authentication contracts and must not be renamed
+# without a deliberate migration.
 #
 # Database schema is NEVER created or altered by a build. Provisioning the
 # schema is a separate, explicitly run operator step — see
@@ -18,7 +24,7 @@
 
 services:
   - type: web
-    name: bloomcore-one
+    name: maacash
     runtime: node
     plan: free
     region: oregon
@@ -35,8 +41,7 @@ services:
         value: production
       - key: APP_ENV
         value: PILOT
-      # Canonical public origin. The custom domain is the public identity; the
-      # onrender.com hosts remain operational transition addresses.
+      # Canonical public origin. The custom domain is the public identity.
       - key: SITE_URL
         value: "https://maacash.bloomcoretech.com"
       - key: NEXT_PUBLIC_SITE_URL
@@ -62,7 +67,7 @@ services:
       - key: TURNSTILE_ENABLED
         value: "false"
       - key: TURNSTILE_ALLOWED_HOSTNAMES
-        value: "maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com"
+        value: "maacash.bloomcoretech.com,maacash.onrender.com"
       - key: TRUSTED_PROXY_HEADERS
         value: "true"
       - key: NEXTAUTH_URL

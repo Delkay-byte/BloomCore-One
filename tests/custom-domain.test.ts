@@ -5,7 +5,6 @@ import { NextRequest } from "next/server";
 
 const CANONICAL = "https://maacash.bloomcoretech.com";
 const OLD_PRIMARY = "https://maacash.onrender.com";
-const OLD_FALLBACK = "https://bloomcore-one.onrender.com";
 
 function resetModules() {
   vi.resetModules();
@@ -127,25 +126,25 @@ describe("public metadata and crawler files", () => {
 });
 
 describe("old-host transition", () => {
-  it("recognises both retired Render hostnames and rejects other hosts", async () => {
+  it("recognises only the retained transition hostname", async () => {
     configureRender(CANONICAL);
     const site = await import("@/lib/site");
 
     expect(site.isLegacyPublicHostname("maacash.onrender.com")).toBe(true);
     expect(site.isLegacyPublicHostname("MAACASH.ONRENDER.COM:443")).toBe(true);
-    expect(site.isLegacyPublicHostname("bloomcore-one.onrender.com")).toBe(true);
+    expect(site.isLegacyPublicHostname("bloomcore-one.onrender.com")).toBe(false);
     expect(site.isLegacyPublicHostname("maacash.bloomcoretech.com")).toBe(false);
     expect(site.isLegacyPublicHostname("evil.example.com")).toBe(false);
     expect(site.isLegacyPublicHostname(null)).toBe(false);
   });
 
-  it("shows the migration notice only on the old Render hosts", async () => {
+  it("shows the migration notice only on the old Render host", async () => {
     configureRender(CANONICAL);
     const site = await import("@/lib/site");
 
     expect(site.shouldShowLegacyHostNotice("maacash.onrender.com")).toBe(true);
     expect(site.shouldShowLegacyHostNotice("bloomcore-one.onrender.com")).toBe(
-      true
+      false
     );
     expect(site.shouldShowLegacyHostNotice("maacash.bloomcoretech.com")).toBe(
       false
@@ -177,7 +176,25 @@ describe("old-host transition", () => {
     expect(layout).toContain("<LegacyHostNotice />");
     expect(notice).toContain("synchronize any unsynchronized offline records");
     expect(notice).toContain("prepare the device for offline use");
+    expect(notice).toContain('href="/migrate"');
     expect(notice).not.toContain('http-equiv="refresh"');
+  });
+
+  it("provides a migration page that never claims cross-origin data was moved", () => {
+    const page = readFileSync(
+      path.join(process.cwd(), "src/app/migrate/page.tsx"),
+      "utf8"
+    );
+    const client = readFileSync(
+      path.join(process.cwd(), "src/components/LegacyMigrationClient.tsx"),
+      "utf8"
+    );
+
+    expect(page).toContain("LegacyMigrationClient");
+    expect(page).toContain("isLegacyPublicHostname");
+    expect(client).toContain("syncPendingTransactions");
+    expect(client).toContain("cannot read or move them");
+    expect(client).toContain("Do not sign out, clear");
   });
 });
 
@@ -203,12 +220,6 @@ describe("trusted origins", () => {
     });
     expect(isSameOriginRequest(oldHost)).toBe(true);
 
-    const fallbackHost = new NextRequest(`${OLD_FALLBACK}/api/auth/logout`, {
-      method: "POST",
-      headers: { origin: OLD_FALLBACK },
-    });
-    expect(isSameOriginRequest(fallbackHost)).toBe(true);
-
     const evil = new NextRequest(`${CANONICAL}/api/auth/logout`, {
       method: "POST",
       headers: { origin: "https://evil.example.com" },
@@ -230,8 +241,9 @@ describe("repository production configuration", () => {
       /key: NEXTAUTH_URL\r?\n\s+value: "https:\/\/maacash\.bloomcoretech\.com"/
     );
     expect(yaml).toContain(
-      "maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com"
+      "maacash.bloomcoretech.com,maacash.onrender.com"
     );
+    expect(yaml).not.toContain("bloomcore-one.onrender.com");
   });
 
   it("keeps staging on its own base URL", () => {
