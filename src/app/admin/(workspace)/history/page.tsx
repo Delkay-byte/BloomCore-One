@@ -36,7 +36,7 @@ const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
   { value: "debts_collected", label: "Debts Collected" },
   { value: "cash_in", label: "Customer deposit (Cash in) — historical" },
   { value: "cash_out", label: "Cash out" },
-  { value: "airtime", label: "Airtime sold" },
+  { value: "airtime", label: "Airtime Sold (operational)" },
   { value: "additional_funding", label: "Additional funding" },
   { value: "momo_added", label: "MoMo float increase" },
   { value: "momo_paid", label: "MoMo float decrease" },
@@ -193,7 +193,7 @@ export default function MoMoHistoryPage() {
           <SummaryCard label="Expenses" amount={summary.totalExpenses} tone="text-red-700" />
           <SummaryCard label="Historical customer deposits" amount={summary.totalCashIn} />
           <SummaryCard label="Historical cash out" amount={summary.totalCashOut} />
-          <SummaryCard label="Historical airtime" amount={summary.totalAirtimeSold} />
+          <SummaryCard label="Airtime Sold (operational)" amount={summary.totalAirtimeSold} />
           <SummaryCard
             label="Combined difference"
             amount={summary.totalDifference}

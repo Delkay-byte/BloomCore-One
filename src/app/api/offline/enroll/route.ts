@@ -67,12 +67,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // An administrator revocation is authoritative. A collector cannot clear it
+    // by replaying the enrollment endpoint from the revoked device.
+    if (existing?.status === "revoked") {
+      return NextResponse.json(
+        {
+          error:
+            "Offline authorization for this device was revoked. Ask your administrator to restore it.",
+        },
+        { status: 403 }
+      );
+    }
+
     const device = existing
       ? existing.userId === effective.userId
         ? await db.deviceEnrollment.update({
             where: { id: existing.id },
             data: {
               status: "active",
+              module: mod,
+              deviceName: deviceName || existing.deviceName,
               lastSyncAt: new Date(),
               authorizedAt: new Date(),
             },
@@ -99,13 +113,18 @@ export async function POST(request: NextRequest) {
 
     await createAuditLog({
       userId: effective.userId,
+      tenantId: effective.tenantId,
       action: "offline.device_enrolled",
       entityType: "device",
       entityId: device.id,
       details: { deviceId, module: mod },
     });
 
-    return NextResponse.json({ success: true, deviceId: device.deviceId });
+    return NextResponse.json({
+      success: true,
+      deviceId: device.deviceId,
+      authorizedAt: device.authorizedAt.toISOString(),
+    });
   } catch (err) {
     console.error("[offline-enroll]", err);
     return NextResponse.json(
@@ -141,10 +160,20 @@ export async function GET(request: NextRequest) {
       deviceId,
       tenantId: ctx.tenantId,
       userId: ctx.userId,
-      status: "active",
     },
-    select: { deviceId: true, lastSyncAt: true, createdAt: true },
+    select: {
+      deviceId: true,
+      module: true,
+      status: true,
+      lastSyncAt: true,
+      authorizedAt: true,
+      createdAt: true,
+    },
   });
 
-  return NextResponse.json({ enrolled: !!device, device });
+  return NextResponse.json({
+    enrolled: device?.status === "active",
+    revoked: device?.status === "revoked",
+    device,
+  });
 }

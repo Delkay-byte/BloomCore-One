@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { LogOut, RefreshCw, ShieldAlert } from "lucide-react";
 import { logout } from "@/lib/actions/auth.actions";
-import { clearTabSession } from "@/lib/security/tab-session-client";
+import {
+  clearOfflineAppCache,
+  clearTabSession,
+} from "@/lib/security/tab-session-client";
 import { getOfflineQueueSummary, type OfflineQueueSummary } from "@/lib/offline/store";
 import { syncBeforeSignOut, endOfflineSession } from "@/lib/offline/session";
 import { PRODUCT_NAME } from "@/lib/site";
@@ -78,6 +81,9 @@ export default function ConfirmSignOutButton({
       // exactly this session. Only then remove the tab's local mapping.
       const result = await logout();
       await clearTabSession();
+      // Remove cached pages for this account. Queued financial records are kept
+      // in their scoped database and are never deleted by sign-out.
+      await clearOfflineAppCache();
       window.location.assign(result.redirectTo ?? "/login");
     } finally {
       setBusy(false);

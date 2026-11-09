@@ -7,11 +7,14 @@
 
 import { PrismaClient } from "@prisma/client";
 import { randomBytes } from "crypto";
+import { assertDisposablePostgresTarget } from "./pg-safety";
+
+const target = assertDisposablePostgresTarget(process.env.PG_DATABASE_URL);
 
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.PG_DATABASE_URL || (() => { throw new Error('PG_DATABASE_URL environment variable is required for PostgreSQL tests'); })() as string,
+      url: target.url,
     },
   },
 });

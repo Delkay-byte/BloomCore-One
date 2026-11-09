@@ -58,7 +58,12 @@ export async function POST(request: NextRequest) {
     // 1. Authenticate + resolve tenant (Susu module required).
     const ctx: TenantContext | null =
       (await getApiTenantContext("susu", "susu")) ??
-      (await getApiTenantContext("admin", "susu"));
+      (await getApiTenantContext("admin", "susu")) ??
+      // A dual-role user may have switched to the Susu dashboard locally while
+      // offline; the tab's server session can still be the MoMo module. The
+      // requiredModule check still proves the user and tenant are authorized
+      // for Susu, so this is not a browser-selected role.
+      (await getApiTenantContext("momo", "susu"));
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
@@ -509,10 +514,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 9. Extend the offline window
+    // 9. Extend the offline window. The response carries the server timestamp so
+    // the device can reconcile its local expiry without another request.
+    const renewedAt = new Date();
     await db.deviceEnrollment.update({
       where: { id: device.id },
-      data: { lastSyncAt: new Date(), authorizedAt: new Date() },
+      data: { lastSyncAt: renewedAt, authorizedAt: renewedAt },
     });
 
     // 10. Audit (a reconciled retry already recorded the original posting)
@@ -540,6 +547,7 @@ export async function POST(request: NextRequest) {
       daysAllocated: result.daysAllocated,
       allocatedAmount: result.allocatedAmount,
       reconciled,
+      authorizedAt: renewedAt.toISOString(),
     });
   } catch (err) {
     if (err instanceof SyncRejected) {

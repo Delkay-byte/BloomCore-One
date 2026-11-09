@@ -8,7 +8,11 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { dailyAccountSchema } from "@/lib/validations";
-import { parseExpenseLines, readExpenseFormValue } from "@/lib/expense-lines";
+import {
+  hasCurrencyPrecision,
+  parseExpenseLines,
+  readExpenseFormValue,
+} from "@/lib/expense-lines";
 import {
   calculateReconciliation,
   encodeReconciliationStatus,
@@ -173,6 +177,13 @@ export async function saveDailyAccount(
     const value = moneyField(name);
     return Number.isFinite(value) ? value : 0;
   };
+  // Airtime is optional. A blank field means zero. A malformed value stays NaN
+  // so schema validation rejects it instead of silently recording zero.
+  const optionalMoneyFieldStrict = (name: string): number => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.trim() === "") return 0;
+    return moneyField(name);
+  };
 
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
@@ -183,7 +194,7 @@ export async function saveDailyAccount(
     additionalMomoFloat: 0,
     totalCashIn: 0,
     totalCashOut: 0,
-    totalAirtimeSold: 0,
+    totalAirtimeSold: optionalMoneyFieldStrict("totalAirtimeSold"),
     totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
@@ -277,6 +288,7 @@ export async function saveDailyAccount(
     entityId: accountId,
     details: {
       totalExpenses,
+      airtimeSold: parsed.totalAirtimeSold,
       difference: reconciled.difference,
       differenceStatus: reconciled.differenceStatus,
       expenseCount: expenses.length,
@@ -345,6 +357,12 @@ export async function correctDailyAccount(
     const value = moneyField(name);
     return Number.isFinite(value) ? value : 0;
   };
+  // Airtime is optional; malformed input must fail validation, not become zero.
+  const optionalMoneyFieldStrict = (name: string): number => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.trim() === "") return 0;
+    return moneyField(name);
+  };
 
   const parsed = {
     openingMomoFloat: moneyField("openingMomoFloat"),
@@ -355,7 +373,7 @@ export async function correctDailyAccount(
     additionalMomoFloat: 0,
     totalCashIn: 0,
     totalCashOut: 0,
-    totalAirtimeSold: 0,
+    totalAirtimeSold: optionalMoneyFieldStrict("totalAirtimeSold"),
     totalCashReceived: 0,
     totalCashPaid: 0,
     commission: moneyField("commission"),
@@ -491,6 +509,7 @@ export async function correctDailyAccount(
       reason,
       version,
       totalExpenses,
+      airtimeSold: parsed.totalAirtimeSold,
       difference: reconciled.difference,
       differenceStatus: reconciled.differenceStatus,
       previousSnapshotVersion: version,
@@ -544,6 +563,7 @@ export async function submitDailyAccount(
     Number(account.closingCash) === 0 &&
     Number(account.debtsCollected) === 0 &&
     Number(account.commission) === 0 &&
+    Number(account.totalAirtimeSold) === 0 &&
     totalExpenses === 0
   ) {
     return {
@@ -633,6 +653,127 @@ export async function reviewDailyAccount(
     action: "daily_account.reviewed",
     entityType: "daily_account",
     entityId: accountId,
+  });
+
+  revalidatePath("/admin/reports");
+  revalidatePath(`/admin/reports/${accountId}`);
+  revalidatePath("/admin/dashboard");
+  return { success: true };
+}
+
+/**
+ * Confirm the money physically received from the agent.
+ *
+ * This is deliberately separate from `reviewDailyAccount`. Approving the
+ * accounting review does not prove that cash was handed over. The actual amount
+ * and any discrepancy are preserved; a mismatch always requires an explanation
+ * and is never silently treated as balanced.
+ *
+ * Expected Money to Hand Over stays:
+ *   opening total + commission + debts collected - total expenses
+ * Airtime Sold is operational information and never enters this calculation.
+ */
+export async function confirmDailyHandover(
+  accountId: string,
+  formData: FormData
+): Promise<ActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+
+  const account = await db.dailyAccount.findFirst({
+    where: { id: accountId, tenantId: ctx.tenantId },
+    include: { expenses: true },
+  });
+  if (!account) return { success: false, error: "Daily account not found" };
+  if (account.status !== "submitted" && account.status !== "reviewed") {
+    return {
+      success: false,
+      error: "Only a submitted daily account can have its handover confirmed.",
+    };
+  }
+  if (account.handoverConfirmedAt) {
+    return {
+      success: false,
+      error:
+        "Money received has already been confirmed for this account. The existing confirmation is preserved.",
+    };
+  }
+
+  const raw = formData.get("actualAmountReceived");
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return { success: false, error: "Enter the actual amount received." };
+  }
+  const actual = Number(raw);
+  if (!Number.isFinite(actual) || actual < 0) {
+    return { success: false, error: "Enter a valid amount received." };
+  }
+  if (actual > 999999.99) {
+    return { success: false, error: "The amount received is too large." };
+  }
+  if (!hasCurrencyPrecision(actual)) {
+    return {
+      success: false,
+      error: "The amount received must use no more than two decimal places.",
+    };
+  }
+
+  const totalExpenses = Number(account.totalExpenses);
+  const expected = reconcileDailyAccount({
+    openingMomoFloat: Number(account.openingMomoFloat),
+    openingCash: Number(account.openingCash),
+    debtsCollected: Number(account.debtsCollected),
+    commission: Number(account.commission),
+    totalExpenses,
+    closingMomoFloat: Number(account.closingMomoFloat),
+    closingCash: Number(account.closingCash),
+  }).expectedClosing;
+
+  const difference =
+    Math.round((actual - expected) * 100) / 100;
+  const note = (formData.get("handoverNote") as string | null)?.trim() || null;
+  if (difference !== 0 && (!note || note.length < 5)) {
+    return {
+      success: false,
+      error:
+        "The amount received differs from the expected handover. Explain the difference before confirming.",
+    };
+  }
+  if (note && note.length > 500) {
+    return { success: false, error: "Handover note must be 500 characters or fewer." };
+  }
+
+  const updated = await db.dailyAccount.updateMany({
+    where: {
+      id: accountId,
+      tenantId: ctx.tenantId,
+      handoverConfirmedAt: null,
+    },
+    data: {
+      actualAmountReceived: actual,
+      handoverDifference: difference,
+      handoverNote: note,
+      handoverConfirmedAt: new Date(),
+      handoverConfirmedBy: ctx.userId,
+    },
+  });
+  if (updated.count !== 1) {
+    return {
+      success: false,
+      error: "This handover was already confirmed. Reload to review it.",
+    };
+  }
+
+  await createAuditLog({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    action: "daily_account.handover_confirmed",
+    entityType: "dailyAccount",
+    entityId: accountId,
+    details: {
+      actualAmountReceived: actual,
+      expectedAmount: expected,
+      difference,
+      handoverNote: note,
+    },
   });
 
   revalidatePath("/admin/reports");

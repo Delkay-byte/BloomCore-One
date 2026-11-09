@@ -78,6 +78,8 @@ export default function CorrectionForm({
     [data.expenses, data.values.totalExpenses]
   );
   const [expenses, setExpenses] = useState(initialExpenses);
+  // Operational record only. It must never enter the accountability formula.
+  const [airtimeSold, setAirtimeSold] = useState(data.values.totalAirtimeSold);
   const [reason, setReason] = useState("");
   const [reconciliationNote, setReconciliationNote] = useState(
     data.reconciliationNote ?? ""
@@ -104,10 +106,19 @@ export default function CorrectionForm({
   const changed = useMemo(() => {
     return (
       FIELDS.some((field) => values[field.key] !== data.values[field.key]) ||
+      airtimeSold !== data.values.totalAirtimeSold ||
       JSON.stringify(expenses) !== initialExpenseJson ||
       reconciliationNote.trim() !== (data.reconciliationNote ?? "").trim()
     );
-  }, [values, expenses, initialExpenseJson, data.values, reconciliationNote, data.reconciliationNote]);
+  }, [
+    values,
+    airtimeSold,
+    expenses,
+    initialExpenseJson,
+    data.values,
+    reconciliationNote,
+    data.reconciliationNote,
+  ]);
 
   function updateField(key: MoneyField, raw: string) {
     const parsed = raw === "" ? 0 : Number(raw);
@@ -146,6 +157,7 @@ export default function CorrectionForm({
       for (const field of FIELDS) {
         formData.set(field.key, String(values[field.key]));
       }
+      formData.set("totalAirtimeSold", String(airtimeSold));
       formData.set("reconciliationNote", reconciliationNote.trim());
       formData.set(
         "expenses",
@@ -187,6 +199,8 @@ export default function CorrectionForm({
             Net daily profit / increase = commission + debts collected − expenses.
             Expected closing = opening total + net daily profit / increase. Customer
             deposits, withdrawals and airtime only move money between the two pockets.
+            Airtime Sold is recorded for information and never changes the expected
+            closing total.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((field) => (
@@ -214,6 +228,35 @@ export default function CorrectionForm({
                 </span>
               </label>
             ))}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">
+                Airtime Sold (GH₵) — operational record
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                className="mt-1 w-full"
+                value={airtimeSold || ""}
+                placeholder="0.00"
+                onChange={(event) =>
+                  setAirtimeSold(Number.parseFloat(event.target.value) || 0)
+                }
+                aria-describedby="airtime-sold-hint"
+              />
+              <span id="airtime-sold-hint" className="mt-1 block text-xs text-slate-600">
+                Enter the total value of airtime sold that day. Physical cash rises
+                and E-cash falls by the same amount, so the combined closing total
+                does not change.
+              </span>
+              <span className="mt-1 block text-xs text-slate-400">
+                Original: {formatCedi(data.values.totalAirtimeSold)}
+              </span>
+            </label>
           </div>
 
           <div className="mt-5">

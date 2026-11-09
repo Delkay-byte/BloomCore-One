@@ -10,6 +10,11 @@
  * queued transactions are synchronised.
  */
 
+import {
+  getCurrentOfflineContext,
+  offlineContextExpired,
+} from "./device-store";
+
 export interface OfflineScope {
   tenantId: string;
   userId: string;
@@ -86,11 +91,27 @@ async function resolveScope(): Promise<OfflineScope> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SCOPE_TIMEOUT_MS);
   try {
-    const response = await fetch("/api/auth/me", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/me", {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      // A network failure is not an authentication decision. If this device was
+      // previously prepared, use its locally stored, server-approved identity
+      // so offline status and the local queue remain readable. A real 401/403
+      // below still fails closed.
+      const context = await getCurrentOfflineContext();
+      if (!context) throw error;
+      if (offlineContextExpired(context)) {
+        throw new Error("Offline authorization has expired. Reconnect to continue.");
+      }
+      const scope = { tenantId: context.tenantId, userId: context.userId };
+      setOfflineScope(scope);
+      return scope;
+    }
     if (!response.ok) throw new Error("Not authenticated for offline storage");
     const data = (await response.json()) as {
       userId?: string;

@@ -6,6 +6,8 @@ import Modal from "@/components/ui/Modal";
 import { switchWorkspace } from "@/lib/actions/auth.actions";
 import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { flushActiveDrafts } from "@/hooks/useObjectDraft";
+import { getCurrentOfflineContext, offlineContextExpired } from "@/lib/offline/device-store";
+import { getOfflineReadiness } from "@/lib/offline/preparation";
 
 interface MePayload {
   userId: string;
@@ -59,6 +61,34 @@ export default function WorkspaceSwitcher({
   const currentLabel = LABELS[current];
   const targetLabel = LABELS[target];
 
+  async function switchLocally(): Promise<boolean> {
+    const context = await getCurrentOfflineContext();
+    if (!context || offlineContextExpired(context)) {
+      setError(
+        "This dashboard is not available offline. Reconnect once and let this device prepare both dashboards."
+      );
+      return false;
+    }
+    const readiness = await getOfflineReadiness(target);
+    if (readiness.status !== "ready" && readiness.status !== "active") {
+      setError(readiness.message);
+      return false;
+    }
+    const draftsSaved = await flushActiveDrafts();
+    if (!draftsSaved) {
+      setError(
+        "We could not save your draft on this device. Stay here and try again before switching."
+      );
+      return false;
+    }
+    const { setOfflineActivation } = await import("@/lib/offline/device-store");
+    await setOfflineActivation(true, target);
+    window.location.assign(
+      target === "momo" ? "/worker/dashboard" : "/collector/dashboard"
+    );
+    return true;
+  }
+
   async function handleSwitch() {
     if (busy) return;
     setBusy(true);
@@ -70,6 +100,14 @@ export default function WorkspaceSwitcher({
         setError(
           "We could not save your draft on this device. Stay here and try again before switching."
         );
+        return;
+      }
+
+      // Offline: the prepared module is restored locally. No login, password,
+      // MFA challenge or server request is required for a previously prepared
+      // dashboard.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await switchLocally();
         return;
       }
 
@@ -93,7 +131,18 @@ export default function WorkspaceSwitcher({
       }
       setError(result.error ?? "Could not switch dashboard.");
     } catch {
-      setError("Could not switch dashboard. Please try again.");
+      // A network failure is not a permission decision. If both dashboards
+      // were prepared, switch locally; otherwise keep the clear error.
+      const context = await getCurrentOfflineContext().catch(() => null);
+      if (
+        context &&
+        !offlineContextExpired(context) &&
+        context.modules.includes(target)
+      ) {
+        await switchLocally();
+      } else {
+        setError("Could not switch dashboard. Reconnect once and prepare both dashboards.");
+      }
     } finally {
       setBusy(false);
     }

@@ -3,6 +3,50 @@
 > Current product identity: **MaaCash** (formerly BloomCore One). Service and
 > database identifiers below are preserved infrastructure names, not branding.
 
+## Current production release procedure (9 November 2026)
+
+| Item | Current value |
+|---|---|
+| Primary service | `maacash` — `srv-dbnaciff3r2c7382tjgg`, Oregon, branch `main` |
+| Primary URL | `https://maacash.bloomcoretech.com` (verified Render custom domain) |
+| Render URL | `https://maacash.onrender.com` |
+| Fallback service | `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0`, auto-deploy on `main` |
+| Fallback URL | `https://bloomcore-one.onrender.com` |
+| Production database | Neon PostgreSQL `neondb`, schema `public` |
+
+The application build performs **no database migration**. Apply schema changes
+as a separate operator step from a trusted machine:
+
+```bash
+npx prisma generate --schema=prisma/schema-pg.prisma
+npx prisma migrate deploy --schema=prisma/schema-pg.prisma
+npx prisma migrate status --schema=prisma/schema-pg.prisma
+```
+
+`DATABASE_URL` and `DIRECT_URL` are supplied from the Render service environment
+or a local protected environment. Never print or commit them. A failed migration
+stops the release; there is no `prisma db push` fallback.
+
+Before applying a migration:
+
+1. Take a verified `pg_dump --format=custom` backup outside the repository.
+2. Confirm `prisma migrate status` shows only the expected pending migration.
+3. Rehearse the full migration chain on a disposable PostgreSQL database.
+4. Confirm `prisma migrate diff` is empty after rehearsal.
+5. Apply the migration before or immediately alongside promotion of the matching
+   application commit.
+
+After deployment, confirm both the Render deployment and the live health
+endpoints report the expected commit SHA:
+
+```bash
+curl -s https://maacash.bloomcoretech.com/api/health
+curl -s -o /dev/null -w '%{http_code}\n' https://maacash.bloomcoretech.com/api/health/ready
+curl -s https://bloomcore-one.onrender.com/api/health
+```
+
+## Historical release record (2026-10-31)
+
 **Release:** multi-tenant platform foundation + Phase 2 UI → Render production
 **Executed:** 2026-10-31 · **Status:** DATABASE MIGRATED — MAIN PROMOTION PENDING
 **Production branch:** `main` · **Previous `main`:** `b88a10a`

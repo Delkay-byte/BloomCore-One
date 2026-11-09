@@ -26,6 +26,11 @@ import {
 } from "./store";
 import { syncPendingTransactions } from "./sync";
 import { pruneExpiredDrafts } from "./drafts";
+import {
+  getOfflineReadiness,
+  type OfflineReadiness,
+} from "./preparation";
+import { clearCurrentOfflineContext } from "./device-store";
 
 export interface SignOutSummary {
   pending: number;
@@ -67,9 +72,17 @@ export async function syncBeforeSignOut(): Promise<SignOutSummary> {
   };
 }
 
-/** Close connections and forget the in-memory scope. Records stay on disk. */
+/**
+ * Close connections and forget the in-memory scope. Records stay on disk.
+ *
+ * The device-level "current offline session" pointer is also cleared so an
+ * explicit sign-out cannot be bypassed by reopening the app while offline.
+ * Prepared, unsynchronized records remain for the same user after a future
+ * online sign-in.
+ */
 export function endOfflineSession(): void {
   closeCurrentOfflineSession();
+  void clearCurrentOfflineContext();
 }
 
 export type DiscardStatus =
@@ -220,6 +233,7 @@ export async function discardCurrentOfflineData(options: {
   }
 
   closeCurrentOfflineSession();
+  void clearCurrentOfflineContext();
 
   let blocked = false;
   const deletion = deleteDatabase(databaseName, {
@@ -296,13 +310,35 @@ export async function isCurrentOfflineDatabasePresent(): Promise<boolean> {
 
 export interface OfflineStatus {
   summary: OfflineQueueSummary;
+  readiness: OfflineReadiness;
+  /** False only when the local queue itself could not be read. */
+  available: boolean;
   online: boolean;
   databaseName: string | null;
 }
 
+function emptySummary(): OfflineQueueSummary {
+  return {
+    pending: 0,
+    syncing: 0,
+    synced: 0,
+    failed: 0,
+    unresolved: 0,
+    lastSuccessfulSyncAt: null,
+    failedRecords: [],
+  };
+}
+
 /** Snapshot for the offline status panel and the sign-out safeguard. */
 export async function getOfflineStatus(): Promise<OfflineStatus> {
-  const summary = await getOfflineQueueSummary();
+  const readiness = await getOfflineReadiness();
+  let summary: OfflineQueueSummary = emptySummary();
+  let available = true;
+  try {
+    summary = await getOfflineQueueSummary();
+  } catch {
+    available = false;
+  }
   let databaseName: string | null = null;
   try {
     databaseName = offlineDatabaseName(await getOfflineScope());
@@ -311,6 +347,8 @@ export async function getOfflineStatus(): Promise<OfflineStatus> {
   }
   return {
     summary,
+    readiness,
+    available,
     online: typeof navigator === "undefined" ? true : navigator.onLine,
     databaseName,
   };

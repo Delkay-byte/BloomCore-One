@@ -225,3 +225,71 @@ silently deletes it.
 7. Same-origin developer tools can open IndexedDB directly. The guard prevents
    the application from rendering or synchronizing another user's records; it
    is not a defence against a compromised browser profile or device.
+
+## 9. Preparation, local activation and offline login
+
+Offline support separates five operations that were previously coupled:
+
+1. **Device preparation** (online): validates `/api/auth/me`, enrolls the
+   device for every authorized module, downloads the collector's authorized
+   customer snapshot, and warms the application shell.
+2. **Offline readiness** (local): reads the prepared context and verifies that
+   the cached app screen exists. Only then does the UI say **Offline Ready**.
+3. **Activation** (local): `Enable Offline` updates a local flag. It does not
+   call an API and does not extend the authorization window.
+4. **Local records**: queued contributions are marked **Saved on Device — Not
+   Yet Synced** and never appear in server-authoritative totals.
+5. **Synchronization**: reuses the existing queue, stable idempotency keys and
+   server authorization checks. A successful sync reconciles the local
+   authorization window with the server timestamp.
+
+A device that has never been authenticated or prepared is told that initial
+online setup is required. It is never given an offline login, invented customer
+data, or a weaker credential.
+
+### 9.1 Durable local context
+
+`src/lib/offline/device-store.ts` stores only non-secret identity and readiness
+metadata in `bloomcore-offline-device:v1`: user/tenant ids, display name, role,
+authorized modules, device ids, preparation and authorization timestamps, and a
+local activation flag. It stores no password, JWT, refresh token, session
+handle, customer record or financial payload.
+
+The device-level database survives sign-out so prepared, unsynchronized records
+are not lost. Sign-out clears the current offline-session pointer and the cached
+application pages. The next offline start therefore cannot restore the previous
+user's dashboard; a future online sign-in by the same user restores their own
+scoped records.
+
+### 9.2 Offline login and dual-role switching
+
+`/login` is warmed while online. If the network is already gone, the prepared
+device can open a previously authorized dashboard without contacting the
+server. The login screen offers only the modules recorded during preparation.
+
+For a dual-role MoMo Agent/Susu Collector, both authorized dashboards are
+prepared where the supporting data and cache checks pass. `WorkspaceSwitcher`
+switches locally while offline after confirming that the destination module was
+prepared and its cached screen exists. It does not ask for a password or MFA
+again, and it does not let the browser invent module permissions.
+
+When connectivity returns, `OfflineSessionGuard` re-checks the tab's server
+session for the open module. If the offline switch left the tab on the other
+module's server session, the existing `switchWorkspace` action re-verifies the
+identity and entitlements server-side and binds the correct credential to the
+tab. The offline sync route also accepts a MoMo session only when the server
+proves the same user and tenant are authorized for Susu.
+
+### 9.3 Cached application pages
+
+The existing tab-session service worker (`public/tab-session-sw.js`) now also
+caches application navigation responses and static assets. Page caches are
+namespaced by the local `tenant:user` scope, so one account's cached dashboard is
+not served to another. Static assets are shared because they contain no user
+data. Navigation is network-first and falls back to the cached page; a device
+with no prepared cache receives an explicit "initial online setup required"
+screen, never a misleading logged-in shell.
+
+A cached protected page also runs `OfflineSessionGuard`. If the local
+preparation is missing, expired, or does not include the page's module, the app
+returns to the login/offline prompt instead of showing the page.

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, UserPlus, Wallet, X, RefreshCw, Info, CheckCircle2, Clock } from "lucide-react";
+import { UserPlus, Wallet, RefreshCw, Info, CheckCircle2, Clock } from "lucide-react";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getCollectorDashboardStats } from "@/lib/actions/susu-dashboard.actions";
@@ -9,14 +9,22 @@ import { registerCustomerByCollector } from "@/lib/actions/susu-collector.action
 import { formatCedi, getGreeting, getDailyQuote } from "@/lib/utils";
 import {
   addTransaction,
+  getCachedCustomers,
   getPendingTransactions,
   cacheCustomers,
   type OfflineTransaction,
   type CachedCustomer,
 } from "@/lib/offline/store";
 import { getOrCreateDeviceId } from "@/lib/offline/device";
+import { getCurrentOfflineContext, offlineContextExpired } from "@/lib/offline/device-store";
 import { getOfflineScope, setOfflineScope } from "@/lib/offline/scope";
-import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
+import {
+  activateOfflineAccess,
+  getOfflineReadiness,
+  prepareOfflineAccess,
+  type OfflineReadiness,
+} from "@/lib/offline/preparation";
+import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, hydrateOfflineAuthorization, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import OfflineSyncStatus from "@/components/OfflineSyncStatus";
 import { SkeletonPage } from "@/components/ui/Skeletons";
@@ -107,8 +115,14 @@ export default function CollectorDashboardPage({
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
   const [offlineAuthExpired, setOfflineAuthExpired] = useState(false);
   const [offlineAuthExpiry, setOfflineAuthExpiry] = useState(0);
+  // `offlineEnabled` means this device is prepared. `offlineActive` means the
+  // collector is actually working offline now. They are separate concepts.
   const [offlineEnabled, setOfflineEnabled] = useState(false);
+  const [offlineActive, setOfflineActive] = useState(false);
   const [enrollingOffline, setEnrollingOffline] = useState(false);
+  const [preparingOffline, setPreparingOffline] = useState(false);
+  const [usingCachedData, setUsingCachedData] = useState(false);
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
@@ -154,7 +168,24 @@ export default function CollectorDashboardPage({
   // Online/offline listener — always attached so the connectivity indicator
   // reflects the real network state (and we auto-sync when reconnecting).
   useEffect(() => {
-    const handleOnline = () => { setIsOnline(true); attemptSync(); };
+    const handleOnline = () => {
+      setIsOnline(true);
+      void (async () => {
+        try {
+          const readiness = await getOfflineReadiness("susu");
+          applyOfflineReadiness(readiness);
+          if (readiness.status === "preparation_required" || readiness.status === "expired") {
+            const result = await prepareOfflineAccess();
+            if (result.ok) {
+              applyOfflineReadiness(await getOfflineReadiness("susu"));
+            }
+          }
+        } catch {
+          // Keep the previous local readiness; sync can still run.
+        }
+        attemptSync();
+      })();
+    };
     const handleOffline = () => setIsOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -165,23 +196,71 @@ export default function CollectorDashboardPage({
     };
   }, []);
 
-  // Resume offline mode automatically if this device was already enrolled on a
-  // previous visit (no admin action required). New devices use the
-  // "Enable Offline" button.
+  function applyOfflineReadiness(readiness: OfflineReadiness) {
+    const prepared = readiness.status === "ready" || readiness.status === "active";
+    setOfflineEnabled(prepared);
+    setOfflineActive(readiness.status === "active");
+    if (readiness.context?.authorizedAt) {
+      setOfflineAuthorizedAt(new Date(readiness.context.authorizedAt));
+    }
+    if (readiness.lastSyncedAt) {
+      setLastSyncTime(
+        new Date(readiness.lastSyncedAt).toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      );
+    }
+  }
+
+  // Resume a previously prepared device without a server request. New devices
+  // are prepared automatically during normal online use.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const did = await getOrCreateDeviceId();
+        if (cancelled) return;
         setDeviceId(did);
-        const checkRes = await fetch(`/api/offline/enroll?deviceId=${encodeURIComponent(did)}`, {
-          credentials: "include",
-        });
-        if (!cancelled && checkRes.ok) {
-          const checkData = await checkRes.json();
-          if (checkData.enrolled) {
-            await startOfflineSession();
+        await hydrateOfflineAuthorization();
+        let readiness = await getOfflineReadiness("susu");
+        if (cancelled) return;
+        applyOfflineReadiness(readiness);
+
+        // Automatic background preparation while online. Never blocks the
+        // dashboard, and never claims readiness before it succeeds.
+        if (
+          navigator.onLine &&
+          readiness.status !== "ready" &&
+          readiness.status !== "active"
+        ) {
+          setPreparingOffline(true);
+          const result = await prepareOfflineAccess();
+          if (!cancelled) {
+            readiness = await getOfflineReadiness("susu");
+            applyOfflineReadiness(readiness);
+            if (!result.ok && result.message) setError(result.message);
           }
+          if (!cancelled) setPreparingOffline(false);
+        }
+
+        if (!cancelled && !navigator.onLine) {
+          const context = await getCurrentOfflineContext();
+          if (
+            context &&
+            !offlineContextExpired(context) &&
+            context.modules.includes("susu")
+          ) {
+            await startOfflineSession();
+          } else if (context && offlineContextExpired(context)) {
+            setOfflineAuthExpired(true);
+            setError(
+              "Offline access has expired. Reconnect and sign in again. Saved records remain on this device."
+            );
+          }
+        } else if (!cancelled && readiness.status !== "preparation_required") {
+          await refreshPendingTxs();
+          startAutoSync(handleSyncResults);
         }
       } catch {
         /* Offline unavailable — the page still works fully online. */
@@ -190,6 +269,26 @@ export default function CollectorDashboardPage({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Background preparation may finish after this page mounted. Reflect the
+  // validated local state without asking the server.
+  useEffect(() => {
+    const refresh = () => {
+      void getOfflineReadiness("susu")
+        .then((readiness) => applyOfflineReadiness(readiness))
+        .catch(() => undefined);
+    };
+    window.addEventListener("maacash-offline-status", refresh);
+    return () => window.removeEventListener("maacash-offline-status", refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When connectivity is lost and the device is prepared, activate locally.
+  useEffect(() => {
+    if (isOnline || !offlineEnabled || offlineActive || offlineAuthExpired) return;
+    void startOfflineSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, offlineEnabled, offlineActive, offlineAuthExpired]);
 
   // Cache the day's customer list into IndexedDB so collections can be
   // recorded and viewed without a connection.
@@ -213,60 +312,80 @@ export default function CollectorDashboardPage({
     }
   }
 
-  // Activate offline mode for this device (idempotent — safe to call again).
+  // Activate offline mode. This is a local operation: no API call is made and
+  // the authorization window is never extended by the tap.
   async function startOfflineSession() {
-    if (offlineEnabled) return;
+    setError("");
+    const activation = await activateOfflineAccess("susu");
+    applyOfflineReadiness(activation.readiness);
+    if (!activation.ok) {
+      if (activation.readiness.status === "expired") {
+        setOfflineAuthExpired(true);
+      }
+      setError(activation.readiness.message);
+      return false;
+    }
     setOfflineEnabled(true);
+    setOfflineActive(true);
+    setOfflineAuthExpired(false);
     await refreshPendingTxs();
     startAutoSync(handleSyncResults);
-    await cacheCustomersForOffline();
+    if (navigator.onLine) await cacheCustomersForOffline();
+    return true;
   }
 
-  // Enroll this device with the server (self-service — no admin pre-approval
-  // needed) and then start the offline session.
+  // First use prepares the device online. Every later tap only checks local
+  // readiness and activates. A device that was never prepared explains that an
+  // initial online setup is required instead of showing a server error.
   async function enrollAndStartOffline() {
-    if (offlineEnabled) return;
+    if (offlineEnabled) {
+      await startOfflineSession();
+      return;
+    }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("You appear to be offline. Connect to the internet once to enable offline mode.");
+      setError(
+        "This device needs an initial online setup before it can collect offline. Connect once, sign in, and let preparation finish. Your saved records are not affected."
+      );
       return;
     }
     setEnrollingOffline(true);
+    setPreparingOffline(true);
     setError("");
     try {
       const did = await getOrCreateDeviceId();
       setDeviceId(did);
-      const res = await fetch("/api/offline/enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ deviceId: did, module: "susu" }),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        setError(errData.error || "Could not enable offline mode. Please try again.");
+      const result = await prepareOfflineAccess();
+      const readiness = await getOfflineReadiness("susu");
+      applyOfflineReadiness(readiness);
+      if (!result.ok) {
+        setError(result.message);
         return;
       }
-      const result = await res.json();
-      if (result.device?.authorizedAt) setOfflineAuthorizedAt(result.device.authorizedAt);
-      else setOfflineAuthorizedAt(new Date());
       await startOfflineSession();
-    } catch (err) {
-      console.error("Offline enrollment failed:", err);
-      setError("Could not reach the server to enable offline mode. Check your connection and try again.");
+      if (result.failedModules.length > 0) setError(result.message);
     } finally {
       setEnrollingOffline(false);
+      setPreparingOffline(false);
     }
   }
 
-  // Periodically check offline auth expiry
+  // Periodically check the local offline authorization window.
   useEffect(() => {
     if (!offlineEnabled) return;
-    const interval = setInterval(() => {
-      setOfflineAuthExpired(isOfflineAuthExpired());
-      setOfflineAuthExpiry(secondsUntilOfflineAuthExpiry());
-    }, 30_000);
+    const check = () => {
+      void (async () => {
+        const context = await getCurrentOfflineContext();
+        const expired =
+          isOfflineAuthExpired() ||
+          (context ? offlineContextExpired(context) : false);
+        setOfflineAuthExpired(expired);
+        setOfflineAuthExpiry(secondsUntilOfflineAuthExpiry());
+      })();
+    };
+    check();
+    const interval = setInterval(check, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [offlineEnabled]);
 
   const handleSyncResults = useCallback((results: SyncResult[]) => {
     const syncedCount = results.filter((r) => r.success).length;
@@ -300,11 +419,67 @@ export default function CollectorDashboardPage({
     }
   }
 
+  /**
+   * Offline fallback. Server-authoritative totals stay absent; the collector
+   * sees only the authorized customer snapshot that was synchronized during
+   * preparation, clearly marked as cached.
+   */
+  async function loadCachedDashboard() {
+    const customers = await getCachedCustomers();
+    const expectedTotal = customers.reduce(
+      (sum, customer) => sum + Number(customer.expectedAmount || 0),
+      0
+    );
+    setData({
+      assignedCustomers: customers.length,
+      todayCollected: 0,
+      todayCollectionCount: 0,
+      toVisit: customers.map((customer) => ({
+        accountId: customer.accountId,
+        customerName: customer.customerName,
+        customerIdCode: customer.customerIdCode,
+        dailyContribution: customer.dailyContribution,
+        outstandingDays: customer.outstandingDays,
+        expectedAmount: customer.expectedAmount,
+      })),
+      collectedToday: [],
+      recentRemittances: [],
+      todayContributions: 0,
+      expectedToBringIn: expectedTotal,
+      amountHandedInToday: 0,
+      difference: expectedTotal,
+      customersCollected: 0,
+      customersRemaining: customers.length,
+    });
+    setCachedAt(customers[0]?.lastSynced ?? null);
+    setUsingCachedData(true);
+  }
+
   async function loadData() {
     try {
+      const context = await getCurrentOfflineContext();
+      const offlinePreparedForSusu = Boolean(
+        context &&
+          !offlineContextExpired(context) &&
+          context.modules.includes("susu")
+      );
+      if (!navigator.onLine && offlinePreparedForSusu) {
+        await loadCachedDashboard();
+        return;
+      }
       const dashboardData = (await getCollectorDashboardStats(userId)) as DashboardData | null;
       setData(dashboardData);
-    } catch (err) { if (handleRedirect(err, setError, "Failed to load dashboard")) return;
+      setUsingCachedData(false);
+    } catch (err) {
+      if (handleRedirect(err, setError, "Failed to load dashboard")) return;
+      // A network failure after preparation is offline operation, not a broken
+      // dashboard. Fall back to the authorized local snapshot.
+      const context = await getCurrentOfflineContext().catch(() => null);
+      if (context && !offlineContextExpired(context) && context.modules.includes("susu")) {
+        await loadCachedDashboard();
+      } else {
+        setError("Failed to load dashboard");
+      }
     } finally { setLoading(false); }
   }
 
@@ -387,6 +562,10 @@ export default function CollectorDashboardPage({
         setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on this device. Waiting to synchronize; not yet in the ledger.`);
         setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
         refreshPendingTxs();
+      } else if (!navigator.onLine) {
+        setCollectError(
+          "This device needs an initial online setup before it can save collections offline. Saved records already on the device are not affected."
+        );
       } else {
         setCollectError("Unable to record. Check your connection and try again.");
       }
@@ -506,27 +685,62 @@ export default function CollectorDashboardPage({
                 <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-500" : "bg-yellow-500"}`} aria-hidden />
                 {isOnline ? "Online" : "Offline"}
               </div>
-              {offlineEnabled ? (
-                <>
-                  {offlineAuthExpired && !isOnline && (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700">
-                      <span className="w-2 h-2 rounded-full bg-red-500" aria-hidden />
-                      Reconnect required
-                    </div>
-                  )}
-                  {lastSyncTime && <p className="text-[10px] text-slate-400">Last sync: {lastSyncTime}</p>}
-                  {!isOnline && !offlineAuthExpired && offlineAuthExpiry > 0 && (
-                    <p className="text-[10px] text-yellow-600">Offline auth expires in {Math.floor(offlineAuthExpiry / 3600)}h{Math.floor((offlineAuthExpiry % 3600) / 60)}m</p>
-                  )}
-                </>
-              ) : (
+
+              {offlineActive && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                  Offline Active
+                </div>
+              )}
+
+              {offlineEnabled && !offlineActive && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                  Offline Ready
+                </div>
+              )}
+
+              {offlineAuthExpired && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+                  <span className="h-2 w-2 rounded-full bg-red-500" aria-hidden />
+                  Reconnect required
+                </div>
+              )}
+
+              {preparingOffline && (
+                <p className="text-[10px] text-slate-500" role="status">
+                  Preparing offline access…
+                </p>
+              )}
+              {lastSyncTime && (
+                <p className="text-[10px] text-slate-400">Last sync: {lastSyncTime}</p>
+              )}
+              {!isOnline && !offlineAuthExpired && offlineAuthExpiry > 0 && (
+                <p className="text-[10px] text-yellow-600">
+                  Offline authorization expires in{" "}
+                  {Math.floor(offlineAuthExpiry / 3600)}h
+                  {Math.floor((offlineAuthExpiry % 3600) / 60)}m
+                </p>
+              )}
+
+              {!offlineEnabled && (
                 <button
                   type="button"
                   onClick={enrollAndStartOffline}
-                  disabled={enrollingOffline}
+                  disabled={enrollingOffline || preparingOffline}
                   className="btn btn-secondary text-sm"
                 >
-                  {enrollingOffline ? "Enabling…" : "Enable Offline"}
+                  {enrollingOffline || preparingOffline ? "Preparing…" : "Enable Offline"}
+                </button>
+              )}
+              {offlineEnabled && !offlineActive && (
+                <button
+                  type="button"
+                  onClick={startOfflineSession}
+                  disabled={enrollingOffline || preparingOffline || offlineAuthExpired}
+                  className="btn btn-secondary text-sm"
+                >
+                  Enable Offline
                 </button>
               )}
             </div>
@@ -543,16 +757,38 @@ export default function CollectorDashboardPage({
       )}
       {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
 
-      {offlineEnabled && <OfflineSyncStatus />}
+      {usingCachedData && (
+        <div className="banner banner-warning !rounded-xl text-sm" role="status">
+          <p className="font-medium text-yellow-900">
+            Working offline. Showing customer information saved on this device.
+          </p>
+          <p className="mt-1 text-xs text-yellow-800">
+            {cachedAt
+              ? `Last synchronized ${new Date(cachedAt).toLocaleString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}. Customer balances may have changed since then.`
+              : "This information may be outdated. It is not live server data."}
+          </p>
+        </div>
+      )}
+
+      <OfflineSyncStatus />
 
       {/* Pending Sync Banner */}
-      {offlineEnabled && pendingTxs.length > 0 && (
+      {pendingTxs.length > 0 && (
         <div className="banner banner-warning !rounded-xl items-center justify-between">
           <div className="flex items-center gap-3">
             <RefreshCw size={20} className="text-yellow-600" aria-hidden />
             <div>
-              <p className="font-medium text-yellow-800">{pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} waiting to sync</p>
-              <p className="text-xs text-yellow-600">These will sync automatically when connection returns</p>
+              <p className="font-medium text-yellow-800">
+                {pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} saved on this device — not yet synced
+              </p>
+              <p className="text-xs text-yellow-700">
+                These records are not in the central ledger until the server confirms them.
+              </p>
             </div>
           </div>
           {isOnline && (
@@ -749,8 +985,11 @@ export default function CollectorDashboardPage({
                     <span className="font-medium text-sm truncate">{cust?.customerName || "Customer"}</span>
                   </div>
                   <div className="font-semibold text-sm text-yellow-800"><CediAmount amount={payload.amount} /></div>
-                  <div className="text-xs text-yellow-600 mt-1">
-                    Saved {formatTime(tx.localTimestamp)} · {tx.retryCount > 0 ? `Retry ${tx.retryCount}/${tx.maxRetries}` : "Waiting"}
+                  <div className="mt-1 text-xs font-semibold text-yellow-800">
+                    Saved on Device — Not Yet Synced
+                  </div>
+                  <div className="text-xs text-yellow-600">
+                    Saved {formatTime(tx.localTimestamp)} · {tx.retryCount > 0 ? `Retry ${tx.retryCount}/${tx.maxRetries}` : "Waiting to synchronize"}
                   </div>
                 </div>
               );
@@ -829,7 +1068,16 @@ export default function CollectorDashboardPage({
             )}
             {!isOnline && offlineEnabled && !offlineAuthExpired && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-4 text-xs text-yellow-700">
-                You&apos;re offline. This will be saved on your device and synced when you reconnect.
+                You&apos;re working offline. This collection will be saved on your
+                device as <strong>Saved on Device — Not Yet Synced</strong>, then
+                synchronized when internet returns.
+              </div>
+            )}
+            {!isOnline && !offlineEnabled && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-2 mb-4 text-xs text-red-700">
+                This device has not been prepared for offline collection. Reconnect
+                once and let preparation finish. Existing saved records are not
+                affected.
               </div>
             )}
             {collectError && (
@@ -850,8 +1098,22 @@ export default function CollectorDashboardPage({
               <input id="collect-notes" type="text" value={collectNotes} onChange={(e) => setCollectNotes(e.target.value)} placeholder="Any note..." />
             </div>
             <div className="flex gap-3 mt-4">
-              <button onClick={handleRecordCollection} className="btn btn-primary flex-1" disabled={submitting || (!isOnline && offlineEnabled && offlineAuthExpired)}>
-                {submitting ? "Recording..." : !isOnline && offlineEnabled ? (offlineAuthExpired ? "Reconnect Required" : "Save on Device") : "Record Contribution"}
+              <button
+                onClick={handleRecordCollection}
+                className="btn btn-primary flex-1"
+                disabled={
+                  submitting ||
+                  (!isOnline && !offlineEnabled) ||
+                  (!isOnline && offlineEnabled && offlineAuthExpired)
+                }
+              >
+                {submitting
+                  ? "Recording..."
+                  : !isOnline && offlineEnabled
+                    ? offlineAuthExpired
+                      ? "Reconnect Required"
+                      : "Save on Device"
+                    : "Record Contribution"}
               </button>
               <button onClick={() => { setRecordingFor(null); setCollectAmount(""); setCollectError(""); }} className="btn btn-secondary flex-1">Cancel</button>
             </div>

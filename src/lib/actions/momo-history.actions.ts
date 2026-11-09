@@ -157,7 +157,7 @@ export async function getMoMoHistory(params?: {
           id: `${account.id}-airtime`,
           type: "Airtime sold",
           amount: Number(account.totalAirtimeSold),
-          notes: `Airtime sold at ${locName}`,
+          notes: `Airtime sold at ${locName} (operational record; no effect on expected closing)`,
         });
       }
     }

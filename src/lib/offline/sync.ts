@@ -21,6 +21,7 @@ import {
   type OfflineTransaction,
 } from "./store";
 import { getOfflineScope, offlineDatabaseName } from "./scope";
+import { markOfflineAuthorized, markOfflineSynced } from "./device-store";
 import type { AppErrorCode } from "@/lib/errors/friendly";
 
 // ── Offline Authorization Timeout ──────────────────────────────────────
@@ -306,6 +307,29 @@ async function syncBatch(): Promise<SyncResult[]> {
         failureReason: result.error || "Max retries exceeded",
         syncStartedAt: null,
       });
+    }
+  }
+
+  if (results.some((result) => result.success)) {
+    try {
+      const scope = await getOfflineScope();
+      await markOfflineSynced(scope.tenantId, scope.userId);
+      const authorizedAt = results
+        .filter((result) => result.success)
+        .map((result) => {
+          const data = result.serverResult as { authorizedAt?: unknown } | undefined;
+          return typeof data?.authorizedAt === "string" ? data.authorizedAt : null;
+        })
+        .filter((value): value is string => Boolean(value))
+        .at(-1);
+      if (authorizedAt) {
+        await markOfflineAuthorized(scope.tenantId, scope.userId, authorizedAt);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("maacash-offline-status"));
+      }
+    } catch {
+      // Local status metadata is best effort; the server result already stands.
     }
   }
 

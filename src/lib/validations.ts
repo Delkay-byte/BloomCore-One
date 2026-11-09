@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { expenseLinesSchema } from "@/lib/expense-lines";
+import { expenseLinesSchema, hasCurrencyPrecision } from "@/lib/expense-lines";
 
 export const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Please enter a valid email"),
@@ -83,7 +83,14 @@ export const dailyAccountSchema = z.object({
   additionalMomoFloat: positiveDecimal.optional(),
   totalCashIn: positiveDecimal,
   totalCashOut: positiveDecimal,
-  totalAirtimeSold: positiveDecimal.optional(),
+  // Operational transfer between physical cash and E-cash. It is recorded for
+  // information and never enters the combined accountability formula.
+  totalAirtimeSold: positiveDecimal
+    .refine(
+      hasCurrencyPrecision,
+      "Airtime Sold must use no more than two decimal places."
+    )
+    .optional(),
   // Retired duplicate fields. Accepted only so historical correction payloads
   // stay parseable; they never enter the corrected formula.
   totalCashReceived: positiveDecimal.optional(),

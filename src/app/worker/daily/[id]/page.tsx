@@ -51,6 +51,7 @@ interface AccountDetail {
   commission: number;
   closingMomoFloat: number;
   closingCash: number;
+  totalAirtimeSold: number;
   totalExpenses: number;
   calculatedDifference: number;
   differenceStatus: string;
@@ -81,6 +82,9 @@ export default function DailyAccountFormPage() {
   const [closingMomoFloat, setClosingMomoFloat] = useState(0);
   const [commission, setCommission] = useState(0);
   const [debtsCollected, setDebtsCollected] = useState(0);
+  // Operational transfer only: physical cash up, E-cash down. It never enters
+  // the combined expected closing total.
+  const [airtimeSold, setAirtimeSold] = useState(0);
   const [reconciliationNote, setReconciliationNote] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
 
@@ -98,6 +102,7 @@ export default function DailyAccountFormPage() {
       closingMomoFloat,
       commission,
       debtsCollected,
+      airtimeSold,
       reconciliationNote,
       expenses,
     },
@@ -110,6 +115,7 @@ export default function DailyAccountFormPage() {
         expensesTotal?: number;
         commission?: number;
         debtsCollected?: number;
+        airtimeSold?: number;
         reconciliationNote?: string;
         expenses?: Expense[];
       };
@@ -121,6 +127,7 @@ export default function DailyAccountFormPage() {
       if (value.closingMomoFloat !== undefined) setClosingMomoFloat(Number(value.closingMomoFloat));
       if (value.commission !== undefined) setCommission(Number(value.commission));
       if (value.debtsCollected !== undefined) setDebtsCollected(Number(value.debtsCollected));
+      if (value.airtimeSold !== undefined) setAirtimeSold(Number(value.airtimeSold));
       if (value.reconciliationNote !== undefined) setReconciliationNote(String(value.reconciliationNote));
       if (Array.isArray(value.expenses)) {
         const restored = value.expenses.map((expense) => ({
@@ -167,6 +174,7 @@ export default function DailyAccountFormPage() {
       setClosingMomoFloat(Number(detail.closingMomoFloat));
       setCommission(Number(detail.commission));
       setDebtsCollected(Number(detail.debtsCollected));
+      setAirtimeSold(Number(detail.totalAirtimeSold));
       setReconciliationNote(detail.reconciliationNote ?? "");
       setExpenses(
         (detail.expenses ?? []).map((expense) => ({
@@ -234,6 +242,7 @@ export default function DailyAccountFormPage() {
     formData.set("closingMomoFloat", String(closingMomoFloat));
     formData.set("commission", String(commission));
     formData.set("debtsCollected", String(debtsCollected));
+    formData.set("totalAirtimeSold", String(airtimeSold));
     formData.set("reconciliationNote", reconciliationNote.trim());
     formData.set(
       "expenses",
@@ -405,9 +414,18 @@ export default function DailyAccountFormPage() {
             <SummaryTile label="Debts collected" amount={Number(account.debtsCollected)} icon={<Wallet />} />
             <SummaryTile label="Commission" amount={Number(account.commission)} icon={<Receipt />} />
             <SummaryTile label="Expenses" amount={Number(account.totalExpenses)} icon={<Receipt />} />
+            <SummaryTile
+              label="Airtime Sold (operational record)"
+              amount={Number(account.totalAirtimeSold)}
+              icon={<Smartphone />}
+            />
             <SummaryTile label="Net daily profit / increase" amount={netIncrease} icon={<Receipt />} />
             <SummaryTile label="Actual closing accountability" amount={actualClosing} icon={<Landmark />} />
           </div>
+          <p className="mx-5 -mt-1 mb-4 text-xs text-slate-500 sm:mx-7 sm:mb-5">
+            Airtime Sold moves money from E-cash to physical cash. It is shown for
+            accountability but never changes the expected closing total.
+          </p>
           <div className="mx-5 mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:mx-7 sm:mb-7">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-bold text-slate-900">Expenses</p>
@@ -724,6 +742,17 @@ export default function DailyAccountFormPage() {
                   tone="emerald"
                 />
               </div>
+              <div className="sm:col-span-2 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                <MoneyField
+                  id="airtime-sold"
+                  label="Airtime Sold (GH₵)"
+                  value={airtimeSold}
+                  onChange={setAirtimeSold}
+                  hint="Enter the total value of airtime sold today. Physical cash rises and E-cash falls by the same amount, so the combined money does not change."
+                  tone="emerald"
+                  nested
+                />
+              </div>
             </div>
           </section>
 
@@ -876,6 +905,17 @@ export default function DailyAccountFormPage() {
               <SummaryRow label="Debts collected" amount={debtsCollected} tone="positive" />
               <SummaryRow label="Commission" amount={commission} tone="positive" />
               <SummaryRow label="Expenses" amount={-expensesTotal} tone="negative" />
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2">
+                <span className="text-xs font-medium text-amber-900">
+                  Airtime Sold
+                  <span className="block text-[11px] font-normal text-amber-800">
+                    Operational transfer only
+                  </span>
+                </span>
+                <span className="tnum text-sm font-semibold text-amber-950">
+                  <CediAmount amount={airtimeSold} />
+                </span>
+              </div>
               <details className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-700">
                   View expense breakdown ({expenses.length})
@@ -971,7 +1011,10 @@ export default function DailyAccountFormPage() {
                 Profit withdrawn or not retained is shown separately and is never a loss.
               </p>
               <p>
-                Customer deposits, withdrawals and airtime move money between cash and E-cash. They do not change the combined total, so they are not entered here.
+                Customer deposits, withdrawals and airtime move money between cash and
+                E-cash. They do not change the combined total. Airtime Sold is recorded
+                above for information only and never enters the expected closing
+                formula.
               </p>
             </div>
           </details>
