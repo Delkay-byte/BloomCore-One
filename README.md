@@ -129,6 +129,7 @@ then sign in again and prepare offline access on the custom domain. See
 - `docs/branding/MAACASH-REBRAND-INVENTORY.md` — rebrand impact inventory
 - `docs/branding/MAACASH-REBRAND-MIGRATION-REPORT.md` — rebrand record
 - `docs/branding/MAACASH-DOMAIN-OPTIONS.md` — domain research and pending decision
+- `docs/reports/MAACASH-CUSTOM-DOMAIN-MIGRATION-REPORT.md` — canonical domain and transition evidence
 - `docs/BLOOMCORE-ONE-BRAND-AND-WEBSITE.md` — historical brand record (formerly BloomCore One)
 - `docs/BRANCH-REVIEW-BLOOMCORE-ONE.md` — historical branch review record
 - `SECURITY.md` — security model and reporting

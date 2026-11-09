@@ -37,6 +37,45 @@ test.describe("live canonical custom domain", () => {
     expect(await robots.text()).toContain(`Sitemap: ${CANONICAL}/sitemap.xml`);
   });
 
+  test("manifest and service worker install on the custom origin", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`${CANONICAL}/`);
+
+    const manifestHref = await page
+      .locator('link[rel="manifest"]')
+      .getAttribute("href");
+    expect(manifestHref).toBe("/manifest.json");
+
+    const manifestResponse = await request.get(`${CANONICAL}/manifest.json`);
+    expect(manifestResponse.status()).toBe(200);
+    const manifest = await manifestResponse.json();
+    expect(manifest.id).toBe("/workspace");
+    expect(manifest.start_url).toBe("/workspace");
+    expect(manifest.scope).toBe("/");
+    expect(manifest.icons.length).toBeGreaterThan(0);
+
+    const worker = await request.get(`${CANONICAL}/tab-session-sw.js`);
+    expect(worker.status()).toBe(200);
+    expect(await worker.text()).toContain('self.addEventListener("fetch"');
+
+    const registration = await page.evaluate(async () => {
+      const registered = await navigator.serviceWorker.register(
+        "/tab-session-sw.js",
+        { scope: "/" }
+      );
+      await navigator.serviceWorker.ready;
+      return { scope: registered.scope };
+    });
+    expect(registration.scope).toBe(`${CANONICAL}/`);
+
+    await page.evaluate(async () => {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((item) => item.unregister()));
+    });
+  });
+
   test("health, readiness, routes and auth boundaries respond", async ({
     request,
   }) => {
