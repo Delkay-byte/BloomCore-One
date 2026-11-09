@@ -45,7 +45,7 @@ Add to Render → `bloomcore-one` → Environment:
 | `TURNSTILE_ENABLED` | Yes | `false` first |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | When enabling Turnstile | Cloudflare site key |
 | `TURNSTILE_SECRET_KEY` | When enabling Turnstile | Cloudflare secret key |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | When enabling Turnstile | `bloomcore-one.onrender.com` |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | When enabling Turnstile | `maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com` during the domain transition |
 | `TRUSTED_PROXY_HEADERS` | Yes | `true` |
 
 Do **not** reuse `JWT_SECRET` for either new secret. Do not commit values. The
@@ -156,7 +156,7 @@ Rollback / forward recovery:
 | `RATE_LIMIT_HMAC_SECRET` | present, 44 characters (base64 32 bytes) |
 | `MFA_ENCRYPTION_KEY` | present, 44 characters (base64 32 bytes) |
 | `TURNSTILE_ENABLED` | `true` |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | `bloomcore-one.onrender.com` |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | `maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | present, 24 characters |
 | `TURNSTILE_SECRET_KEY` | present, 35 characters |
 | `TRUSTED_PROXY_HEADERS` | `true` |

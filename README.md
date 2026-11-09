@@ -94,21 +94,33 @@ node scripts/build-brand-raster.mjs
 
 ## Deployment
 
-Production runs on Render (web service `bloomcore-one`, service ID
-`srv-dbjalrk9v7es739ifkp0`) with a Neon PostgreSQL database. The service name
-and `onrender.com` hostname are preserved infrastructure identifiers; the
-public product identity is MaaCash. `main` is the production branch and
-auto-deploys. The build command generates the PostgreSQL Prisma client before
-`next build`; database schema changes are applied with explicit
-`prisma migrate deploy` runs by the operator — never by a build. Full details:
-`docs/NEON-RENDER-DEPLOYMENT.md` and `PRODUCTION-RELEASE-RUNBOOK.md`.
+Production runs on Render with a Neon PostgreSQL database. The canonical
+public origin is `https://maacash.bloomcoretech.com` on the primary `maacash`
+service (`srv-dbnaciff3r2c7382tjgg`). The `bloomcore-one` service
+(`srv-dbjalrk9v7es739ifkp0`) is the fallback, and
+`https://bloomcore-one.onrender.com` plus
+`https://maacash.onrender.com` stay reachable as transition addresses. Their
+`onrender.com` hostnames are preserved infrastructure identifiers, not the
+public identity.
+
+`main` is the production branch. The build command generates the PostgreSQL
+Prisma client before `next build`; database schema changes are applied with
+explicit `prisma migrate deploy` runs by the operator — never by a build. Full
+details: `docs/NEON-RENDER-DEPLOYMENT.md` and
+`PRODUCTION-RELEASE-RUNBOOK.md`.
 
 Public configuration (set in the Render dashboard, never in Git):
 
 | Variable | Purpose |
 | --- | --- |
-| `SITE_URL` / `NEXT_PUBLIC_SITE_URL` | Canonical public origin for metadata, sitemap and robots |
+| `SITE_URL` / `NEXT_PUBLIC_SITE_URL` | Canonical public origin for metadata, sitemap and robots. Production value: `https://maacash.bloomcoretech.com` |
+| `NEXTAUTH_URL` | Payment return URLs and trusted same-origin origin. Production value: `https://maacash.bloomcoretech.com` |
 | `CONTACT_EMAIL` / `CONTACT_PHONE` | Public enquiry channel shown on `/contact` |
+
+The old Render hosts are not redirected during the transition. Users with
+offline MaaCash records must synchronize them on the old host before switching,
+then sign in again and prepare offline access on the custom domain. See
+`docs/reports/MAACASH-CUSTOM-DOMAIN-MIGRATION-REPORT.md`.
 
 ## Documentation
 

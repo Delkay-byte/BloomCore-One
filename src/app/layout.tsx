@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import EnvironmentBadge from "@/components/EnvironmentBadge";
+import LegacyHostNotice from "@/components/LegacyHostNotice";
 import TabSessionProvider from "@/components/TabSessionProvider";
 import OfflineBootstrap from "@/components/OfflineBootstrap";
 import OfflineSessionGuard from "@/components/OfflineSessionGuard";
@@ -12,6 +14,7 @@ import {
   PRODUCT_TAGLINE,
   SITE_URL,
   absoluteUrl,
+  shouldShowLegacyHostNotice,
 } from "@/lib/site";
 import { rootRobotsMetadata } from "@/lib/metadata";
 
@@ -72,10 +75,20 @@ export const viewport: Viewport = {
 // Next.js can attach the request nonce to its script tags.
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const requestHeaders = await headers();
+  const host =
+    requestHeaders.get("host") ?? requestHeaders.get("x-forwarded-host");
+  const showLegacyNotice = shouldShowLegacyHostNotice(host);
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
+        {showLegacyNotice ? <LegacyHostNotice /> : null}
         <ToastProvider>
           <TabSessionProvider />
           <OfflineBootstrap />

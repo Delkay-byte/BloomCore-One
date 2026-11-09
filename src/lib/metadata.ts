@@ -21,11 +21,10 @@ export function rootRobotsMetadata(): Metadata["robots"] | undefined {
 /**
  * Metadata for one public page.
  *
- * While the site is served from its temporary hosting address, no canonical
- * <link> is emitted: this deployment must not claim to be the canonical home of
- * the brand. Set SITE_URL (or NEXT_PUBLIC_SITE_URL) to the confirmed public
- * domain and every public page starts declaring its own canonical URL plus an
- * Open Graph URL on the same host.
+ * Production declares its canonical URL plus an Open Graph URL on the
+ * configured public origin (https://maacash.bloomcoretech.com by default on
+ * Render). Local development emits no canonical link, and staging emits none
+ * either, so neither can claim to be the public production home.
  */
 export function pageMetadata({
   path,

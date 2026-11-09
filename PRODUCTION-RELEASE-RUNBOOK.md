@@ -14,6 +14,12 @@
 | Fallback URL | `https://bloomcore-one.onrender.com` |
 | Production database | Neon PostgreSQL `neondb`, schema `public` |
 
+The custom domain is canonical. `maacash.onrender.com` and
+`bloomcore-one.onrender.com` remain operational transition addresses and must
+not be redirected until the owner confirms unsynchronized offline records have
+been synchronized on the old origins. Old-host users must sign in again and
+prepare offline access again on `https://maacash.bloomcoretech.com`.
+
 The application build performs **no database migration**. Apply schema changes
 as a separate operator step from a trusted machine:
 

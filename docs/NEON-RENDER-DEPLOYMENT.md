@@ -143,7 +143,10 @@ Legend — **Build**: needed to build. **Runtime**: read by the running app.
 | `SESSION_ABSOLUTE_TIMEOUT_SECONDS` | no | yes | yes | `28800` | positive integer |
 | `OFFLINE_COLLECTIONS_ENABLED` | no | no | yes | — | `true`/`false`; declared in `.env.example`, referenced by offline sync |
 | `OFFLINE_MOMO_ENABLED` | no | no | yes | — | `true`/`false`; same |
-| `NEXTAUTH_URL` | no | no | yes | — | absolute URL; nowhere in code |
+| `SITE_URL` | **yes** | **yes** | no in production | canonical Render origin | absolute public origin; drives metadata, sitemap and robots |
+| `NEXT_PUBLIC_SITE_URL` | **yes** | yes | yes | same as `SITE_URL` | client-visible build-time fallback |
+| `NEXTAUTH_URL` | **yes** | **yes** | no in production | — | absolute public origin; payment return URLs and trusted same-origin check |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | no | yes | yes | custom domain plus Render transition hosts | comma-separated hostnames, never a wildcard |
 | `PLATFORM_SUPER_ADMIN_PASSWORD` | no | no | yes | — | local one-shot for the platform bootstrap only — **never on Render** |
 | `TENANT_ADMIN_PASSWORD` | no | no | yes | — | local one-shot for the tenant admin bootstrap only — **never on Render** |
 | `PLATFORM_ADMIN_PASSWORD` | no | no | yes | — | legacy script `bootstrap-platform-admin.mjs`; unused by this release |
@@ -154,6 +157,27 @@ Legend — **Build**: needed to build. **Runtime**: read by the running app.
 `JWT_SECRET` is read inside `src/middleware.ts`, which Next compiles into the
 Edge bundle — it is **inlined at build time**. Changing it in the dashboard does
 nothing until the service is rebuilt, and it signs every session out.
+
+### Public-domain transition (9 November 2026)
+
+`https://maacash.bloomcoretech.com` is the canonical public origin. The primary
+`maacash` service and the `bloomcore-one` fallback remain different origins from
+the old `maacash.onrender.com` address, so cookies, IndexedDB, service-worker
+caches and PWA installations do **not** move automatically.
+
+- Both Render hostnames remain reachable. There is deliberately **no blanket
+  redirect**, because a redirect would strand unsynchronized offline financial
+  records on the old origin.
+- The old hosts show a migration notice telling users to synchronize pending
+  records there first, then sign in and prepare offline access again on the
+  custom domain.
+- `SITE_URL`, `NEXT_PUBLIC_SITE_URL` and `NEXTAUTH_URL` must name the custom
+  domain in production. Staging keeps its own staging base URL, and local
+  development keeps a local URL.
+- Retire an old hostname only after the owner confirms affected users'
+  outstanding records have synchronized.
+
+Full evidence: `docs/reports/MAACASH-CUSTOM-DOMAIN-MIGRATION-REPORT.md`.
 
 ---
 
