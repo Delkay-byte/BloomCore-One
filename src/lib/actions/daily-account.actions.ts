@@ -8,7 +8,12 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { dailyAccountSchema } from "@/lib/validations";
-import { calculateReconciliation, resolveStoredDifference } from "@/lib/momo-reconciliation";
+import { parseExpenseLines, readExpenseFormValue } from "@/lib/expense-lines";
+import {
+  calculateReconciliation,
+  encodeReconciliationStatus,
+  resolveStoredDifference,
+} from "@/lib/momo-reconciliation";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 
@@ -150,15 +155,11 @@ export async function saveDailyAccount(
     return { success: false, error: "Only draft accounts can be edited" };
   }
 
-  let expenses: { description: string; amount: number }[] = [];
-  const expensesJson = formData.get("expenses") as string;
-  if (expensesJson) {
-    try {
-      expenses = JSON.parse(expensesJson);
-    } catch {
-      return { success: false, error: "Invalid expense data" };
-    }
+  const expenseResult = readExpenseFormValue(formData.get("expenses"));
+  if (!expenseResult.ok) {
+    return { success: false, error: expenseResult.error };
   }
+  const expenses = expenseResult.lines;
 
   const moneyField = (name: string): number => {
     const raw = formData.get(name);
@@ -205,18 +206,9 @@ export async function saveDailyAccount(
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  // The approved form has one Expenses field. Optional itemised lines support
-  // the audit trail but must not silently replace the amount the agent entered.
-  const rawExpenseTotal = formData.get("totalExpenses");
-  let totalExpenses: number;
-  if (typeof rawExpenseTotal === "string" && rawExpenseTotal.trim() !== "") {
-    totalExpenses = Number(rawExpenseTotal);
-    if (!Number.isFinite(totalExpenses) || totalExpenses < 0 || totalExpenses > 999999.99) {
-      return { success: false, error: "Enter a valid expenses amount." };
-    }
-  } else {
-    totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  }
+  // The itemised expense rows are authoritative. The browser may not submit a
+  // separate aggregate, and any legacy totalExpenses field is ignored.
+  const totalExpenses = expenseResult.total;
   const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
@@ -246,7 +238,7 @@ export async function saveDailyAccount(
         closingCash: parsed.closingCash,
         totalExpenses,
         calculatedDifference: reconciled.difference,
-        differenceStatus: reconciled.differenceStatus,
+        differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
         reconciliationNote: reconciliationNote,
         ...legacy,
       },
@@ -335,15 +327,11 @@ export async function correctDailyAccount(
     };
   }
 
-  let expenses: { description: string; amount: number }[] = [];
-  const expensesJson = formData.get("expenses") as string;
-  if (expensesJson) {
-    try {
-      expenses = JSON.parse(expensesJson);
-    } catch {
-      return { success: false, error: "Invalid expense data" };
-    }
+  const expenseResult = readExpenseFormValue(formData.get("expenses"));
+  if (!expenseResult.ok) {
+    return { success: false, error: expenseResult.error };
   }
+  const expenses = expenseResult.lines;
 
   const moneyField = (name: string): number => {
     const raw = formData.get(name);
@@ -389,16 +377,8 @@ export async function correctDailyAccount(
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  const rawExpenseTotal = formData.get("totalExpenses");
-  let totalExpenses: number;
-  if (typeof rawExpenseTotal === "string" && rawExpenseTotal.trim() !== "") {
-    totalExpenses = Number(rawExpenseTotal);
-    if (!Number.isFinite(totalExpenses) || totalExpenses < 0 || totalExpenses > 999999.99) {
-      return { success: false, error: "Enter a valid expenses amount." };
-    }
-  } else {
-    totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  }
+  // The corrected itemised rows are authoritative; the client total is ignored.
+  const totalExpenses = expenseResult.total;
   const reconciled = reconcileDailyAccount({
     ...parsed,
     totalExpenses,
@@ -460,7 +440,7 @@ export async function correctDailyAccount(
           ...parsed,
           totalExpenses,
           calculatedDifference: reconciled.difference,
-          differenceStatus: reconciled.differenceStatus,
+          differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
           reconciliationNote,
           ...legacy,
           correctedAt: new Date(),
@@ -531,6 +511,7 @@ export async function submitDailyAccount(
 
   const account = await db.dailyAccount.findFirst({
     where: { id: accountId, tenantId: ctx.tenantId },
+    include: { expenses: true },
   });
   if (!account) return { success: false, error: "Daily account not found" };
   if (account.workerId !== ctx.userId) {
@@ -543,6 +524,19 @@ export async function submitDailyAccount(
     return { success: false, error: "Only draft accounts can be submitted" };
   }
 
+  // Re-derive the total from the persisted rows at submission time. A stored
+  // aggregate that disagrees with its supporting rows is never submitted.
+  const validatedExpenses = parseExpenseLines(
+    account.expenses.map((expense) => ({
+      description: expense.description,
+      amount: Number(expense.amount),
+    }))
+  );
+  if (!validatedExpenses.ok) {
+    return { success: false, error: validatedExpenses.error };
+  }
+  const totalExpenses = validatedExpenses.total;
+
   if (
     Number(account.openingMomoFloat) === 0 &&
     Number(account.openingCash) === 0 &&
@@ -550,7 +544,7 @@ export async function submitDailyAccount(
     Number(account.closingCash) === 0 &&
     Number(account.debtsCollected) === 0 &&
     Number(account.commission) === 0 &&
-    Number(account.totalExpenses) === 0
+    totalExpenses === 0
   ) {
     return {
       success: false,
@@ -563,7 +557,7 @@ export async function submitDailyAccount(
     openingCash: Number(account.openingCash),
     debtsCollected: Number(account.debtsCollected),
     commission: Number(account.commission),
-    totalExpenses: Number(account.totalExpenses),
+    totalExpenses,
     closingMomoFloat: Number(account.closingMomoFloat),
     closingCash: Number(account.closingCash),
   });
@@ -584,8 +578,9 @@ export async function submitDailyAccount(
     data: {
       status: "submitted",
       submittedAt: new Date(),
+      totalExpenses,
       calculatedDifference: reconciled.difference,
-      differenceStatus: reconciled.differenceStatus,
+      differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
       ...legacyVarianceColumns(reconciled.difference),
     },
   });
@@ -878,6 +873,10 @@ export async function getAdminDashboardStats() {
     totalDebtsCollected,
     totalCommission,
     totalExpenses: totalExpensesToday,
+    totalNetIncrease:
+      Math.round(
+        (totalCommission + totalDebtsCollected - totalExpensesToday) * 100
+      ) / 100,
     locationStatus,
   };
 }

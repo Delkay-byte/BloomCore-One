@@ -126,6 +126,21 @@ async function main() {
     },
   });
 
+  const dualRoleUser = await prisma.user.create({
+    data: {
+      id: "e2e-dual-role-user",
+      tenantId: tenantA.id,
+      email: "e2e-dual@test.local",
+      fullName: "E2E Dual Role",
+      role: "worker",
+      status: "active",
+      passwordHash,
+      momoEnabled: true,
+      susuEnabled: true,
+      locationId: locationA.id,
+    },
+  });
+
   const customerA = await prisma.customer.create({
     data: {
       id: "e2e-customer-a",
@@ -255,6 +270,14 @@ async function main() {
   });
   const collector = await prisma.collector.create({
     data: { id: "e2e-collector", tenantId: tenantA.id, userId: collectorUser.id, status: "active" },
+  });
+  await prisma.collector.create({
+    data: {
+      id: "e2e-dual-collector",
+      tenantId: tenantA.id,
+      userId: dualRoleUser.id,
+      status: "active",
+    },
   });
   await prisma.collectorCustomerAssignment.create({
     data: {

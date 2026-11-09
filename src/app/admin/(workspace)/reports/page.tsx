@@ -61,11 +61,13 @@ export default function ReportsPage() {
     if (accounts.length === 0) return;
     // Simplified closing fields. Historical records keep their stored
     // difference; no historical row is recalculated during export.
-    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Closing Physical Cash","Closing E-cash","Actual Closing Accountability","Difference","Difference status"];
+    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Net Daily Profit/Increase","Closing Physical Cash","Closing E-cash","Actual Closing Total","Difference","Difference status"];
     const rows = accounts.map((a) => {
       const stored = resolveStoredDifference(a);
       const actual = Number(a.closingCash) + Number(a.closingMomoFloat);
-      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status];
+      const netIncrease =
+        Number(a.commission) + Number(a.debtsCollected) - Number(a.totalExpenses);
+      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, netIncrease, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status];
     });
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -98,7 +100,7 @@ export default function ReportsPage() {
           <>
             <div className="table-container">
               <table>
-                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Opening</th><th className="text-right">Debts Collected</th><th className="text-right">Commission</th><th className="text-right">Expenses</th><th className="text-right">Actual closing</th><th className="text-right">Difference</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Location</th><th>Worker</th><th>Status</th><th className="text-right">Opening</th><th className="text-right">Debts Collected</th><th className="text-right">Commission</th><th className="text-right">Expenses</th><th className="text-right">Net increase</th><th className="text-right">Actual closing</th><th className="text-right">Difference</th><th></th></tr></thead>
                 <tbody>
                   {accounts.map((account) => {
                     const stored = resolveStoredDifference(account);
@@ -125,6 +127,16 @@ export default function ReportsPage() {
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.debtsCollected} /></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.commission} /></td>
                       <td className="text-right font-mono text-sm"><CediAmount amount={account.totalExpenses} /></td>
+                      <td className="text-right font-mono text-sm">
+                        <CediAmount
+                          amount={
+                            Number(account.commission) +
+                            Number(account.debtsCollected) -
+                            Number(account.totalExpenses)
+                          }
+                          showSign
+                        />
+                      </td>
                       <td className="text-right font-mono text-sm">
                         <CediAmount amount={Number(account.closingCash) + Number(account.closingMomoFloat)} />
                       </td>

@@ -53,6 +53,7 @@ import {
   saveDailyAccount,
   submitDailyAccount,
 } from "@/lib/actions/daily-account.actions";
+import { parseReconciliationStatus } from "@/lib/momo-reconciliation";
 
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
 const TEST_IDENTITY =
@@ -200,7 +201,7 @@ describe("Two consecutive MoMo end-of-day reconciliations", () => {
       status: dayOneRow.status,
     };
     expect(dayOneResult.difference).toBe(0);
-    expect(dayOneResult.differenceStatus).toBe("balanced");
+    expect(parseReconciliationStatus(dayOneResult.differenceStatus).status).toBe("balanced");
     expect(dayOneResult.cashPaidOutStored).toBe(0);
     expect(dayOneResult.cashInStored).toBe(0);
     // Legacy variance columns still carry the combined difference for older
@@ -260,8 +261,8 @@ describe("Two consecutive MoMo end-of-day reconciliations", () => {
 
     expect(dayTwoResult.openingCash).toBe(dayOneResult.closingCash);
     expect(dayTwoResult.openingMomoFloat).toBe(dayOneResult.closingMomoFloat);
-    expect(dayTwoResult.difference).toBe(-45);
-    expect(dayTwoResult.differenceStatus).toBe("shortage");
+    expect(dayTwoResult.difference).toBe(-33);
+    expect(parseReconciliationStatus(dayTwoResult.differenceStatus).status).toBe("shortage");
     expect(dayTwoResult.reconciliationNote).toContain("GH₵45");
 
     // Machine-readable evidence for the written investigation report.

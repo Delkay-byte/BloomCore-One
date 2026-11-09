@@ -33,6 +33,7 @@ import {
   calculateReconciliation,
   resolveStoredDifference,
 } from "@/lib/momo-reconciliation";
+import { sumExpenseLines } from "@/lib/expense-lines";
 import { SuccessTick } from "@/components/ui/SuccessTick";
 
 interface Expense {
@@ -73,13 +74,11 @@ export default function DailyAccountFormPage() {
   const [serverSavedAt, setServerSavedAt] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [showExpenseDetails, setShowExpenseDetails] = useState(false);
 
   const [openingCash, setOpeningCash] = useState(0);
   const [openingMomoFloat, setOpeningMomoFloat] = useState(0);
   const [closingCash, setClosingCash] = useState(0);
   const [closingMomoFloat, setClosingMomoFloat] = useState(0);
-  const [expensesTotal, setExpensesTotal] = useState(0);
   const [commission, setCommission] = useState(0);
   const [debtsCollected, setDebtsCollected] = useState(0);
   const [reconciliationNote, setReconciliationNote] = useState("");
@@ -97,7 +96,6 @@ export default function DailyAccountFormPage() {
       openingMomoFloat,
       closingCash,
       closingMomoFloat,
-      expensesTotal,
       commission,
       debtsCollected,
       reconciliationNote,
@@ -121,17 +119,33 @@ export default function DailyAccountFormPage() {
       if (value.openingMomoFloat !== undefined) setOpeningMomoFloat(Number(value.openingMomoFloat));
       if (value.closingCash !== undefined) setClosingCash(Number(value.closingCash));
       if (value.closingMomoFloat !== undefined) setClosingMomoFloat(Number(value.closingMomoFloat));
-      if (value.expensesTotal !== undefined) setExpensesTotal(Number(value.expensesTotal));
       if (value.commission !== undefined) setCommission(Number(value.commission));
       if (value.debtsCollected !== undefined) setDebtsCollected(Number(value.debtsCollected));
       if (value.reconciliationNote !== undefined) setReconciliationNote(String(value.reconciliationNote));
       if (Array.isArray(value.expenses)) {
-        setExpenses(
-          value.expenses.map((expense) => ({
-            description: String(expense?.description ?? ""),
-            amount: Number(expense?.amount ?? 0),
-          }))
-        );
+        const restored = value.expenses.map((expense) => ({
+          description: String(expense?.description ?? ""),
+          amount: Number(expense?.amount ?? 0),
+        }));
+        // An older draft may carry only the removed aggregate field. Keep the
+        // money visible as one editable line instead of silently losing it.
+        if (restored.length === 0) {
+          const legacyTotal = Number(value.expensesTotal ?? 0);
+          if (Number.isFinite(legacyTotal) && legacyTotal > 0) {
+            restored.push({
+              description: "Expenses carried from earlier draft",
+              amount: legacyTotal,
+            });
+          }
+        }
+        setExpenses(restored);
+      } else {
+        const legacyTotal = Number(value.expensesTotal ?? 0);
+        if (Number.isFinite(legacyTotal) && legacyTotal > 0) {
+          setExpenses([
+            { description: "Expenses carried from earlier draft", amount: legacyTotal },
+          ]);
+        }
       }
     },
   });
@@ -153,7 +167,6 @@ export default function DailyAccountFormPage() {
       setClosingMomoFloat(Number(detail.closingMomoFloat));
       setCommission(Number(detail.commission));
       setDebtsCollected(Number(detail.debtsCollected));
-      setExpensesTotal(Number(detail.totalExpenses));
       setReconciliationNote(detail.reconciliationNote ?? "");
       setExpenses(
         (detail.expenses ?? []).map((expense) => ({
@@ -175,20 +188,22 @@ export default function DailyAccountFormPage() {
   }, [params.id]);
 
   function addExpense() {
-    setShowExpenseDetails(true);
-    setExpenses([...expenses, { description: "", amount: 0 }]);
+    setExpenses((current) => [...current, { description: "", amount: 0 }]);
   }
   function removeExpense(index: number) {
-    setExpenses(expenses.filter((_, i) => i !== index));
+    setExpenses((current) => current.filter((_, i) => i !== index));
   }
   function updateExpense(index: number, field: keyof Expense, value: string | number) {
-    const updated = [...expenses];
-    updated[index] = { ...updated[index], [field]: value };
-    setExpenses(updated);
+    setExpenses((current) =>
+      current.map((expense, rowIndex) =>
+        rowIndex === index ? { ...expense, [field]: value } : expense
+      )
+    );
   }
 
-  const itemisedExpenseTotal = useMemo(
-    () => expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
+  // The total is always derived from the rows. There is no editable aggregate.
+  const expensesTotal = useMemo(
+    () => sumExpenseLines(expenses),
     [expenses]
   );
 
@@ -204,6 +219,7 @@ export default function DailyAccountFormPage() {
   const isShortage = result.status === "shortage";
   const isPositive = result.status === "positive";
   const isBalanced = result.status === "balanced";
+  const hasWithdrawnProfit = isBalanced && result.profitNotRetained > 0;
   const statusClass = isShortage ? "text-red-700" : "text-emerald-700";
   const statusBg = isShortage
     ? "border-red-200 bg-red-50"
@@ -216,19 +232,16 @@ export default function DailyAccountFormPage() {
     formData.set("openingMomoFloat", String(openingMomoFloat));
     formData.set("closingCash", String(closingCash));
     formData.set("closingMomoFloat", String(closingMomoFloat));
-    formData.set("totalExpenses", String(expensesTotal));
     formData.set("commission", String(commission));
     formData.set("debtsCollected", String(debtsCollected));
     formData.set("reconciliationNote", reconciliationNote.trim());
     formData.set(
       "expenses",
       JSON.stringify(
-        expenses
-          .filter((expense) => expense.description.trim() && expense.amount > 0)
-          .map((expense) => ({
-            description: expense.description.trim(),
-            amount: expense.amount,
-          }))
+        expenses.map((expense) => ({
+          description: expense.description,
+          amount: expense.amount,
+        }))
       )
     );
     return formData;
@@ -345,12 +358,26 @@ export default function DailyAccountFormPage() {
   }
 
   if (account.status !== "draft") {
-    // Historical and newly submitted records both use the stored difference.
-    // Historical rows are never recalculated with the simplified formula.
+    // New records use the stored net-profit model. Historical rows keep their
+    // stored difference and are never recalculated.
     const stored = resolveStoredDifference(account);
     const actualClosing =
       Number(account.closingCash) + Number(account.closingMomoFloat);
-    const expectedClosing = actualClosing - stored.difference;
+    const openingTotal =
+      Number(account.openingCash) + Number(account.openingMomoFloat);
+    const netIncrease =
+      Number(account.commission) +
+      Number(account.debtsCollected) -
+      Number(account.totalExpenses);
+    const expectedClosing = stored.netModel
+      ? openingTotal + netIncrease
+      : actualClosing - stored.difference;
+    const profitRetained = stored.netModel
+      ? Math.max(0, Math.min(actualClosing - openingTotal, netIncrease))
+      : 0;
+    const profitNotRetained = stored.netModel
+      ? Math.max(0, netIncrease - profitRetained)
+      : 0;
     const savedShortage = stored.status === "shortage";
     return (
       <div className="space-y-4">
@@ -378,14 +405,37 @@ export default function DailyAccountFormPage() {
             <SummaryTile label="Debts collected" amount={Number(account.debtsCollected)} icon={<Wallet />} />
             <SummaryTile label="Commission" amount={Number(account.commission)} icon={<Receipt />} />
             <SummaryTile label="Expenses" amount={Number(account.totalExpenses)} icon={<Receipt />} />
+            <SummaryTile label="Net daily profit / increase" amount={netIncrease} icon={<Receipt />} />
             <SummaryTile label="Actual closing accountability" amount={actualClosing} icon={<Landmark />} />
+          </div>
+          <div className="mx-5 mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:mx-7 sm:mb-7">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-slate-900">Expenses</p>
+              <p className="text-sm font-bold tnum text-slate-900">
+                <CediAmount amount={Number(account.totalExpenses)} />
+              </p>
+            </div>
+            {account.expenses.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">No expenses recorded.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {account.expenses.map((expense) => (
+                  <li key={expense.id} className="flex justify-between gap-3 text-sm">
+                    <span className="text-slate-600">{expense.description}</span>
+                    <span className="font-medium tnum text-slate-800">
+                      <CediAmount amount={Number(expense.amount)} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <div className={`m-5 mt-0 rounded-xl border p-4 sm:m-7 sm:mt-0 ${savedShortage ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
             <div className="flex items-start gap-3">
               {savedShortage ? (
                 <AlertTriangle className="mt-0.5 text-red-700" size={22} aria-hidden />
               ) : (
-                <SuccessTick size={30} label={stored.status === "balanced" ? "Balanced" : "Positive difference"} />
+                <SuccessTick size={30} label={stored.status === "balanced" ? "Balanced" : "Positive surplus"} />
               )}
               <div>
                 <p className={`font-semibold ${savedShortage ? "text-red-900" : "text-emerald-900"}`}>
@@ -393,13 +443,22 @@ export default function DailyAccountFormPage() {
                     ? "SHORTAGE — INVESTIGATION REQUIRED"
                     : stored.status === "balanced"
                       ? "BALANCED"
-                      : "POSITIVE DIFFERENCE"}
+                      : "POSITIVE SURPLUS"}
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Expected <CediAmount amount={expectedClosing} /> · Actual{" "}
+                  Opening <CediAmount amount={openingTotal} /> · Net profit{" "}
+                  <CediAmount amount={netIncrease} showSign /> · Expected{" "}
+                  <CediAmount amount={expectedClosing} /> · Actual{" "}
                   <CediAmount amount={actualClosing} /> · Difference{" "}
                   <CediAmount amount={stored.difference} showSign className="font-semibold" />
                 </p>
+                {stored.netModel && (
+                  <p className="mt-2 text-sm text-slate-600">
+                    Profit retained <CediAmount amount={profitRetained} /> · Profit withdrawn
+                    / not retained <CediAmount amount={profitNotRetained} />. Withdrawn
+                    profit is not a loss.
+                  </p>
+                )}
                 {account.reconciliationNote && (
                   <p className="mt-2 text-sm text-slate-600">
                     Explanation: {account.reconciliationNote}
@@ -561,31 +620,98 @@ export default function DailyAccountFormPage() {
                 hint="The MoMo E-cash balance you actually see at closing."
                 tone="emerald"
               />
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
-                <MoneyField
-                  id="expenses"
-                  label="Expenses"
-                  value={expensesTotal}
-                  onChange={setExpensesTotal}
-                  hint="Food, transport, data and other legitimate business costs."
-                  tone="emerald"
-                  nested
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowExpenseDetails((open) => !open)}
-                  className="mt-2 text-xs font-semibold text-emerald-800 underline underline-offset-2"
-                  aria-expanded={showExpenseDetails}
-                >
-                  {showExpenseDetails ? "Hide expense details" : "Add expense details (optional)"}
-                </button>
+              <div className="sm:col-span-2 overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Expenses</p>
+                    <p className="text-xs text-slate-600">
+                      Add each cost. The total is calculated from these lines.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addExpense}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    + Add Expense
+                  </button>
+                </div>
+                <div className="space-y-2 p-3">
+                  {expenses.length === 0 && (
+                    <p className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
+                      No expenses recorded today. Total is GH₵0.00.
+                    </p>
+                  )}
+                  {expenses.map((expense, index) => (
+                    <div
+                      key={index}
+                      className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-end"
+                    >
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Description
+                        <input
+                          id={`expense-desc-${index}`}
+                          type="text"
+                          maxLength={200}
+                          autoComplete="off"
+                          placeholder="For example Transport"
+                          className="mt-1 w-full"
+                          value={expense.description}
+                          onChange={(event) =>
+                            updateExpense(index, "description", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Amount
+                        <span className="mt-1 flex items-center rounded-lg border border-slate-300 bg-white px-2 focus-within:border-brand-500">
+                          <span className="text-xs font-semibold text-slate-500" aria-hidden>
+                            GH₵
+                          </span>
+                          <input
+                            id={`expense-amount-${index}`}
+                            type="number"
+                            autoComplete="off"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0.01"
+                            placeholder="0.00"
+                            className="!border-0 !bg-transparent !px-1.5 !py-2 !shadow-none"
+                            value={expense.amount || ""}
+                            onChange={(event) =>
+                              updateExpense(
+                                index,
+                                "amount",
+                                Number.parseFloat(event.target.value) || 0
+                              )
+                            }
+                          />
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeExpense(index)}
+                        className="justify-self-end rounded-lg p-2 text-red-600 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                        aria-label={`Remove expense ${index + 1}`}
+                      >
+                        <X size={18} aria-hidden />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2.5">
+                    <span className="text-sm font-bold text-emerald-950">Total Expenses</span>
+                    <span className="text-lg font-bold tnum text-emerald-950">
+                      <CediAmount amount={expensesTotal} />
+                    </span>
+                  </div>
+                </div>
               </div>
               <MoneyField
                 id="commission"
                 label="Commission"
                 value={commission}
                 onChange={setCommission}
-                hint="Enter the total commission earned for today from your MoMo provider statement."
+                hint="Commission received today. If it was already in your opening E-cash, do not add it again."
                 tone="emerald"
               />
               <div className="sm:col-span-2">
@@ -594,84 +720,11 @@ export default function DailyAccountFormPage() {
                   label="Debts Collected"
                   value={debtsCollected}
                   onChange={setDebtsCollected}
-                  hint="Money collected from people who previously owed you. Count it once."
+                  hint="Money received today from people who previously owed you. Count each receipt once."
                   tone="emerald"
                 />
               </div>
             </div>
-
-            {showExpenseDetails && (
-              <div className="mx-4 mb-4 space-y-2 rounded-xl border border-emerald-200 bg-white p-3 sm:mx-5 sm:mb-5">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">Expense details</p>
-                    <p className="text-xs text-slate-500">
-                      Optional. These descriptions support the audit trail; the Expenses total above is the amount used.
-                    </p>
-                  </div>
-                  <button type="button" onClick={addExpense} className="btn btn-secondary btn-sm">
-                    + Add line
-                  </button>
-                </div>
-                {expenses.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
-                    No expense lines yet. You can still enter one Expenses total above.
-                  </p>
-                )}
-                {expenses.map((expense, index) => (
-                  <div key={index} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-start">
-                    <div className="flex-1">
-                      <label htmlFor={`expense-desc-${index}`} className="sr-only">
-                        Expense description {index + 1}
-                      </label>
-                      <input
-                        id={`expense-desc-${index}`}
-                        type="text"
-                        placeholder="Description (for example Transport)"
-                        value={expense.description}
-                        onChange={(event) => updateExpense(index, "description", event.target.value)}
-                      />
-                    </div>
-                    <div className="sm:w-40">
-                      <label htmlFor={`expense-amount-${index}`} className="sr-only">
-                        Expense amount {index + 1}
-                      </label>
-                      <input
-                        id={`expense-amount-${index}`}
-                        type="number"
-                        autoComplete="off"
-                        inputMode="decimal"
-                        step="0.01"
-                        min="0"
-                        placeholder="Amount"
-                        value={expense.amount || ""}
-                        onChange={(event) =>
-                          updateExpense(index, "amount", Number.parseFloat(event.target.value) || 0)
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeExpense(index)}
-                      className="self-end rounded-lg p-2 text-red-600 hover:bg-red-50 sm:self-auto"
-                      aria-label={`Remove expense ${index + 1}`}
-                    >
-                      <X size={16} aria-hidden />
-                    </button>
-                  </div>
-                ))}
-                {expenses.length > 0 && (
-                  <p className="text-xs text-slate-500">
-                    Detail lines total <CediAmount amount={itemisedExpenseTotal} />.
-                    {Math.abs(itemisedExpenseTotal - expensesTotal) > 0.004 && (
-                      <span className="ml-1 font-medium text-amber-800">
-                        The Expenses total above is what will be used.
-                      </span>
-                    )}
-                  </p>
-                )}
-              </div>
-            )}
           </section>
 
           {/* Reconciliation result */}
@@ -683,7 +736,7 @@ export default function DailyAccountFormPage() {
                 ) : (
                   <SuccessTick
                     size={36}
-                    label={isBalanced ? "Balanced" : "Positive difference"}
+                    label={isBalanced ? "Balanced" : "Positive surplus"}
                   />
                 )}
                 <div>
@@ -691,15 +744,17 @@ export default function DailyAccountFormPage() {
                     {isBalanced
                       ? "BALANCED"
                       : isPositive
-                        ? "POSITIVE DIFFERENCE"
+                        ? "POSITIVE SURPLUS"
                         : "SHORTAGE — INVESTIGATION REQUIRED"}
                   </p>
                   <p className="mt-1 max-w-md text-sm text-slate-600">
                     {isBalanced
-                      ? "Actual closing accountability matches expected closing accountability."
+                      ? result.profitNotRetained > 0
+                        ? "The counted money is within the expected range. Profit not retained is shown separately. It is not a loss."
+                        : "Actual closing is within the expected accountability range."
                       : isPositive
-                        ? "Actual money is higher than expected. This is not a shortage. Add a short explanation so the administrator can review it."
-                        : "Actual money is below expected. Explain the shortage before you submit. Do not change the counted figures to force a balance."}
+                        ? "Actual money is above the full expected closing total. This is a positive surplus, not a shortage."
+                        : "Actual money is below the opening capital floor. Explain the shortage before you submit. Do not change the counted figures to force a balance."}
                   </p>
                 </div>
               </div>
@@ -708,31 +763,77 @@ export default function DailyAccountFormPage() {
               </p>
             </div>
 
+            {hasWithdrawnProfit && (
+              <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-950" role="status">
+                <p className="font-semibold">Profit withdrawn, not a loss</p>
+                <p className="mt-1">
+                  <CediAmount amount={result.profitNotRetained} /> of today&apos;s
+                  profit is not in the counted closing total. This is the owner&apos;s
+                  withdrawal or money not retained in the business. It is not a shortage.
+                  A shortage is reported only when the counted money is below the opening
+                  capital floor of <CediAmount amount={result.capitalFloor} />.
+                </p>
+              </div>
+            )}
+
             <div className="mt-4 space-y-2 border-t border-white/60 pt-4 text-sm">
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Opening total</span>
+                <span className="text-slate-600">Opening Total</span>
                 <CediAmount amount={result.openingTotal} className="font-semibold" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Debts collected</span>
-                <CediAmount amount={debtsCollected} className="font-semibold" />
+                <span className="text-slate-600">+ Commission</span>
+                <CediAmount amount={commission} className="font-semibold text-emerald-800" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Commission</span>
-                <CediAmount amount={commission} className="font-semibold" />
+                <span className="text-slate-600">+ Debts Collected</span>
+                <CediAmount amount={debtsCollected} className="font-semibold text-emerald-800" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Expenses</span>
-                <CediAmount amount={expensesTotal} className="font-semibold" />
+                <span className="text-slate-600">− Total Expenses</span>
+                <CediAmount amount={expensesTotal} className="font-semibold text-red-700" />
               </div>
               <div className="flex justify-between gap-3 border-t border-white/70 pt-2">
-                <span className="font-semibold text-slate-700">Expected closing accountability</span>
+                <span className="font-semibold text-slate-700">= Net Daily Profit / Increase</span>
+                <CediAmount
+                  amount={result.netIncrease}
+                  showSign
+                  className={`font-bold ${result.netIncrease < 0 ? "text-red-700" : "text-emerald-800"}`}
+                />
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">Opening Total + Net Increase</span>
+                <span className="text-xs text-slate-500">Expected Closing Total (if all profit is retained)</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="font-semibold text-slate-700">Expected Closing Total</span>
                 <CediAmount amount={result.expectedClosing} className="font-bold" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="font-semibold text-slate-700">Actual closing accountability</span>
+                <span className="font-semibold text-slate-700">Actual Closing Total</span>
                 <CediAmount amount={result.actualClosing} className="font-bold" />
               </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">Profit retained at closing</span>
+                <CediAmount amount={result.profitRetained} className="font-semibold text-emerald-800" />
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">Profit withdrawn / not retained</span>
+                <CediAmount amount={result.profitNotRetained} className="font-semibold text-slate-700" />
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="font-semibold text-slate-700">Accountability Difference</span>
+                <CediAmount
+                  amount={result.difference}
+                  showSign
+                  className={`font-bold ${statusClass}`}
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                A shortage is reported only when counted money is below the opening capital
+                floor of <CediAmount amount={result.capitalFloor} />. Withdrawn profit is
+                never treated as a loss.
+              </p>
             </div>
 
             <div className="mt-4">
@@ -775,17 +876,48 @@ export default function DailyAccountFormPage() {
               <SummaryRow label="Debts collected" amount={debtsCollected} tone="positive" />
               <SummaryRow label="Commission" amount={commission} tone="positive" />
               <SummaryRow label="Expenses" amount={-expensesTotal} tone="negative" />
+              <details className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                  View expense breakdown ({expenses.length})
+                </summary>
+                <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2 text-xs">
+                  {expenses.length === 0 ? (
+                    <p className="text-slate-500">No expenses recorded.</p>
+                  ) : (
+                    expenses.map((expense, index) => (
+                      <div key={index} className="flex justify-between gap-3">
+                        <span className="text-slate-600">
+                          {expense.description.trim() || `Expense ${index + 1}`}
+                        </span>
+                        <span className="font-semibold tnum text-slate-800">
+                          <CediAmount amount={Number(expense.amount) || 0} />
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </details>
+              <div className="border-t border-slate-100 pt-2.5">
+                <SummaryRow
+                  label="Net daily profit / increase"
+                  amount={result.netIncrease}
+                  tone={result.netIncrease < 0 ? "negative" : "positive"}
+                  strong
+                />
+              </div>
               <div className="border-t border-slate-100 pt-2.5">
                 <SummaryRow label="Expected closing" amount={result.expectedClosing} strong />
               </div>
               <SummaryRow label="Actual closing" amount={result.actualClosing} strong />
+              <SummaryRow label="Profit retained" amount={result.profitRetained} tone="positive" />
+              <SummaryRow label="Profit withdrawn / not retained" amount={result.profitNotRetained} />
               <div className={`mt-2 rounded-xl border p-3 ${statusBg}`}>
-                <p className="text-xs font-medium text-slate-500">Difference</p>
+                <p className="text-xs font-medium text-slate-500">Accountability difference</p>
                 <p className={`mt-1 text-xl font-bold tnum ${statusClass}`}>
                   <CediAmount amount={result.difference} showSign />
                 </p>
                 <p className={`mt-1 text-xs font-semibold ${statusClass}`}>
-                  {isBalanced ? "BALANCED" : isPositive ? "POSITIVE DIFFERENCE" : "SHORTAGE — INVESTIGATION REQUIRED"}
+                  {isBalanced ? "BALANCED" : isPositive ? "POSITIVE SURPLUS" : "SHORTAGE — INVESTIGATION REQUIRED"}
                 </p>
               </div>
             </div>
@@ -830,7 +962,13 @@ export default function DailyAccountFormPage() {
             </summary>
             <div className="mt-3 space-y-2 text-xs text-slate-600">
               <p>
-                Expected = opening physical cash + opening E-cash + debts collected + commission − expenses.
+                Net daily profit / increase = commission + debts collected − expenses.
+                Expected closing = opening total + net daily profit / increase.
+              </p>
+              <p>
+                Actual closing = closing physical cash + closing E-cash. A shortage is
+                reported only when the actual closing is below the opening capital floor.
+                Profit withdrawn or not retained is shown separately and is never a loss.
               </p>
               <p>
                 Customer deposits, withdrawals and airtime move money between cash and E-cash. They do not change the combined total, so they are not entered here.
@@ -872,6 +1010,14 @@ export default function DailyAccountFormPage() {
       >
         <dl className="space-y-2 rounded-xl bg-slate-50 p-3 text-sm">
           <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">Opening total</dt>
+            <dd className="font-semibold tnum"><CediAmount amount={result.openingTotal} /></dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">Net daily profit / increase</dt>
+            <dd className="font-semibold tnum"><CediAmount amount={result.netIncrease} showSign /></dd>
+          </div>
+          <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
             <dt className="text-slate-500">Expected closing</dt>
             <dd className="font-semibold tnum"><CediAmount amount={result.expectedClosing} /></dd>
           </div>
@@ -879,14 +1025,22 @@ export default function DailyAccountFormPage() {
             <dt className="text-slate-500">Actual closing</dt>
             <dd className="font-semibold tnum"><CediAmount amount={result.actualClosing} /></dd>
           </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">Profit retained</dt>
+            <dd className="font-semibold tnum"><CediAmount amount={result.profitRetained} /></dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">Profit withdrawn / not retained</dt>
+            <dd className="font-semibold tnum"><CediAmount amount={result.profitNotRetained} /></dd>
+          </div>
           <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
-            <dt className="font-medium text-slate-700">Difference</dt>
+            <dt className="font-medium text-slate-700">Accountability difference</dt>
             <dd className={`font-bold tnum ${statusClass}`}><CediAmount amount={result.difference} showSign /></dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-slate-500">Status</dt>
             <dd className={`font-semibold ${statusClass}`}>
-              {isBalanced ? "BALANCED" : isPositive ? "POSITIVE DIFFERENCE" : "SHORTAGE — INVESTIGATION REQUIRED"}
+              {isBalanced ? "BALANCED" : isPositive ? "POSITIVE SURPLUS" : "SHORTAGE — INVESTIGATION REQUIRED"}
             </dd>
           </div>
         </dl>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expenseLinesSchema } from "@/lib/expense-lines";
 
 export const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Please enter a valid email"),
@@ -93,14 +94,7 @@ export const dailyAccountSchema = z.object({
   reconciliationNote: z.string().max(500).optional(),
   closingMomoFloat: positiveDecimal,
   closingCash: positiveDecimal,
-  expenses: z
-    .array(
-      z.object({
-        description: z.string().min(1, "Description is required").max(200),
-        amount: z.number().min(0.01, "Amount must be greater than 0").max(999999.99),
-      })
-    )
-    .optional(),
+  expenses: expenseLinesSchema.optional(),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -23,6 +23,7 @@ import {
 } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
+import { getTenantContext } from "@/lib/tenant";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import {
   isAccountNumber,
@@ -261,6 +262,7 @@ export async function issueModuleSession(
   const payload = await buildSessionPayload(userId);
   const withAmr: JwtPayload = {
     ...payload,
+    module,
     amr: mfaVerified ? "pwd+mfa" : "pwd",
   };
   const token = await setModuleSession(module, withAmr);
@@ -335,13 +337,33 @@ export async function switchWorkspace(
     return { success: true };
   }
 
-  // Verify the account is genuinely registered for the target module.
+  // Re-resolve the tenant and the user's effective module capabilities from
+  // server-validated records. The browser only names the destination; it is
+  // never proof that the destination role is authorized.
+  const tenantContext = await getTenantContext(sourceModule);
+  if (!tenantContext || !tenantContext.modules.includes(target)) {
+    return { success: false, error: "You are not authorized for this module." };
+  }
+  if (target === "susu") {
+    const collector = await db.collector.findFirst({
+      where: { userId, status: "active" },
+      select: { id: true },
+    });
+    if (!collector) {
+      return { success: false, error: "You are not authorized for this module." };
+    }
+  }
+
   const payload = await buildSessionPayload(userId);
   if (!(payload.modules ?? []).includes(target)) {
     return { success: false, error: "You are not authorized for this module." };
   }
 
-  const token = await setModuleSession(target, { ...payload, amr: sourceAmr });
+  const token = await setModuleSession(target, {
+    ...payload,
+    module: target,
+    amr: sourceAmr,
+  });
   // Remove only the legacy cookie for the source module; the current tab's
   // worker mapping is replaced by the client with the new token below.
   await clearModuleSession(sourceModule);
@@ -572,7 +594,10 @@ export async function changePassword(
     ...(await buildSessionPayload(session.userId)),
     amr: session.amr,
   };
-  const token = await setModuleSession(context.module, refreshed);
+  const token = await setModuleSession(context.module, {
+    ...refreshed,
+    module: context.module,
+  });
 
   await createAuditLog({
     userId: session.userId,
@@ -804,12 +829,17 @@ export async function resolveStaffAuth(
   });
   if (mfaStep) return { mfa: mfaStep.mode, mfaToken: mfaStep.token };
 
+  const authorizedModules: ("momo" | "susu")[] = [];
+  if (user.momoEnabled) authorizedModules.push("momo");
+  if (user.susuEnabled) authorizedModules.push("susu");
+
   const payload: JwtPayload = {
     userId: user.id,
     email: user.email,
     fullName: user.fullName,
-    role: module === "momo" ? "worker" : "collector",
-    modules: [module],
+    role: user.role as JwtPayload["role"],
+    modules: authorizedModules,
+    module,
     locationId: user.locationId ?? undefined,
     tenantId: user.tenantId,
     forcePasswordReset: user.forcePasswordReset,
@@ -853,7 +883,10 @@ export async function customerLogin(
     };
   }
 
-  const token = await setModuleSession("customer", result.payload);
+  const token = await setModuleSession("customer", {
+    ...result.payload,
+    module: "customer",
+  });
   await auditWorkspace("customer", result.payload.userId);
 
   return {
@@ -913,7 +946,10 @@ export async function unifiedLogin(
       };
     }
 
-    const token = await setModuleSession("customer", result.payload);
+    const token = await setModuleSession("customer", {
+      ...result.payload,
+      module: "customer",
+    });
     await auditWorkspace("customer", result.payload.userId);
 
     return {
@@ -1022,7 +1058,10 @@ export async function adminLogin(
   }
 
   const payload = await buildSessionPayload(user.id);
-  const token = await setModuleSession("admin", payload);
+  const token = await setModuleSession("admin", {
+    ...payload,
+    module: "admin",
+  });
   await auditWorkspace("admin", user.id);
 
   return {
@@ -1097,7 +1136,10 @@ export async function customerChangePassword(
     tokenVersion: (session.tokenVersion ?? 0) + 1,
     amr: session.amr,
   };
-  const token = await setModuleSession("customer", refreshed);
+  const token = await setModuleSession("customer", {
+    ...refreshed,
+    module: "customer",
+  });
 
   await createAuditLog({
     userId: session.userId,

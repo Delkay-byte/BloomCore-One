@@ -42,7 +42,6 @@ export default function CollectorShell({
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-4 py-3">
           <AppBrand tenantName={tenantName} markSize={30} href="/collector/dashboard" />
-          <WorkspaceSwitcher current="susu" bothModules={bothModules} />
           <div className="relative">
             <button
               ref={triggerRef}
@@ -109,6 +108,7 @@ export default function CollectorShell({
           </div>
         </div>
       </header>
+      <WorkspaceSwitcher current="susu" bothModules={bothModules} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-5">{children}</main>
       <footer className="border-t border-slate-200 bg-white">
         <div className="px-4 py-4 text-center">

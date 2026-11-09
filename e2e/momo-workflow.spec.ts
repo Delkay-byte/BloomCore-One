@@ -149,10 +149,10 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#closing-cash", 650);
     await fillMoney(page, "#closing-float", 0);
 
-    await expect(page.getByText("POSITIVE DIFFERENCE").first()).toBeVisible();
+    await expect(page.getByText("POSITIVE SURPLUS").first()).toBeVisible();
     const dialog = await submitFromReview(page);
     await expect(
-      dialog.getByText("POSITIVE DIFFERENCE", { exact: true })
+      dialog.getByText("POSITIVE SURPLUS", { exact: true })
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Submit account" }).click();
     await expectSubmitted(page);

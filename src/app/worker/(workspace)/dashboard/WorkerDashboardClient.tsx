@@ -108,8 +108,8 @@ export default function WorkerDashboardClient({
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Today&apos;s account</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Open your account in the morning. Record deposits, cash out, airtime sales and
-              additional funding, then count cash and confirm your MoMo float before submitting.
+              Record your opening balances, itemised expenses, commission and debts
+              collected, then count your closing cash and E-cash before submitting.
             </p>
           </div>
           <span className="hidden rounded-full bg-brand-50 p-2 text-brand-700 sm:block">
