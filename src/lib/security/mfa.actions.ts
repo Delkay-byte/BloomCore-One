@@ -120,6 +120,7 @@ async function issueSessionFromChallenge(challenge: {
       fullName: customer.fullName,
       role: "customer",
       modules: ["customer"],
+      module: "customer",
       tenantId: customer.tenantId,
       forcePasswordReset: customer.forcePortalPasswordReset ?? false,
       tokenVersion: customer.tokenVersion ?? 0,

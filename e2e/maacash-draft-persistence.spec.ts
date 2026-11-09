@@ -29,20 +29,19 @@ async function fillCompleteDraft(page: import("@playwright/test").Page) {
   await fillMoney(page, "#opening-float", "123.50");
   await fillMoney(page, "#commission", "1.75");
   await fillMoney(page, "#debts-collected", "10.00");
-  await fillMoney(page, "#expenses", "17.75");
   await fillMoney(page, "#closing-cash", "100.50");
   await fillMoney(page, "#closing-float", "50.25");
   await page.locator("#reconciliation-note").fill(
     "Short by GH₵0.50 — customer paid with a torn note. Follow up tomorrow."
   );
 
-  await page.getByRole("button", { name: /Add expense details/ }).click();
-  await page.getByRole("button", { name: /Add line/ }).click();
+  await page.getByRole("button", { name: "+ Add Expense" }).click();
   await page.locator("#expense-desc-0").fill("Transport — “trotro”");
   await page.locator("#expense-amount-0").fill("5.50");
-  await page.getByRole("button", { name: /Add line/ }).click();
+  await page.getByRole("button", { name: "+ Add Expense" }).click();
   await page.locator("#expense-desc-1").fill("Data & airtime, shop");
   await page.locator("#expense-amount-1").fill("12.25");
+  await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
 }
 
 test.describe("draft persistence", () => {
@@ -64,13 +63,11 @@ test.describe("draft persistence", () => {
     await expect(page.locator("#opening-float")).toHaveValue("123.5");
     await expect(page.locator("#commission")).toHaveValue("1.75");
     await expect(page.locator("#debts-collected")).toHaveValue("10");
-    await expect(page.locator("#expenses")).toHaveValue("17.75");
     await expect(page.locator("#closing-cash")).toHaveValue("100.5");
     await expect(page.locator("#closing-float")).toHaveValue("50.25");
     await expect(page.locator("#reconciliation-note")).toHaveValue(
       /torn note/
     );
-    await page.getByRole("button", { name: /Add expense details/ }).click();
     await expect(page.locator("#expense-desc-0")).toHaveValue(/Transport/);
     await expect(page.locator("#expense-amount-0")).toHaveValue("5.5");
     await expect(page.locator("#expense-desc-1")).toHaveValue(/Data/);

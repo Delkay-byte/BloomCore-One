@@ -40,6 +40,7 @@ import {
   saveDailyAccount,
   submitDailyAccount,
 } from "@/lib/actions/daily-account.actions";
+import { parseReconciliationStatus } from "@/lib/momo-reconciliation";
 import { createCustomer } from "@/lib/actions/susu-customer.actions";
 import { setStaffModuleCapability } from "@/lib/actions/staff.actions";
 import { resolveCustomerAuth } from "@/lib/actions/auth.actions";
@@ -114,7 +115,12 @@ describe("simplified MoMo daily closing persistence", () => {
         openingMomoFloat: "1000",
         closingCash: "600",
         closingMomoFloat: "970",
-        totalExpenses: "50",
+        // A forged aggregate must be ignored; the rows below total GH₵50.
+        totalExpenses: "999",
+        expenses: JSON.stringify([
+          { description: "Transport", amount: 30 },
+          { description: "Food", amount: 20 },
+        ]),
         commission: "20",
         debtsCollected: "100",
       })
@@ -128,7 +134,7 @@ describe("simplified MoMo daily closing persistence", () => {
     expect(Number(row.totalAirtimeSold)).toBe(0);
     expect(Number(row.totalExpenses)).toBe(50);
     expect(Number(row.calculatedDifference)).toBe(0);
-    expect(row.differenceStatus).toBe("balanced");
+    expect(parseReconciliationStatus(row.differenceStatus).status).toBe("balanced");
 
     const submitted = await submitDailyAccount(id);
     expect(submitted.success).toBe(true);
@@ -204,7 +210,99 @@ describe("simplified MoMo daily closing persistence", () => {
     const positiveRow = await prisma.dailyAccount.findUniqueOrThrow({
       where: { id: positiveId },
     });
-    expect(positiveRow.differenceStatus).toBe("positive");
+    expect(parseReconciliationStatus(positiveRow.differenceStatus).status).toBe("positive");
+  });
+
+  it("derives Expenses from the rows, ignores blank rows and rejects incomplete rows", async () => {
+    const tenant = await createTestTenant({ momo: true, susu: false });
+    const location = await prisma.location.create({
+      data: { tenantId: tenant.id, name: "Shop 3", code: "SHOP-3" },
+    });
+    const agent = await prisma.user.create({
+      data: {
+        tenantId: tenant.id,
+        email: `agent3-${Date.now()}@test.invalid`,
+        fullName: "Agent 3",
+        role: "worker",
+        passwordHash: await bcrypt.hash(PASSWORD, 4),
+        momoEnabled: true,
+        locationId: location.id,
+      },
+    });
+    await setSession("momo", agent);
+
+    const created = await createDailyAccount(location.id, "2026-11-12");
+    const id = (created.data as { id: string }).id;
+
+    const saved = await saveDailyAccount(
+      id,
+      dailyForm({
+        openingCash: "100",
+        openingMomoFloat: "100",
+        closingCash: "90",
+        closingMomoFloat: "100",
+        // Client aggregate is deliberately wrong.
+        totalExpenses: "500",
+        commission: "0",
+        debtsCollected: "0",
+        expenses: JSON.stringify([
+          { description: "", amount: 0 },
+          { description: "Transport", amount: 10 },
+          { description: "Food", amount: 5 },
+        ]),
+      })
+    );
+    expect(saved.success).toBe(true);
+
+    const row = await prisma.dailyAccount.findUniqueOrThrow({ where: { id } });
+    expect(Number(row.totalExpenses)).toBe(15);
+    const lines = await prisma.expense.findMany({ where: { dailyAccountId: id } });
+    expect(lines).toHaveLength(2);
+
+    const amountOnly = await saveDailyAccount(
+      id,
+      dailyForm({
+        openingCash: "100",
+        openingMomoFloat: "100",
+        closingCash: "90",
+        closingMomoFloat: "100",
+        commission: "0",
+        debtsCollected: "0",
+        expenses: JSON.stringify([{ description: "", amount: 10 }]),
+      })
+    );
+    expect(amountOnly.success).toBe(false);
+    expect(amountOnly.error).toContain("description");
+
+    const descriptionOnly = await saveDailyAccount(
+      id,
+      dailyForm({
+        openingCash: "100",
+        openingMomoFloat: "100",
+        closingCash: "90",
+        closingMomoFloat: "100",
+        commission: "0",
+        debtsCollected: "0",
+        expenses: JSON.stringify([{ description: "Transport", amount: 0 }]),
+      })
+    );
+    expect(descriptionOnly.success).toBe(false);
+    expect(descriptionOnly.error).toContain("amount");
+
+    const tooPrecise = await saveDailyAccount(
+      id,
+      dailyForm({
+        openingCash: "100",
+        openingMomoFloat: "100",
+        closingCash: "90",
+        closingMomoFloat: "100",
+        commission: "0",
+        debtsCollected: "0",
+        expenses: JSON.stringify([{ description: "Transport", amount: 10.001 }]),
+      })
+    );
+    expect(tooPrecise.success).toBe(false);
+    expect(tooPrecise.error).toContain("two decimal");
   });
 });
 

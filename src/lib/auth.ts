@@ -96,6 +96,8 @@ export interface JwtPayload {
   fullName?: string;
   role: "admin" | "worker" | "collector" | "customer"; // primary role (kept for compatibility)
   modules?: ("momo" | "susu" | "customer")[];          // authorized business modules
+  /** Module this token was issued for. Binds a dual-role session to one workspace. */
+  module?: ModuleName;
   locationId?: string;
   collectorId?: string;
   tenantId?: string | null;
@@ -448,6 +450,9 @@ export const readModuleCookie = cache(async function readModuleCookie(module: Mo
 
 /** True when this token was issued for the requested module surface. */
 function payloadMatchesModule(payload: JwtPayload, module: ModuleName): boolean {
+  // New tokens carry the exact issue surface. This is what stops a dual-role
+  // token minted for MoMo from being enrolled as a Susu tab credential.
+  if (payload.module) return payload.module === module;
   if (module === "admin") return payload.role === "admin";
   if (module === "customer") {
     return payload.role === "customer" && (payload.modules ?? []).includes("customer");

@@ -37,6 +37,7 @@ interface MoMoStats {
   totalDebtsCollected: number;
   totalCommission: number;
   totalExpenses: number;
+  totalNetIncrease: number;
   locationStatus: Array<{
     location: { name: string; code: string; id: string };
     worker: string;
@@ -144,7 +145,7 @@ export default function AdminDashboardPage() {
   if (momoStats && momoStats.discrepancyReports > 0) {
     needsAttention.push({
       label: `${momoStats.discrepancyReports} report${momoStats.discrepancyReports === 1 ? "" : "s"} with a shortage`,
-      detail: "Closing accountability is below expected. Each shortage needs an explanation.",
+      detail: "Closing money is below the opening capital floor. Each shortage needs an explanation.",
       href: "/admin/reports",
       cta: "Investigate",
     });
@@ -222,6 +223,12 @@ export default function AdminDashboardPage() {
                 <span className="text-slate-500">Expenses today</span>
                 <span className="font-semibold tnum text-red-700">
                   <CediAmount amount={momoStats.totalExpenses} />
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                <span className="font-medium text-slate-700">Net daily profit / increase today</span>
+                <span className="font-bold tnum text-emerald-700">
+                  <CediAmount amount={momoStats.totalNetIncrease} showSign />
                 </span>
               </div>
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">

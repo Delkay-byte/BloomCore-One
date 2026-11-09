@@ -60,7 +60,21 @@ export default function ReportDetailPage() {
   // the simplified formula.
   const actualClosing =
     Number(account.closingCash) + Number(account.closingMomoFloat);
-  const expectedClosing = actualClosing - difference;
+  const openingTotal =
+    Number(account.openingCash) + Number(account.openingMomoFloat);
+  const netIncrease =
+    Number(account.commission) +
+    Number(account.debtsCollected) -
+    Number(account.totalExpenses);
+  const expectedClosing = stored.netModel
+    ? openingTotal + netIncrease
+    : actualClosing - difference;
+  const profitRetained = stored.netModel
+    ? Math.max(0, Math.min(actualClosing - openingTotal, netIncrease))
+    : 0;
+  const profitNotRetained = stored.netModel
+    ? Math.max(0, netIncrease - profitRetained)
+    : 0;
   const hasLegacyActivity =
     Number(account.totalCashIn) !== 0 ||
     Number(account.totalCashOut) !== 0 ||
@@ -123,6 +137,10 @@ export default function ReportDetailPage() {
             <div className="flex justify-between"><span className="text-sm text-slate-600">Debts Collected</span><span className="font-mono text-sm"><CediAmount amount={account.debtsCollected} /></span></div>
             <div className="flex justify-between"><span className="text-sm text-slate-600">Commission</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
             <div className="flex justify-between"><span className="text-sm text-slate-600">Expenses</span><span className="font-mono text-sm text-red-700"><CediAmount amount={account.totalExpenses} /></span></div>
+            <div className="flex justify-between border-t border-slate-200 pt-2">
+              <span className="text-sm font-semibold text-slate-700">Net daily profit / increase</span>
+              <span className="font-mono text-sm font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></span>
+            </div>
             {hasLegacyActivity && (
               <details className="pt-2">
                 <summary className="cursor-pointer text-xs font-medium text-slate-500">
@@ -143,16 +161,28 @@ export default function ReportDetailPage() {
         <div className="card">
           <h3 className="font-semibold mb-4">Account Check</h3>
           <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 p-3">
+              <div className="text-sm text-slate-600">Net daily profit / increase</div>
+              <div className="text-lg font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></div>
+              <div className="text-xs text-slate-500 mt-1">Commission + debts collected − expenses</div>
+            </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Expected closing accountability</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={expectedClosing} /></div>
-              <div className="text-xs text-slate-500 mt-1">Opening cash + E-cash + debts collected + commission − expenses</div>
+              <div className="text-xs text-slate-500 mt-1">Opening total + net daily profit / increase</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Actual closing accountability</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={actualClosing} /></div>
               <div className="text-xs text-slate-500 mt-1">Closing cash + closing MoMo float</div>
             </div>
+            {stored.netModel && (
+              <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                <div className="flex justify-between"><span className="text-slate-600">Profit retained</span><span className="font-semibold"><CediAmount amount={profitRetained} /></span></div>
+                <div className="mt-1 flex justify-between"><span className="text-slate-600">Profit withdrawn / not retained</span><span className="font-semibold"><CediAmount amount={profitNotRetained} /></span></div>
+                <p className="mt-2 text-xs text-slate-500">Withdrawn profit is not a loss. A shortage is reported only below the opening capital floor.</p>
+              </div>
+            )}
             <div className="border-t pt-3">
               <div className="flex justify-between items-center">
                 <span className="font-medium">Difference</span>

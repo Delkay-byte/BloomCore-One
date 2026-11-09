@@ -241,6 +241,22 @@ export const verifyTabProof = cache(async function verifyTabProof(
 export function tabSurfaceForPayload(payload: JwtPayload): TabSurface | null {
   if (payload.kind === "platform") return "platform";
   if (payload.tokenUse === "workspace-selection") return "selection";
+  // Honour the exact surface the server issued this token for. A dual-role
+  // account has both modules, but a Susu login must not enrol a MoMo tab.
+  if (payload.module) {
+    if (payload.module === "admin") return payload.role === "admin" ? "admin" : null;
+    if (payload.module === "customer") {
+      return payload.role === "customer" && (payload.modules ?? []).includes("customer")
+        ? "customer"
+        : null;
+    }
+    if (payload.module === "momo" || payload.module === "susu") {
+      return (payload.modules ?? []).includes(payload.module)
+        ? payload.module
+        : null;
+    }
+    return null;
+  }
   if (payload.role === "customer") return "customer";
   if (payload.role === "admin") return "admin";
   if ((payload.modules ?? []).includes("momo")) return "momo";

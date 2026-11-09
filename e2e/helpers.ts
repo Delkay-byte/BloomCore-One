@@ -13,6 +13,7 @@ export const ADMIN_B = "e2e-admin-b@test.local";
 export const PLATFORM = "e2e-platform@test.local";
 export const COLLECTOR = "e2e-collector@test.local";
 export const WORKER = "e2e-worker@test.local";
+export const DUAL_ROLE = "e2e-dual@test.local";
 // Customers sign in with a phone number or Account Number, never email.
 export const CUSTOMER = "+233200000901";
 export const PASSWORD = "E2ePass123!";

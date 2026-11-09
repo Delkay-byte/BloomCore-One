@@ -34,7 +34,7 @@ test.describe("simplified MoMo closing and customer Account Number", () => {
     await expect(page.getByText("START OF DAY")).toBeVisible();
     await expect(page.getByText("END OF DAY")).toBeVisible();
     await expect(page.getByText("Debts Collected", { exact: true })).toBeVisible();
-    await expect(page.locator("#expenses")).toBeVisible();
+    await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
     await expect(page.locator("#customer-deposit")).toHaveCount(0);
     await expect(page.locator("#additional-cash")).toHaveCount(0);
 
@@ -44,7 +44,14 @@ test.describe("simplified MoMo closing and customer Account Number", () => {
     await page.locator("#closing-float").fill("50");
     await page.locator("#commission").fill("5");
     await page.locator("#debts-collected").fill("20");
-    await page.locator("#expenses").fill("25");
+    // Start from a clean expense list; this draft may carry saved rows.
+    const removeExpense = page.getByRole("button", { name: /Remove expense/ });
+    while ((await removeExpense.count()) > 0) {
+      await removeExpense.first().click();
+    }
+    await page.getByRole("button", { name: "+ Add Expense" }).click();
+    await page.locator("#expense-desc-0").fill("Transport");
+    await page.locator("#expense-amount-0").fill("25");
     await expect(page.getByText("BALANCED", { exact: true }).first()).toBeVisible();
 
     for (const width of [360, 390, 768, 1280]) {

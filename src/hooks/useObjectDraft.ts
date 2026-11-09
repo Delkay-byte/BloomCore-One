@@ -18,6 +18,23 @@ export interface UseObjectDraftOptions<T> {
 }
 
 /**
+ * Draft flushers registered by mounted forms. A workspace switch asks every
+ * active form to save before the document navigates away.
+ */
+const activeDraftFlushers = new Set<() => Promise<boolean>>();
+
+/** Save every mounted draft immediately. Returns false if any save failed. */
+export async function flushActiveDrafts(): Promise<boolean> {
+  if (activeDraftFlushers.size === 0) return true;
+  const results = await Promise.allSettled(
+    Array.from(activeDraftFlushers).map((flush) => flush())
+  );
+  return results.every(
+    (result) => result.status === "fulfilled" && result.value === true
+  );
+}
+
+/**
  * Draft persistence for controlled forms whose values live in React state.
  *
  * Guarantees:
@@ -140,21 +157,33 @@ export function useObjectDraft<T>({
     return () => clearTimeout(timer);
   }, [serialized, enabled, draftKey, workflow, debounceMs]);
 
-  const saveNow = useCallback(async () => {
-    if (!enabled) return;
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    if (!enabled) return true;
     const revision = ++saveRevision.current;
     setStatus("saving");
     try {
       const record = await saveDraft(draftKey, workflow, latest.current);
-      if (!mounted.current || revision !== saveRevision.current) return;
-      setLastSavedAt(record.updatedAt);
-      setStatus("saved");
-      setDirty(false);
+      if (mounted.current && revision === saveRevision.current) {
+        setLastSavedAt(record.updatedAt);
+        setStatus("saved");
+        setDirty(false);
+      }
+      return true;
     } catch {
-      if (!mounted.current || revision !== saveRevision.current) return;
-      setStatus("error");
+      if (mounted.current && revision === saveRevision.current) {
+        setStatus("error");
+      }
+      return false;
     }
   }, [draftKey, enabled, workflow]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    activeDraftFlushers.add(saveNow);
+    return () => {
+      activeDraftFlushers.delete(saveNow);
+    };
+  }, [enabled, saveNow]);
 
   const clearDraft = useCallback(async () => {
     saveRevision.current += 1;

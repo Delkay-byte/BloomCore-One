@@ -12,6 +12,7 @@ import {
   resolveStoredDifference,
   statusLabel,
 } from "@/lib/momo-reconciliation";
+import { sumExpenseLines } from "@/lib/expense-lines";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 
 type MoneyField =
@@ -59,10 +60,24 @@ export default function CorrectionForm({
     closingMomoFloat: data.values.closingMomoFloat,
     closingCash: data.values.closingCash,
   });
-  const [expensesTotal, setExpensesTotal] = useState(data.values.totalExpenses);
-  const [expenses, setExpenses] = useState(
-    data.expenses.length > 0 ? data.expenses : []
+  const initialExpenses = useMemo(
+    () =>
+      data.expenses.length > 0
+        ? data.expenses.map((expense) => ({
+            description: expense.description,
+            amount: Number(expense.amount),
+          }))
+        : data.values.totalExpenses > 0
+          ? [
+              {
+                description: "Expenses carried from earlier record",
+                amount: data.values.totalExpenses,
+              },
+            ]
+          : [],
+    [data.expenses, data.values.totalExpenses]
   );
+  const [expenses, setExpenses] = useState(initialExpenses);
   const [reason, setReason] = useState("");
   const [reconciliationNote, setReconciliationNote] = useState(
     data.reconciliationNote ?? ""
@@ -72,8 +87,13 @@ export default function CorrectionForm({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const itemisedTotal = useMemo(
-    () => expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
+  const initialExpenseJson = useMemo(
+    () => JSON.stringify(initialExpenses),
+    [initialExpenses]
+  );
+  // Expenses are always derived from their lines. The total is not editable.
+  const expensesTotal = useMemo(
+    () => sumExpenseLines(expenses),
     [expenses]
   );
   const proposed = useMemo(
@@ -84,11 +104,10 @@ export default function CorrectionForm({
   const changed = useMemo(() => {
     return (
       FIELDS.some((field) => values[field.key] !== data.values[field.key]) ||
-      expensesTotal !== data.values.totalExpenses ||
-      expenses.length !== data.expenses.length ||
+      JSON.stringify(expenses) !== initialExpenseJson ||
       reconciliationNote.trim() !== (data.reconciliationNote ?? "").trim()
     );
-  }, [values, expenses.length, expensesTotal, data.values, data.expenses.length, reconciliationNote, data.reconciliationNote]);
+  }, [values, expenses, initialExpenseJson, data.values, reconciliationNote, data.reconciliationNote]);
 
   function updateField(key: MoneyField, raw: string) {
     const parsed = raw === "" ? 0 : Number(raw);
@@ -127,20 +146,14 @@ export default function CorrectionForm({
       for (const field of FIELDS) {
         formData.set(field.key, String(values[field.key]));
       }
-      formData.set("totalExpenses", String(expensesTotal));
       formData.set("reconciliationNote", reconciliationNote.trim());
       formData.set(
         "expenses",
         JSON.stringify(
-          expenses
-            .filter(
-              (expense) =>
-                expense.description.trim().length > 0 && Number(expense.amount) > 0
-            )
-            .map((expense) => ({
-              description: expense.description.trim(),
-              amount: Number(expense.amount),
-            }))
+          expenses.map((expense) => ({
+            description: expense.description,
+            amount: Number(expense.amount),
+          }))
         )
       );
 
@@ -171,9 +184,9 @@ export default function CorrectionForm({
             </span>
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Expected closing = opening cash + opening E-cash + debts collected +
-            commission − expenses. Customer deposits, withdrawals and airtime only
-            move money between the two pockets and are not part of this form.
+            Net daily profit / increase = commission + debts collected − expenses.
+            Expected closing = opening total + net daily profit / increase. Customer
+            deposits, withdrawals and airtime only move money between the two pockets.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((field) => (
@@ -204,8 +217,13 @@ export default function CorrectionForm({
           </div>
 
           <div className="mt-5">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">Expenses</h3>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Expenses</h3>
+                <p className="text-xs text-slate-500">
+                  Add each cost. The total is calculated from these lines.
+                </p>
+              </div>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -216,29 +234,12 @@ export default function CorrectionForm({
                   ])
                 }
               >
-                Add detail line
+                + Add Expense
               </button>
             </div>
-            <label className="mb-2 block text-sm">
-              <span className="font-medium text-slate-700">Expenses total</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                inputMode="decimal"
-                className="mt-1 w-full"
-                value={expensesTotal}
-                onChange={(event) =>
-                  setExpensesTotal(Number(event.target.value) || 0)
-                }
-              />
-              <span className="mt-1 block text-xs text-slate-400">
-                Original: {formatCedi(data.values.totalExpenses)}
-              </span>
-            </label>
             <div className="space-y-2">
               {expenses.map((expense, index) => (
-                <div key={index} className="flex flex-col gap-2 sm:flex-row">
+                <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-end">
                   <label className="flex-1 text-xs font-medium text-slate-600">
                     Description
                     <input
@@ -261,9 +262,9 @@ export default function CorrectionForm({
                     <input
                       type="number"
                       step="0.01"
-                      min="0"
+                      min="0.01"
                       className="mt-1 w-full"
-                      value={expense.amount}
+                      value={expense.amount || ""}
                       onChange={(event) =>
                         setExpenses((current) =>
                           current.map((row, rowIndex) =>
@@ -292,15 +293,34 @@ export default function CorrectionForm({
                 <p className="text-xs text-slate-500">No expenses recorded.</p>
               )}
             </div>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2.5">
+              <span className="text-sm font-bold text-emerald-950">Total Expenses</span>
+              <span className="text-base font-bold tnum text-emerald-950">
+                {formatCedi(expensesTotal)}
+              </span>
+            </div>
             <p className="mt-2 text-xs text-slate-500">
-              Detail lines total: {formatCedi(itemisedTotal)} (optional support for
-              the audit trail; the Expenses total above is used).
+              Original recorded total: {formatCedi(data.values.totalExpenses)}.
+              Saving this correction stores the total calculated from the lines above.
             </p>
           </div>
         </section>
 
         <section className="card bg-white">
           <h2 className="font-semibold text-slate-900">Reconciliation</h2>
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Net daily profit / increase
+            </p>
+            <p className="mt-1 text-lg font-bold tnum text-slate-900">
+              {formatCedi(proposed.netIncrease)}
+            </p>
+            <p className="text-xs text-slate-500">
+              Commission {formatCedi(values.commission)} + debts collected{" "}
+              {formatCedi(values.debtsCollected)} − total expenses{" "}
+              {formatCedi(expensesTotal)}
+            </p>
+          </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">
@@ -310,9 +330,8 @@ export default function CorrectionForm({
                 {formatCedi(proposed.expectedClosing)}
               </p>
               <p className="text-xs text-slate-400">
-                Opening {formatCedi(proposed.openingTotal)} + debts collected{" "}
-                {formatCedi(values.debtsCollected)} + commission{" "}
-                {formatCedi(values.commission)} − expenses {formatCedi(expensesTotal)}
+                Opening total {formatCedi(proposed.openingTotal)} + net daily profit /
+                increase {formatCedi(proposed.netIncrease)}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
@@ -327,6 +346,20 @@ export default function CorrectionForm({
                 {formatCedi(values.closingMomoFloat)}
               </p>
             </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-600">Profit retained at closing</span>
+              <span className="font-semibold tnum">{formatCedi(proposed.profitRetained)}</span>
+            </div>
+            <div className="mt-1 flex justify-between gap-3">
+              <span className="text-slate-600">Profit withdrawn / not retained</span>
+              <span className="font-semibold tnum">{formatCedi(proposed.profitNotRetained)}</span>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Withdrawn profit is not a loss. A shortage is reported only when counted
+              money is below the opening capital floor of {formatCedi(proposed.capitalFloor)}.
+            </p>
           </div>
           <div
             className={`mt-3 rounded-lg p-3 ${
