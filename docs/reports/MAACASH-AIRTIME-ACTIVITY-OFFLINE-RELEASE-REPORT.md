@@ -3,6 +3,11 @@
 Date: 9 November 2026
 Release branch: `release/maacash-airtime-activity-offline`
 Target: `main` → Render `maacash` (`srv-dbnaciff3r2c7382tjgg`)
+Release commit: `eba3bbb3d4bc2bfbd2914989560fed9224b4e73f`
+Merge commit: `5c3888b988c754b8ae414586815f88ea8845800e`
+Status: application and database deployed; authenticated production acceptance
+blocked by absent production test credentials; physical Android acceptance
+blocked by absent hardware.
 
 ## A. Implementation
 
@@ -84,6 +89,9 @@ claims and audit attribution.
 | Real Android acceptance | BLOCKED | `adb` unavailable; no physical device or emulator attached |
 | Service worker syntax | PASS | `node --check public/tab-session-sw.js` |
 | Prisma schema validation | PASS | SQLite and PostgreSQL schemas |
+| GitHub CI | PASS | SQLite, PostgreSQL and mobile-browser jobs |
+| Production health/readiness | PASS | `maacash`, `maacash.onrender.com`, `bloomcore-one.onrender.com` |
+| Production authenticated workflows | BLOCKED | no authorized production test identity/credential provided |
 
 The fresh PostgreSQL rehearsal initially exposed a real drift: `ZeliTeamTester`
 was absent from migration history. The forward reconciliation migration fixed
@@ -92,36 +100,54 @@ it, and the full fresh chain then reported no difference.
 ## C. Git and PR
 
 - Release branch: `release/maacash-airtime-activity-offline`
-- Commit SHA: pending final commit
-- PR: pending
-- Review status: pending
-- CI status: pending
-- Merge commit: pending
+- Commit SHA: `eba3bbb3d4bc2bfbd2914989560fed9224b4e73f`
+- PR: [#30](https://github.com/Delkay-byte/BloomCore-One/pull/30)
+- Review status: no independent reviewer identity was available; `main` has no
+  branch protection or required review rule. The work was not represented as
+  independently reviewed.
+- CI status: PASS — SQLite, PostgreSQL rehearsal/integration and mobile browser
+- Merge commit: `5c3888b988c754b8ae414586815f88ea8845800e`
 
 ## D. Database
 
 - Migration names: `20261109_momo_airtime_handover`,
   `20261109_zeli_team_tester_reconciliation`
 - Rehearsal: PASS on disposable PostgreSQL 16, 29 migrations, no drift
-- Production migration: pending
-- Schema drift after production migration: pending
-- Backup/recovery: production `pg_dump --format=custom` pending before migration
+- Production migration: APPLIED both migrations; 29/29 recorded as finished
+- Schema drift after production migration: none (`prisma migrate diff` empty)
+- Backup: `pg_dump --format=custom`, 313,115 bytes, 444 TOC entries, verified
+  with `pg_restore --list`; SHA-256
+  `3F55FE5249D6DA024B32F99A623E5C8A0CE3C3DBE6C84F825ADD676E80450690`
+- Recovery limitation: no Neon API key was available, so the verified custom
+  dump is the recovery artifact rather than a Neon branch.
 
 Production pre-migration read-only check: 27/29 migrations applied; only
 `20261109_momo_airtime_handover` and
-`20261109_zeli_team_tester_reconciliation` are pending. `totalAirtimeSold`
-already exists in production.
+`20261109_zeli_team_tester_reconciliation` were pending. `totalAirtimeSold`
+already existed in production.
+
+Pre/post financial row counts were identical: DailyAccount 10, Expense 5,
+Contribution 2, ContributionAllocation 4, Withdrawal 0, Commission 0, CardFee 3,
+CollectorRemittance 1, Customer 3, SusuAccount 3, SusuCycle 3,
+OfflineTransaction 0, DeviceEnrollment 2, AuditLog 151, BusinessTenant 2,
+User 12. Migration rows moved from 27 to 29.
 
 ## E. Deployment
 
 - Render service: `maacash` — `srv-dbnaciff3r2c7382tjgg`
 - Primary URL: `https://maacash.bloomcoretech.com`
 - Fallback service: `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0`
-- Deployment identifier: pending
-- Deployed commit SHA: pending
-- Deployment outcome: pending
-- Health endpoint: pending
-- Readiness endpoint: pending
+- Deployment identifiers: `dep-dbp0cpbl550s73eokgh0` (maacash),
+  `dep-dbp0ct6c6qcc7394eahg` (bloomcore-one)
+- Deployed commit SHA: `5c3888b988c754b8ae414586815f88ea8845800e` on both
+- Deployment outcome: LIVE on both services
+- Health endpoint: `status=ok`, commit `5c3888b…` on all three hosts
+- Readiness endpoint: HTTP 200, `database=ok` on all three hosts
+- Public route smoke: `/login` and `/admin/login` HTTP 200; protected
+  `/worker/dashboard`, `/collector/dashboard` and `/admin/audit` redirect 307 to
+  `/login`
+- Unauthenticated API smoke: `/api/audit` 403; `/api/admin/devices`,
+  `/api/offline/enroll` and `/api/auth/me` 401
 
 ## F. Acceptance
 
@@ -132,6 +158,11 @@ already exists in production.
 - Offline preparation, local activation, cached offline reload and offline
   login restoration: Playwright PASS.
 - Dual-role switching limits: unit and browser PASS.
+- Production deployment, migration, health and readiness: PASS.
+- Production authenticated login, MoMo form, Activity History screen and device
+  administration: BLOCKED. The production database contains no staging test
+  identities; no authorized production password was supplied, and no real user
+  password was reset or altered.
 - Real Android lifecycle, physical device revocation and field synchronization:
   BLOCKED until hardware is available.
 
@@ -143,5 +174,8 @@ already exists in production.
 2. IndexedDB is ordinary browser storage. It is tenant/user-scoped and minimized,
    but not encrypted against a person who controls the unlocked device.
 3. Real Android acceptance remains outstanding; Playwright is not a substitute.
-4. Production deployment and live verification evidence will be added after the
-   approved release is merged.
+4. Authenticated production acceptance remains blocked until an authorized
+   production test identity is supplied or the owner performs the documented
+   manual checks.
+5. Remote device revocation cannot take effect while a device is disconnected;
+   it is enforced on the next server contact, with local expiry still applied.
