@@ -4,7 +4,11 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getDailyAccountById, reviewDailyAccount } from "@/lib/actions/daily-account.actions";
+import {
+  confirmDailyHandover,
+  getDailyAccountById,
+  reviewDailyAccount,
+} from "@/lib/actions/daily-account.actions";
 import { resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
@@ -18,6 +22,10 @@ interface AccountDetail {
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
   reconciliationNote?: string | null;
+  actualAmountReceived?: number | null;
+  handoverDifference?: number | null;
+  handoverNote?: string | null;
+  handoverConfirmedAt?: Date | string | null;
   location: { id: string; name: string; code: string; address?: string | null; contactPhone?: string | null };
   worker: { id: string; fullName: string; email: string; phone?: string | null };
   expenses: Array<{ id: string; description: string; amount: number }>;
@@ -31,6 +39,9 @@ export default function ReportDetailPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [handoverAmount, setHandoverAmount] = useState("");
+  const [handoverNote, setHandoverNote] = useState("");
+  const [handoverSaving, setHandoverSaving] = useState(false);
   const handleRedirect = useRedirectHandler();
 
   useEffect(() => { loadAccount(); }, [params.id]);
@@ -38,6 +49,31 @@ export default function ReportDetailPage() {
   async function loadAccount() {
     try { const data = await getDailyAccountById(params.id as string); setAccount(data as unknown as AccountDetail); }
     catch { setError("Failed to load report"); } finally { setLoading(false); }
+  }
+
+  async function handleConfirmHandover() {
+    if (!account) return;
+    setHandoverSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const formData = new FormData();
+      formData.set("actualAmountReceived", handoverAmount.trim());
+      formData.set("handoverNote", handoverNote.trim());
+      const result = await confirmDailyHandover(account.id, formData);
+      if (result.success) {
+        setSuccess("Money received has been confirmed and recorded separately from the review.");
+        setHandoverAmount("");
+        setHandoverNote("");
+        loadAccount();
+      } else {
+        setError(result.error || "The handover could not be confirmed.");
+      }
+    } catch (err) {
+      if (handleRedirect(err, setError, "An unexpected error occurred")) return;
+    } finally {
+      setHandoverSaving(false);
+    }
   }
 
   async function handleReview() {
@@ -78,9 +114,11 @@ export default function ReportDetailPage() {
   const hasLegacyActivity =
     Number(account.totalCashIn) !== 0 ||
     Number(account.totalCashOut) !== 0 ||
-    Number(account.totalAirtimeSold) !== 0 ||
     Number(account.additionalCashReceived) !== 0 ||
     Number(account.additionalMomoFloat) !== 0;
+  const handoverConfirmed = Boolean(account.handoverConfirmedAt);
+  const handoverActual = Number(account.actualAmountReceived ?? 0);
+  const handoverDifference = Number(account.handoverDifference ?? 0);
   const differenceLabel = statusLabel(stored.status);
   const differenceTone =
     stored.status === "shortage" ? "text-red-600" : "text-green-600";
@@ -137,6 +175,13 @@ export default function ReportDetailPage() {
             <div className="flex justify-between"><span className="text-sm text-slate-600">Debts Collected</span><span className="font-mono text-sm"><CediAmount amount={account.debtsCollected} /></span></div>
             <div className="flex justify-between"><span className="text-sm text-slate-600">Commission</span><span className="font-mono text-sm"><CediAmount amount={account.commission} /></span></div>
             <div className="flex justify-between"><span className="text-sm text-slate-600">Expenses</span><span className="font-mono text-sm text-red-700"><CediAmount amount={account.totalExpenses} /></span></div>
+            <div className="flex justify-between rounded-lg bg-amber-50 px-2 py-1.5">
+              <span className="text-sm text-amber-900">
+                Airtime Sold
+                <span className="block text-xs text-amber-700">Operational record — not part of expected closing</span>
+              </span>
+              <span className="font-mono text-sm text-amber-950"><CediAmount amount={account.totalAirtimeSold} /></span>
+            </div>
             <div className="flex justify-between border-t border-slate-200 pt-2">
               <span className="text-sm font-semibold text-slate-700">Net daily profit / increase</span>
               <span className="font-mono text-sm font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></span>
@@ -149,7 +194,6 @@ export default function ReportDetailPage() {
                 <div className="mt-2 space-y-2 border-t pt-2">
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Customer deposit (Cash in)</span><span className="font-mono text-xs"><CediAmount amount={account.totalCashIn} /></span></div>
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Cash out</span><span className="font-mono text-xs"><CediAmount amount={account.totalCashOut} /></span></div>
-                  <div className="flex justify-between"><span className="text-xs text-slate-500">Airtime sold</span><span className="font-mono text-xs"><CediAmount amount={account.totalAirtimeSold} /></span></div>
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Additional cash received</span><span className="font-mono text-xs"><CediAmount amount={account.additionalCashReceived} /></span></div>
                   <div className="flex justify-between"><span className="text-xs text-slate-500">Additional MoMo float received</span><span className="font-mono text-xs"><CediAmount amount={account.additionalMomoFloat} /></span></div>
                 </div>
@@ -197,6 +241,101 @@ export default function ReportDetailPage() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="card">
+          <h3 className="font-semibold mb-1">Money Received</h3>
+          <p className="mb-4 text-xs text-slate-500">
+            Reviewing the account does not confirm that money was physically received.
+            Confirm the actual amount separately.
+          </p>
+          <div className="rounded-lg bg-slate-50 p-3">
+            <div className="flex justify-between gap-3 text-sm">
+              <span className="text-slate-600">Expected money to hand over</span>
+              <span className="font-semibold tnum"><CediAmount amount={expectedClosing} /></span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Opening total + commission + debts collected − total expenses.
+              Airtime Sold never changes this amount.
+            </p>
+          </div>
+
+          {handoverConfirmed ? (
+            <div className="mt-3 space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-emerald-900">Actual amount received</span>
+                <span className="font-bold tnum text-emerald-950">
+                  <CediAmount amount={handoverActual} />
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-emerald-900">Discrepancy</span>
+                <span
+                  className={`font-bold tnum ${
+                    handoverDifference === 0 ? "text-emerald-950" : "text-red-700"
+                  }`}
+                >
+                  <CediAmount amount={handoverDifference} showSign />
+                </span>
+              </div>
+              {account.handoverNote && (
+                <p className="text-xs text-emerald-900">
+                  Explanation: {account.handoverNote}
+                </p>
+              )}
+              <p className="text-xs text-emerald-800">
+                Confirmed{" "}
+                {account.handoverConfirmedAt
+                  ? formatDateTime(account.handoverConfirmedAt)
+                  : ""}
+                .
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <div className="form-group">
+                <label className="form-label" htmlFor="actual-received">
+                  Actual Amount Received (GH₵)
+                </label>
+                <input
+                  id="actual-received"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={handoverAmount}
+                  onChange={(event) => setHandoverAmount(event.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="handover-note">
+                  Explanation (required if it differs)
+                </label>
+                <textarea
+                  id="handover-note"
+                  rows={2}
+                  maxLength={500}
+                  value={handoverNote}
+                  onChange={(event) => setHandoverNote(event.target.value)}
+                  placeholder="Explain any difference between the expected and received amount."
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleConfirmHandover}
+                className="btn btn-primary w-full"
+                disabled={handoverSaving || handoverAmount.trim() === ""}
+                aria-busy={handoverSaving}
+              >
+                {handoverSaving ? "Confirming…" : "Confirm Money Received"}
+              </button>
+              <p className="text-xs text-slate-500">
+                The actual amount and any discrepancy are preserved. A mismatch is
+                never silently approved.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="card">

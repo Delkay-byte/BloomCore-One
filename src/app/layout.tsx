@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import EnvironmentBadge from "@/components/EnvironmentBadge";
 import TabSessionProvider from "@/components/TabSessionProvider";
+import OfflineBootstrap from "@/components/OfflineBootstrap";
+import OfflineSessionGuard from "@/components/OfflineSessionGuard";
 import ToastProvider from "@/components/ui/Toast";
 import {
   PRODUCT_DESCRIPTOR,
@@ -76,6 +78,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <ToastProvider>
           <TabSessionProvider />
+          <OfflineBootstrap />
+          <OfflineSessionGuard />
           <EnvironmentBadge />
           {children}
         </ToastProvider>

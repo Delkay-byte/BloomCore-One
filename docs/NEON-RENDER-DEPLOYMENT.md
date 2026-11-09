@@ -12,9 +12,12 @@ control plane and tenant-scoped business operations.
 |---|---|
 | GitHub repo | `https://github.com/Delkay-byte/BloomCore-One` (renamed in place from BIK-Prestige-Enterprise) |
 | Deployment branch | `main` |
-| Render service | `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0` (Oregon, Free) |
+| Primary Render service | `maacash` — `srv-dbnaciff3r2c7382tjgg` (Oregon, Free) |
+| Primary URL | `https://maacash.bloomcoretech.com` (verified custom domain) |
+| Primary Render URL | `https://maacash.onrender.com` |
+| Fallback Render service | `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0` (Oregon, Free; auto-deploy on `main`, no migration in build) |
+| Fallback URL | `https://bloomcore-one.onrender.com` |
 | Rollback service | `bik-prestige-legacy` — `srv-dbihvrmgekts73fdcbj0` (Oregon, Free; kept until the new host is confirmed, then deleted with owner approval) |
-| Live URL | `https://bloomcore-one.onrender.com` |
 | Neon project | `BIK Prestige` — database `neondb`, role `neondb_owner` |
 | Neon server | PostgreSQL 18.6, AWS `us-east-2` (Ohio) |
 | Prisma | 6.19.3 |

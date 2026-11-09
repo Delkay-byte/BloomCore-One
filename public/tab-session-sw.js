@@ -33,6 +33,13 @@ const STORE = "credentials";
 const MAX_MAPPING_AGE_MS = 8 * 60 * 60 * 1000;
 const ASSERTION_REFRESH_MARGIN_SECONDS = 25;
 
+// Offline application shell cache. It is namespaced by a non-secret local scope
+// (tenant:user) so one account's cached page is never served to another.
+const APP_CACHE_PREFIX = "maacash-app-v3:";
+const STATIC_CACHE = "maacash-static-v3";
+const SCOPE_META_URL = new URL("/__maacash/offline-scope", self.location.origin).href;
+
+let activeOfflineScope = null;
 const memory = new Map();
 
 function toBase64Url(bytes) {
@@ -259,6 +266,128 @@ async function bootstrap(sourceId, token) {
   memory.set(sourceId, mapping);
 }
 
+function safeScope(scope) {
+  return String(scope || "").replace(/[^A-Za-z0-9:_-]/g, "_").slice(0, 180);
+}
+
+function appCacheName(scope) {
+  return `${APP_CACHE_PREFIX}${safeScope(scope)}`;
+}
+
+async function setActiveOfflineScope(scope) {
+  const value = typeof scope === "string" ? scope : "";
+  activeOfflineScope = value || null;
+  try {
+    const cache = await caches.open(STATIC_CACHE);
+    await cache.put(
+      new Request(SCOPE_META_URL),
+      new Response(JSON.stringify({ scope: activeOfflineScope }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+  } catch {
+    // Memory still works for this worker lifetime.
+  }
+}
+
+async function getActiveOfflineScope() {
+  if (activeOfflineScope) return activeOfflineScope;
+  try {
+    const cache = await caches.open(STATIC_CACHE);
+    const response = await cache.match(new Request(SCOPE_META_URL));
+    if (!response) return null;
+    const data = await response.json();
+    activeOfflineScope = typeof data.scope === "string" ? data.scope : null;
+  } catch {
+    activeOfflineScope = null;
+  }
+  return activeOfflineScope;
+}
+
+function pageKey(url) {
+  return new Request(new URL(url.pathname, url.origin));
+}
+
+async function cachePage(scope, url, response) {
+  if (!scope || !response || !response.ok || response.redirected) return;
+  try {
+    const cache = await caches.open(appCacheName(scope));
+    await cache.put(pageKey(url), response);
+  } catch {
+    // best effort
+  }
+}
+
+async function cachedPage(scope, url) {
+  if (!scope) return null;
+  try {
+    const cache = await caches.open(appCacheName(scope));
+    return (await cache.match(pageKey(url))) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheAsset(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl, self.location.origin);
+  } catch {
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
+  try {
+    const cache = await caches.open(STATIC_CACHE);
+    if (await cache.match(url.href)) return;
+    const response = await fetch(new Request(url.href, { credentials: "same-origin" }));
+    if (response.ok) await cache.put(url.href, response);
+  } catch {
+    // best effort
+  }
+}
+
+/**
+ * Cache every Next.js asset referenced by a warmed page. Without this the page
+ * HTML could be available offline while its JavaScript chunks were not.
+ */
+async function warmAssetsFromHtml(response) {
+  try {
+    const html = await response.text();
+    const urls = new Set();
+    const pattern = /(?:src|href)="(\/_next\/static\/[^"?#]+[^"]*)"/g;
+    let match;
+    while ((match = pattern.exec(html)) !== null) urls.add(match[1]);
+    await Promise.all(Array.from(urls).map((url) => cacheAsset(url)));
+  } catch {
+    // best effort
+  }
+}
+
+async function clearAppCaches() {
+  try {
+    const names = await caches.keys();
+    await Promise.all(
+      names
+        .filter((name) => name.startsWith(APP_CACHE_PREFIX))
+        .map((name) => caches.delete(name))
+    );
+    const staticCache = await caches.open(STATIC_CACHE);
+    await staticCache.delete(new Request(SCOPE_META_URL));
+  } finally {
+    activeOfflineScope = null;
+  }
+}
+
+function offlineFallbackResponse() {
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline setup required</title></head><body style="font-family:system-ui,sans-serif;padding:2rem;line-height:1.5;color:#0f172a"><h1 style="font-size:1.25rem">This device is not ready for offline work</h1><p>MaaCash needs an initial online sign-in and device preparation before it can open without internet.</p><p>Connect to the internet, sign in, and let the device prepare. Saved records already on this device are not deleted.</p></body></html>`,
+    {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    }
+  );
+}
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
@@ -268,6 +397,20 @@ self.addEventListener("activate", (event) => {
     (async () => {
       await self.clients.claim();
       await pruneMappings();
+      try {
+        const names = await caches.keys();
+        await Promise.all(
+          names
+            .filter(
+              (name) =>
+                (name.startsWith("maacash-app-v2:") ||
+                  name === "maacash-static-v2")
+            )
+            .map((name) => caches.delete(name))
+        );
+      } catch {
+        // Cache cleanup is best effort.
+      }
     })()
   );
 });
@@ -304,12 +447,32 @@ self.addEventListener("message", (event) => {
     return;
   }
 
+  if (data.type === "offline-scope") {
+    event.waitUntil(
+      setActiveOfflineScope(typeof data.scope === "string" ? data.scope : "")
+    );
+    return;
+  }
+
+  if (data.type === "clear-app-cache") {
+    event.waitUntil(
+      (async () => {
+        await clearAppCaches();
+        if (event.source && "postMessage" in event.source) {
+          event.source.postMessage({ type: "offline-cache-cleared" });
+        }
+      })()
+    );
+    return;
+  }
+
   if (data.type === "status") {
     const mapping = memory.get(sourceId);
     if (event.source && "postMessage" in event.source) {
       event.source.postMessage({
         type: "status",
         authenticated: Boolean(mapping && mapping.privateKey),
+        offlineScope: activeOfflineScope,
       });
     }
   }
@@ -376,6 +539,61 @@ self.addEventListener("fetch", (event) => {
           cache: "no-store",
         });
       }
+
+      if (event.request.method !== "GET") return fetch(forwarded);
+
+      // A page fetch issued by prepareOfflineAccess() is not `mode: navigate`.
+      // Treat the explicit warm request as a page so its response is cached
+      // under the same key a later offline navigation will read.
+      const warm = event.request.headers.get("x-maacash-offline-warm") === "1";
+      const isNavigation = event.request.mode === "navigate" || warm;
+      const isStatic =
+        url.pathname.startsWith("/_next/static/") ||
+        url.pathname === "/manifest.json" ||
+        /\.(?:css|js|mjs|woff2?|ttf|png|jpe?g|svg|webp|ico)$/i.test(url.pathname);
+
+      // App code and branding are shared by every account and contain no user
+      // data. Cache-first avoids re-downloading the shell on a weak connection.
+      if (isStatic && !isNavigation) {
+        try {
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          const response = await fetch(forwarded);
+          if (response.ok) {
+            const cache = await caches.open(STATIC_CACHE);
+            await cache.put(event.request, response.clone());
+          }
+          return response;
+        } catch {
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          throw new Error("offline_static_asset_unavailable");
+        }
+      }
+
+      if (isNavigation) {
+        const requestedScope =
+          event.request.headers.get("x-maacash-offline-scope") ||
+          (await getActiveOfflineScope());
+        try {
+          const response = await fetch(forwarded);
+          if (response.ok && !response.redirected && requestedScope) {
+            await cachePage(requestedScope, url, response.clone());
+            if (warm) await warmAssetsFromHtml(response.clone());
+          }
+          return response;
+        } catch {
+          const cached = await cachedPage(requestedScope, url);
+          if (cached) return cached;
+          const login = await cachedPage(
+            requestedScope,
+            new URL("/login", self.location.origin)
+          );
+          if (login) return login;
+          return offlineFallbackResponse();
+        }
+      }
+
       return fetch(forwarded);
     })()
   );

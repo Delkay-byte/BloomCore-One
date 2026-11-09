@@ -2,14 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, "security/**"]
+    branches: [main, "security/**", "release/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  verify:
-    name: Lint, typecheck, test, build
+  sqlite-verify:
+    name: SQLite generate, lint, typecheck, tests and build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,10 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Generate SQLite Prisma client
         run: npx prisma generate
 
-      - name: Prepare test database (SQLite)
+      - name: Prepare disposable SQLite test database
         run: npx prisma db push --skip-generate
         env:
           DATABASE_URL: file:../tests/test.db
@@ -41,12 +41,11 @@ jobs:
       - name: Security dependency audit (critical only)
         run: npm audit --audit-level=critical
 
-      - name: Tests (functional + security regression)
+      - name: SQLite functional and security tests
         run: npm test
         env:
           JWT_SECRET: ci-test-secret-not-for-production
           DATABASE_URL: file:../tests/test.db
-          # Turnstile is exercised with mocked responses in the test suite.
           TURNSTILE_ENABLED: "false"
           RATE_LIMIT_HMAC_SECRET: ci-rate-limit-key-not-for-production-32b
           MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -54,7 +53,105 @@ jobs:
       - name: Production build
         run: npm run build
         env:
-          # The build itself never uses real secrets; middleware requires the
-          # variable to exist. Real secrets live only in Render's environment.
           JWT_SECRET: ci-test-secret-not-for-production
           DATABASE_URL: file:../tests/test.db
+
+  postgres-verify:
+    name: PostgreSQL migration rehearsal and integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maacash
+          POSTGRES_PASSWORD: disposable-ci-password
+          POSTGRES_DB: maacash_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maacash -d maacash_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PG_TEST_USER: maacash
+      PG_TEST_PASSWORD: disposable-ci-password
+      PG_TEST_HOST: 127.0.0.1
+      PG_TEST_PORT: "5432"
+      PG_TEST_DB: maacash_test
+      PG_TEST_CONFIRM: DISPOSABLE_TEST_DATABASE
+      JWT_SECRET: ci-test-secret-not-for-production
+      TURNSTILE_ENABLED: "false"
+      RATE_LIMIT_HMAC_SECRET: ci-rate-limit-key-not-for-production-32b
+      MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build disposable PostgreSQL connection variables
+        shell: bash
+        run: |
+          url="postgresql://${PG_TEST_USER}:${PG_TEST_PASSWORD}@${PG_TEST_HOST}:${PG_TEST_PORT}/${PG_TEST_DB}"
+          echo "DATABASE_URL=${url}" >> "$GITHUB_ENV"
+          echo "DIRECT_URL=${url}" >> "$GITHUB_ENV"
+          echo "PG_DATABASE_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Generate PostgreSQL Prisma client
+        run: npx prisma generate --schema=prisma/schema-pg.prisma
+
+      - name: Migration rehearsal on an empty disposable database
+        run: npx prisma migrate deploy --schema=prisma/schema-pg.prisma
+
+      - name: Confirm migration status
+        run: npx prisma migrate status --schema=prisma/schema-pg.prisma
+
+      - name: Schema drift check
+        run: >-
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma/schema-pg.prisma
+          --exit-code
+
+      - name: PostgreSQL integration tests
+        run: npx vitest run --config vitest.pg.config.ts
+
+  mobile-browser:
+    name: Mobile browser and offline-shell tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Mobile browser tests
+        run: npm run test:e2e -- --project=mobile-chromium
+        env:
+          CI: "true"
+          JWT_SECRET: e2e-secret-not-for-production
+          TURNSTILE_ENABLED: "false"
+          RATE_LIMIT_HMAC_SECRET: e2e-rate-limit-secret-32-bytes-long
+          MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BrandLockup } from "@/components/brand/Brand";
+import OfflineSessionPrompt from "@/components/OfflineSessionPrompt";
 
 type RoleKey = "customer" | "momo" | "susu";
 
@@ -469,7 +470,10 @@ function Shell({
           </div>
         </section>
 
-        <section className="mx-auto w-full max-w-md lg:max-w-none">{children}</section>
+        <section className="mx-auto w-full max-w-md lg:max-w-none">
+          <OfflineSessionPrompt />
+          {children}
+        </section>
       </main>
 
       <footer className="border-t border-line">

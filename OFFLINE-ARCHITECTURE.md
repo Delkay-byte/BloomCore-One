@@ -1,6 +1,8 @@
 # OFFLINE ARCHITECTURE — BIK Prestige Enterprise
 
-> **Status: PARTIALLY IMPLEMENTED**
+> **Status: PARTIALLY IMPLEMENTED — Susu collector offline readiness, local
+> activation, offline page cache and offline session restore are implemented.
+> MoMo financial postings still require a connection.**
 > Susu collector contributions can be queued offline and synchronized with
 > idempotency. Pending records are preserved across sign-out and account
 > switching. See `docs/OFFLINE-RELIABILITY.md` for the implemented behaviour,

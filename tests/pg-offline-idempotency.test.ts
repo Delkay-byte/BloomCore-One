@@ -12,6 +12,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { assertDisposablePostgresTarget } from "./pg-safety";
+
+const pgTarget = assertDisposablePostgresTarget(process.env.PG_DATABASE_URL);
 
 const state = vi.hoisted(() => ({
   userId: "",
@@ -41,7 +44,9 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { normalizeContributionPayload } from "@/lib/offline/payload";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: { db: { url: pgTarget.url } },
+});
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`

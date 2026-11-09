@@ -101,6 +101,13 @@ model DailyAccount {
   calculatedDifference   Decimal @default(0)
   differenceStatus       String  @default("balanced")
   reconciliationNote     String?
+  // Physical handover confirmation. Separate from accounting review: a reviewed
+  // account does not prove the money was received.
+  actualAmountReceived Decimal?
+  handoverDifference   Decimal?
+  handoverNote         String?
+  handoverConfirmedAt  DateTime?
+  handoverConfirmedBy  String?
 
   status           String    @default("draft")
   submittedAt      DateTime?

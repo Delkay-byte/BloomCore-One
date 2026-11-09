@@ -119,6 +119,27 @@ export async function clearTabSession(): Promise<void> {
   worker.postMessage({ type: "clear" });
 }
 
+/**
+ * Remove cached application pages at sign-out. Unsynchronized financial records
+ * live in their own scoped IndexedDB database and are deliberately untouched.
+ */
+export async function clearOfflineAppCache(): Promise<void> {
+  if (!tabSessionsSupported()) return;
+  const worker = navigator.serviceWorker.controller;
+  if (!worker) return;
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 1200);
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "offline-cache-cleared") return;
+      clearTimeout(timer);
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+      resolve();
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    worker.postMessage({ type: "clear-app-cache" });
+  });
+}
+
 export async function refreshTabSessionStatus(): Promise<boolean> {
   if (!tabSessionsSupported()) return false;
   const worker = navigator.serviceWorker.controller;
