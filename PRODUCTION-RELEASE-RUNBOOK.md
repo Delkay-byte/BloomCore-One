@@ -9,16 +9,15 @@
 |---|---|
 | Primary service | `maacash` — `srv-dbnaciff3r2c7382tjgg`, Oregon, branch `main` |
 | Primary URL | `https://maacash.bloomcoretech.com` (verified Render custom domain) |
-| Render URL | `https://maacash.onrender.com` |
-| Fallback service | `bloomcore-one` — `srv-dbjalrk9v7es739ifkp0`, auto-deploy on `main` |
-| Fallback URL | `https://bloomcore-one.onrender.com` |
+| Render transition URL | `https://maacash.onrender.com` |
 | Production database | Neon PostgreSQL `neondb`, schema `public` |
 
-The custom domain is canonical. `maacash.onrender.com` and
-`bloomcore-one.onrender.com` remain operational transition addresses and must
-not be redirected until the owner confirms unsynchronized offline records have
-been synchronized on the old origins. Old-host users must sign in again and
-prepare offline access again on `https://maacash.bloomcoretech.com`.
+The custom domain is canonical. The former `bloomcore-one` service was deleted
+as a duplicate runtime. `maacash.onrender.com` remains an operational
+transition address and must not be disabled until the owner confirms
+unsynchronized offline records have been synchronized on that origin. Old-host
+users must sign in again and prepare offline access again on
+`https://maacash.bloomcoretech.com`.
 
 The application build performs **no database migration**. Apply schema changes
 as a separate operator step from a trusted machine:
@@ -48,7 +47,6 @@ endpoints report the expected commit SHA:
 ```bash
 curl -s https://maacash.bloomcoretech.com/api/health
 curl -s -o /dev/null -w '%{http_code}\n' https://maacash.bloomcoretech.com/api/health/ready
-curl -s https://bloomcore-one.onrender.com/api/health
 ```
 
 ## Historical release record (2026-10-31)
@@ -185,9 +183,9 @@ git push origin promotion/multitenant-saas:main   # fast-forward only, never --f
 Then confirm the deployed SHA, not the deploy event:
 
 ```bash
-curl -s https://bloomcore-one.onrender.com/api/health
+curl -s https://maacash.bloomcoretech.com/api/health
 # commit must equal the promoted main SHA
-curl -s -o /dev/null -w '%{http_code}\n' https://bloomcore-one.onrender.com/api/health/ready
+curl -s -o /dev/null -w '%{http_code}\n' https://maacash.bloomcoretech.com/api/health/ready
 ```
 
 ## Stage 6 — Backfill verification SQL

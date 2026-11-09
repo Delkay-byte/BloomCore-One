@@ -15,7 +15,7 @@ function read(name: string): string {
 describe("production blueprint", () => {
   it("requires MFA for the production service", () => {
     const yaml = read("render.yaml");
-    expect(yaml).toMatch(/name: bloomcore-one\r?\n/);
+    expect(yaml).toMatch(/name: maacash\r?\n/);
     expect(yaml).toMatch(/MFA_ENFORCEMENT[\s\S]{0,40}value: "enforce"/);
     expect(yaml).not.toMatch(/MFA_ENFORCEMENT[\s\S]{0,40}value: "optional"/);
   });

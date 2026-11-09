@@ -111,7 +111,6 @@ export interface TurnstileConfig {
 const DEFAULT_TURNSTILE_HOSTNAMES = [
   "maacash.bloomcoretech.com",
   "maacash.onrender.com",
-  "bloomcore-one.onrender.com",
 ];
 
 export function turnstileConfig(): TurnstileConfig {
