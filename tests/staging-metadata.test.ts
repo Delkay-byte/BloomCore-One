@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const STAGING_URL = "https://bloomcore-one-staging.onrender.com";
-const PRODUCTION_URL = "https://bloomcore-one.onrender.com";
+const PRODUCTION_URL = "https://maacash.bloomcoretech.com";
 
 function configure(appEnv: string, siteUrl: string) {
   vi.stubEnv("APP_ENV", appEnv);

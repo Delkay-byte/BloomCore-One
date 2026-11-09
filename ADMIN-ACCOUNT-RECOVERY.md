@@ -71,7 +71,7 @@ WHERE id = '<admin-user-id>';
 
 #### 6. Admin Logs In
 
-1. Go to `https://bloomcore-one.onrender.com/login`
+1. Go to `https://maacash.bloomcoretech.com/login`
 2. Log in with the admin email and the temporary password
 3. The system will redirect to **Settings → Change Password**
 4. Choose a new strong password

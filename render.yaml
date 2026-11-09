@@ -1,12 +1,14 @@
 # Render Deployment Blueprint — MaaCash (Neon)
 # https://render.com/docs/blueprint-spec
 #
-# Scope: describes the Neon-backed production service `bloomcore-one`
-# (srv-dbjalrk9v7es739ifkp0). The service identifier and its onrender.com
-# hostname are intentionally preserved after the MaaCash rebrand: they are
-# infrastructure contracts used by Paystack webhooks, Turnstile host checks and
-# OIDC redirect URIs. The public product identity is MaaCash. Rename the
-# service only as a separately approved migration with all callbacks updated.
+# Scope: describes the Neon-backed recovery service `bloomcore-one`
+# (srv-dbjalrk9v7es739ifkp0). The primary MaaCash service is `maacash`
+# (srv-dbnaciff3r2c7382tjgg); its canonical public origin is
+# https://maacash.bloomcoretech.com. The `bloomcore-one` identifier and its
+# onrender.com hostname are intentionally preserved: they are infrastructure
+# contracts used by Paystack webhooks, Turnstile host checks and OIDC redirect
+# URIs. Keep both Render hostnames reachable during the domain transition,
+# because offline records are origin-scoped.
 # Do not run "New → Blueprint" against this branch unless both services are
 # first deleted, or a duplicate will be created.
 #
@@ -33,6 +35,12 @@ services:
         value: production
       - key: APP_ENV
         value: PILOT
+      # Canonical public origin. The custom domain is the public identity; the
+      # onrender.com hosts remain operational transition addresses.
+      - key: SITE_URL
+        value: "https://maacash.bloomcoretech.com"
+      - key: NEXT_PUBLIC_SITE_URL
+        value: "https://maacash.bloomcoretech.com"
       # Secrets are set in the Render dashboard (sync: false = never stored in Git).
       - key: DATABASE_URL
         sync: false
@@ -54,11 +62,11 @@ services:
       - key: TURNSTILE_ENABLED
         value: "false"
       - key: TURNSTILE_ALLOWED_HOSTNAMES
-        value: "bloomcore-one.onrender.com"
+        value: "maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com"
       - key: TRUSTED_PROXY_HEADERS
         value: "true"
       - key: NEXTAUTH_URL
-        sync: false
+        value: "https://maacash.bloomcoretech.com"
       - key: SESSION_IDLE_TIMEOUT_SECONDS
         value: "28800"
       - key: SESSION_BACKGROUND_TIMEOUT_SECONDS

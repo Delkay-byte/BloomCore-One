@@ -41,7 +41,7 @@ reject the request. The browser widget rendering is irrelevant to the decision.
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Render build env | Site key from Cloudflare |
 | `TURNSTILE_SECRET_KEY` | Render runtime env | Secret key from Cloudflare |
 | `TURNSTILE_ENABLED` | Render runtime env | `false` until rollout step 4 |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | Render runtime env | `bloomcore-one.onrender.com` |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | Render runtime env | `maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com` during the domain transition |
 
 The site key is public by design. The secret key must never be placed in a
 `NEXT_PUBLIC_*` variable, committed, pasted into chat, or logged.
@@ -51,14 +51,15 @@ The site key is public by design. The secret key must never be placed in a
 1. Sign in to <https://dash.cloudflare.com/>.
 2. Go to **Turnstile → Add widget**.
 3. Widget name: `MaaCash`.
-4. Hostnames: add `bloomcore-one.onrender.com` (and any custom domain you will
-   use later).
+4. Hostnames: add `maacash.bloomcoretech.com`, and keep
+   `maacash.onrender.com` and `bloomcore-one.onrender.com` until the owner
+   confirms the old origins can retire.
 5. Widget mode: **Managed**.
 6. Copy the **Site Key** and **Secret Key**.
 7. In Render → `bloomcore-one` → Environment, add:
    - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = site key
    - `TURNSTILE_SECRET_KEY` = secret key
-   - `TURNSTILE_ALLOWED_HOSTNAMES` = `bloomcore-one.onrender.com`
+   - `TURNSTILE_ALLOWED_HOSTNAMES` = `maacash.bloomcoretech.com,maacash.onrender.com,bloomcore-one.onrender.com`
    - keep `TURNSTILE_ENABLED=false` for this deploy.
 8. Save and let Render redeploy (the public site key is embedded at build time).
 9. Verify a normal login still works with Turnstile disabled.
