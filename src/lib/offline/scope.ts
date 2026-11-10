@@ -14,10 +14,37 @@ import {
   getCurrentOfflineContext,
   offlineContextExpired,
 } from "./device-store";
+import { activeWorkspaceModule } from "./active-module";
+import type { ModuleName } from "@/lib/auth";
 
 export interface OfflineScope {
   tenantId: string;
   userId: string;
+}
+
+/**
+ * Why a scope could not be established. These are deliberately distinct so the
+ * UI can tell "not signed in" apart from "this workspace has no tenant", a
+ * temporary network failure or a genuine storage problem. They must never be
+ * collapsed into "your records are gone".
+ */
+export type OfflineScopeFailure =
+  | "unauthenticated"
+  | "no_tenant"
+  | "module_mismatch"
+  | "network"
+  | "timeout"
+  | "offline_expired"
+  | "unavailable";
+
+export class OfflineScopeError extends Error {
+  constructor(
+    public readonly code: OfflineScopeFailure,
+    message: string
+  ) {
+    super(message);
+    this.name = "OfflineScopeError";
+  }
 }
 
 let cachedScope: OfflineScope | null = null;
@@ -83,17 +110,59 @@ export function offlineDatabaseName(scope: OfflineScope): string {
   return `bik-prestige-offline:v2:${safe(scope.tenantId)}:${safe(scope.userId)}`;
 }
 
-async function resolveScope(): Promise<OfflineScope> {
-  // Resolve the module-neutral identity. The previous implementation always
-  // asked for `module=susu`, so a MoMo-only worker or administrator received a
-  // 401 and every draft write failed. `/api/auth/me` already resolves the
-  // caller's own role and tenant on the server; the browser cannot choose one.
+/**
+ * A prepared context may cover both staff modules for the SAME tenant/user, so
+ * it may serve either staff workspace. It must never be used for a different
+ * module surface, and it must still be within its authorization window.
+ */
+function preparedScopeFor(
+  module: ModuleName | undefined,
+  context: Awaited<ReturnType<typeof getCurrentOfflineContext>>
+): OfflineScope {
+  if (!context) {
+    throw new OfflineScopeError(
+      "network",
+      "The server could not be reached and this device has no prepared offline context."
+    );
+  }
+  if (offlineContextExpired(context)) {
+    throw new OfflineScopeError(
+      "offline_expired",
+      "Offline authorization has expired. Reconnect to continue. Saved records remain on this device."
+    );
+  }
+  if (module === "admin" || module === "customer") {
+    throw new OfflineScopeError(
+      "network",
+      "The server could not be reached. Reconnect to open this workspace's saved records."
+    );
+  }
+  if (module && !context.modules.includes(module)) {
+    throw new OfflineScopeError(
+      "module_mismatch",
+      "This device is not prepared for this workspace. Reconnect once and prepare offline access."
+    );
+  }
+  return { tenantId: context.tenantId, userId: context.userId };
+}
+
+async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
+  // Ask about the workspace this tab is actually in. The previous
+  // module-neutral request could resolve a different module's session for a
+  // dual-role account, so the tenant lookup (derived from the primary role)
+  // disagreed with the session that was found. The module is only a routing
+  // hint: `/api/auth/me` still verifies that module's credential server-side.
+  const requestedModule = module ?? activeWorkspaceModule() ?? undefined;
+  const endpoint = requestedModule
+    ? `/api/auth/me?module=${encodeURIComponent(requestedModule)}`
+    : "/api/auth/me";
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SCOPE_TIMEOUT_MS);
   try {
     let response: Response;
     try {
-      response = await fetch("/api/auth/me", {
+      response = await fetch(endpoint, {
         cache: "no-store",
         credentials: "same-origin",
         signal: controller.signal,
@@ -103,22 +172,76 @@ async function resolveScope(): Promise<OfflineScope> {
       // previously prepared, use its locally stored, server-approved identity
       // so offline status and the local queue remain readable. A real 401/403
       // below still fails closed.
-      const context = await getCurrentOfflineContext();
-      if (!context) throw error;
-      if (offlineContextExpired(context)) {
-        throw new Error("Offline authorization has expired. Reconnect to continue.");
+      if (controller.signal.aborted) {
+        const context = await getCurrentOfflineContext();
+        if (!context) {
+          throw new OfflineScopeError(
+            "timeout",
+            "The server did not answer in time and this device has no prepared offline context."
+          );
+        }
+        const scope = preparedScopeFor(requestedModule, context);
+        setOfflineScope(scope);
+        return scope;
       }
-      const scope = { tenantId: context.tenantId, userId: context.userId };
+      const context = await getCurrentOfflineContext();
+      if (!context) {
+        throw new OfflineScopeError(
+          "network",
+          error instanceof Error
+            ? error.message
+            : "The server could not be reached."
+        );
+      }
+      const scope = preparedScopeFor(requestedModule, context);
       setOfflineScope(scope);
       return scope;
     }
-    if (!response.ok) throw new Error("Not authenticated for offline storage");
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        // Explicit server denial. Never fall back to cached context here.
+        throw new OfflineScopeError(
+          "unauthenticated",
+          "Not authenticated for offline storage"
+        );
+      }
+      throw new OfflineScopeError(
+        "unavailable",
+        `The identity service answered ${response.status}. Try again.`
+      );
+    }
+
     const data = (await response.json()) as {
       userId?: string;
+      module?: string;
       tenant?: { id?: string } | null;
     };
-    if (!data.userId || !data.tenant?.id) {
-      throw new Error("No tenant scope for offline storage");
+
+    if (requestedModule && data.module && data.module !== requestedModule) {
+      // The server must answer for the module that was asked about. A mismatch
+      // means the caller would store records under the wrong workspace.
+      throw new OfflineScopeError(
+        "module_mismatch",
+        "The server resolved a different workspace than the one requested."
+      );
+    }
+    if (!data.userId) {
+      throw new OfflineScopeError(
+        "unauthenticated",
+        "The identity response did not identify a user."
+      );
+    }
+    if (!data.tenant?.id) {
+      // HTTP 200 with no tenant is a real "this workspace has no business
+      // context" answer, not a network failure. Do not open an unscoped or
+      // guessed database.
+      throw new OfflineScopeError(
+        "no_tenant",
+        requestedModule
+          ? "The signed-in business could not be confirmed for this workspace."
+          : "No tenant scope for offline storage"
+      );
     }
     const scope = { tenantId: data.tenant.id, userId: data.userId };
     setOfflineScope(scope);
@@ -128,10 +251,10 @@ async function resolveScope(): Promise<OfflineScope> {
   }
 }
 
-export async function getOfflineScope(): Promise<OfflineScope> {
+export async function getOfflineScope(module?: ModuleName): Promise<OfflineScope> {
   if (cachedScope) return cachedScope;
   if (!pendingScope) {
-    pendingScope = resolveScope().finally(() => {
+    pendingScope = resolveScope(module ?? activeWorkspaceModule() ?? undefined).finally(() => {
       pendingScope = null;
     });
   }

@@ -13,6 +13,11 @@
 
 import { getCollectorDashboardStats } from "@/lib/actions/susu-dashboard.actions";
 import { ensureTabSessionWorker } from "@/lib/security/tab-session-client";
+import type { ModuleName } from "@/lib/auth";
+import {
+  activeWorkspaceModule,
+  isOfflineModule,
+} from "./active-module";
 import {
   OFFLINE_AUTH_TIMEOUT_MS,
   blockOfflineModules,
@@ -61,6 +66,7 @@ interface MePayload {
   userId?: string;
   fullName?: string;
   role?: string;
+  module?: string;
   momoEnabled?: boolean;
   susuEnabled?: boolean;
   tenant?: { id?: string; name?: string; modules?: string[] } | null;
@@ -222,13 +228,15 @@ async function enrollModule(
  * cached application shell, and (for Susu) a freshly downloaded authorized
  * customer list.
  */
-export function prepareOfflineAccess(): Promise<PreparationResult> {
+export function prepareOfflineAccess(
+  module?: ModuleName
+): Promise<PreparationResult> {
   if (preparationPromise) return preparationPromise;
   preparationInProgress = true;
   notifyOfflineStatusChanged();
   preparationPromise = (async () => {
     try {
-      return await runOfflinePreparation();
+      return await runOfflinePreparation(module);
     } finally {
       preparationInProgress = false;
       preparationPromise = null;
@@ -238,7 +246,9 @@ export function prepareOfflineAccess(): Promise<PreparationResult> {
   return preparationPromise;
 }
 
-async function runOfflinePreparation(): Promise<PreparationResult> {
+async function runOfflinePreparation(
+  requestedModule?: ModuleName
+): Promise<PreparationResult> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
       return {
         ok: false,
@@ -250,9 +260,27 @@ async function runOfflinePreparation(): Promise<PreparationResult> {
       };
     }
 
+    const activeModule =
+      requestedModule ?? activeWorkspaceModule() ?? undefined;
+    if (activeModule && !isOfflineModule(activeModule)) {
+      return {
+        ok: false,
+        context: await getCurrentOfflineContext(),
+        preparedModules: [],
+        failedModules: [],
+        message:
+          "Offline field access is available to agents and collectors only.",
+      };
+    }
+
     let me: MePayload | null = null;
     try {
-      const response = await fetch("/api/auth/me", {
+      // Validate the workspace the user is actually in. A module-neutral request
+      // could resolve a different module's session for a dual-role account.
+      const endpoint = activeModule
+        ? `/api/auth/me?module=${encodeURIComponent(activeModule)}`
+        : "/api/auth/me";
+      const response = await fetch(endpoint, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -262,7 +290,10 @@ async function runOfflinePreparation(): Promise<PreparationResult> {
           context: null,
           preparedModules: [],
           failedModules: [],
-          message: "Sign in online before preparing this device for offline use.",
+          message:
+            response.status === 401 || response.status === 403
+              ? "Sign in to this workspace online before preparing this device for offline use."
+              : "Sign in online before preparing this device for offline use.",
         };
       }
       me = (await response.json()) as MePayload;
@@ -288,6 +319,16 @@ async function runOfflinePreparation(): Promise<PreparationResult> {
         message: "The signed-in business could not be confirmed.",
       };
     }
+    if (activeModule && me?.module && me.module !== activeModule) {
+      return {
+        ok: false,
+        context: null,
+        preparedModules: [],
+        failedModules: [],
+        message:
+          "The server resolved a different workspace than this page. Reload and sign in again.",
+      };
+    }
 
     if (me.role !== "worker" && me.role !== "collector") {
       return {
@@ -300,6 +341,16 @@ async function runOfflinePreparation(): Promise<PreparationResult> {
     }
 
     const modules = authorizedModules(me);
+    if (activeModule && !modules.includes(activeModule)) {
+      return {
+        ok: false,
+        context: null,
+        preparedModules: [],
+        failedModules: [],
+        message:
+          "This account is not authorized for offline work in this workspace.",
+      };
+    }
     if (modules.length === 0) {
       return {
         ok: false,

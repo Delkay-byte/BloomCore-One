@@ -175,7 +175,7 @@ export default function CollectorDashboardPage({
           const readiness = await getOfflineReadiness("susu");
           applyOfflineReadiness(readiness);
           if (readiness.status === "preparation_required" || readiness.status === "expired") {
-            const result = await prepareOfflineAccess();
+            const result = await prepareOfflineAccess("susu");
             if (result.ok) {
               applyOfflineReadiness(await getOfflineReadiness("susu"));
             }
@@ -222,6 +222,11 @@ export default function CollectorDashboardPage({
         const did = await getOrCreateDeviceId();
         if (cancelled) return;
         setDeviceId(did);
+        // The server page already resolved this identity through
+        // requireTenantCollector(). Seed the local scope with those trusted
+        // values so the queue opens for the same tenant/user even before any
+        // browser-side identity request completes.
+        setOfflineScope({ tenantId, userId });
         await hydrateOfflineAuthorization();
         let readiness = await getOfflineReadiness("susu");
         if (cancelled) return;
@@ -235,7 +240,7 @@ export default function CollectorDashboardPage({
           readiness.status !== "active"
         ) {
           setPreparingOffline(true);
-          const result = await prepareOfflineAccess();
+          const result = await prepareOfflineAccess("susu");
           if (!cancelled) {
             readiness = await getOfflineReadiness("susu");
             applyOfflineReadiness(readiness);
@@ -354,7 +359,7 @@ export default function CollectorDashboardPage({
     try {
       const did = await getOrCreateDeviceId();
       setDeviceId(did);
-      const result = await prepareOfflineAccess();
+      const result = await prepareOfflineAccess("susu");
       const readiness = await getOfflineReadiness("susu");
       applyOfflineReadiness(readiness);
       if (!result.ok) {
@@ -775,7 +780,7 @@ export default function CollectorDashboardPage({
         </div>
       )}
 
-      <OfflineSyncStatus />
+      <OfflineSyncStatus module="susu" />
 
       {/* Pending Sync Banner */}
       {pendingTxs.length > 0 && (

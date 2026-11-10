@@ -15,7 +15,11 @@ import {
   closeCurrentOfflineSession,
   offlineDatabaseName,
   isDatabasePresent,
+  OfflineScopeError,
+  type OfflineScopeFailure,
 } from "./scope";
+import { activeWorkspaceModule, isOfflineModule } from "./active-module";
+import type { ModuleName } from "@/lib/auth";
 import { coordinateDatabaseClosure } from "./coordination";
 import {
   getOfflineQueueSummary,
@@ -313,6 +317,16 @@ export interface OfflineStatus {
   readiness: OfflineReadiness;
   /** False only when the local queue itself could not be read. */
   available: boolean;
+  /**
+   * Whether the authenticated tenant/user scope was confirmed. Kept separate
+   * from `available`: a failed identity check is not an IndexedDB failure, and
+   * neither one means records were deleted.
+   */
+  scope: {
+    resolved: boolean;
+    module: ModuleName | null;
+    error: OfflineScopeFailure | null;
+  };
   online: boolean;
   databaseName: string | null;
 }
@@ -329,27 +343,47 @@ function emptySummary(): OfflineQueueSummary {
   };
 }
 
-/** Snapshot for the offline status panel and the sign-out safeguard. */
-export async function getOfflineStatus(): Promise<OfflineStatus> {
-  const readiness = await getOfflineReadiness();
-  let summary: OfflineQueueSummary = emptySummary();
-  let available = true;
+/**
+ * Snapshot for the offline status panel and the sign-out safeguard.
+ *
+ * The panel and the dashboard must use the same module scope. Passing the
+ * workspace module prevents a dual-role account from reporting the other
+ * module's readiness or resolving a different tab session.
+ */
+export async function getOfflineStatus(module?: ModuleName): Promise<OfflineStatus> {
+  const requestedModule = module ?? activeWorkspaceModule() ?? undefined;
+  let scope: Awaited<ReturnType<typeof getOfflineScope>> | null = null;
+  let scopeError: OfflineScopeFailure | null = null;
   try {
-    summary = await getOfflineQueueSummary();
-  } catch {
-    available = false;
+    scope = await getOfflineScope(requestedModule);
+  } catch (error) {
+    scopeError =
+      error instanceof OfflineScopeError ? error.code : "unavailable";
   }
-  let databaseName: string | null = null;
-  try {
-    databaseName = offlineDatabaseName(await getOfflineScope());
-  } catch {
-    databaseName = null;
+
+  const readiness = await getOfflineReadiness(
+    isOfflineModule(requestedModule) ? requestedModule : undefined
+  );
+  let summary: OfflineQueueSummary = emptySummary();
+  let available = Boolean(scope);
+  if (scope) {
+    try {
+      summary = await getOfflineQueueSummary();
+    } catch {
+      // A genuine IndexedDB read failure. Never report it as an empty queue.
+      available = false;
+    }
   }
   return {
     summary,
     readiness,
     available,
+    scope: {
+      resolved: Boolean(scope),
+      module: requestedModule ?? null,
+      error: scopeError,
+    },
     online: typeof navigator === "undefined" ? true : navigator.onLine,
-    databaseName,
+    databaseName: scope ? offlineDatabaseName(scope) : null,
   };
 }

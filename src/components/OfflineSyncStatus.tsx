@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,7 +10,9 @@ import {
 } from "lucide-react";
 import { getOfflineStatus, type OfflineStatus } from "@/lib/offline/session";
 import { prepareOfflineAccess } from "@/lib/offline/preparation";
+import { isOfflineModule } from "@/lib/offline/active-module";
 import { syncPendingTransactions } from "@/lib/offline/sync";
+import type { ModuleName } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/Skeletons";
 
 /**
@@ -19,9 +21,16 @@ import { Skeleton } from "@/components/ui/Skeletons";
  * A record saved locally is never labelled as successful. `pending` means the
  * record is on this device only; `synced` means the server acknowledged it. A
  * missing server connection never turns a locally readable status into
- * "unavailable".
+ * "unavailable", and a failed identity check is never presented as deleted
+ * records.
  */
-export default function OfflineSyncStatus({ className = "" }: { className?: string }) {
+export default function OfflineSyncStatus({
+  className = "",
+  module,
+}: {
+  className?: string;
+  module?: ModuleName;
+}) {
   const [status, setStatus] = useState<OfflineStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -31,7 +40,7 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await getOfflineStatus());
+      setStatus(await getOfflineStatus(module));
       if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
         const estimate = await navigator.storage.estimate();
         const ratio =
@@ -43,7 +52,7 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [module]);
 
   useEffect(() => {
     void refresh();
@@ -58,6 +67,18 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
       window.removeEventListener("maacash-offline-status", onStatusChange);
     };
   }, [refresh]);
+
+  // A cold first load can race the service worker that attaches the tab
+  // credential. Retry the same authenticated check once; a genuine denial still
+  // fails closed on the retry and is reported truthfully.
+  const scopeRetried = useRef(false);
+  useEffect(() => {
+    if (loading || !status || status.scope.resolved || scopeRetried.current) return;
+    if (!status.online) return;
+    scopeRetried.current = true;
+    const timer = setTimeout(() => void refresh(), 1_500);
+    return () => clearTimeout(timer);
+  }, [loading, status, refresh]);
 
   async function retry() {
     setSyncing(true);
@@ -92,7 +113,9 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
     setPreparing(true);
     setNotice("");
     try {
-      const result = await prepareOfflineAccess();
+      const result = await prepareOfflineAccess(
+        isOfflineModule(module) ? module : undefined
+      );
       await refresh();
       setNotice(result.message);
     } catch {
@@ -125,24 +148,58 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
     );
   }
 
-  const { summary, readiness, online, available } = status;
+  const { summary, readiness, online, available, scope } = status;
   const attention = summary.pending + summary.failed;
-  const lastSync = summary.lastSuccessfulSyncAt ?? readiness.lastSyncedAt;
-  const lastSyncLabel = lastSync
-    ? new Date(lastSync).toLocaleString("en-GB", {
+  const identityVerified = scope.resolved;
+  // The queue's own last acknowledged sync is authoritative. When the queue is
+  // unreadable, say so instead of presenting the preparation timestamp as a
+  // successful synchronization.
+  const lastSuccessfulSyncLabel = summary.lastSuccessfulSyncAt
+    ? new Date(summary.lastSuccessfulSyncAt).toLocaleString("en-GB", {
         day: "2-digit",
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
       })
     : null;
+  const lastPreparedLabel =
+    !available && readiness.lastSyncedAt
+      ? new Date(readiness.lastSyncedAt).toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
 
-  const readinessTone =
-    readiness.status === "active"
+  // A valid local preparation is real, but it does not prove the current
+  // service session. When identity or the queue cannot be confirmed, do not use
+  // a green success tone.
+  const healthy = available && identityVerified;
+  const readinessTone = !healthy
+    ? "bg-amber-50 text-amber-900"
+    : readiness.status === "active"
       ? "bg-amber-50 text-amber-900"
       : readiness.status === "ready"
         ? "bg-emerald-50 text-emerald-900"
         : "bg-red-50 text-red-800";
+
+  const scopeFailureMessage =
+    scope.error === "unauthenticated"
+      ? "Your online session could not be verified for this workspace. Sign in again. Saved records are not deleted."
+      : scope.error === "no_tenant"
+        ? "The signed-in business could not be confirmed for this workspace. Saved records are not deleted."
+        : scope.error === "module_mismatch"
+          ? "This device is prepared for a different workspace than the one open. Reconnect and sign in to that workspace. Saved records are not deleted."
+          : scope.error === "offline_expired"
+            ? "Offline authorization has expired. Reconnect and sign in again. Saved records are not deleted."
+            : scope.error === "network" || scope.error === "timeout"
+              ? "The online business session could not be checked. Reconnect to verify it. Saved records remain on this device."
+              : "The saved-record scope could not be confirmed. Saved records are not deleted. Reload and try again before clearing site data.";
+
+  const savedRecordMessage = !scope.resolved
+    ? scopeFailureMessage
+    : "Saved-record details could not be read on this device. Your records are not deleted. Reload and try again before clearing site data.";
 
   return (
     <section className={`card ${className}`} aria-labelledby="offline-status-title">
@@ -191,7 +248,9 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
           {readiness.status === "preparing"
             ? "Preparing offline access"
             : readiness.status === "ready"
-              ? "Offline Ready"
+              ? healthy
+                ? "Offline Ready"
+                : "Device prepared"
               : readiness.status === "active"
                 ? "Offline Active"
                 : readiness.status === "expired"
@@ -201,9 +260,23 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
                     : "Preparation Required"}
         </p>
         <p className="mt-1">{readiness.message}</p>
-        {lastSyncLabel && (
+        {identityVerified ? (
           <p className="mt-1 text-xs opacity-80">
-            Last successful synchronization: {lastSyncLabel}.
+            Current online business session verified.
+          </p>
+        ) : (
+          <p className="mt-1 text-xs opacity-80">
+            Current online business session could not be verified.
+          </p>
+        )}
+        {lastSuccessfulSyncLabel && (
+          <p className="mt-1 text-xs opacity-80">
+            Last successful synchronization: {lastSuccessfulSyncLabel}.
+          </p>
+        )}
+        {lastPreparedLabel && (
+          <p className="mt-1 text-xs opacity-80">
+            Last device preparation: {lastPreparedLabel}.
           </p>
         )}
         {readiness.expiresAt &&
@@ -230,10 +303,21 @@ export default function OfflineSyncStatus({ className = "" }: { className?: stri
       )}
 
       {!available ? (
-        <p className="mt-3 text-sm text-slate-600" role="status">
-          Saved-record details could not be read on this device. Your records are not
-          deleted. Reload and try again before clearing site data.
-        </p>
+        <div className="mt-3 rounded-control bg-amber-50 p-3 text-sm text-amber-900" role="status">
+          <p>{savedRecordMessage}</p>
+          <p className="mt-2 text-xs">
+            This is a read or identity failure, not proof that your records were
+            deleted. Do not clear site data.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="btn btn-secondary btn-sm mt-2"
+          >
+            <RefreshCw size={14} aria-hidden />
+            Retry reading saved records
+          </button>
+        </div>
       ) : attention === 0 ? (
         <div className="mt-3 flex items-start gap-2 rounded-control bg-emerald-50 p-3 text-sm text-emerald-900">
           <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
