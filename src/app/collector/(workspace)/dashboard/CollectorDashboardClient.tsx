@@ -219,14 +219,14 @@ export default function CollectorDashboardPage({
     let cancelled = false;
     (async () => {
       try {
+        // The server page already resolved this identity through
+        // requireTenantCollector(). Seed the local scope BEFORE any IndexedDB
+        // access, so the device id and queue come from this tenant/user and not
+        // from a fallback prepared context belonging to another profile user.
+        setOfflineScope({ tenantId, userId }, "seeded", "susu");
         const did = await getOrCreateDeviceId();
         if (cancelled) return;
         setDeviceId(did);
-        // The server page already resolved this identity through
-        // requireTenantCollector(). Seed the local scope with those trusted
-        // values so the queue opens for the same tenant/user even before any
-        // browser-side identity request completes.
-        setOfflineScope({ tenantId, userId }, "seeded");
         await hydrateOfflineAuthorization();
         let readiness = await getOfflineReadiness("susu");
         if (cancelled) return;
@@ -299,7 +299,7 @@ export default function CollectorDashboardPage({
   // recorded and viewed without a connection.
   async function cacheCustomersForOffline() {
     try {
-      setOfflineScope({ tenantId, userId });
+      setOfflineScope({ tenantId, userId }, "seeded", "susu");
       const dashboardData = (await getCollectorDashboardStats(userId)) as DashboardData | null;
       const toVisit = dashboardData?.toVisit || [];
       const customers: CachedCustomer[] = toVisit.map((c) => ({

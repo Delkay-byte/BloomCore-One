@@ -46,9 +46,11 @@ Signing out **does not delete any offline database**.
 4. The normal server session is revoked.
 
 Pending and failed records stay in the database named for that tenant and user.
-The next account opens a different database, so it cannot read or synchronize
-the previous user's records. The original user regains access by
-authenticating again on the same device.
+The next account through the application opens a different database, so the
+application cannot read or synchronize the previous user's records. This is an
+application-level boundary, not encryption: same-origin script with device
+control can still open the storage directly (see known limitations). The
+original user regains access by authenticating again on the same device.
 
 The sign-out dialog distinguishes:
 
@@ -94,30 +96,25 @@ the browser's request.
 
 ## 2.1 Cross-tab account change
 
-Cookies are shared by every tab on the origin. Login and logout broadcast a
-non-sensitive `{ type: "session-changed" }` signal on `BroadcastChannel`
-`bloomcore-one-session-v1`. No user id, tenant, token or personal data is sent.
+There is currently **no session-change broadcast channel** in the application.
+Earlier drafts of this document described one; that guard is not implemented.
 
-On a signal the receiving tab:
+What actually happens:
 
-1. closes its IndexedDB connections and clears the in-memory offline scope;
-2. revalidates `/api/auth/me` for the route's module;
-3. compares the server `userId` with the identity it verified for this tab;
-4. closes the per-tab session and leaves the page when the identity changed;
-5. fails closed (content hidden, "Session check required") when revalidation
-   cannot complete, including while offline;
-6. reopens the same user's scoped database only after the same identity is
-   verified again.
+1. Explicit sign-out calls `endOfflineSession()` in the signing-out tab: it
+   closes that tab's IndexedDB connections, clears the in-memory scope and the
+   current device pointer, and clears the application page cache.
+2. Other open tabs are not notified. They revalidate on their next server
+   request and are redirected when the session is invalid. A tab that is
+   offline and already showing cached content can continue to display that
+   content until it reloads or the 24-hour offline authorization expires.
+3. Same-origin script with device/browser-profile control can open IndexedDB
+   directly; scoping and the application guard do not defend against a
+   compromised browser profile.
 
-`focus`/`visibilitychange` and a 60-second check provide a fallback when
-`BroadcastChannel` is unavailable or a signal is missed. The guard does not use
-sessionStorage storage events for cross-tab communication.
-
-Browser limits: if a cookie is changed outside this application (for example by
-developer tools or another origin writing the cookie), detection waits for the
-next focus/interval check. Same-origin script with device control can still open
-IndexedDB directly; scoping and the guard protect the application UI and sync
-path, not a compromised device.
+This is part of the device-identity residual tracked in
+`https://github.com/Delkay-byte/BloomCore-One/issues/38`. Do not claim that
+cross-tab invalidation or a shared-profile lock is implemented.
 
 ## 3. Synchronization lifecycle
 
@@ -225,6 +222,14 @@ silently deletes it.
 7. Same-origin developer tools can open IndexedDB directly. The guard prevents
    the application from rendering or synchronizing another user's records; it
    is not a defence against a compromised browser profile or device.
+8. Offline restoration is passwordless for the last prepared user. After a
+   browser crash, session expiry or a network failure during a different
+   sign-in, another person using the same unlocked browser profile can open the
+   prepared dashboard and read cached customer/queue data. Server sync still
+   requires a valid authorized session and is rejected after revocation or
+   expiry. This is a High risk on shared devices and is tracked in issue #38.
+   MaaCash must not be described as safe for shared devices until that
+   hardening lands.
 
 ## 9. Preparation, local activation and offline login
 

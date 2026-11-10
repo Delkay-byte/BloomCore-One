@@ -386,7 +386,7 @@ export async function getOfflineStatus(module?: ModuleName): Promise<OfflineStat
       resolved: Boolean(scope),
       module: requestedModule ?? null,
       error: scopeError,
-      source: scope ? getOfflineScopeSource() : null,
+      source: scope ? getOfflineScopeSource(requestedModule) : null,
     },
     online: typeof navigator === "undefined" ? true : navigator.onLine,
     databaseName: scope ? offlineDatabaseName(scope) : null,

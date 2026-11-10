@@ -53,10 +53,16 @@ export class OfflineScopeError extends Error {
  */
 export type OfflineScopeSource = "server" | "prepared" | "seeded";
 
-let cachedScope: OfflineScope | null = null;
-let cachedScopeSource: OfflineScopeSource | null = null;
-let pendingScope: Promise<OfflineScope> | null = null;
+const cachedScopes = new Map<
+  string,
+  { scope: OfflineScope; source: OfflineScopeSource }
+>();
+const pendingScopes = new Map<string, Promise<OfflineScope>>();
 let legacyPurged = false;
+
+function scopeKey(module?: ModuleName): string {
+  return module ?? activeWorkspaceModule() ?? "workspace";
+}
 
 /**
  * The session lookup must always settle. Before this bound existed a stalled
@@ -104,21 +110,25 @@ export function closeOfflineConnections(databaseName?: string): void {
 
 export function setOfflineScope(
   scope: OfflineScope,
-  source: OfflineScopeSource = "server"
+  source: OfflineScopeSource = "server",
+  module?: ModuleName
 ): void {
   if (!scope.tenantId || !scope.userId) return;
-  cachedScope = { tenantId: scope.tenantId, userId: scope.userId };
-  cachedScopeSource = source;
+  cachedScopes.set(scopeKey(module), {
+    scope: { tenantId: scope.tenantId, userId: scope.userId },
+    source,
+  });
 }
 
-export function getOfflineScopeSource(): OfflineScopeSource | null {
-  return cachedScope ? cachedScopeSource : null;
+export function getOfflineScopeSource(
+  module?: ModuleName
+): OfflineScopeSource | null {
+  return cachedScopes.get(scopeKey(module))?.source ?? null;
 }
 
 export function clearOfflineScope(): void {
-  cachedScope = null;
-  cachedScopeSource = null;
-  pendingScope = null;
+  cachedScopes.clear();
+  pendingScopes.clear();
 }
 
 export function offlineDatabaseName(scope: OfflineScope): string {
@@ -197,7 +207,7 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
           );
         }
         const scope = preparedScopeFor(requestedModule, context);
-        setOfflineScope(scope, "prepared");
+        setOfflineScope(scope, "prepared", requestedModule);
         return scope;
       }
       const context = await getCurrentOfflineContext();
@@ -210,7 +220,7 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
         );
       }
       const scope = preparedScopeFor(requestedModule, context);
-      setOfflineScope(scope, "prepared");
+      setOfflineScope(scope, "prepared", requestedModule);
       return scope;
     }
 
@@ -261,7 +271,7 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
       );
     }
     const scope = { tenantId: data.tenant.id, userId: data.userId };
-    setOfflineScope(scope);
+    setOfflineScope(scope, "server", requestedModule);
     return scope;
   } finally {
     clearTimeout(timeout);
@@ -269,13 +279,20 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
 }
 
 export async function getOfflineScope(module?: ModuleName): Promise<OfflineScope> {
-  if (cachedScope) return cachedScope;
-  if (!pendingScope) {
-    pendingScope = resolveScope(module ?? activeWorkspaceModule() ?? undefined).finally(() => {
-      pendingScope = null;
-    });
-  }
-  return pendingScope;
+  const requestedModule = module ?? activeWorkspaceModule() ?? undefined;
+  const key = scopeKey(requestedModule);
+
+  const cached = cachedScopes.get(key);
+  if (cached) return cached.scope;
+
+  const pending = pendingScopes.get(key);
+  if (pending) return pending;
+
+  const promise = resolveScope(requestedModule).finally(() => {
+    pendingScopes.delete(key);
+  });
+  pendingScopes.set(key, promise);
+  return promise;
 }
 
 /**

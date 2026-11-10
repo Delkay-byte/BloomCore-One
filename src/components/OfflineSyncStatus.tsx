@@ -41,6 +41,14 @@ export default function OfflineSyncStatus({
   const refresh = useCallback(async () => {
     try {
       setStatus(await getOfflineStatus(module));
+    } catch {
+      setStatus(null);
+    } finally {
+      setLoading(false);
+    }
+    // Storage pressure is advisory. A failure here must not hide a readable
+    // queue or turn the panel into a false "records unreadable" state.
+    try {
       if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
         const estimate = await navigator.storage.estimate();
         const ratio =
@@ -48,9 +56,7 @@ export default function OfflineSyncStatus({
         setNearLimit(ratio >= 0.8);
       }
     } catch {
-      setStatus(null);
-    } finally {
-      setLoading(false);
+      setNearLimit(false);
     }
   }, [module]);
 

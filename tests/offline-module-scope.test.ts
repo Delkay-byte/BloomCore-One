@@ -30,8 +30,10 @@ import {
   deleteDatabase,
   getOfflineScope,
   listOfflineDatabaseNames,
+  offlineDatabaseName,
   setOfflineScope,
 } from "@/lib/offline/scope";
+import { getOrCreateDeviceId } from "@/lib/offline/device";
 import {
   OFFLINE_AUTH_TIMEOUT_MS,
   clearCurrentOfflineContext,
@@ -120,7 +122,13 @@ function identityResponse(options: {
   );
 }
 
-function stubPreparationEnvironment(): void {
+function stubPreparationEnvironment(
+  pathname = "/collector/dashboard"
+): void {
+  vi.stubGlobal("window", {
+    location: { pathname },
+    dispatchEvent: vi.fn(),
+  });
   vi.stubGlobal("navigator", {
     onLine: true,
     serviceWorker: { controller: { postMessage: vi.fn() } },
@@ -228,17 +236,23 @@ describe("module-aware offline scope", () => {
     expect((await getOfflineQueueSummary()).pending).toBe(1);
   });
 
-  it("never falls back to cached context after an explicit 401 or 403", async () => {
-    const context = preparedContext(`denied-${Date.now()}`);
-    await savePreparedContext(context);
-    clearOfflineScope();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+  it.each([401, 403])(
+    "never falls back to cached context after an explicit %i",
+    async (status) => {
+      const context = preparedContext(`denied-${status}-${Date.now()}`);
+      await savePreparedContext(context);
+      clearOfflineScope();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status }))
+      );
 
-    await expect(getOfflineScope("susu")).rejects.toMatchObject({
-      code: "unauthenticated",
-    });
-    expect((await getCurrentOfflineContext())?.userId).toBe(context.userId);
-  });
+      await expect(getOfflineScope("susu")).rejects.toMatchObject({
+        code: "unauthenticated",
+      });
+      expect((await getCurrentOfflineContext())?.userId).toBe(context.userId);
+    }
+  );
 
   it("reports an HTTP 200 with a null tenant as no_tenant instead of guessing", async () => {
     clearOfflineScope();
@@ -346,6 +360,53 @@ describe("module-aware offline scope", () => {
     });
   });
 
+  it("does not reuse a Susu-seeded scope for a MoMo resolution", async () => {
+    const seeded = { tenantId: "tenant-seeded", userId: "user-seeded" };
+    setOfflineScope(seeded, "seeded", "susu");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return identityResponse({
+        module: "momo",
+        tenantId: "tenant-fresh",
+        userId: "user-fresh",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const momo = await getOfflineScope("momo");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(momo).toEqual({ tenantId: "tenant-fresh", userId: "user-fresh" });
+
+    // The Susu seed remains a distinct, validated cache entry.
+    expect(await getOfflineScope("susu")).toEqual(seeded);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a seeded server scope for the first device-database access", async () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/collector/dashboard" },
+      dispatchEvent: vi.fn(),
+    });
+    const scope = {
+      tenantId: `tenant-seed-${Date.now()}`,
+      userId: "user-seed",
+    };
+    setOfflineScope(scope, "seeded", "susu");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network must not be consulted for a seeded scope");
+      })
+    );
+
+    await getOrCreateDeviceId();
+
+    expect(await listOfflineDatabaseNames()).toContain(
+      offlineDatabaseName(scope)
+    );
+    expect(await getOfflineScope("susu")).toEqual(scope);
+  });
+
   it("recovers after a transient server failure instead of poisoning the cache", async () => {
     clearOfflineScope();
     const fetchMock = vi
@@ -397,7 +458,7 @@ describe("module-aware offline preparation", () => {
   });
 
   it("validates the MoMo identity when preparing from the worker workspace", async () => {
-    stubPreparationEnvironment();
+    stubPreparationEnvironment("/worker/dashboard");
     const fetchMock = preparationFetch(
       identityResponse({
         module: "momo",

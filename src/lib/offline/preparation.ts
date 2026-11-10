@@ -386,6 +386,11 @@ async function runOfflinePreparation(
       };
     }
 
+    // Establish the verified scope before any IndexedDB access. The device id
+    // lives in the scoped database, so reading it first could otherwise fall
+    // back to a different prepared context.
+    setOfflineScope({ tenantId, userId }, "server", activeModule);
+
     const { getOrCreateDeviceId } = await import("./device");
     const baseDeviceId = await getOrCreateDeviceId();
     const moduleStates: Partial<Record<OfflineModule, OfflineModuleState>> = {};
@@ -394,8 +399,6 @@ async function runOfflinePreparation(
     const failureMessages: string[] = [];
     const revokedModules: Partial<Record<OfflineModule, string>> = {};
     let authorizedAt = new Date().toISOString();
-
-    setOfflineScope({ tenantId, userId });
 
     for (const mod of modules) {
       const deviceId = moduleDeviceId(baseDeviceId, mod, modules);
@@ -621,7 +624,8 @@ export async function activateOfflineAccess(
   const updated = await setOfflineActivation(true, target);
   setOfflineScope(
     { tenantId: context.tenantId, userId: context.userId },
-    "prepared"
+    "prepared",
+    target
   );
   notifyOfflineStatusChanged();
   return {
