@@ -139,7 +139,7 @@ No database schema, migration, entitlement, collector record, device enrollment 
 - Hardening commit: `fbc6961267d0fa8a2582e206b1ce4a0e8919e807`
 - PR URL: https://github.com/Delkay-byte/BloomCore-One/pull/37
 - Approval status: pending; not merged
-- CI result: passed (run 42859848987). SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites succeeded. The mobile suite was flaky on its first attempt and passed on retry.
+- CI result: passed (run 42862820484). SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites succeeded. An earlier run retried one flaky mobile test and then passed.
 - Deployment commit SHA: not deployed
 - Production verification: not performed
 
