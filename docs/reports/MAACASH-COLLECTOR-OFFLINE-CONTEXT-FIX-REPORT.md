@@ -8,7 +8,7 @@ Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
 Hardening commit: `fbc6961267d0fa8a2582e206b1ce4a0e8919e807`
 Pull request: https://github.com/Delkay-byte/BloomCore-One/pull/37
 Approval: technical APPROVE; no independent GitHub reviewer
-Deployment: not performed
+Deployment: live on Render, commit `c535c32`
 
 ---
 
@@ -159,7 +159,8 @@ No tests were skipped or removed; test discovery is unchanged.
 | `npx playwright test e2e/mobile.spec.ts --project=mobile-chromium` | 3 tests passed |
 | `npm run build` | Passed |
 | PostgreSQL `pg-offline-idempotency` | Not run locally: no isolated `PG_DATABASE_URL`. The isolated CI PostgreSQL job passed. |
-| CI on final code commit | PASS — https://github.com/Delkay-byte/BloomCore-One/actions/runs/42882523234 on `0d8db45`: SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites |
+| CI on final PR head | PASS — https://github.com/Delkay-byte/BloomCore-One/actions/runs/42889788936 on `27c188e`: SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites |
+| CI on merge commit | PASS — https://github.com/Delkay-byte/BloomCore-One/actions/runs/42890680224 on `c535c32` |
 | Fresh-context review | APPROVE after review corrections; no critical/high implementation defect. |
 
 ---
@@ -167,16 +168,21 @@ No tests were skipped or removed; test discovery is unchanged.
 ## F. Git and approval evidence
 
 - Branch: `fix/maacash-collector-offline-context`
-- PR head at review: `0d8db451384af2de18037751b8f9266a01324240`
+- PR head at merge: `27c188e3be4c3a20a4933b83698d28dde8e31c73`
 - Code-bearing review commit: `605af97563e6208390473a84d28be165efcb1bcf`
 - Base / `origin/main`: `12cfaa7eebcff1998d909a035c754f45b298a18d`
 - Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
 - Hardening commit: `fbc6961267d0fa8a2582e206b1ce4a0e8919e807`
 - PR URL: https://github.com/Delkay-byte/BloomCore-One/pull/37
-- Latest CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42882523234 — PASS on `0d8db45`. Later report-only commits do not change application code.
+- Final PR CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42889788936 — PASS on `27c188e`
+- Earlier PR CI on code: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42882523234 — PASS on `0d8db45`
+- Post-merge `main` CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42890680224 — PASS on merge commit `c535c32`
 - Formal GitHub approval: none. The repository's `main` branch is not protected and has no required reviewer. The PR author is the authenticated account; GitHub does not permit that account to formally approve its own PR, and no independent human reviewer has approved it. The agent's technical review decision is recorded separately in section H.
-- Merge commit SHA: not merged at report time
-- Deployment commit SHA: not deployed
+- Merge commit SHA: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Merged at: 2026-11-10T19:58:56Z
+- Final `main` SHA before this release-record update: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Deployment commit SHA: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Release-record docs commit: the commit containing this report. It does not change application code.
 - Production verification: not performed
 
 The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS, Turnstile, Render or domain configuration was changed.
@@ -188,7 +194,7 @@ The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS,
 1. The owner's production account, tenant, Collector record, enrollment rows and device could not be inspected because no authorized read-only access to the production database was provided. The reported symptoms are fully explained by the reproduced code path, but the owner's exact row values are not independently recorded here.
 2. No production browser session or production credentials were used. Verification used the repository's isolated SQLite E2E database and dual-role test account.
 3. The PostgreSQL suite could not be run locally because no disposable PostgreSQL target was configured; it ran and passed in CI's isolated job.
-4. Nothing was merged or deployed. Approval and CI must complete before release.
+4. PR #37 was merged as `c535c32` after the technical review and CI. The merge commit deployed to Render. Authenticated production collector verification remains blocked without an authorized test identity.
 5. IndexedDB and service-worker data are origin-scoped. Records created on `maacash.onrender.com` do not move to `maacash.bloomcoretech.com`; this fix does not and must not create a new database to bridge origins.
 6. The fix preserves every prepared context and queued record, but it cannot recover records that a user already deleted or that exist only under a different browser origin/profile.
 7. Pre-existing residual: during a genuine network failure, the scope may use the device's last prepared context, as before. That context is not cryptographically rebound to the current tab identity offline. Explicit sign-out clears it, but a session expiry or crash can leave it available to the next person using the same browser profile. This change does not widen that path; it now marks the scope as `prepared` instead of claiming a verified online session. Tracked in issue #38.
@@ -281,8 +287,28 @@ Tracking issue: https://github.com/Delkay-byte/BloomCore-One/issues/38 — `secu
 | Formal independent GitHub approval | NOT AVAILABLE — branch unprotected, author cannot self-approve |
 | Agent technical approval decision | APPROVE |
 | Owner risk decision on device-sharing assumption | ACCEPTED TEMPORARILY — dedicated-device policy |
-| Merge | PENDING |
-| Render deployment | PENDING |
-| Production health | PENDING |
-| Production readiness | PENDING |
+| Merge | PASS — `c535c32`, 2026-11-10T19:58:56Z |
+| Render deployment | PASS — `dep-dbpnf0m417fc73d3jh1g`, commit `c535c32` |
+| Production health | PASS — `/api/health` 200, commit `c535c32` |
+| Production readiness | PASS — `/api/health/ready` 200, database ok |
 | Authenticated collector verification | BLOCKED — no authorized production test identity provided |
+| Unauthenticated API boundaries | PASS — `/api/auth/me` 401, `/api/offline/enroll` 400 without device, `/api/offline/sync-contribution` 405 on GET, `/collector/dashboard` 307 to login |
+
+---
+
+## J. Production deployment and verification
+
+- Render service: `maacash`, ID `srv-dbnaciff3r2c7382tjgg`, branch `main`, auto-deploy enabled.
+- Render deployment: `dep-dbpnf0m417fc73d3jh1g`
+- Deployed commit: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Deployment status: `live`
+- `GET https://maacash.bloomcoretech.com/api/health` → 200
+  `{"status":"ok","app":"maacash","env":"production","commit":"c535c32d8226d4983a6395290c1cd4f81e7e5285"}`
+- `GET https://maacash.bloomcoretech.com/api/health/ready` → 200
+  `{"status":"ready","database":"ok","latencyMs":1937,"app":"maacash","env":"production","commit":"c535c32d8226d4983a6395290c1cd4f81e7e5285"}`
+- Post-merge CI on `main`: PASS (run 42890680224).
+- No Prisma migration was run. The diff contains no schema change. No production database or financial record was modified.
+- Unauthenticated boundary checks after deployment: PASS.
+- Authenticated collector verification: **BLOCKED**. No authorized production test identity was provided. Local and CI Playwright tests used the isolated E2E dual-role account, not production credentials. Production health/readiness confirm the deployed commit; the exact authenticated dashboard flow could not be replayed in production without credentials.
+
+The public canonical domain remains `https://maacash.bloomcoretech.com`. DNS, Turnstile and unrelated Render configuration were not changed.
