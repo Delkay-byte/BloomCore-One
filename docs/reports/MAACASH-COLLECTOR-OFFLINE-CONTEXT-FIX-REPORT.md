@@ -123,9 +123,9 @@ No database schema, migration, entitlement, collector record, device enrollment 
 | `tests/offline-module-scope.test.ts` | 16 tests passed |
 | Targeted offline/session/tenant suites | 10 files, 92 tests passed |
 | `npx playwright test e2e/maacash-dual-role-switch.spec.ts --project=chromium` | 3 tests passed, including Susu/MoMo identity, tenant, offline queue and both-direction switching |
-| `npx playwright test e2e/mobile.spec.ts --project=mobile-chromium` | 3 tests passed, including online prepare → offline reload → cached collector restore |
+| `npx playwright test e2e/mobile.spec.ts --project=mobile-chromium` | 3 tests passed locally, including online prepare → offline reload → cached collector restore. CI retried this suite once after a visibility timeout and then passed (1 flaky). |
 | `npm run build` | Passed |
-| PostgreSQL `pg-offline-idempotency` | Not run: no isolated `PG_DATABASE_URL` was available. The change adds no persistence/schema work. |
+| PostgreSQL `pg-offline-idempotency` | Not run locally: no isolated `PG_DATABASE_URL` was available. The CI PostgreSQL job passed in its isolated target. |
 
 ---
 
@@ -136,7 +136,7 @@ No database schema, migration, entitlement, collector record, device enrollment 
 - Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
 - PR URL: https://github.com/Delkay-byte/BloomCore-One/pull/37
 - Approval status: pending; not merged
-- CI result: queued at report time (SQLite, PostgreSQL and mobile workflows)
+- CI result: passed (run 42859848987). SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites succeeded. The mobile suite was flaky on its first attempt and passed on retry.
 - Deployment commit SHA: not deployed
 - Production verification: not performed
 
@@ -148,7 +148,7 @@ The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS,
 
 1. The owner's production account, tenant, Collector record, enrollment rows and device could not be inspected because no authorized read-only access to the production database was provided. The reported symptoms are fully explained by the reproduced code path, but the owner's exact row values are not independently recorded here.
 2. No production browser session or production credentials were used. Verification used the repository's isolated SQLite E2E database and dual-role test account.
-3. The PostgreSQL idempotency suite was not run because no disposable PostgreSQL target was configured.
+3. The PostgreSQL suite could not be run locally because no disposable PostgreSQL target was configured; it ran and passed in CI's isolated job.
 4. Nothing was merged or deployed. Approval and CI must complete before release.
 5. IndexedDB and service-worker data are origin-scoped. Records created on `maacash.onrender.com` do not move to `maacash.bloomcoretech.com`; this fix does not and must not create a new database to bridge origins.
 6. The fix preserves every prepared context and queued record, but it cannot recover records that a user already deleted or that exist only under a different browser origin/profile.
