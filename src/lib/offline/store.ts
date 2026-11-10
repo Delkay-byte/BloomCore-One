@@ -68,6 +68,7 @@ export interface OfflineTransaction {
   maxRetries: number;
   failureReason: string | null;
   serverResult: string | null;
+  protectedServerResult?: ProtectedPayload;
   localTimestamp: string; // ISO
   syncStartedAt: string | null;
   syncedAt: string | null;
@@ -304,6 +305,15 @@ async function protectTransactionPayload(
 export async function openTransactionPayload(
   transaction: OfflineTransaction
 ): Promise<string> {
+  const scope = await getOfflineScope();
+  if (
+    (transaction.tenantId && transaction.tenantId !== scope.tenantId) ||
+    transaction.userId !== scope.userId
+  ) {
+    throw new OfflineLockedError(
+      "This transaction belongs to a different offline account."
+    );
+  }
   const current = await getCurrentOfflineContext();
   if (current?.unlock && !requireOfflineKeySafe(current)) {
     throw new OfflineLockedError();
@@ -352,6 +362,16 @@ export async function updateTransaction(id: string, updates: Partial<OfflineTran
   const existing = await getTransaction(id);
   if (!existing) return;
   const updated = { ...existing, ...updates };
+  if (updates.serverResult) {
+    const context = await requireMatchingProtectionScope();
+    if (context) {
+      updated.protectedServerResult = await protectValue(
+        requireOfflineKey(context),
+        updates.serverResult
+      );
+      updated.serverResult = null;
+    }
+  }
   await withStore("readwrite", "transactions", (store) => store.put(updated));
 }
 
@@ -718,8 +738,12 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
     protectedTransactions.push({
       ...record,
       protectedPayload: await protectValue(key, record.payload),
+      protectedServerResult: record.serverResult
+        ? await protectValue(key, record.serverResult)
+        : undefined,
       protectionVersion: 1,
       payload: "",
+      serverResult: null,
     });
   }
   const protectedCustomers: StoredCustomer[] = [];
@@ -751,6 +775,28 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
   const readTransactions = await readStore<OfflineTransaction>(db, "transactions");
   const readCustomers = await readStore<StoredCustomer>(db, "customers");
   const readDrafts = await readStore<Record<string, unknown>>(db, "drafts");
+  const sameIds = (before: string[], after: string[]) =>
+    before.length === after.length &&
+    before.every((id) => after.includes(id));
+  if (
+    !sameIds(
+      transactions.map((record) => record.id),
+      readTransactions.map((record) => record.id)
+    ) ||
+    !sameIds(
+      customers.map((record) => record.accountId),
+      readCustomers.map((record) => record.accountId)
+    ) ||
+    !sameIds(
+      drafts.map((record) => String(record.id)),
+      readDrafts.map((record) => String(record.id))
+    )
+  ) {
+    throw new OfflineCryptoError(
+      "corrupt_data",
+      "Offline migration record set verification failed. Plaintext backup was kept."
+    );
+  }
   for (const record of readTransactions) {
     if (!record.protectedPayload) {
       throw new OfflineCryptoError(

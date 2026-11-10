@@ -248,7 +248,7 @@ export default function CollectorDashboardPage({
         const unlocked = unlockContext ? isOfflineUnlocked(unlockContext) : false;
         if (!cancelled) {
           setNeedsUnlockSetup(Boolean(unlockContext && !unlockContext.unlock));
-          setOfflineLocked(Boolean(!navigator.onLine && unlockContext && !unlocked));
+          setOfflineLocked(Boolean(unlockContext?.unlock && !unlocked));
         }
 
         // Automatic background preparation while online. Never blocks the
@@ -297,12 +297,10 @@ export default function CollectorDashboardPage({
   }, []);
 
   useEffect(() => {
-    if (isOnline) {
-      setOfflineLocked(false);
-      return;
-    }
     void getCurrentOfflineContext().then((context) => {
-      if (context && !isOfflineUnlocked(context)) setOfflineLocked(true);
+      if (context?.unlock && !isOfflineUnlocked(context)) {
+        setOfflineLocked(true);
+      }
     });
   }, [isOnline]);
 
@@ -560,7 +558,13 @@ export default function CollectorDashboardPage({
       // dashboard. Fall back to the authorized local snapshot.
       const context = await getCurrentOfflineContext().catch(() => null);
       if (context && !offlineContextExpired(context) && context.modules.includes("susu")) {
-        await loadCachedDashboard();
+        try {
+          await loadCachedDashboard();
+        } catch {
+          setError(
+            "Saved customer data could not be opened. Your records are not deleted. Unlock the offline workspace and reload."
+          );
+        }
       } else {
         setError("Failed to load dashboard");
       }
@@ -730,7 +734,7 @@ export default function CollectorDashboardPage({
     return [...list].sort((a, b) => new Date(b.collectedAt).getTime() - new Date(a.collectedAt).getTime());
   }, [data, searchQuery]);
 
-  if (!isOnline && offlineLocked) {
+  if (offlineLocked) {
     return (
       <div className="mx-auto max-w-md py-10">
         <OfflineUnlockGate

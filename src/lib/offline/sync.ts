@@ -23,7 +23,8 @@ import {
 } from "./store";
 import { getOfflineScope, offlineDatabaseName } from "./scope";
 import { getCurrentOfflineContext } from "./device-store";
-import { isOfflineUnlocked } from "./unlock";
+import { isOfflineUnlocked, OfflineLockedError } from "./unlock";
+import { OfflineCryptoError } from "./crypto";
 import { markOfflineAuthorized, markOfflineSynced } from "./device-store";
 import type { AppErrorCode } from "@/lib/errors/friendly";
 
@@ -191,7 +192,22 @@ async function submitToServer(transaction: OfflineTransaction): Promise<SyncResu
                   ? "internal"
                   : "unknown",
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof OfflineLockedError ||
+      error instanceof OfflineCryptoError
+    ) {
+      return {
+        transactionId: transaction.id,
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "The offline workspace is locked.",
+        isRetryable: false,
+        code: "offline",
+      };
+    }
     return {
       transactionId: transaction.id,
       success: false,
@@ -288,6 +304,16 @@ async function syncBatch(): Promise<SyncResult[]> {
     results.push(result);
 
     const retryCount = tx.retryCount + (result.isRetryable ? 1 : 0);
+
+    if (!result.success && /locked/i.test(result.error ?? "")) {
+      // Local lock, not a server rejection. Return the claim without burning a
+      // retry and stop the batch.
+      await updateTransaction(tx.id, {
+        status: "pending_sync",
+        syncStartedAt: null,
+      });
+      break;
+    }
 
     if (result.success) {
       await updateTransaction(tx.id, {

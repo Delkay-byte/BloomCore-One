@@ -17,7 +17,7 @@ The hardening adds a user-specific offline passphrase, encrypted local records a
 - KDF: PBKDF2-SHA-256, 600,000 iterations.
 - Salt: random 16 bytes per tenant/user/device for the passphrase; separate random salt for the recovery code.
 - Cipher: AES-256-GCM, fresh random 12-byte IV per encryption.
-- Key hierarchy: PBKDF2 derives a wrapping key; it unwraps a random 256-bit data key used to encrypt records. A one-time 80-bit recovery code unwraps the same data key with a separate salt.
+- Key hierarchy: PBKDF2 derives a wrapping key; it unwraps a random 256-bit data key used to encrypt records. A reusable 80-bit recovery code (displayed once at setup, to be stored offline) unwraps the same data key with a separate salt.
 - Key lifetime: non-extractable WebCrypto keys held only in module memory.
 - Verifier: fixed marker encrypted with the data key. Wrong passphrase or recovery code fails authentication; no password hash is stored.
 - Envelope: `{ v: 1, alg: "A256GCM", iv, ct }`.
@@ -59,9 +59,9 @@ If interrupted before verification, plaintext backups remain and the migration c
 
 ## 4. Tests
 
-Authoritative local result: **76 test files, 780 tests passed, 0 failed, 0 skipped**.
+Authoritative local result: **76 test files, 781 tests passed, 0 failed, 0 skipped**.
 
-New suite `tests/offline-unlock-hardening.test.ts`: 13 tests covering:
+New suite `tests/offline-unlock-hardening.test.ts`: 14 tests covering:
 
 - weak passphrase rejection;
 - correct/wrong passphrase;
@@ -147,5 +147,5 @@ Local unlock is not authorization. Server rejection preserves the local record. 
 4. Compromised browser profile/running page is outside this control.
 5. Administrator device-transfer workflow remains operational; no new enrollment schema.
 6. Existing devices without an unlock credential are blocked from offline access until they reconnect and establish one. Records are preserved.
-7. A one-time recovery code is issued at setup. If both the passphrase and the recovery code are lost, encrypted records remain preserved but cannot be opened or synchronized. There is no silent reset.
+7. A reusable recovery code is issued at setup and must be stored offline, separately from the device. If both the passphrase and the recovery code are lost, encrypted records remain preserved but cannot be opened or synchronized. There is no silent reset.
 8. No independent human security review was performed; agent technical review only.

@@ -24,6 +24,7 @@ import {
   markOfflineBackground,
   markOfflineForeground,
   requireOfflineKey,
+  setupOfflineUnlock,
   unlockOfflineWorkspace,
 } from "@/lib/offline/unlock";
 import {
@@ -311,6 +312,19 @@ describe("offline lock lifecycle", () => {
       markOfflineForeground(2_000 + OFFLINE_BACKGROUND_LOCK_MS + 1)
     ).toBe(true);
     expect(isOfflineUnlocked(ctx)).toBe(false);
+  });
+
+  it("refuses to overwrite an existing unlock record", async () => {
+    const ctx = context(`overwrite-${Date.now()}`);
+    await savePreparedContext(ctx);
+    await setupOfflineUnlock(ctx, PASSPHRASE);
+    const currentBefore = await getCurrentOfflineContext();
+    lockOfflineWorkspace();
+    await expect(
+      setupOfflineUnlock(ctx, OTHER_PASSPHRASE)
+    ).rejects.toMatchObject({ code: "unsupported" });
+    const current = await getCurrentOfflineContext();
+    expect(current?.unlock?.salt).toBe(currentBefore?.unlock?.salt);
   });
 
   it("does not share an unlock key across tenant/user scopes", async () => {

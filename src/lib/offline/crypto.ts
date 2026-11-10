@@ -297,13 +297,17 @@ export async function unlockWithRecoveryCode(
   record: OfflineUnlockRecord
 ): Promise<CryptoKey> {
   if (
-    !record?.recoverySalt ||
+    !record ||
+    record.version !== 1 ||
+    !Number.isFinite(record.iterations) ||
+    record.iterations < 100_000 ||
+    !record.recoverySalt ||
     !record.recoveryKeyWrap ||
     !record.verifier
   ) {
     throw new OfflineCryptoError(
       "unsupported",
-      "This device has no recovery key. Use the offline passphrase."
+      "This device has no valid recovery key. Use the offline passphrase."
     );
   }
   const wrappingKey = await deriveKey(

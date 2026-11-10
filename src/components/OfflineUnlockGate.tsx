@@ -153,6 +153,11 @@ export default function OfflineUnlockGate({
           role: "collector",
           modules: [],
           moduleStates: {},
+          unlock:
+            (await getOfflineUnlockRecord(
+              fallbackContext.tenantId,
+              fallbackContext.userId
+            )) ?? undefined,
           preparedAt: at,
           authorizedAt: at,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -160,7 +165,6 @@ export default function OfflineUnlockGate({
           active: false,
           activeModule: null,
         };
-        await savePreparedContext(fresh);
       }
       setContext(fresh);
       if (!fresh.unlock) {
@@ -173,7 +177,8 @@ export default function OfflineUnlockGate({
           return;
         }
         const code = await setupOfflineUnlock(fresh, passphrase);
-        if (!(await getCurrentOfflineContext())) {
+        const currentNow = await getCurrentOfflineContext();
+        if (fallbackMismatch(currentNow) || !currentNow) {
           const at = new Date().toISOString();
           await savePreparedContext({
             tenantId: fresh.tenantId,
@@ -196,7 +201,8 @@ export default function OfflineUnlockGate({
           });
         }
         // Protect any records created before this device had an unlock key.
-        await migrateOfflineRecordsToProtected();
+        // Migration runs after the user acknowledges the one-time recovery code,
+        // so a migration failure cannot hide the code forever.
         setPassphrase("");
         setConfirm("");
         setRecoveryCode(code);
@@ -285,8 +291,9 @@ export default function OfflineUnlockGate({
           <KeyRound size={18} aria-hidden /> Save your recovery code
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          If you forget the offline passphrase, this one-time code is the only way
-          to reopen saved offline records. Store it separately from this device.
+          If you forget the offline passphrase, this recovery code is the only
+          way to reopen saved offline records. It is reusable; store it
+          separately from this device and never share it.
         </p>
         <p className="mt-3 break-all rounded-control bg-slate-100 px-3 py-3 font-mono text-sm text-slate-900">
           {recoveryCode}
@@ -310,15 +317,35 @@ export default function OfflineUnlockGate({
         <button
           type="button"
           className="btn btn-primary mt-4 w-full"
-          disabled={!savedRecovery}
+          disabled={!savedRecovery || busy}
           onClick={() => {
-            setRecoveryCode("");
-            setSavedRecovery(false);
-            onUnlocked();
+            void (async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await migrateOfflineRecordsToProtected();
+                setRecoveryCode("");
+                setSavedRecovery(false);
+                onUnlocked();
+              } catch (err) {
+                setError(
+                  err instanceof Error
+                    ? err.message
+                    : "Saved offline records could not be protected. Nothing was deleted."
+                );
+              } finally {
+                setBusy(false);
+              }
+            })();
           }}
         >
-          Continue
+          {busy ? "Protecting…" : "Continue"}
         </button>
+        {error && (
+          <p className="mt-3 text-sm text-red-800" role="alert">
+            {error}
+          </p>
+        )}
       </section>
     );
   }

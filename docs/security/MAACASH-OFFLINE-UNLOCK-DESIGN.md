@@ -44,7 +44,7 @@ WebAuthn where available plus passphrase fallback would improve UX but doubles t
 - Per tenant + user + device random 16-byte salt.
 - PBKDF2-SHA-256, 600,000 iterations, 256-bit output.
 - The PBKDF2 key wraps a random 256-bit data-encryption key. The data key, not the passphrase key, encrypts records.
-- A one-time recovery code (80 bits, displayed once at setup) wraps the same data key with a separate salt. It can reopen the queue if the passphrase is forgotten.
+- A recovery code (80 bits, displayed once at setup) wraps the same data key with a separate salt. It is a reusable second key, not a single-use token; store it offline and never share it.
 - Both wrappers and the verifier are stored; neither the passphrase nor the recovery code is stored.
 - Derived keys are non-extractable and held only in module memory.
 - Verification: unwrap the data key, then decrypt a fixed marker ciphertext. Wrong factor fails AES-GCM authentication.

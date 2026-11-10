@@ -103,7 +103,20 @@ export function useFormDraft(
     setStatus("restoring");
 
     (async () => {
-      const draft = await loadDraft<Record<string, unknown>>(draftKey);
+      let draft: import("@/lib/offline/drafts").DraftRecord<Record<string, unknown>> | null;
+      try {
+        draft = await loadDraft<Record<string, unknown>>(draftKey);
+      } catch {
+        // Locked or unreadable offline storage must not leave the form stuck in
+        // "restoring" or disable autosave. The form starts empty and remains
+        // editable; the draft stays preserved on the device.
+        if (!cancelled && mounted.current) {
+          restoring.current = false;
+          setStatus("idle");
+          setReady(true);
+        }
+        return;
+      }
       if (cancelled || !mounted.current) return;
 
       // A conditional form can mount one commit after `enabled` flips. Wait for
