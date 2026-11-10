@@ -251,7 +251,8 @@ export default function CollectorDashboardPage({
           setOfflineLocked(
             Boolean(
               unlockContext &&
-                (!unlocked || (!navigator.onLine && !unlockContext.unlock))
+                ((unlockContext.unlock && !unlocked) ||
+                  (!navigator.onLine && !unlockContext.unlock))
             )
           );
         }
