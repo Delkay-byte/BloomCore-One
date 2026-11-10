@@ -775,20 +775,19 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
   const readTransactions = await readStore<OfflineTransaction>(db, "transactions");
   const readCustomers = await readStore<StoredCustomer>(db, "customers");
   const readDrafts = await readStore<Record<string, unknown>>(db, "drafts");
-  const sameIds = (before: string[], after: string[]) =>
-    before.length === after.length &&
-    before.every((id) => after.includes(id));
+  const sameIds = (expected: string[], actual: string[]) =>
+    expected.every((id) => actual.includes(id));
   if (
     !sameIds(
-      transactions.map((record) => record.id),
+      legacyTransactions.map((record) => record.id),
       readTransactions.map((record) => record.id)
     ) ||
     !sameIds(
-      customers.map((record) => record.accountId),
+      legacyCustomers.map((record) => record.accountId),
       readCustomers.map((record) => record.accountId)
     ) ||
     !sameIds(
-      drafts.map((record) => String(record.id)),
+      legacyDrafts.map((record) => String(record.id)),
       readDrafts.map((record) => String(record.id))
     )
   ) {

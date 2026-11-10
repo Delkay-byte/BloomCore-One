@@ -148,4 +148,5 @@ Local unlock is not authorization. Server rejection preserves the local record. 
 5. Administrator device-transfer workflow remains operational; no new enrollment schema.
 6. Existing devices without an unlock credential are blocked from offline access until they reconnect and establish one. Records are preserved.
 7. A reusable recovery code is issued at setup and must be stored offline, separately from the device. If both the passphrase and the recovery code are lost, encrypted records remain preserved but cannot be opened or synchronized. There is no silent reset.
-8. No independent human security review was performed; agent technical review only.
+8. Unlock records created by the earlier, unreleased hardening commit `ea0187e` are not compatible with the final data-key wrapper format. Production was never deployed with that commit; staging devices prepared on it must be re-prepared online.
+9. No independent human security review was performed; agent technical review only.

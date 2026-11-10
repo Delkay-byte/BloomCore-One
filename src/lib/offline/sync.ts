@@ -112,6 +112,8 @@ export interface SyncResult {
   code?: AppErrorCode;
   retryAfterSeconds?: number;
   authExpired?: boolean;
+  /** True when the local offline workspace was locked during the attempt. */
+  locked?: boolean;
 }
 
 // ── Server Submission ──────────────────────────────────────────────────
@@ -206,6 +208,7 @@ async function submitToServer(transaction: OfflineTransaction): Promise<SyncResu
             : "The offline workspace is locked.",
         isRetryable: false,
         code: "offline",
+        locked: error instanceof OfflineLockedError,
       };
     }
     return {
@@ -274,6 +277,7 @@ async function syncBatch(): Promise<SyncResult[]> {
         error: "Offline workspace is locked. Unlock it before synchronizing.",
         isRetryable: false,
         code: "offline",
+        locked: true,
       },
     ];
   }
@@ -305,7 +309,7 @@ async function syncBatch(): Promise<SyncResult[]> {
 
     const retryCount = tx.retryCount + (result.isRetryable ? 1 : 0);
 
-    if (!result.success && /locked/i.test(result.error ?? "")) {
+    if (!result.success && result.locked) {
       // Local lock, not a server rejection. Return the claim without burning a
       // retry and stop the batch.
       await updateTransaction(tx.id, {

@@ -248,7 +248,12 @@ export default function CollectorDashboardPage({
         const unlocked = unlockContext ? isOfflineUnlocked(unlockContext) : false;
         if (!cancelled) {
           setNeedsUnlockSetup(Boolean(unlockContext && !unlockContext.unlock));
-          setOfflineLocked(Boolean(unlockContext?.unlock && !unlocked));
+          setOfflineLocked(
+            Boolean(
+              unlockContext &&
+                (!unlocked || (!navigator.onLine && !unlockContext.unlock))
+            )
+          );
         }
 
         // Automatic background preparation while online. Never blocks the
@@ -298,7 +303,11 @@ export default function CollectorDashboardPage({
 
   useEffect(() => {
     void getCurrentOfflineContext().then((context) => {
-      if (context?.unlock && !isOfflineUnlocked(context)) {
+      if (
+        context &&
+        ((context.unlock && !isOfflineUnlocked(context)) ||
+          (!navigator.onLine && !context.unlock))
+      ) {
         setOfflineLocked(true);
       }
     });
@@ -542,6 +551,8 @@ export default function CollectorDashboardPage({
       const context = await getCurrentOfflineContext();
       const offlinePreparedForSusu = Boolean(
         context &&
+          context.unlock &&
+          isOfflineUnlocked(context) &&
           !offlineContextExpired(context) &&
           context.modules.includes("susu")
       );
@@ -557,7 +568,13 @@ export default function CollectorDashboardPage({
       // A network failure after preparation is offline operation, not a broken
       // dashboard. Fall back to the authorized local snapshot.
       const context = await getCurrentOfflineContext().catch(() => null);
-      if (context && !offlineContextExpired(context) && context.modules.includes("susu")) {
+      if (
+        context &&
+        context.unlock &&
+        isOfflineUnlocked(context) &&
+        !offlineContextExpired(context) &&
+        context.modules.includes("susu")
+      ) {
         try {
           await loadCachedDashboard();
         } catch {
