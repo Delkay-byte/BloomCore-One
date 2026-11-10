@@ -159,7 +159,7 @@ No tests were skipped or removed; test discovery is unchanged.
 | `npx playwright test e2e/mobile.spec.ts --project=mobile-chromium` | 3 tests passed |
 | `npm run build` | Passed |
 | PostgreSQL `pg-offline-idempotency` | Not run locally: no isolated `PG_DATABASE_URL`. The isolated CI PostgreSQL job passed. |
-| CI on final code commit | Passed: SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites |
+| CI on final code commit | PASS — https://github.com/Delkay-byte/BloomCore-One/actions/runs/42882523234 on `0d8db45`: SQLite/lint/typecheck/test/build, PostgreSQL integration and mobile browser suites |
 | Fresh-context review | APPROVE after review corrections; no critical/high implementation defect. |
 
 ---
@@ -167,13 +167,13 @@ No tests were skipped or removed; test discovery is unchanged.
 ## F. Git and approval evidence
 
 - Branch: `fix/maacash-collector-offline-context`
-- PR head: `605af97563e6208390473a84d28be165efcb1bcf`
+- PR head at review: `0d8db451384af2de18037751b8f9266a01324240`
+- Code-bearing review commit: `605af97563e6208390473a84d28be165efcb1bcf`
 - Base / `origin/main`: `12cfaa7eebcff1998d909a035c754f45b298a18d`
 - Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
 - Hardening commit: `fbc6961267d0fa8a2582e206b1ce4a0e8919e807`
-- Review-correction commit: `605af97563e6208390473a84d28be165efcb1bcf`
 - PR URL: https://github.com/Delkay-byte/BloomCore-One/pull/37
-- Latest CI: pending on `605af97` at report update time
+- Latest CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42882523234 — PASS on `0d8db45`. Later report-only commits do not change application code.
 - Formal GitHub approval: none. The repository's `main` branch is not protected and has no required reviewer. The PR author is the authenticated account; GitHub does not permit that account to formally approve its own PR, and no independent human reviewer has approved it. The agent's technical review decision is recorded separately in section H.
 - Merge commit SHA: not merged at report time
 - Deployment commit SHA: not deployed
