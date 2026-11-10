@@ -464,6 +464,8 @@ describe("module-aware offline preparation", () => {
         module: "momo",
         modules: ["momo"],
         susuEnabled: false,
+        userId: `user-momo-${Date.now()}`,
+        tenantId: `tenant-momo-${Date.now()}`,
       })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -484,7 +486,12 @@ describe("module-aware offline preparation", () => {
     vi.stubGlobal(
       "fetch",
       preparationFetch(
-        identityResponse({ module: "susu", modules: ["momo", "susu"] })
+        identityResponse({
+          module: "susu",
+          modules: ["momo", "susu"],
+          userId: `user-dual-${Date.now()}`,
+          tenantId: `tenant-dual-${Date.now()}`,
+        })
       )
     );
 

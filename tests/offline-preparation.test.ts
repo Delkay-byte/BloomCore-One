@@ -101,7 +101,7 @@ describe("offline device preparation state", () => {
 
   it("activates locally without any server request when the shell is cached", async () => {
     const passphrase = "test passphrase 123";
-    const unlock = await createUnlockRecord(passphrase);
+    const { record: unlock } = await createUnlockRecord(passphrase);
     const value = context(`local-${Date.now()}`, { unlock });
     await savePreparedContext(value);
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, passphrase);

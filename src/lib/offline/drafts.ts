@@ -21,7 +21,7 @@ import {
   unprotectValue,
   type ProtectedPayload,
 } from "./crypto";
-import { OfflineLockedError, requireOfflineKey } from "./unlock";
+import { OfflineLockedError, isOfflineUnlocked, requireOfflineKey } from "./unlock";
 
 export const DRAFT_SCHEMA_VERSION = 2;
 export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -117,6 +117,14 @@ export async function saveDraft<T>(
   const now = new Date();
   const sanitized = sanitizeDraftData(data) as T;
   const context = await getCurrentOfflineContext();
+  if (
+    context?.unlock &&
+    (context.tenantId !== scope.tenantId || context.userId !== scope.userId)
+  ) {
+    throw new OfflineLockedError(
+      "The offline unlock belongs to a different account than this draft."
+    );
+  }
   let protectedData: ProtectedPayload | undefined;
   if (context?.unlock) {
     protectedData = await protectValue(requireOfflineKey(context), sanitized);
@@ -188,11 +196,23 @@ export async function loadDraft<T = Record<string, unknown>>(
       return null;
     }
 
+    const activeContext = await getCurrentOfflineContext();
+    if (
+      activeContext?.unlock &&
+      (activeContext.tenantId !== scope.tenantId ||
+        activeContext.userId !== scope.userId)
+    ) {
+      throw new OfflineLockedError(
+        "The offline unlock belongs to a different account than this draft."
+      );
+    }
+    if (activeContext?.unlock && !isOfflineUnlocked(activeContext)) {
+      throw new OfflineLockedError();
+    }
     if (record.protectedData) {
-      const context = await getCurrentOfflineContext();
-      if (!context?.unlock) throw new OfflineLockedError();
+      if (!activeContext?.unlock) throw new OfflineLockedError();
       record.data = await unprotectValue<T>(
-        requireOfflineKey(context),
+        requireOfflineKey(activeContext),
         record.protectedData
       );
     }

@@ -15,6 +15,7 @@ import {
 } from "@/lib/offline/crypto";
 import {
   isOfflineUnlocked,
+  recoverOfflineWorkspace,
   setupOfflineUnlock,
   unlockOfflineWorkspace,
 } from "@/lib/offline/unlock";
@@ -51,13 +52,38 @@ export default function OfflineUnlockGate({
   const [error, setError] = useState("");
   const [online, setOnline] = useState(true);
   const [coolingDown, setCoolingDown] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [savedRecovery, setSavedRecovery] = useState(false);
+  const [useRecovery, setUseRecovery] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void getCurrentOfflineContext().then((value) => {
       if (cancelled) return;
       if (value) {
-        setContext(value);
+        if (
+          fallbackContext &&
+          (value.tenantId !== fallbackContext.tenantId ||
+            value.userId !== fallbackContext.userId)
+        ) {
+          const at = new Date().toISOString();
+          setContext({
+            tenantId: fallbackContext.tenantId,
+            userId: fallbackContext.userId,
+            userName: fallbackContext.userName,
+            role: "collector",
+            modules: [],
+            moduleStates: {},
+            preparedAt: at,
+            authorizedAt: at,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            lastSyncedAt: null,
+            active: false,
+            activeModule: null,
+          });
+        } else {
+          setContext(value);
+        }
       } else if (fallbackContext) {
         const at = new Date().toISOString();
         setContext({
@@ -104,12 +130,40 @@ export default function OfflineUnlockGate({
     return () => clearInterval(timer);
   }, [context?.unlockBlockedUntil]);
 
+  const fallbackMismatch = (value: OfflinePreparedContext | null) =>
+    Boolean(
+      value &&
+        fallbackContext &&
+        (value.tenantId !== fallbackContext.tenantId ||
+          value.userId !== fallbackContext.userId)
+    );
+
   async function unlockOrSetup() {
     if (!context) return;
     setBusy(true);
     setError("");
     try {
-      if (!context.unlock) {
+      let fresh = (await getCurrentOfflineContext()) ?? context;
+      if (fallbackMismatch(fresh) && fallbackContext) {
+        const at = new Date().toISOString();
+        fresh = {
+          tenantId: fallbackContext.tenantId,
+          userId: fallbackContext.userId,
+          userName: fallbackContext.userName,
+          role: "collector",
+          modules: [],
+          moduleStates: {},
+          preparedAt: at,
+          authorizedAt: at,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          lastSyncedAt: null,
+          active: false,
+          activeModule: null,
+        };
+        await savePreparedContext(fresh);
+      }
+      setContext(fresh);
+      if (!fresh.unlock) {
         if (!allowSetup || !navigator.onLine) {
           setError("Reconnect to the internet to set up the offline passphrase.");
           return;
@@ -118,18 +172,18 @@ export default function OfflineUnlockGate({
           setError("The passphrase confirmation does not match.");
           return;
         }
-        await setupOfflineUnlock(context, passphrase);
+        const code = await setupOfflineUnlock(fresh, passphrase);
         if (!(await getCurrentOfflineContext())) {
           const at = new Date().toISOString();
           await savePreparedContext({
-            tenantId: context.tenantId,
-            userId: context.userId,
-            userName: context.userName,
-            role: context.role,
+            tenantId: fresh.tenantId,
+            userId: fresh.userId,
+            userName: fresh.userName,
+            role: fresh.role,
             modules: [],
             moduleStates: {},
             unlock:
-              (await getOfflineUnlockRecord(context.tenantId, context.userId)) ??
+              (await getOfflineUnlockRecord(fresh.tenantId, fresh.userId)) ??
               undefined,
             preparedAt: at,
             authorizedAt: at,
@@ -143,8 +197,16 @@ export default function OfflineUnlockGate({
         }
         // Protect any records created before this device had an unlock key.
         await migrateOfflineRecordsToProtected();
+        setPassphrase("");
+        setConfirm("");
+        setRecoveryCode(code);
+        return;
       } else {
-        await unlockOfflineWorkspace(context, passphrase);
+        if (useRecovery) {
+          await recoverOfflineWorkspace(fresh, passphrase);
+        } else {
+          await unlockOfflineWorkspace(fresh, passphrase);
+        }
       }
       setPassphrase("");
       setConfirm("");
@@ -155,6 +217,10 @@ export default function OfflineUnlockGate({
           ? err.message
           : "The offline workspace could not be unlocked."
       );
+      // Refresh the persisted failure counter/cooldown so the UI and the next
+      // attempt use the real values, not the snapshot from page load.
+      const refreshed = await getCurrentOfflineContext().catch(() => null);
+      if (refreshed) setContext(refreshed);
     } finally {
       setBusy(false);
     }
@@ -187,7 +253,7 @@ export default function OfflineUnlockGate({
   const settingUp = !context.unlock;
   const alreadyUnlocked = isOfflineUnlocked(context);
 
-  if (alreadyUnlocked) {
+  if (alreadyUnlocked && !recoveryCode) {
     return (
       <div className="card">
         <p className="text-sm text-slate-600">The offline workspace is unlocked.</p>
@@ -206,6 +272,54 @@ export default function OfflineUnlockGate({
           this device and are not deleted.
         </p>
       </div>
+    );
+  }
+
+  if (recoveryCode) {
+    return (
+      <section className="card mx-auto max-w-md" aria-labelledby="offline-recovery-title">
+        <h2
+          id="offline-recovery-title"
+          className="flex items-center gap-2 text-base font-semibold text-slate-900"
+        >
+          <KeyRound size={18} aria-hidden /> Save your recovery code
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">
+          If you forget the offline passphrase, this one-time code is the only way
+          to reopen saved offline records. Store it separately from this device.
+        </p>
+        <p className="mt-3 break-all rounded-control bg-slate-100 px-3 py-3 font-mono text-sm text-slate-900">
+          {recoveryCode}
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm mt-2"
+          onClick={() => void navigator.clipboard?.writeText(recoveryCode)}
+        >
+          Copy code
+        </button>
+        <label className="mt-4 flex items-start gap-2 text-sm text-slate-800">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={savedRecovery}
+            onChange={(event) => setSavedRecovery(event.target.checked)}
+          />
+          <span>I have saved this recovery code somewhere safe.</span>
+        </label>
+        <button
+          type="button"
+          className="btn btn-primary mt-4 w-full"
+          disabled={!savedRecovery}
+          onClick={() => {
+            setRecoveryCode("");
+            setSavedRecovery(false);
+            onUnlocked();
+          }}
+        >
+          Continue
+        </button>
+      </section>
     );
   }
 
@@ -230,24 +344,38 @@ export default function OfflineUnlockGate({
         )}
 
       <label className="mt-4 block text-sm font-medium text-slate-800" htmlFor="offline-passphrase">
-        Offline passphrase
+        {useRecovery ? "Recovery code" : "Offline passphrase"}
       </label>
       <input
         id="offline-passphrase"
-        type="password"
-        autoComplete={settingUp ? "new-password" : "current-password"}
+        type={useRecovery ? "text" : "password"}
+        autoComplete={settingUp ? "new-password" : useRecovery ? "off" : "current-password"}
         className="mt-1 w-full rounded-control border border-slate-300 px-3 py-2.5 text-sm"
         value={passphrase}
         onChange={(event) => setPassphrase(event.target.value)}
         minLength={settingUp ? MIN_PASSPHRASE_LENGTH : undefined}
         disabled={busy}
       />
+      {!settingUp && (
+        <button
+          type="button"
+          className="mt-2 text-xs font-medium text-brand-700 underline"
+          onClick={() => {
+            setUseRecovery((value) => !value);
+            setPassphrase("");
+            setError("");
+          }}
+        >
+          {useRecovery ? "Use offline passphrase instead" : "Use recovery code"}
+        </button>
+      )}
       {settingUp && (
         <>
           <p className="mt-1 text-xs text-slate-500">
-            At least {MIN_PASSPHRASE_LENGTH} characters. A forgotten passphrase
-            requires online recovery; queued records are preserved but cannot be
-            opened locally without it.
+            At least {MIN_PASSPHRASE_LENGTH} characters. There is no automatic
+            reset. If you forget it, saved records remain on this device but
+            cannot be opened or synchronized without it. Contact your
+            administrator; do not clear site data.
           </p>
           <label className="mt-3 block text-sm font-medium text-slate-800" htmlFor="offline-passphrase-confirm">
             Confirm passphrase
@@ -288,7 +416,9 @@ export default function OfflineUnlockGate({
             : "Unlocking…"
           : settingUp
             ? "Set up offline protection"
-            : "Unlock offline workspace"}
+            : useRecovery
+              ? "Unlock with recovery code"
+              : "Unlock offline workspace"}
       </button>
       {settingUp && !online && (
         <p className="mt-2 text-xs text-amber-800" role="status">

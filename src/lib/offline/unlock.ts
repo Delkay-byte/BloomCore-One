@@ -9,11 +9,13 @@
 import {
   OfflineCryptoError,
   createUnlockRecord,
+  unlockWithRecoveryCode,
   unlockWithRecord,
   type OfflineUnlockRecord,
 } from "./crypto";
 import {
   clearOfflineUnlockFailures,
+  getOfflineUnlockRecord,
   recordOfflineUnlockFailure,
   setOfflineUnlockRecord,
   type OfflinePreparedContext,
@@ -129,12 +131,19 @@ function assertNotCoolingDown(context: OfflinePreparedContext): void {
 export async function setupOfflineUnlock(
   context: Pick<OfflinePreparedContext, "tenantId" | "userId">,
   passphrase: string
-): Promise<void> {
-  const record: OfflineUnlockRecord = await createUnlockRecord(passphrase);
+): Promise<string> {
+  const existing = await getOfflineUnlockRecord(context.tenantId, context.userId);
+  if (existing) {
+    throw new OfflineCryptoError(
+      "unsupported",
+      "This device already has an offline passphrase. Unlock it instead of replacing it."
+    );
+  }
+  const created = await createUnlockRecord(passphrase);
   const saved = await setOfflineUnlockRecord(
     context.tenantId,
     context.userId,
-    record
+    created.record
   );
   if (!saved) {
     throw new OfflineCryptoError(
@@ -143,11 +152,12 @@ export async function setupOfflineUnlock(
     );
   }
   // Verify the persisted record before the caller marks the device ready.
-  const key = await unlockWithRecord(passphrase, record);
+  const key = await unlockWithRecord(passphrase, created.record);
   activeKey = key;
   activeScopeId = offlineScopeId(context);
   lastActivityAt = Date.now();
   backgroundedAt = null;
+  return created.recoveryCode;
 }
 
 export async function unlockOfflineWorkspace(
@@ -163,6 +173,38 @@ export async function unlockOfflineWorkspace(
   assertNotCoolingDown(context);
   try {
     const key = await unlockWithRecord(passphrase, context.unlock);
+    activeKey = key;
+    activeScopeId = offlineScopeId(context);
+    lastActivityAt = Date.now();
+    backgroundedAt = null;
+    await clearOfflineUnlockFailures(context.tenantId, context.userId);
+  } catch (error) {
+    if (error instanceof OfflineCryptoError && error.code === "invalid_passphrase") {
+      const failures = (context.unlockFailures ?? 0) + 1;
+      await recordOfflineUnlockFailure(
+        context.tenantId,
+        context.userId,
+        cooldownForFailures(failures)
+      );
+    }
+    throw error;
+  }
+}
+
+/** Unlock with the one-time recovery code issued at setup. */
+export async function recoverOfflineWorkspace(
+  context: OfflinePreparedContext,
+  recoveryCode: string
+): Promise<void> {
+  if (!context.unlock) {
+    throw new OfflineCryptoError(
+      "unsupported",
+      "This device has no offline unlock credential."
+    );
+  }
+  assertNotCoolingDown(context);
+  try {
+    const key = await unlockWithRecoveryCode(recoveryCode, context.unlock);
     activeKey = key;
     activeScopeId = offlineScopeId(context);
     lastActivityAt = Date.now();

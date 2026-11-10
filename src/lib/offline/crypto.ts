@@ -29,7 +29,17 @@ export interface OfflineUnlockRecord {
   iterations: number;
   salt: string;
   verifier: UnlockEnvelope;
+  /** Raw data key wrapped by the passphrase-derived key. */
+  keyWrap: UnlockEnvelope;
+  /** Raw data key wrapped by the recovery-code-derived key. */
+  recoverySalt: string;
+  recoveryKeyWrap: UnlockEnvelope;
   configuredAt: string;
+}
+
+export interface CreatedUnlockRecord {
+  record: OfflineUnlockRecord;
+  recoveryCode: string;
 }
 
 export interface ProtectedPayload {
@@ -160,22 +170,99 @@ export async function decryptString(
   }
 }
 
+function generateRecoveryCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const chars = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]);
+  return `MAA-${chars.slice(0, 4).join("")}-${chars.slice(4, 8).join("")}-${chars
+    .slice(8, 12)
+    .join("")}-${chars.slice(12, 16).join("")}`;
+}
+
+async function wrapDataKey(
+  wrappingKey: CryptoKey,
+  rawDataKey: Uint8Array
+): Promise<UnlockEnvelope> {
+  return encryptString(wrappingKey, bytesToBase64Url(rawDataKey));
+}
+
+async function unwrapDataKey(
+  wrappingKey: CryptoKey,
+  envelope: UnlockEnvelope
+): Promise<CryptoKey> {
+  const encoded = await decryptString(wrappingKey, envelope);
+  const raw = base64UrlToBytes(encoded);
+  if (raw.byteLength !== 32) {
+    throw new OfflineCryptoError("corrupt_data", "Protected offline key is invalid.");
+  }
+  return subtle().importKey("raw", toArrayBuffer(raw), "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
+}
+
 export async function createUnlockRecord(
   passphrase: string
-): Promise<OfflineUnlockRecord> {
+): Promise<CreatedUnlockRecord> {
   const weak = validatePassphrase(passphrase);
   if (weak) throw new OfflineCryptoError("weak_passphrase", weak);
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await deriveKey(passphrase, salt, UNLOCK_ITERATIONS);
-  const verifier = await encryptString(key, VERIFIER_MARKER);
+  const recoverySalt = crypto.getRandomValues(new Uint8Array(16));
+  const recoveryCode = generateRecoveryCode();
+  const passKey = await deriveKey(passphrase, salt, UNLOCK_ITERATIONS);
+  const recoveryKey = await deriveKey(
+    recoveryCode,
+    recoverySalt,
+    UNLOCK_ITERATIONS
+  );
+  const rawDataKey = crypto.getRandomValues(new Uint8Array(32));
+  const dataKey = await subtle().importKey(
+    "raw",
+    toArrayBuffer(rawDataKey),
+    "AES-GCM",
+    false,
+    ["encrypt", "decrypt"]
+  );
+  const verifier = await encryptString(dataKey, VERIFIER_MARKER);
+  const keyWrap = await wrapDataKey(passKey, rawDataKey);
+  const recoveryKeyWrap = await wrapDataKey(recoveryKey, rawDataKey);
   return {
-    version: 1,
-    kdf: UNLOCK_KDF,
-    iterations: UNLOCK_ITERATIONS,
-    salt: bytesToBase64Url(salt),
-    verifier,
-    configuredAt: new Date().toISOString(),
+    record: {
+      version: 1,
+      kdf: UNLOCK_KDF,
+      iterations: UNLOCK_ITERATIONS,
+      salt: bytesToBase64Url(salt),
+      verifier,
+      keyWrap,
+      recoverySalt: bytesToBase64Url(recoverySalt),
+      recoveryKeyWrap,
+      configuredAt: new Date().toISOString(),
+    },
+    recoveryCode,
   };
+}
+
+async function unlockDataKey(
+  wrappingKey: CryptoKey,
+  record: OfflineUnlockRecord
+): Promise<CryptoKey> {
+  const dataKey = await unwrapDataKey(wrappingKey, record.keyWrap);
+  let marker: string;
+  try {
+    marker = await decryptString(dataKey, record.verifier);
+  } catch {
+    throw new OfflineCryptoError(
+      "invalid_passphrase",
+      "The offline passphrase is incorrect."
+    );
+  }
+  if (marker !== VERIFIER_MARKER) {
+    throw new OfflineCryptoError(
+      "invalid_passphrase",
+      "The offline passphrase is incorrect."
+    );
+  }
+  return dataKey;
 }
 
 export async function unlockWithRecord(
@@ -189,34 +276,52 @@ export async function unlockWithRecord(
     !Number.isFinite(record.iterations) ||
     record.iterations < 100_000 ||
     !record.salt ||
-    !record.verifier
+    !record.verifier ||
+    !record.keyWrap
   ) {
     throw new OfflineCryptoError(
       "unsupported",
       "This device's offline unlock record is not supported."
     );
   }
-  const key = await deriveKey(
+  const wrappingKey = await deriveKey(
     passphrase,
     base64UrlToBytes(record.salt),
     record.iterations
   );
-  let marker: string;
+  return unlockDataKey(wrappingKey, record);
+}
+
+export async function unlockWithRecoveryCode(
+  recoveryCode: string,
+  record: OfflineUnlockRecord
+): Promise<CryptoKey> {
+  if (
+    !record?.recoverySalt ||
+    !record.recoveryKeyWrap ||
+    !record.verifier
+  ) {
+    throw new OfflineCryptoError(
+      "unsupported",
+      "This device has no recovery key. Use the offline passphrase."
+    );
+  }
+  const wrappingKey = await deriveKey(
+    recoveryCode.trim().toUpperCase(),
+    base64UrlToBytes(record.recoverySalt),
+    record.iterations
+  );
   try {
-    marker = await decryptString(key, record.verifier);
+    return await unlockDataKey(wrappingKey, {
+      ...record,
+      keyWrap: record.recoveryKeyWrap,
+    });
   } catch {
     throw new OfflineCryptoError(
       "invalid_passphrase",
-      "The offline passphrase is incorrect."
+      "The offline recovery code is incorrect."
     );
   }
-  if (marker !== VERIFIER_MARKER) {
-    throw new OfflineCryptoError(
-      "invalid_passphrase",
-      "The offline passphrase is incorrect."
-    );
-  }
-  return key;
 }
 
 export function isProtectedPayload(value: unknown): value is ProtectedPayload {

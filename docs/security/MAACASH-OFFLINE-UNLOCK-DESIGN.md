@@ -37,17 +37,20 @@ WebAuthn where available plus passphrase fallback would improve UX but doubles t
 
 ## 3. Selected design
 
-### Authentication factor
+### Authentication factor and recovery
 
 - User-specific offline passphrase, minimum 12 characters, established while online and authenticated.
 - Normalized with Unicode NFKC and trimmed; not stored.
 - Per tenant + user + device random 16-byte salt.
 - PBKDF2-SHA-256, 600,000 iterations, 256-bit output.
-- Derived key is non-extractable WebCrypto AES-GCM key held only in module memory.
-- Verification: decrypt a fixed marker ciphertext. Wrong passphrase fails AES-GCM authentication.
+- The PBKDF2 key wraps a random 256-bit data-encryption key. The data key, not the passphrase key, encrypts records.
+- A one-time recovery code (80 bits, displayed once at setup) wraps the same data key with a separate salt. It can reopen the queue if the passphrase is forgotten.
+- Both wrappers and the verifier are stored; neither the passphrase nor the recovery code is stored.
+- Derived keys are non-extractable and held only in module memory.
+- Verification: unwrap the data key, then decrypt a fixed marker ciphertext. Wrong factor fails AES-GCM authentication.
 - Local progressive cooldown after wrong attempts. No record deletion. Cooldown state is non-secret and restart-resistant.
 
-A low-entropy PIN is rejected. The UI requires a passphrase and explains that a forgotten passphrase requires online recovery (records are preserved but cannot be decrypted locally without the factor).
+A low-entropy PIN is rejected. The recovery code must be stored separately from the device. If both the passphrase and recovery code are lost, the encrypted records cannot be recovered cryptographically; they remain preserved but cannot be opened or synchronized. There is no silent reset.
 
 ### Encryption
 

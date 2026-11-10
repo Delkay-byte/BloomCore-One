@@ -204,10 +204,19 @@ export async function openOfflineDatabase(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => {
-      registerOfflineConnection(request.result, name);
-      resolve(request.result);
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      registerOfflineConnection(db, name);
+      resolve(db);
     };
-    request.onerror = () => reject(request.error);
+    request.onblocked = () =>
+      reject(
+        new OfflineStorageError(
+          "storage_unavailable",
+          "Another MaaCash tab is holding an older offline database open. Close other tabs and retry."
+        )
+      );
+    request.onerror = () => reject(toStorageError(request.error));
   });
 }
 
@@ -245,6 +254,21 @@ async function protectionContext(): Promise<OfflinePreparedContext | null> {
   return context?.unlock ? context : null;
 }
 
+async function requireMatchingProtectionScope(): Promise<OfflinePreparedContext | null> {
+  const context = await protectionContext();
+  if (!context) return null;
+  const scope = await getOfflineScope();
+  if (
+    context.tenantId !== scope.tenantId ||
+    context.userId !== scope.userId
+  ) {
+    throw new OfflineLockedError(
+      "The offline unlock belongs to a different account than this database."
+    );
+  }
+  return context;
+}
+
 export async function isOfflineProtectionActive(): Promise<boolean> {
   return Boolean(await protectionContext());
 }
@@ -252,8 +276,17 @@ export async function isOfflineProtectionActive(): Promise<boolean> {
 async function protectTransactionPayload(
   transaction: OfflineTransaction
 ): Promise<OfflineTransaction> {
-  const context = await protectionContext();
+  const context = await requireMatchingProtectionScope();
   if (!context) return transaction;
+  if (
+    transaction.tenantId &&
+    (transaction.tenantId !== context.tenantId ||
+      transaction.userId !== context.userId)
+  ) {
+    throw new OfflineLockedError(
+      "This transaction belongs to a different offline account."
+    );
+  }
   if (transaction.protectionVersion === 1 && transaction.protectedPayload) {
     return transaction;
   }
@@ -271,6 +304,10 @@ async function protectTransactionPayload(
 export async function openTransactionPayload(
   transaction: OfflineTransaction
 ): Promise<string> {
+  const current = await getCurrentOfflineContext();
+  if (current?.unlock && !requireOfflineKeySafe(current)) {
+    throw new OfflineLockedError();
+  }
   if (!transaction.protectedPayload) {
     if (transaction.payload) return transaction.payload;
     throw new OfflineCryptoError(
@@ -278,12 +315,20 @@ export async function openTransactionPayload(
       "This saved transaction has no readable payload. It was not deleted."
     );
   }
-  const context = await protectionContext();
-  if (!context) {
+  if (!current?.unlock) {
     throw new OfflineLockedError();
   }
-  const key = requireOfflineKey(context);
+  const key = requireOfflineKey(current);
   return unprotectValue<string>(key, transaction.protectedPayload);
+}
+
+function requireOfflineKeySafe(context: OfflinePreparedContext): boolean {
+  try {
+    requireOfflineKey(context);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Transaction Operations ─────────────────────────────────────────────
@@ -436,7 +481,7 @@ export async function pruneSyncedTransactions(
 // ── Customer Cache ─────────────────────────────────────────────────────
 
 export async function cacheCustomers(customers: CachedCustomer[]): Promise<void> {
-  const context = await protectionContext();
+  const context = await requireMatchingProtectionScope();
   let stored: StoredCustomer[];
   if (context) {
     const key = requireOfflineKey(context);
@@ -469,7 +514,7 @@ export async function getCachedCustomers(): Promise<CachedCustomer[]> {
   const stored = await withStore<StoredCustomer[]>("readonly", "customers", (store) =>
     store.getAll()
   );
-  const context = await protectionContext();
+  const context = await requireMatchingProtectionScope();
   if (!context) {
     if (stored.some((customer) => customer.protectedData)) {
       throw new OfflineLockedError();
@@ -583,7 +628,7 @@ async function clearLegacyBackups(db: IDBDatabase): Promise<void> {
  * or interrupted run is recoverable and idempotent.
  */
 export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrationSummary> {
-  const context = await protectionContext();
+  const context = await requireMatchingProtectionScope();
   if (!context) {
     throw new OfflineLockedError(
       "Set up and unlock the offline passphrase before migrating saved records."
@@ -625,7 +670,25 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
     legacyDrafts.length === 0
   ) {
     // A previous run may have encrypted records and crashed before clearing
-    // the plaintext backups. Clear them before marking migration complete.
+    // the plaintext backups. Verify the live protected records decrypt BEFORE
+    // removing the only recoverable plaintext copy.
+    const liveTransactions = await readStore<OfflineTransaction>(db, "transactions");
+    const liveCustomers = await readStore<StoredCustomer>(db, "customers");
+    const liveDrafts = await readStore<Record<string, unknown>>(db, "drafts");
+    for (const record of liveTransactions) {
+      if (record.protectedPayload) {
+        await unprotectValue<string>(key, record.protectedPayload);
+      }
+    }
+    for (const record of liveCustomers) {
+      if (record.protectedData) {
+        await unprotectValue(key, record.protectedData);
+      }
+    }
+    for (const record of liveDrafts) {
+      const protectedData = record.protectedData as ProtectedPayload | undefined;
+      if (protectedData) await unprotectValue(key, protectedData);
+    }
     await clearLegacyBackups(db);
     const tx = db.transaction("meta", "readwrite");
     tx.objectStore("meta").put({
@@ -633,17 +696,17 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
       value: {
         version: 1,
         migratedAt: new Date().toISOString(),
-        transactions: 0,
-        customers: 0,
-        drafts: 0,
+        transactions: liveTransactions.length,
+        customers: liveCustomers.length,
+        drafts: liveDrafts.length,
       },
     });
     await transactionDone(tx);
     return {
       migrated: false,
-      transactions: 0,
-      customers: 0,
-      drafts: 0,
+      transactions: liveTransactions.length,
+      customers: liveCustomers.length,
+      drafts: liveDrafts.length,
       alreadyProtected: false,
     };
   }
@@ -775,7 +838,7 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
 
 /** True when plaintext legacy records still need migration. */
 export async function needsOfflineEncryptionMigration(): Promise<boolean> {
-  const context = await protectionContext();
+  const context = await requireMatchingProtectionScope();
   if (!context) return false;
   const db = await openOfflineDatabase();
   const meta = await new Promise<{ value?: { version?: number } } | undefined>(

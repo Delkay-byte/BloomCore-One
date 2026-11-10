@@ -25,7 +25,9 @@ Until stronger offline identity protection is implemented:
 
 ## Technical enforcement added
 
-The application now enforces a user-specific offline unlock passphrase before protected customer or queue data is decrypted. Sensitive records are encrypted at rest with AES-256-GCM using a key derived from that passphrase (PBKDF2-SHA-256, 600,000 iterations, per-user/per-device salt). Page reload, browser restart, crash and sign-out start locked. A device without a configured unlock credential cannot open an offline workspace.
+The application now enforces a user-specific offline unlock passphrase before protected customer or queue data is decrypted. Sensitive records are encrypted at rest with AES-256-GCM using a random data key wrapped by the passphrase-derived key and by a one-time recovery code. Page reload, browser restart, crash and sign-out start locked. A device without a configured unlock credential cannot open an offline workspace.
+
+The recovery code must be stored separately from the device. If both the passphrase and recovery code are lost, the encrypted records remain preserved but cannot be opened or synchronized.
 
 This reduces the shared-profile risk but does not make shared devices acceptable. The rules below remain mandatory.
 

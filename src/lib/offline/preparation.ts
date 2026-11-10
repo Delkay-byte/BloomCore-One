@@ -69,6 +69,8 @@ export interface PreparationResult {
   requiresUnlockSetup?: boolean;
   /** True when a passphrase exists but the workspace is locked. */
   requiresUnlock?: boolean;
+  /** One-time recovery code when a new passphrase was created. */
+  recoveryCode?: string;
 }
 
 interface MePayload {
@@ -388,6 +390,7 @@ async function runOfflinePreparation(
     }
 
     const existingUnlock = await getOfflineUnlockRecord(tenantId, userId);
+    let recoveryCode: string | undefined;
     if (!existingUnlock && !unlockPassphrase) {
       return {
         ok: false,
@@ -401,7 +404,10 @@ async function runOfflinePreparation(
     }
     if (unlockPassphrase) {
       try {
-        await setupOfflineUnlock({ tenantId, userId }, unlockPassphrase);
+        recoveryCode = await setupOfflineUnlock(
+          { tenantId, userId },
+          unlockPassphrase
+        );
       } catch (error) {
         return {
           ok: false,
@@ -628,6 +634,7 @@ async function runOfflinePreparation(
     context,
     preparedModules,
     failedModules,
+    recoveryCode,
     message:
       failedModules.length > 0
         ? `Offline ready for ${preparedModules

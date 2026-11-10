@@ -11,6 +11,7 @@ import {
   addTransaction,
   getCachedCustomers,
   getPendingTransactions,
+  openTransactionPayload,
   cacheCustomers,
   type OfflineTransaction,
   type CachedCustomer,
@@ -118,6 +119,7 @@ export default function CollectorDashboardPage({
   // Offline state
   const [isOnline, setIsOnline] = useState(true);
   const [pendingTxs, setPendingTxs] = useState<OfflineTransaction[]>([]);
+  const [pendingPayloads, setPendingPayloads] = useState<Record<string, string>>({});
   const [syncing, setSyncing] = useState(false);
   const [deviceId, setDeviceId] = useState<string>("");
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
@@ -294,6 +296,16 @@ export default function CollectorDashboardPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (isOnline) {
+      setOfflineLocked(false);
+      return;
+    }
+    void getCurrentOfflineContext().then((context) => {
+      if (context && !isOfflineUnlocked(context)) setOfflineLocked(true);
+    });
+  }, [isOnline]);
+
   // Lock the offline workspace after inactivity or a long background period.
   // Timers are best effort; visibility/focus events are also used.
   useEffect(() => {
@@ -466,6 +478,15 @@ export default function CollectorDashboardPage({
   async function refreshPendingTxs() {
     const pending = await getPendingTransactions();
     setPendingTxs(pending);
+    const payloads: Record<string, string> = {};
+    for (const tx of pending) {
+      try {
+        payloads[tx.id] = await openTransactionPayload(tx);
+      } catch {
+        payloads[tx.id] = "{}";
+      }
+    }
+    setPendingPayloads(payloads);
   }
 
   async function attemptSync() {
@@ -1072,7 +1093,7 @@ export default function CollectorDashboardPage({
           <p className="text-sm text-slate-500 mb-3 px-1">{pendingTxs.length} collection{pendingTxs.length !== 1 ? "s" : ""} saved on device</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {pendingTxs.map((tx) => {
-              const payload = JSON.parse(tx.payload);
+              const payload = JSON.parse(pendingPayloads[tx.id] ?? tx.payload ?? "{}");
               const cust = data?.toVisit.find((c) => c.accountId === payload.accountId) || data?.collectedToday.find((c) => c.accountId === payload.accountId);
               return (
                 <div key={tx.id} className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">

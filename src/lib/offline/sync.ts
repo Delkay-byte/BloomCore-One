@@ -22,6 +22,8 @@ import {
   type OfflineTransaction,
 } from "./store";
 import { getOfflineScope, offlineDatabaseName } from "./scope";
+import { getCurrentOfflineContext } from "./device-store";
+import { isOfflineUnlocked } from "./unlock";
 import { markOfflineAuthorized, markOfflineSynced } from "./device-store";
 import type { AppErrorCode } from "@/lib/errors/friendly";
 
@@ -223,7 +225,10 @@ interface LockManagerLike {
  * Falls back to a module flag where the Web Locks API is unavailable.
  */
 async function withSyncLock<T>(run: () => Promise<T>): Promise<T | null> {
-  const locks = (navigator as Navigator & { locks?: LockManagerLike }).locks;
+  const locks =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as Navigator & { locks?: LockManagerLike }).locks;
   if (locks?.request) {
     return locks.request("bloomcore-offline-sync", { ifAvailable: true }, async (lock) =>
       lock ? run() : null
@@ -239,8 +244,23 @@ async function withSyncLock<T>(run: () => Promise<T>): Promise<T | null> {
 }
 
 async function syncBatch(): Promise<SyncResult[]> {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return [];
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return [];
   if (rateLimitedUntil > Date.now()) return [];
+  // A locked workspace must not claim, submit or retry records. Otherwise the
+  // decryption failure would be counted as a retryable network error and burn
+  // the queue until records are marked failed.
+  const unlockContext = await getCurrentOfflineContext();
+  if (unlockContext?.unlock && !isOfflineUnlocked(unlockContext)) {
+    return [
+      {
+        transactionId: "offline-locked",
+        success: false,
+        error: "Offline workspace is locked. Unlock it before synchronizing.",
+        isRetryable: false,
+        code: "offline",
+      },
+    ];
+  }
   if (isOfflineAuthExpired()) {
     return [
       {

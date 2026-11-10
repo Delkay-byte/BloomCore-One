@@ -6,6 +6,7 @@ import {
   decryptString,
   encryptString,
   unlockWithRecord,
+  unlockWithRecoveryCode,
 } from "@/lib/offline/crypto";
 import {
   clearCurrentOfflineContext,
@@ -30,6 +31,7 @@ import {
   cacheCustomers,
   getCachedCustomers,
   getOfflineQueueSummary,
+  getTransaction,
   migrateOfflineRecordsToProtected,
   needsOfflineEncryptionMigration,
   openOfflineDatabase,
@@ -38,6 +40,7 @@ import {
   type OfflineTransaction,
 } from "@/lib/offline/store";
 import { saveDraft } from "@/lib/offline/drafts";
+import { syncPendingTransactions } from "@/lib/offline/sync";
 import {
   clearOfflineScope,
   closeCurrentOfflineSession,
@@ -140,7 +143,7 @@ describe("offline unlock cryptography", () => {
     await expect(createUnlockRecord("1234")).rejects.toMatchObject({
       code: "weak_passphrase",
     });
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     expect(PASSPHRASE.length).toBeGreaterThanOrEqual(MIN_PASSPHRASE_LENGTH);
     expect(JSON.stringify(record)).not.toContain(PASSPHRASE);
     const key = await unlockWithRecord(PASSPHRASE, record);
@@ -148,7 +151,7 @@ describe("offline unlock cryptography", () => {
   });
 
   it("rejects a wrong passphrase without changing the verifier", async () => {
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     const before = JSON.stringify(record.verifier);
     await expect(unlockWithRecord(OTHER_PASSPHRASE, record)).rejects.toMatchObject({
       code: "invalid_passphrase",
@@ -156,8 +159,20 @@ describe("offline unlock cryptography", () => {
     expect(JSON.stringify(record.verifier)).toBe(before);
   });
 
+  it("unlocks with the one-time recovery code and rejects a wrong one", async () => {
+    const { record, recoveryCode } = await createUnlockRecord(PASSPHRASE);
+    expect(recoveryCode).toMatch(/^MAA-/);
+    const key = await unlockWithRecoveryCode(recoveryCode, record);
+    expect(await decryptString(key, record.verifier)).toBe(
+      "maacash-offline-unlock:v1"
+    );
+    await expect(
+      unlockWithRecoveryCode("MAA-WRONG-WRONG-WRONG-WRONG", record)
+    ).rejects.toMatchObject({ code: "invalid_passphrase" });
+  });
+
   it("uses a unique IV and authenticates ciphertext", async () => {
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     const key = await unlockWithRecord(PASSPHRASE, record);
     const a = await encryptString(key, "same value");
     const b = await encryptString(key, "same value");
@@ -172,7 +187,7 @@ describe("offline unlock cryptography", () => {
 describe("encrypted offline storage", () => {
   it("stores queues and customers encrypted and reads them only unlocked", async () => {
     const ctx = context(`encrypted-${Date.now()}`);
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
@@ -185,7 +200,7 @@ describe("encrypted offline storage", () => {
     const storedCustomers = await rawRecords<Record<string, unknown>>("customers");
     expect(storedTx[0].payload).toBe("");
     expect(JSON.stringify(storedTx)).not.toContain("Secret Customer");
-    expect(JSON.stringify(storedTx)).not.toContain("50");
+    expect(JSON.stringify(storedTx)).not.toContain("acct-secret");
     expect(JSON.stringify(storedCustomers)).not.toContain("Secret Customer");
     expect(JSON.stringify(storedCustomers)).not.toContain("C-SECRET");
 
@@ -204,9 +219,65 @@ describe("encrypted offline storage", () => {
     expect((await getOfflineQueueSummary()).pending).toBe(1);
   });
 
+  it("does not serve legacy plaintext records while a configured workspace is locked", async () => {
+    const ctx = context(`legacy-locked-${Date.now()}`);
+    await savePreparedContext(ctx);
+    setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
+    await addTransaction(transaction("tx-legacy", ctx.tenantId, ctx.userId));
+    const [legacy] = await (
+      await import("@/lib/offline/store")
+    ).getPendingTransactions();
+
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    lockOfflineWorkspace();
+
+    await expect(openTransactionPayload(legacy)).rejects.toMatchObject({
+      name: "OfflineLockedError",
+    });
+  });
+
+  it("does not burn queue retries while the workspace is locked", async () => {
+    const ctx = context(`locked-sync-${Date.now()}`);
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
+    await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+    await addTransaction(transaction("tx-locked", ctx.tenantId, ctx.userId));
+    lockOfflineWorkspace();
+
+    const results = await syncPendingTransactions();
+    expect(results[0]?.error).toMatch(/locked/i);
+    const stored = await getTransaction("tx-locked");
+    expect(stored?.status).toBe("pending_sync");
+    expect(stored?.retryCount).toBe(0);
+  });
+
+  it("persists progressive cooldown after repeated wrong attempts", async () => {
+    const ctx = context(`cooldown-${Date.now()}`);
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    lockOfflineWorkspace();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(
+        unlockOfflineWorkspace(
+          (await getCurrentOfflineContext())!,
+          OTHER_PASSPHRASE
+        )
+      ).rejects.toBeTruthy();
+    }
+    const current = await getCurrentOfflineContext();
+    expect(current?.unlockFailures).toBe(3);
+    expect(current?.unlockBlockedUntil).toBeTruthy();
+    await expect(
+      unlockOfflineWorkspace(current!, PASSPHRASE)
+    ).rejects.toMatchObject({ code: "invalid_passphrase" });
+  });
+
   it("does not delete records after a wrong unlock attempt", async () => {
     const ctx = context(`wrong-${Date.now()}`);
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
@@ -225,7 +296,7 @@ describe("encrypted offline storage", () => {
 describe("offline lock lifecycle", () => {
   it("locks after inactivity and after a long background period", async () => {
     const ctx = context(`idle-${Date.now()}`);
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
     expect(isOfflineUnlocked(ctx)).toBe(true);
@@ -245,7 +316,7 @@ describe("offline lock lifecycle", () => {
   it("does not share an unlock key across tenant/user scopes", async () => {
     const a = context(`scope-a-${Date.now()}`);
     const b = context(`scope-b-${Date.now()}`);
-    const recordA = await createUnlockRecord(PASSPHRASE);
+    const { record: recordA } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...a, unlock: recordA });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
 
@@ -273,7 +344,7 @@ describe("legacy plaintext migration", () => {
     await addTransaction(failed);
     await addTransaction(syncing);
 
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
     await migrateOfflineRecordsToProtected();
@@ -298,7 +369,7 @@ describe("legacy plaintext migration", () => {
     });
     expect(await needsOfflineEncryptionMigration()).toBe(false); // no unlock yet
 
-    const record = await createUnlockRecord(PASSPHRASE);
+    const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
     expect(await needsOfflineEncryptionMigration()).toBe(true);

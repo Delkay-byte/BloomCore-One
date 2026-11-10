@@ -40,6 +40,11 @@ test.describe("collector offline shell on Android-sized screen", () => {
     await page.locator("#offline-passphrase").fill(PASSPHRASE);
     await page.locator("#offline-passphrase-confirm").fill(PASSPHRASE);
     await page.getByRole("button", { name: "Set up offline protection" }).click();
+    await expect(page.getByText("Save your recovery code", { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByLabel("I have saved this recovery code somewhere safe.").check();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(page.getByText("Offline Ready", { exact: true }).first()).toBeVisible({
       timeout: 120_000,
     });
