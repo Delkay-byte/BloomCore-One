@@ -132,10 +132,10 @@ Local unlock is not authorization. Server rejection preserves the local record. 
 ## 7. Release
 
 - Branch: `security/maacash-offline-unlock-hardening`
-- Commit SHA: pending
-- PR: pending
-- Approval: pending technical review; no independent GitHub approval claimed
-- CI: pending
+- Code commit SHA: `0a74a50a0b2cb785097768c949adebfa4159bdb5`
+- PR: https://github.com/Delkay-byte/BloomCore-One/pull/41
+- Approval: agent technical review APPROVE; no independent human GitHub approval claimed
+- CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42917832245 — PASS on `0a74a50`
 - Render deployment: pending
 - Production verification: pending
 
