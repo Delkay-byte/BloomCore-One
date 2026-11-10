@@ -15,12 +15,16 @@ import {
   claimTransactionForSync,
   getPendingTransactions,
   getSyncingTransactions,
+  openTransactionPayload,
   openOfflineDatabase,
   recoverStaleSyncing,
   updateTransaction,
   type OfflineTransaction,
 } from "./store";
 import { getOfflineScope, offlineDatabaseName } from "./scope";
+import { getCurrentOfflineContext } from "./device-store";
+import { isOfflineUnlocked, OfflineLockedError } from "./unlock";
+import { OfflineCryptoError } from "./crypto";
 import { markOfflineAuthorized, markOfflineSynced } from "./device-store";
 import type { AppErrorCode } from "@/lib/errors/friendly";
 
@@ -108,6 +112,8 @@ export interface SyncResult {
   code?: AppErrorCode;
   retryAfterSeconds?: number;
   authExpired?: boolean;
+  /** True when the local offline workspace was locked during the attempt. */
+  locked?: boolean;
 }
 
 // ── Server Submission ──────────────────────────────────────────────────
@@ -117,13 +123,14 @@ export interface SyncResult {
  */
 async function submitToServer(transaction: OfflineTransaction): Promise<SyncResult> {
   try {
+    const payload = await openTransactionPayload(transaction);
     const response = await fetch("/api/offline/sync-contribution", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({
         idempotencyKey: transaction.idempotencyKey,
-        payload: transaction.payload,
+        payload,
         deviceId: transaction.deviceId,
       }),
     });
@@ -187,7 +194,23 @@ async function submitToServer(transaction: OfflineTransaction): Promise<SyncResu
                   ? "internal"
                   : "unknown",
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof OfflineLockedError ||
+      error instanceof OfflineCryptoError
+    ) {
+      return {
+        transactionId: transaction.id,
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "The offline workspace is locked.",
+        isRetryable: false,
+        code: "offline",
+        locked: error instanceof OfflineLockedError,
+      };
+    }
     return {
       transactionId: transaction.id,
       success: false,
@@ -221,7 +244,10 @@ interface LockManagerLike {
  * Falls back to a module flag where the Web Locks API is unavailable.
  */
 async function withSyncLock<T>(run: () => Promise<T>): Promise<T | null> {
-  const locks = (navigator as Navigator & { locks?: LockManagerLike }).locks;
+  const locks =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as Navigator & { locks?: LockManagerLike }).locks;
   if (locks?.request) {
     return locks.request("bloomcore-offline-sync", { ifAvailable: true }, async (lock) =>
       lock ? run() : null
@@ -237,8 +263,24 @@ async function withSyncLock<T>(run: () => Promise<T>): Promise<T | null> {
 }
 
 async function syncBatch(): Promise<SyncResult[]> {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return [];
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return [];
   if (rateLimitedUntil > Date.now()) return [];
+  // A locked workspace must not claim, submit or retry records. Otherwise the
+  // decryption failure would be counted as a retryable network error and burn
+  // the queue until records are marked failed.
+  const unlockContext = await getCurrentOfflineContext();
+  if (unlockContext?.unlock && !isOfflineUnlocked(unlockContext)) {
+    return [
+      {
+        transactionId: "offline-locked",
+        success: false,
+        error: "Offline workspace is locked. Unlock it before synchronizing.",
+        isRetryable: false,
+        code: "offline",
+        locked: true,
+      },
+    ];
+  }
   if (isOfflineAuthExpired()) {
     return [
       {
@@ -266,6 +308,16 @@ async function syncBatch(): Promise<SyncResult[]> {
     results.push(result);
 
     const retryCount = tx.retryCount + (result.isRetryable ? 1 : 0);
+
+    if (!result.success && result.locked) {
+      // Local lock, not a server rejection. Return the claim without burning a
+      // retry and stop the batch.
+      await updateTransaction(tx.id, {
+        status: "pending_sync",
+        syncStartedAt: null,
+      });
+      break;
+    }
 
     if (result.success) {
       await updateTransaction(tx.id, {

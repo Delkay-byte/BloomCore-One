@@ -102,7 +102,17 @@ export function useObjectDraft<T>({
     setStatus("restoring");
 
     (async () => {
-      const draft = await loadDraft<T>(draftKey);
+      let draft: import("@/lib/offline/drafts").DraftRecord<T> | null;
+      try {
+        draft = await loadDraft<T>(draftKey);
+      } catch {
+        if (!cancelled && mounted.current) {
+          hydrated.current = true;
+          setStatus("idle");
+          setReady(true);
+        }
+        return;
+      }
       if (cancelled || !mounted.current) return;
 
       const serverTime = serverUpdatedAt

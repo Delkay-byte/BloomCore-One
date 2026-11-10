@@ -22,10 +22,12 @@ import {
   OFFLINE_AUTH_TIMEOUT_MS,
   blockOfflineModules,
   getCurrentOfflineContext,
+  getOfflineUnlockRecord,
   offlineContextExpired,
   offlineContextSupports,
   offlineModuleBlockReason,
   savePreparedContext,
+  getPreparedContext,
   setOfflineActivation,
   type OfflineModule,
   type OfflineModuleState,
@@ -34,14 +36,17 @@ import {
 import { setOfflineScope } from "./scope";
 import {
   cacheCustomers,
+  migrateOfflineRecordsToProtected,
   type CachedCustomer,
 } from "./store";
+import { isOfflineUnlocked, setupOfflineUnlock } from "./unlock";
 
 export type OfflineReadinessStatus =
   | "preparing"
   | "ready"
   | "active"
   | "preparation_required"
+  | "unlock_required"
   | "expired"
   | "revoked";
 
@@ -60,6 +65,12 @@ export interface PreparationResult {
   preparedModules: OfflineModule[];
   failedModules: OfflineModule[];
   message: string;
+  /** True when the user must set up the offline unlock passphrase online. */
+  requiresUnlockSetup?: boolean;
+  /** True when a passphrase exists but the workspace is locked. */
+  requiresUnlock?: boolean;
+  /** One-time recovery code when a new passphrase was created. */
+  recoveryCode?: string;
 }
 
 interface MePayload {
@@ -153,6 +164,10 @@ async function warmRoute(
   tenantId: string,
   userId: string
 ): Promise<boolean> {
+  // The MoMo dashboard server response contains daily-account figures. Caching
+  // that HTML would place financial data outside the encrypted offline queue.
+  // MoMo offline financial postings are unsupported, so do not cache it.
+  if (route === "/worker/dashboard") return false;
   if (typeof location === "undefined" || typeof fetch === "undefined") return false;
   try {
     const response = await fetch(route, {
@@ -230,16 +245,15 @@ async function enrollModule(
  * customer list.
  */
 export function prepareOfflineAccess(
-  module?: ModuleName
+  module?: ModuleName,
+  unlockPassphrase?: string
 ): Promise<PreparationResult> {
   const key = module ?? "workspace";
   if (preparationPromise) {
     if (preparationKey === key) return preparationPromise;
-    // Never share an in-flight preparation started for another workspace.
-    // Serialize so two preparations cannot race the same device context.
     return preparationPromise
       .catch(() => undefined)
-      .then(() => prepareOfflineAccess(module));
+      .then(() => prepareOfflineAccess(module, unlockPassphrase));
   }
 
   preparationKey = key;
@@ -247,7 +261,7 @@ export function prepareOfflineAccess(
   notifyOfflineStatusChanged();
   const promise = (async () => {
     try {
-      return await runOfflinePreparation(module);
+      return await runOfflinePreparation(module, unlockPassphrase);
     } finally {
       preparationInProgress = false;
       preparationPromise = null;
@@ -260,7 +274,8 @@ export function prepareOfflineAccess(
 }
 
 async function runOfflinePreparation(
-  requestedModule?: ModuleName
+  requestedModule?: ModuleName,
+  unlockPassphrase?: string
 ): Promise<PreparationResult> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
       return {
@@ -374,6 +389,66 @@ async function runOfflinePreparation(
       };
     }
 
+    const existingUnlock = await getOfflineUnlockRecord(tenantId, userId);
+    let recoveryCode: string | undefined;
+    if (!existingUnlock && !unlockPassphrase) {
+      return {
+        ok: false,
+        context: await getCurrentOfflineContext(),
+        preparedModules: [],
+        failedModules: [],
+        requiresUnlockSetup: true,
+        message:
+          "Set up an offline passphrase before preparing this device for offline use.",
+      };
+    }
+    if (unlockPassphrase) {
+      try {
+        recoveryCode = await setupOfflineUnlock(
+          { tenantId, userId },
+          unlockPassphrase
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          context: await getCurrentOfflineContext(),
+          preparedModules: [],
+          failedModules: [],
+          message:
+            error instanceof Error
+              ? error.message
+              : "The offline passphrase could not be set up.",
+        };
+      }
+      // First-time setup has no prepared context yet, but encryption and
+      // migration still need the verified tenant/user scope. Create a minimal
+      // provisional context; a later failure leaves it with no modules, so it
+      // cannot be treated as Offline Ready.
+      if (!(await getCurrentOfflineContext())) {
+        const at = new Date().toISOString();
+        const prepared = await getPreparedContext(tenantId, userId);
+        await savePreparedContext(
+          prepared ?? {
+            tenantId,
+            userId,
+            userName: me.fullName || "MaaCash user",
+            role: me.role,
+            modules: [],
+            moduleStates: {},
+            unlock: (await getOfflineUnlockRecord(tenantId, userId)) ?? undefined,
+            preparedAt: at,
+            authorizedAt: at,
+            expiresAt: new Date(
+              new Date(at).getTime() + OFFLINE_AUTH_TIMEOUT_MS
+            ).toISOString(),
+            lastSyncedAt: null,
+            active: false,
+            activeModule: null,
+          }
+        );
+      }
+    }
+
     const workerReady = await serviceWorkerReady();
     if (!workerReady) {
       return {
@@ -390,6 +465,35 @@ async function runOfflinePreparation(
     // lives in the scoped database, so reading it first could otherwise fall
     // back to a different prepared context.
     setOfflineScope({ tenantId, userId }, "server", activeModule);
+
+    if (existingUnlock && !isOfflineUnlocked({ tenantId, userId })) {
+      return {
+        ok: false,
+        context: await getCurrentOfflineContext(),
+        preparedModules: [],
+        failedModules: [],
+        requiresUnlock: true,
+        message:
+          "Unlock the offline workspace with its passphrase before refreshing protected customer data.",
+      };
+    }
+
+    if (existingUnlock || unlockPassphrase) {
+      try {
+        await migrateOfflineRecordsToProtected();
+      } catch (error) {
+        return {
+          ok: false,
+          context: await getCurrentOfflineContext(),
+          preparedModules: [],
+          failedModules: [],
+          message:
+            error instanceof Error
+              ? error.message
+              : "Saved offline records could not be protected. Nothing was deleted.",
+        };
+      }
+    }
 
     const { getOrCreateDeviceId } = await import("./device");
     const baseDeviceId = await getOrCreateDeviceId();
@@ -488,6 +592,7 @@ async function runOfflinePreparation(
     const expiresAt = new Date(
       new Date(authorizedAt).getTime() + OFFLINE_AUTH_TIMEOUT_MS
     ).toISOString();
+    const unlock = (await getOfflineUnlockRecord(tenantId, userId)) ?? undefined;
     const context: OfflinePreparedContext = {
       tenantId,
       userId,
@@ -495,6 +600,7 @@ async function runOfflinePreparation(
       role: me.role,
       modules: preparedModules,
       moduleStates,
+      unlock,
       preparedAt: now,
       authorizedAt,
       expiresAt,
@@ -528,6 +634,7 @@ async function runOfflinePreparation(
     context,
     preparedModules,
     failedModules,
+    recoveryCode,
     message:
       failedModules.length > 0
         ? `Offline ready for ${preparedModules
@@ -590,6 +697,33 @@ export async function activateOfflineAccess(
         },
       };
     }
+  }
+  if (!context.unlock) {
+    return {
+      ok: false,
+      readiness: {
+        status: "preparation_required",
+        module: target,
+        context,
+        message:
+          "Set up an offline passphrase while connected before using this device offline.",
+        lastSyncedAt: context.lastSyncedAt,
+        expiresAt: context.expiresAt,
+      },
+    };
+  }
+  if (!isOfflineUnlocked(context)) {
+    return {
+      ok: false,
+      readiness: {
+        status: "unlock_required",
+        module: target,
+        context,
+        message: "Enter the offline passphrase to unlock saved customer and queue data.",
+        lastSyncedAt: context.lastSyncedAt,
+        expiresAt: context.expiresAt,
+      },
+    };
   }
   if (!target || !offlineContextSupports(context, target)) {
     return {
@@ -694,6 +828,27 @@ export async function getOfflineReadiness(
         expiresAt: context.expiresAt,
       };
     }
+  }
+  if (!context.unlock) {
+    return {
+      status: "preparation_required",
+      module: target,
+      context,
+      message:
+        "Set up an offline passphrase while connected before using this device offline.",
+      lastSyncedAt: context.lastSyncedAt,
+      expiresAt: context.expiresAt,
+    };
+  }
+  if (!isOfflineUnlocked(context)) {
+    return {
+      status: "unlock_required",
+      module: target,
+      context,
+      message: "Enter the offline passphrase to unlock saved customer and queue data.",
+      lastSyncedAt: context.lastSyncedAt,
+      expiresAt: context.expiresAt,
+    };
   }
   if (!target || !offlineContextSupports(context, target)) {
     return {

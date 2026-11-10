@@ -27,18 +27,35 @@ test.describe("Zeli on a mobile viewport", () => {
 });
 
 test.describe("collector offline shell on Android-sized screen", () => {
+  const PASSPHRASE = "MaaCash offline test passphrase";
+
   test("prepares online, reloads offline and restores the cached session", async ({
     page,
     context,
   }) => {
     await loginCollector(page);
     await page.goto("/collector/dashboard");
+
+    await page.getByRole("button", { name: "Enable Offline" }).click();
+    await page.locator("#offline-passphrase").fill(PASSPHRASE);
+    await page.locator("#offline-passphrase-confirm").fill(PASSPHRASE);
+    await page.getByRole("button", { name: "Set up offline protection" }).click();
+    await expect(page.getByText("Save your recovery code", { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByLabel("I have saved this recovery code somewhere safe.").check();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(page.getByText("Offline Ready", { exact: true }).first()).toBeVisible({
-      timeout: 90_000,
+      timeout: 120_000,
     });
 
     await context.setOffline(true);
     await page.reload();
+    await expect(page.getByText("Offline workspace locked", { exact: true })).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.locator("#offline-passphrase").fill(PASSPHRASE);
+    await page.getByRole("button", { name: "Unlock offline workspace" }).click();
     await expect(
       page.getByText(/Working offline|Offline Active|Offline Ready/, {
         exact: false,
@@ -51,6 +68,8 @@ test.describe("collector offline shell on Android-sized screen", () => {
     });
     await page.getByRole("button", { name: "Open Susu Collector" }).click();
     await page.waitForURL(/\/collector\/dashboard/, { timeout: 30_000 });
+    await page.locator("#offline-passphrase").fill(PASSPHRASE);
+    await page.getByRole("button", { name: "Unlock offline workspace" }).click();
     await expect(page.getByText(/Offline Active|Offline Ready/).first()).toBeVisible({
       timeout: 30_000,
     });

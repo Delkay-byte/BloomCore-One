@@ -37,6 +37,7 @@ import {
   type OfflineReadiness,
 } from "./preparation";
 import { clearCurrentOfflineContext } from "./device-store";
+import { lockOfflineWorkspace } from "./unlock";
 
 export interface SignOutSummary {
   pending: number;
@@ -87,6 +88,7 @@ export async function syncBeforeSignOut(): Promise<SignOutSummary> {
  * online sign-in.
  */
 export function endOfflineSession(): void {
+  lockOfflineWorkspace();
   closeCurrentOfflineSession();
   void clearCurrentOfflineContext();
 }

@@ -14,6 +14,8 @@
 
 export type OfflineModule = "momo" | "susu";
 
+import type { OfflineUnlockRecord } from "./crypto";
+
 export const OFFLINE_AUTH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_DEVICE_DB = "bloomcore-offline-device:v1";
 const STORE = "state";
@@ -34,6 +36,12 @@ export interface OfflinePreparedContext {
   moduleStates: Partial<Record<OfflineModule, OfflineModuleState>>;
   /** Set when the server revoked a module. Records are preserved. */
   blockedModules?: Partial<Record<OfflineModule, string>>;
+  /** Local passphrase-derived unlock metadata. Contains no passphrase or key. */
+  unlock?: OfflineUnlockRecord;
+  /** Failed unlock attempts for local throttling. */
+  unlockFailures?: number;
+  /** ISO time before which another unlock attempt is refused. */
+  unlockBlockedUntil?: string | null;
   preparedAt: string;
   authorizedAt: string;
   expiresAt: string;
@@ -166,6 +174,10 @@ function preparedKey(tenantId: string, userId: string): string {
   return `prepared:${tenantId}:${userId}`;
 }
 
+function unlockKey(tenantId: string, userId: string): string {
+  return `unlock:${tenantId}:${userId}`;
+}
+
 /**
  * Persist a validated preparation and make it the current local session.
  * Returns false when the browser cannot store it; the caller must not claim
@@ -198,6 +210,12 @@ export async function getCurrentOfflineContext(): Promise<OfflinePreparedContext
   const value = await getState<OfflinePreparedContext>(CURRENT_KEY);
   if (!value || !value.tenantId || !value.userId || !Array.isArray(value.modules)) {
     return null;
+  }
+  if (!value.unlock) {
+    const unlock = await getState<OfflineUnlockRecord>(
+      unlockKey(value.tenantId, value.userId)
+    );
+    if (unlock) return { ...value, unlock };
   }
   return value;
 }
@@ -274,6 +292,89 @@ export async function markOfflineSynced(
   }
   if (current && current.tenantId === tenantId && current.userId === userId) {
     await putState(CURRENT_KEY, { ...current, lastSyncedAt: at });
+  }
+}
+
+export async function getOfflineUnlockRecord(
+  tenantId: string,
+  userId: string
+): Promise<OfflineUnlockRecord | null> {
+  return getState<OfflineUnlockRecord>(unlockKey(tenantId, userId));
+}
+
+/** Persist a local unlock record for this tenant/user without touching queues. */
+export async function setOfflineUnlockRecord(
+  tenantId: string,
+  userId: string,
+  unlock: OfflineUnlockRecord
+): Promise<boolean> {
+  const saved = await putState(unlockKey(tenantId, userId), unlock);
+  if (!saved) return false;
+  const prepared = await getPreparedContext(tenantId, userId);
+  const current = await getCurrentOfflineContext();
+  if (prepared) {
+    await putState(preparedKey(tenantId, userId), {
+      ...prepared,
+      unlock,
+      unlockFailures: 0,
+      unlockBlockedUntil: null,
+    });
+  }
+  if (current && current.tenantId === tenantId && current.userId === userId) {
+    await putState(CURRENT_KEY, {
+      ...current,
+      unlock,
+      unlockFailures: 0,
+      unlockBlockedUntil: null,
+    });
+  }
+  return true;
+}
+
+/** Record a failed unlock and its cooldown without deleting any record. */
+export async function recordOfflineUnlockFailure(
+  tenantId: string,
+  userId: string,
+  blockedUntil: string | null
+): Promise<void> {
+  const prepared = await getPreparedContext(tenantId, userId);
+  const current = await getCurrentOfflineContext();
+  if (prepared) {
+    await putState(preparedKey(tenantId, userId), {
+      ...prepared,
+      unlockFailures: (prepared.unlockFailures ?? 0) + 1,
+      unlockBlockedUntil: blockedUntil,
+    });
+  }
+  if (current && current.tenantId === tenantId && current.userId === userId) {
+    await putState(CURRENT_KEY, {
+      ...current,
+      unlockFailures: (current.unlockFailures ?? 0) + 1,
+      unlockBlockedUntil: blockedUntil,
+    });
+  }
+}
+
+/** Clear the failed-attempt counter after a successful unlock. */
+export async function clearOfflineUnlockFailures(
+  tenantId: string,
+  userId: string
+): Promise<void> {
+  const prepared = await getPreparedContext(tenantId, userId);
+  const current = await getCurrentOfflineContext();
+  if (prepared) {
+    await putState(preparedKey(tenantId, userId), {
+      ...prepared,
+      unlockFailures: 0,
+      unlockBlockedUntil: null,
+    });
+  }
+  if (current && current.tenantId === tenantId && current.userId === userId) {
+    await putState(CURRENT_KEY, {
+      ...current,
+      unlockFailures: 0,
+      unlockBlockedUntil: null,
+    });
   }
 }
 

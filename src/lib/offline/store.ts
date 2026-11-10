@@ -16,6 +16,17 @@ import {
   purgeLegacyOfflineDatabase,
   registerOfflineConnection,
 } from "./scope";
+import {
+  getCurrentOfflineContext,
+  type OfflinePreparedContext,
+} from "./device-store";
+import {
+  OfflineCryptoError,
+  protectValue,
+  unprotectValue,
+  type ProtectedPayload,
+} from "./crypto";
+import { OfflineLockedError, requireOfflineKey } from "./unlock";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 // Register the cross-tab coordination handler wherever offline storage is used.
 import "./coordination";
@@ -25,7 +36,13 @@ import "./coordination";
  * offline layer uses the same version: opening the same database with a lower
  * version throws `VersionError` and would strand queued records.
  */
-export const OFFLINE_DB_VERSION = 2;
+export const OFFLINE_DB_VERSION = 3;
+
+export const LEGACY_BACKUP_STORES = {
+  transactions: "transactions_legacy_v2",
+  customers: "customers_legacy_v2",
+  drafts: "drafts_legacy_v2",
+} as const;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -39,12 +56,19 @@ export interface OfflineTransaction {
   userId: string;
   type: TransactionType;
   idempotencyKey: string;
-  payload: string; // JSON payload of the queued transaction
+  payload: string; // JSON payload of the queued transaction (plaintext only while unprotected)
+  /**
+   * Populated when the device has an offline unlock credential. The plaintext
+   * `payload` is then empty and all sensitive content lives in this envelope.
+   */
+  protectedPayload?: ProtectedPayload;
+  protectionVersion?: 1;
   status: SyncStatus;
   retryCount: number;
   maxRetries: number;
   failureReason: string | null;
   serverResult: string | null;
+  protectedServerResult?: ProtectedPayload;
   localTimestamp: string; // ISO
   syncStartedAt: string | null;
   syncedAt: string | null;
@@ -59,6 +83,18 @@ export interface CachedCustomer {
   outstandingDays: number;
   expectedAmount: number;
   lastSynced: string;
+}
+
+interface StoredCustomer {
+  accountId: string;
+  protectionVersion?: 1;
+  protectedData?: ProtectedPayload;
+  customerName?: string;
+  customerIdCode?: string;
+  dailyContribution?: number;
+  outstandingDays?: number;
+  expectedAmount?: number;
+  lastSynced?: string;
 }
 
 // ── Encryption ─────────────────────────────────────────────────────────
@@ -153,12 +189,35 @@ export async function openOfflineDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
       }
+      // Plaintext backups for interrupted encryption migration. These exist
+      // only while a migration is incomplete; the migration deletes them after
+      // verification. They are never used as the live queue.
+      if (!db.objectStoreNames.contains(LEGACY_BACKUP_STORES.transactions)) {
+        db.createObjectStore(LEGACY_BACKUP_STORES.transactions, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(LEGACY_BACKUP_STORES.customers)) {
+        db.createObjectStore(LEGACY_BACKUP_STORES.customers, {
+          keyPath: "accountId",
+        });
+      }
+      if (!db.objectStoreNames.contains(LEGACY_BACKUP_STORES.drafts)) {
+        db.createObjectStore(LEGACY_BACKUP_STORES.drafts, { keyPath: "id" });
+      }
     };
     request.onsuccess = () => {
-      registerOfflineConnection(request.result, name);
-      resolve(request.result);
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      registerOfflineConnection(db, name);
+      resolve(db);
     };
-    request.onerror = () => reject(request.error);
+    request.onblocked = () =>
+      reject(
+        new OfflineStorageError(
+          "storage_unavailable",
+          "Another MaaCash tab is holding an older offline database open. Close other tabs and retry."
+        )
+      );
+    request.onerror = () => reject(toStorageError(request.error));
   });
 }
 
@@ -189,10 +248,106 @@ async function withStore<T>(
   });
 }
 
+// ── Protected field helpers ────────────────────────────────────────────
+
+async function protectionContext(): Promise<OfflinePreparedContext | null> {
+  const context = await getCurrentOfflineContext();
+  return context?.unlock ? context : null;
+}
+
+async function requireMatchingProtectionScope(): Promise<OfflinePreparedContext | null> {
+  const context = await protectionContext();
+  if (!context) return null;
+  const scope = await getOfflineScope();
+  if (
+    context.tenantId !== scope.tenantId ||
+    context.userId !== scope.userId
+  ) {
+    throw new OfflineLockedError(
+      "The offline unlock belongs to a different account than this database."
+    );
+  }
+  return context;
+}
+
+export async function isOfflineProtectionActive(): Promise<boolean> {
+  return Boolean(await protectionContext());
+}
+
+async function protectTransactionPayload(
+  transaction: OfflineTransaction
+): Promise<OfflineTransaction> {
+  const context = await requireMatchingProtectionScope();
+  if (!context) return transaction;
+  if (
+    transaction.tenantId &&
+    (transaction.tenantId !== context.tenantId ||
+      transaction.userId !== context.userId)
+  ) {
+    throw new OfflineLockedError(
+      "This transaction belongs to a different offline account."
+    );
+  }
+  if (transaction.protectionVersion === 1 && transaction.protectedPayload) {
+    return transaction;
+  }
+  const key = requireOfflineKey(context);
+  const protectedPayload = await protectValue(key, transaction.payload);
+  return {
+    ...transaction,
+    payload: "",
+    protectedPayload,
+    protectionVersion: 1,
+  };
+}
+
+/** Decrypt a queued payload only after the workspace is unlocked. */
+export async function openTransactionPayload(
+  transaction: OfflineTransaction
+): Promise<string> {
+  const scope = await getOfflineScope();
+  if (
+    (transaction.tenantId && transaction.tenantId !== scope.tenantId) ||
+    transaction.userId !== scope.userId
+  ) {
+    throw new OfflineLockedError(
+      "This transaction belongs to a different offline account."
+    );
+  }
+  const current = await getCurrentOfflineContext();
+  if (current?.unlock && !requireOfflineKeySafe(current)) {
+    throw new OfflineLockedError();
+  }
+  if (!transaction.protectedPayload) {
+    if (transaction.payload) return transaction.payload;
+    throw new OfflineCryptoError(
+      "corrupt_data",
+      "This saved transaction has no readable payload. It was not deleted."
+    );
+  }
+  if (!current?.unlock) {
+    throw new OfflineLockedError();
+  }
+  const key = requireOfflineKey(current);
+  return unprotectValue<string>(key, transaction.protectedPayload);
+}
+
+function requireOfflineKeySafe(context: OfflinePreparedContext): boolean {
+  try {
+    requireOfflineKey(context);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Transaction Operations ─────────────────────────────────────────────
 
 export async function addTransaction(tx: OfflineTransaction): Promise<void> {
-  await withStore("readwrite", "transactions", (store) => store.add(tx));
+  const protectedTransaction = await protectTransactionPayload(tx);
+  await withStore("readwrite", "transactions", (store) =>
+    store.add(protectedTransaction)
+  );
 }
 
 export async function getTransaction(id: string): Promise<OfflineTransaction | undefined> {
@@ -207,6 +362,16 @@ export async function updateTransaction(id: string, updates: Partial<OfflineTran
   const existing = await getTransaction(id);
   if (!existing) return;
   const updated = { ...existing, ...updates };
+  if (updates.serverResult) {
+    const context = await requireMatchingProtectionScope();
+    if (context) {
+      updated.protectedServerResult = await protectValue(
+        requireOfflineKey(context),
+        updates.serverResult
+      );
+      updated.serverResult = null;
+    }
+  }
   await withStore("readwrite", "transactions", (store) => store.put(updated));
 }
 
@@ -336,12 +501,27 @@ export async function pruneSyncedTransactions(
 // ── Customer Cache ─────────────────────────────────────────────────────
 
 export async function cacheCustomers(customers: CachedCustomer[]): Promise<void> {
+  const context = await requireMatchingProtectionScope();
+  let stored: StoredCustomer[];
+  if (context) {
+    const key = requireOfflineKey(context);
+    stored = await Promise.all(
+      customers.map(async (customer) => ({
+        accountId: customer.accountId,
+        protectionVersion: 1 as const,
+        protectedData: await protectValue(key, customer),
+      }))
+    );
+  } else {
+    stored = customers;
+  }
+
   const db = await openOfflineDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("customers", "readwrite");
     const store = tx.objectStore("customers");
     store.clear();
-    for (const c of customers) {
+    for (const c of stored) {
       store.add(c);
     }
     tx.oncomplete = () => resolve();
@@ -351,8 +531,379 @@ export async function cacheCustomers(customers: CachedCustomer[]): Promise<void>
 }
 
 export async function getCachedCustomers(): Promise<CachedCustomer[]> {
-  return withStore<CachedCustomer[]>("readonly", "customers", (store) =>
+  const stored = await withStore<StoredCustomer[]>("readonly", "customers", (store) =>
     store.getAll()
+  );
+  const context = await requireMatchingProtectionScope();
+  if (!context) {
+    if (stored.some((customer) => customer.protectedData)) {
+      throw new OfflineLockedError();
+    }
+    return stored as CachedCustomer[];
+  }
+  const key = requireOfflineKey(context);
+  return Promise.all(
+    stored.map(async (customer) => {
+      if (!customer.protectedData) return customer as CachedCustomer;
+      return unprotectValue<CachedCustomer>(key, customer.protectedData);
+    })
+  );
+}
+
+// ── Legacy plaintext migration ─────────────────────────────────────────
+
+const MIGRATION_META_KEY = "offline-encryption-migration";
+
+export interface OfflineMigrationSummary {
+  migrated: boolean;
+  transactions: number;
+  customers: number;
+  drafts: number;
+  alreadyProtected: boolean;
+}
+
+function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(toStorageError(request.error));
+  });
+}
+
+function transactionDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(toStorageError(tx.error));
+    tx.onabort = () => reject(toStorageError(tx.error));
+  });
+}
+
+async function readStore<T>(db: IDBDatabase, name: string): Promise<T[]> {
+  const tx = db.transaction(name, "readonly");
+  return requestToPromise(tx.objectStore(name).getAll()) as Promise<T[]>;
+}
+
+async function writeProtectedRecords(
+  db: IDBDatabase,
+  stores: {
+    transactions: OfflineTransaction[];
+    customers: StoredCustomer[];
+    drafts: Array<Record<string, unknown>>;
+  }
+): Promise<void> {
+  const names = ["transactions", "customers", "drafts"];
+  const tx = db.transaction(names, "readwrite");
+  for (const record of stores.transactions) {
+    tx.objectStore("transactions").put(record);
+  }
+  for (const record of stores.customers) {
+    tx.objectStore("customers").put(record);
+  }
+  for (const record of stores.drafts) {
+    tx.objectStore("drafts").put(record);
+  }
+  await transactionDone(tx);
+}
+
+async function backupLegacyRecords(
+  db: IDBDatabase,
+  transactions: OfflineTransaction[],
+  customers: StoredCustomer[],
+  drafts: Array<Record<string, unknown>>
+): Promise<void> {
+  const names = [
+    LEGACY_BACKUP_STORES.transactions,
+    LEGACY_BACKUP_STORES.customers,
+    LEGACY_BACKUP_STORES.drafts,
+  ];
+  const tx = db.transaction(names, "readwrite");
+  for (const record of transactions) {
+    tx.objectStore(LEGACY_BACKUP_STORES.transactions).put(record);
+  }
+  for (const record of customers) {
+    tx.objectStore(LEGACY_BACKUP_STORES.customers).put(record);
+  }
+  for (const record of drafts) {
+    tx.objectStore(LEGACY_BACKUP_STORES.drafts).put(record);
+  }
+  await transactionDone(tx);
+}
+
+async function clearLegacyBackups(db: IDBDatabase): Promise<void> {
+  const names = [
+    LEGACY_BACKUP_STORES.transactions,
+    LEGACY_BACKUP_STORES.customers,
+    LEGACY_BACKUP_STORES.drafts,
+  ];
+  const tx = db.transaction(names, "readwrite");
+  for (const name of names) tx.objectStore(name).clear();
+  await transactionDone(tx);
+}
+
+/**
+ * Migrate legacy plaintext records to the protected representation.
+ *
+ * Steps are deliberately separate because WebCrypto is asynchronous and an
+ * IndexedDB transaction cannot stay open across an await. Plaintext backups are
+ * kept until every protected record has been read back and decrypted. A failed
+ * or interrupted run is recoverable and idempotent.
+ */
+export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrationSummary> {
+  const context = await requireMatchingProtectionScope();
+  if (!context) {
+    throw new OfflineLockedError(
+      "Set up and unlock the offline passphrase before migrating saved records."
+    );
+  }
+  const key = requireOfflineKey(context);
+  const db = await openOfflineDatabase();
+
+  const existingMeta = await new Promise<{ value?: { version?: number } } | undefined>(
+    (resolve, reject) => {
+      const req = db
+        .transaction("meta", "readonly")
+        .objectStore("meta")
+        .get(MIGRATION_META_KEY);
+      req.onsuccess = () => resolve(req.result as { value?: { version?: number } });
+      req.onerror = () => reject(toStorageError(req.error));
+    }
+  );
+  if (existingMeta?.value?.version === 1) {
+    return {
+      migrated: false,
+      transactions: 0,
+      customers: 0,
+      drafts: 0,
+      alreadyProtected: true,
+    };
+  }
+
+  const transactions = await readStore<OfflineTransaction>(db, "transactions");
+  const customers = await readStore<StoredCustomer>(db, "customers");
+  const drafts = await readStore<Record<string, unknown>>(db, "drafts");
+  const legacyTransactions = transactions.filter((record) => !record.protectedPayload);
+  const legacyCustomers = customers.filter((record) => !record.protectedData);
+  const legacyDrafts = drafts.filter((record) => !record.protectedData);
+
+  if (
+    legacyTransactions.length === 0 &&
+    legacyCustomers.length === 0 &&
+    legacyDrafts.length === 0
+  ) {
+    // A previous run may have encrypted records and crashed before clearing
+    // the plaintext backups. Verify the live protected records decrypt BEFORE
+    // removing the only recoverable plaintext copy.
+    const liveTransactions = await readStore<OfflineTransaction>(db, "transactions");
+    const liveCustomers = await readStore<StoredCustomer>(db, "customers");
+    const liveDrafts = await readStore<Record<string, unknown>>(db, "drafts");
+    for (const record of liveTransactions) {
+      if (record.protectedPayload) {
+        await unprotectValue<string>(key, record.protectedPayload);
+      }
+    }
+    for (const record of liveCustomers) {
+      if (record.protectedData) {
+        await unprotectValue(key, record.protectedData);
+      }
+    }
+    for (const record of liveDrafts) {
+      const protectedData = record.protectedData as ProtectedPayload | undefined;
+      if (protectedData) await unprotectValue(key, protectedData);
+    }
+    await clearLegacyBackups(db);
+    const tx = db.transaction("meta", "readwrite");
+    tx.objectStore("meta").put({
+      key: MIGRATION_META_KEY,
+      value: {
+        version: 1,
+        migratedAt: new Date().toISOString(),
+        transactions: liveTransactions.length,
+        customers: liveCustomers.length,
+        drafts: liveDrafts.length,
+      },
+    });
+    await transactionDone(tx);
+    return {
+      migrated: false,
+      transactions: liveTransactions.length,
+      customers: liveCustomers.length,
+      drafts: liveDrafts.length,
+      alreadyProtected: false,
+    };
+  }
+
+  await backupLegacyRecords(db, legacyTransactions, legacyCustomers, legacyDrafts);
+
+  const protectedTransactions: OfflineTransaction[] = [];
+  for (const record of legacyTransactions) {
+    protectedTransactions.push({
+      ...record,
+      protectedPayload: await protectValue(key, record.payload),
+      protectedServerResult: record.serverResult
+        ? await protectValue(key, record.serverResult)
+        : undefined,
+      protectionVersion: 1,
+      payload: "",
+      serverResult: null,
+    });
+  }
+  const protectedCustomers: StoredCustomer[] = [];
+  for (const record of legacyCustomers) {
+    const publicRecord = record as unknown as CachedCustomer;
+    protectedCustomers.push({
+      accountId: record.accountId,
+      protectionVersion: 1,
+      protectedData: await protectValue(key, publicRecord),
+    });
+  }
+  const protectedDrafts: Array<Record<string, unknown>> = [];
+  for (const record of legacyDrafts) {
+    protectedDrafts.push({
+      ...record,
+      protectedData: await protectValue(key, record.data),
+      protectionVersion: 1,
+      data: {},
+    });
+  }
+
+  await writeProtectedRecords(db, {
+    transactions: protectedTransactions,
+    customers: protectedCustomers,
+    drafts: protectedDrafts,
+  });
+
+  // Read back and verify every protected record before removing plaintext.
+  const readTransactions = await readStore<OfflineTransaction>(db, "transactions");
+  const readCustomers = await readStore<StoredCustomer>(db, "customers");
+  const readDrafts = await readStore<Record<string, unknown>>(db, "drafts");
+  const sameIds = (expected: string[], actual: string[]) =>
+    expected.every((id) => actual.includes(id));
+  if (
+    !sameIds(
+      legacyTransactions.map((record) => record.id),
+      readTransactions.map((record) => record.id)
+    ) ||
+    !sameIds(
+      legacyCustomers.map((record) => record.accountId),
+      readCustomers.map((record) => record.accountId)
+    ) ||
+    !sameIds(
+      legacyDrafts.map((record) => String(record.id)),
+      readDrafts.map((record) => String(record.id))
+    )
+  ) {
+    throw new OfflineCryptoError(
+      "corrupt_data",
+      "Offline migration record set verification failed. Plaintext backup was kept."
+    );
+  }
+  for (const record of readTransactions) {
+    if (!record.protectedPayload) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline transaction migration verification failed. Plaintext backup was kept."
+      );
+    }
+    const payload = await unprotectValue<string>(key, record.protectedPayload);
+    if (payload !== (legacyTransactions.find((item) => item.id === record.id)?.payload ?? payload)) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline transaction payload verification failed. Plaintext backup was kept."
+      );
+    }
+  }
+  for (const record of readCustomers) {
+    if (!record.protectedData) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline customer migration verification failed. Plaintext backup was kept."
+      );
+    }
+    const decrypted = await unprotectValue<CachedCustomer>(
+      key,
+      record.protectedData
+    );
+    const original = legacyCustomers.find(
+      (customer) => customer.accountId === record.accountId
+    );
+    if (
+      original &&
+      (decrypted.accountId !== original.accountId ||
+        decrypted.customerName !== original.customerName ||
+        decrypted.customerIdCode !== original.customerIdCode ||
+        decrypted.expectedAmount !== original.expectedAmount)
+    ) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline customer data verification failed. Plaintext backup was kept."
+      );
+    }
+  }
+  for (const record of readDrafts) {
+    const protectedData = record.protectedData as ProtectedPayload | undefined;
+    if (!protectedData) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline draft migration verification failed. Plaintext backup was kept."
+      );
+    }
+    const decrypted = await unprotectValue<unknown>(key, protectedData);
+    const original = legacyDrafts.find((draft) => draft.id === record.id);
+    if (original && JSON.stringify(decrypted) !== JSON.stringify(original.data)) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline draft data verification failed. Plaintext backup was kept."
+      );
+    }
+  }
+
+  // Verified: plaintext backups may now be removed. The live protected records
+  // are never deleted by this step.
+  await clearLegacyBackups(db);
+  const marker = db.transaction("meta", "readwrite");
+  marker.objectStore("meta").put({
+    key: MIGRATION_META_KEY,
+    value: {
+      version: 1,
+      migratedAt: new Date().toISOString(),
+      transactions: protectedTransactions.length,
+      customers: protectedCustomers.length,
+      drafts: protectedDrafts.length,
+    },
+  });
+  await transactionDone(marker);
+
+  return {
+    migrated: true,
+    transactions: protectedTransactions.length,
+    customers: protectedCustomers.length,
+    drafts: protectedDrafts.length,
+    alreadyProtected: false,
+  };
+}
+
+/** True when plaintext legacy records still need migration. */
+export async function needsOfflineEncryptionMigration(): Promise<boolean> {
+  const context = await requireMatchingProtectionScope();
+  if (!context) return false;
+  const db = await openOfflineDatabase();
+  const meta = await new Promise<{ value?: { version?: number } } | undefined>(
+    (resolve, reject) => {
+      const req = db
+        .transaction("meta", "readonly")
+        .objectStore("meta")
+        .get(MIGRATION_META_KEY);
+      req.onsuccess = () => resolve(req.result as { value?: { version?: number } });
+      req.onerror = () => reject(toStorageError(req.error));
+    }
+  );
+  if (meta?.value?.version === 1) return false;
+  const transactions = await readStore<OfflineTransaction>(db, "transactions");
+  const customers = await readStore<StoredCustomer>(db, "customers");
+  const drafts = await readStore<Record<string, unknown>>(db, "drafts");
+  return (
+    transactions.some((record) => !record.protectedPayload) ||
+    customers.some((record) => !record.protectedData) ||
+    drafts.some((record) => !record.protectedData)
   );
 }
 

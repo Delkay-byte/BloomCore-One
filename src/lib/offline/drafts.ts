@@ -14,6 +14,14 @@
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import { getOfflineScope } from "./scope";
 import { openOfflineDatabase } from "./store";
+import { getCurrentOfflineContext } from "./device-store";
+import {
+  OfflineCryptoError,
+  protectValue,
+  unprotectValue,
+  type ProtectedPayload,
+} from "./crypto";
+import { OfflineLockedError, isOfflineUnlocked, requireOfflineKey } from "./unlock";
 
 export const DRAFT_SCHEMA_VERSION = 2;
 export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -49,6 +57,8 @@ export interface DraftRecord<T = Record<string, unknown>> {
   updatedAt: string;
   expiresAt: string;
   data: T;
+  protectedData?: ProtectedPayload;
+  protectionVersion?: 1;
 }
 
 const SECRET_KEY_PATTERN =
@@ -105,6 +115,20 @@ export async function saveDraft<T>(
   assertStorage();
   const scope = await getOfflineScope();
   const now = new Date();
+  const sanitized = sanitizeDraftData(data) as T;
+  const context = await getCurrentOfflineContext();
+  if (
+    context?.unlock &&
+    (context.tenantId !== scope.tenantId || context.userId !== scope.userId)
+  ) {
+    throw new OfflineLockedError(
+      "The offline unlock belongs to a different account than this draft."
+    );
+  }
+  let protectedData: ProtectedPayload | undefined;
+  if (context?.unlock) {
+    protectedData = await protectValue(requireOfflineKey(context), sanitized);
+  }
   const record: DraftRecord<T> = {
     id: draftKey,
     draftKey,
@@ -114,7 +138,9 @@ export async function saveDraft<T>(
     schemaVersion: DRAFT_SCHEMA_VERSION,
     updatedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + DRAFT_TTL_MS).toISOString(),
-    data: sanitizeDraftData(data) as T,
+    data: protectedData ? ({} as T) : sanitized,
+    protectedData,
+    protectionVersion: protectedData ? 1 : undefined,
   };
 
   try {
@@ -169,8 +195,32 @@ export async function loadDraft<T = Record<string, unknown>>(
       await deleteDraft(draftKey);
       return null;
     }
+
+    const activeContext = await getCurrentOfflineContext();
+    if (
+      activeContext?.unlock &&
+      (activeContext.tenantId !== scope.tenantId ||
+        activeContext.userId !== scope.userId)
+    ) {
+      throw new OfflineLockedError(
+        "The offline unlock belongs to a different account than this draft."
+      );
+    }
+    if (activeContext?.unlock && !isOfflineUnlocked(activeContext)) {
+      throw new OfflineLockedError();
+    }
+    if (record.protectedData) {
+      if (!activeContext?.unlock) throw new OfflineLockedError();
+      record.data = await unprotectValue<T>(
+        requireOfflineKey(activeContext),
+        record.protectedData
+      );
+    }
     return record;
-  } catch {
+  } catch (error) {
+    if (error instanceof OfflineLockedError || error instanceof OfflineCryptoError) {
+      throw error;
+    }
     return null;
   }
 }

@@ -443,7 +443,7 @@ describe("module-aware offline preparation", () => {
     const fetchMock = preparationFetch(identityResponse({ module: "susu" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await prepareOfflineAccess("susu");
+    const result = await prepareOfflineAccess("susu", "test passphrase 123");
     expect(result.ok).toBe(true);
     expect(
       fetchMock.mock.calls.some(([input]) =>
@@ -457,45 +457,50 @@ describe("module-aware offline preparation", () => {
     expect(context?.modules).toContain("susu");
   });
 
-  it("validates the MoMo identity when preparing from the worker workspace", async () => {
+  it("does not cache the MoMo financial dashboard for offline use", async () => {
     stubPreparationEnvironment("/worker/dashboard");
     const fetchMock = preparationFetch(
       identityResponse({
         module: "momo",
         modules: ["momo"],
         susuEnabled: false,
+        userId: `user-momo-${Date.now()}`,
+        tenantId: `tenant-momo-${Date.now()}`,
       })
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await prepareOfflineAccess("momo");
-    expect(result.ok).toBe(true);
+    const result = await prepareOfflineAccess("momo", "test passphrase 123");
+    expect(result.ok).toBe(false);
+    expect(result.preparedModules).toEqual([]);
+    expect(result.failedModules).toContain("momo");
     expect(
       fetchMock.mock.calls.some(([input]) =>
         String(input) === "/api/auth/me?module=momo"
       )
     ).toBe(true);
-
-    const context = await getCurrentOfflineContext();
-    expect(context?.modules).toEqual(["momo"]);
-    expect(context?.moduleStates.momo).toBeTruthy();
-    expect(context?.moduleStates.susu).toBeUndefined();
   });
 
-  it("prepares both authorized modules for a dual-role account", async () => {
+  it("prepares the protected Susu module and does not cache MoMo financial HTML", async () => {
     stubPreparationEnvironment();
     vi.stubGlobal(
       "fetch",
       preparationFetch(
-        identityResponse({ module: "susu", modules: ["momo", "susu"] })
+        identityResponse({
+          module: "susu",
+          modules: ["momo", "susu"],
+          userId: `user-dual-${Date.now()}`,
+          tenantId: `tenant-dual-${Date.now()}`,
+        })
       )
     );
 
-    const result = await prepareOfflineAccess("susu");
+    const result = await prepareOfflineAccess("susu", "test passphrase 123");
     expect(result.ok).toBe(true);
-    expect(result.preparedModules.sort()).toEqual(["momo", "susu"]);
+    expect(result.preparedModules).toEqual(["susu"]);
+    expect(result.failedModules).toContain("momo");
     const context = await getCurrentOfflineContext();
-    expect(context?.modules.sort()).toEqual(["momo", "susu"]);
+    expect(context?.modules).toEqual(["susu"]);
   });
 
   it("reports a missing tenant truthfully and preserves the older prepared context", async () => {

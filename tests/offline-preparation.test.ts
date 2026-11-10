@@ -14,6 +14,8 @@ import {
   type OfflinePreparedContext,
 } from "@/lib/offline/device-store";
 import { activateOfflineAccess } from "@/lib/offline/preparation";
+import { createUnlockRecord } from "@/lib/offline/crypto";
+import { unlockOfflineWorkspace } from "@/lib/offline/unlock";
 
 function context(
   suffix: string,
@@ -98,8 +100,11 @@ describe("offline device preparation state", () => {
   });
 
   it("activates locally without any server request when the shell is cached", async () => {
-    const value = context(`local-${Date.now()}`);
+    const passphrase = "test passphrase 123";
+    const { record: unlock } = await createUnlockRecord(passphrase);
+    const value = context(`local-${Date.now()}`, { unlock });
     await savePreparedContext(value);
+    await unlockOfflineWorkspace((await getCurrentOfflineContext())!, passphrase);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("location", { origin: "https://maacash.test" });

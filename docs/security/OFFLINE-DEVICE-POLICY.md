@@ -23,6 +23,14 @@ Until stronger offline identity protection is implemented:
 5. Pending offline financial records must be synchronized before a device is handed over.
 6. A device that cannot comply with these rules must not be enabled for offline financial operations.
 
+## Technical enforcement added
+
+The application now enforces a user-specific offline unlock passphrase before protected customer or queue data is decrypted. Sensitive records are encrypted at rest with AES-256-GCM using a random data key wrapped by the passphrase-derived key and by a one-time recovery code. Page reload, browser restart, crash and sign-out start locked. A device without a configured unlock credential cannot open an offline workspace.
+
+The recovery code must be stored separately from the device. If both the passphrase and recovery code are lost, the encrypted records remain preserved but cannot be opened or synchronized.
+
+This reduces the shared-profile risk but does not make shared devices acceptable. The rules below remain mandatory.
+
 ## What this policy is not
 
 - It is not technically enforced by device enrollment. Enrollment associates a device ID with a user and tenant; it does not prove who is holding the device.
