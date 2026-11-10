@@ -481,6 +481,35 @@ export async function getAnyAuthUser(): Promise<JwtPayload | null> {
   return (await getAdminSession()) ?? (await getMomoSession()) ?? (await getSusuSession()) ?? (await getCustomerSession());
 }
 
+export interface ModuleSession {
+  /** The module whose session actually authenticated this request. */
+  module: ModuleName;
+  user: JwtPayload;
+}
+
+/**
+ * Resolve whichever module session is attached to this tab, together with the
+ * module that produced it.
+ *
+ * The module is the authorization scope: callers that need a tenant context
+ * MUST resolve it with this module, not with `user.role`. A dual-role account
+ * keeps one primary role (for example `worker`) while working in the Susu tab,
+ * so the role is not a reliable workspace identifier.
+ */
+export async function getAnyModuleSession(): Promise<ModuleSession | null> {
+  const readers: Array<[ModuleName, () => Promise<JwtPayload | null>]> = [
+    ["momo", getMomoSession],
+    ["susu", getSusuSession],
+    ["admin", getAdminSession],
+    ["customer", getCustomerSession],
+  ];
+  for (const [module, read] of readers) {
+    const user = await read();
+    if (user) return { module, user };
+  }
+  return null;
+}
+
 export async function getSelectionUser(): Promise<SelectionPayload | null> {
   const verified = await verifyTabProof("selection", { allowSelection: true });
   if (verified) {
