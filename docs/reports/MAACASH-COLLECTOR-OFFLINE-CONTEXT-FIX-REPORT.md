@@ -8,7 +8,7 @@ Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
 Hardening commit: `fbc6961267d0fa8a2582e206b1ce4a0e8919e807`
 Pull request: https://github.com/Delkay-byte/BloomCore-One/pull/37
 Approval: technical APPROVE; no independent GitHub reviewer
-Deployment: live on Render, commit `c535c32`
+Deployment: live on Render; application code `c535c32`, latest release-record deploy `414661c`
 
 ---
 
@@ -183,7 +183,7 @@ No tests were skipped or removed; test discovery is unchanged.
 - Final `main` SHA before this release-record update: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
 - Deployment commit SHA: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
 - Release-record docs commit: the commit containing this report. It does not change application code.
-- Production verification: not performed
+- Production verification: health and readiness PASS; authenticated collector dashboard flow BLOCKED because no authorized production credentials were provided.
 
 The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS, Turnstile, Render or domain configuration was changed.
 
@@ -230,7 +230,7 @@ The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS,
 
 The residual is **not introduced by PR #37**. It is a pre-existing consequence of the passwordless offline restoration design. It becomes **High** only where a browser profile/device is shared without an OS lock or user separation. The repository neither requires nor enforces dedicated devices, so the assumption cannot be silently made.
 
-Tracking issue: https://github.com/Delkay-byte/BloomCore-One/issues/38 — `security(maacash): bind offline access to the authorized device user`.
+Tracking issue: https://github.com/Delkay-byte/BloomCore-One/issues/38 — `security(maacash): protect offline sessions against shared-browser and device access`.
 
 ### Classification and owner decision
 
@@ -288,7 +288,7 @@ Tracking issue: https://github.com/Delkay-byte/BloomCore-One/issues/38 — `secu
 | Agent technical approval decision | APPROVE |
 | Owner risk decision on device-sharing assumption | ACCEPTED TEMPORARILY — dedicated-device policy |
 | Merge | PASS — `c535c32`, 2026-11-10T19:58:56Z |
-| Render deployment | PASS — `dep-dbpnf0m417fc73d3jh1g`, commit `c535c32` |
+| Render deployment | PASS — app `dep-dbpnf0m417fc73d3jh1g` on `c535c32`; release record `dep-dbpnkk5g1s2s73ad5irg` on `414661c` |
 | Production health | PASS — `/api/health` 200, commit `c535c32` |
 | Production readiness | PASS — `/api/health/ready` 200, database ok |
 | Authenticated collector verification | BLOCKED — no authorized production test identity provided |
@@ -299,16 +299,19 @@ Tracking issue: https://github.com/Delkay-byte/BloomCore-One/issues/38 — `secu
 ## J. Production deployment and verification
 
 - Render service: `maacash`, ID `srv-dbnaciff3r2c7382tjgg`, branch `main`, auto-deploy enabled.
-- Render deployment: `dep-dbpnf0m417fc73d3jh1g`
-- Deployed commit: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Application-code Render deployment: `dep-dbpnf0m417fc73d3jh1g`
+- Application-code commit: `c535c32d8226d4983a6395290c1cd4f81e7e5285`
+- Release-record deployment: `dep-dbpnkk5g1s2s73ad5irg`, commit `414661c48aadcf06e618f5ff3d02b17dd8f909f3`, docs-only rebuild of the same application code.
 - Deployment status: `live`
-- `GET https://maacash.bloomcoretech.com/api/health` → 200
+- `GET https://maacash.bloomcoretech.com/api/health` → 200 on application code `c535c32`:
   `{"status":"ok","app":"maacash","env":"production","commit":"c535c32d8226d4983a6395290c1cd4f81e7e5285"}`
-- `GET https://maacash.bloomcoretech.com/api/health/ready` → 200
+- `GET https://maacash.bloomcoretech.com/api/health/ready` → 200 on application code `c535c32`:
   `{"status":"ready","database":"ok","latencyMs":1937,"app":"maacash","env":"production","commit":"c535c32d8226d4983a6395290c1cd4f81e7e5285"}`
-- Post-merge CI on `main`: PASS (run 42890680224).
+- Release-record deploy `414661c` also returned `/api/health` 200 and `/api/health/ready` 200 with `database: "ok"` and commit `414661c`. Later report-only merges may show their own SHA in `/api/health` while the application code stays `c535c32`.
+- Post-merge CI on application code: PASS (run 42890680224).
+- Post-merge CI on release record: PASS (run 42892714034).
 - No Prisma migration was run. The diff contains no schema change. No production database or financial record was modified.
-- Unauthenticated boundary checks after deployment: PASS.
-- Authenticated collector verification: **BLOCKED**. No authorized production test identity was provided. Local and CI Playwright tests used the isolated E2E dual-role account, not production credentials. Production health/readiness confirm the deployed commit; the exact authenticated dashboard flow could not be replayed in production without credentials.
+- Unauthenticated boundary checks after deployment: PASS — `/api/auth/me` 401, `/api/offline/enroll` 400 without device, `/api/offline/sync-contribution` 405 on GET, `/collector/dashboard` 307 to login.
+- Authenticated collector verification: **BLOCKED**. No authorized production test identity was provided. Local and CI Playwright tests used the isolated E2E dual-role account, not production credentials. Production health/readiness confirm the deployed application code; the exact authenticated dashboard flow could not be replayed in production without credentials.
 
 The public canonical domain remains `https://maacash.bloomcoretech.com`. DNS, Turnstile and unrelated Render configuration were not changed.
