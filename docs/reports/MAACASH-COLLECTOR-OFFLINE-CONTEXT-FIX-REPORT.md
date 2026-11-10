@@ -5,7 +5,7 @@ Date: 10 November 2026
 Branch: `fix/maacash-collector-offline-context`
 Base: `origin/main` (`12cfaa7`)
 Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
-Pull request: pending
+Pull request: https://github.com/Delkay-byte/BloomCore-One/pull/37
 Approval: pending
 Deployment: not performed
 
@@ -134,9 +134,9 @@ No database schema, migration, entitlement, collector record, device enrollment 
 - Branch: `fix/maacash-collector-offline-context`
 - Base: `origin/main` at `12cfaa7`
 - Fix commit: `ca426e70571f889b7a6a4b111dc87163b328076d`
-- PR URL: pending
+- PR URL: https://github.com/Delkay-byte/BloomCore-One/pull/37
 - Approval status: pending; not merged
-- CI result: pending
+- CI result: queued at report time (SQLite, PostgreSQL and mobile workflows)
 - Deployment commit SHA: not deployed
 - Production verification: not performed
 
