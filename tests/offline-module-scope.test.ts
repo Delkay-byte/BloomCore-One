@@ -313,6 +313,39 @@ describe("module-aware offline scope", () => {
     });
   });
 
+  it("rejects an identity answer for a different workspace", async () => {
+    clearOfflineScope();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => identityResponse({ module: "momo" }))
+    );
+
+    await expect(getOfflineScope("susu")).rejects.toMatchObject({
+      code: "module_mismatch",
+    });
+  });
+
+  it("rejects an identity answer that omits the workspace module", async () => {
+    clearOfflineScope();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              userId: "user-shared",
+              tenant: { id: "tenant-shared" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+      )
+    );
+
+    await expect(getOfflineScope("susu")).rejects.toMatchObject({
+      code: "module_mismatch",
+    });
+  });
+
   it("recovers after a transient server failure instead of poisoning the cache", async () => {
     clearOfflineScope();
     const fetchMock = vi

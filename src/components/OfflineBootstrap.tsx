@@ -45,7 +45,7 @@ export default function OfflineBootstrap() {
           tenant?: { id?: string } | null;
         };
         if (!me.userId || !me.tenant?.id) return;
-        if (me.module && me.module !== workspace) return;
+        if (me.module !== workspace) return;
         if (me.role !== "worker" && me.role !== "collector") return;
 
         const current = await getCurrentOfflineContext();

@@ -84,6 +84,7 @@ const MODULE_LABEL: Record<OfflineModule, string> = {
 
 let preparationInProgress = false;
 let preparationPromise: Promise<PreparationResult> | null = null;
+let preparationKey: string | null = null;
 
 export function isPreparingOfflineAccess(): boolean {
   return preparationInProgress;
@@ -231,19 +232,31 @@ async function enrollModule(
 export function prepareOfflineAccess(
   module?: ModuleName
 ): Promise<PreparationResult> {
-  if (preparationPromise) return preparationPromise;
+  const key = module ?? "workspace";
+  if (preparationPromise) {
+    if (preparationKey === key) return preparationPromise;
+    // Never share an in-flight preparation started for another workspace.
+    // Serialize so two preparations cannot race the same device context.
+    return preparationPromise
+      .catch(() => undefined)
+      .then(() => prepareOfflineAccess(module));
+  }
+
+  preparationKey = key;
   preparationInProgress = true;
   notifyOfflineStatusChanged();
-  preparationPromise = (async () => {
+  const promise = (async () => {
     try {
       return await runOfflinePreparation(module);
     } finally {
       preparationInProgress = false;
       preparationPromise = null;
+      preparationKey = null;
       notifyOfflineStatusChanged();
     }
   })();
-  return preparationPromise;
+  preparationPromise = promise;
+  return promise;
 }
 
 async function runOfflinePreparation(
@@ -319,7 +332,7 @@ async function runOfflinePreparation(
         message: "The signed-in business could not be confirmed.",
       };
     }
-    if (activeModule && me?.module && me.module !== activeModule) {
+    if (activeModule && me?.module !== activeModule) {
       return {
         ok: false,
         context: null,
@@ -606,7 +619,10 @@ export async function activateOfflineAccess(
   }
 
   const updated = await setOfflineActivation(true, target);
-  setOfflineScope({ tenantId: context.tenantId, userId: context.userId });
+  setOfflineScope(
+    { tenantId: context.tenantId, userId: context.userId },
+    "prepared"
+  );
   notifyOfflineStatusChanged();
   return {
     ok: Boolean(updated),

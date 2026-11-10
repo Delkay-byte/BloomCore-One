@@ -12,11 +12,13 @@
 import {
   deleteDatabase,
   getOfflineScope,
+  getOfflineScopeSource,
   closeCurrentOfflineSession,
   offlineDatabaseName,
   isDatabasePresent,
   OfflineScopeError,
   type OfflineScopeFailure,
+  type OfflineScopeSource,
 } from "./scope";
 import { activeWorkspaceModule, isOfflineModule } from "./active-module";
 import type { ModuleName } from "@/lib/auth";
@@ -326,6 +328,8 @@ export interface OfflineStatus {
     resolved: boolean;
     module: ModuleName | null;
     error: OfflineScopeFailure | null;
+    /** Only `server` means this page got a fresh authenticated answer. */
+    source: OfflineScopeSource | null;
   };
   online: boolean;
   databaseName: string | null;
@@ -382,6 +386,7 @@ export async function getOfflineStatus(module?: ModuleName): Promise<OfflineStat
       resolved: Boolean(scope),
       module: requestedModule ?? null,
       error: scopeError,
+      source: scope ? getOfflineScopeSource() : null,
     },
     online: typeof navigator === "undefined" ? true : navigator.onLine,
     databaseName: scope ? offlineDatabaseName(scope) : null,

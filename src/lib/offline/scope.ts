@@ -47,7 +47,14 @@ export class OfflineScopeError extends Error {
   }
 }
 
+/**
+ * Where the current in-memory scope came from. Only a fresh server answer may
+ * be presented as a verified online session.
+ */
+export type OfflineScopeSource = "server" | "prepared" | "seeded";
+
 let cachedScope: OfflineScope | null = null;
+let cachedScopeSource: OfflineScopeSource | null = null;
 let pendingScope: Promise<OfflineScope> | null = null;
 let legacyPurged = false;
 
@@ -95,13 +102,22 @@ export function closeOfflineConnections(databaseName?: string): void {
   }
 }
 
-export function setOfflineScope(scope: OfflineScope): void {
+export function setOfflineScope(
+  scope: OfflineScope,
+  source: OfflineScopeSource = "server"
+): void {
   if (!scope.tenantId || !scope.userId) return;
   cachedScope = { tenantId: scope.tenantId, userId: scope.userId };
+  cachedScopeSource = source;
+}
+
+export function getOfflineScopeSource(): OfflineScopeSource | null {
+  return cachedScope ? cachedScopeSource : null;
 }
 
 export function clearOfflineScope(): void {
   cachedScope = null;
+  cachedScopeSource = null;
   pendingScope = null;
 }
 
@@ -181,7 +197,7 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
           );
         }
         const scope = preparedScopeFor(requestedModule, context);
-        setOfflineScope(scope);
+        setOfflineScope(scope, "prepared");
         return scope;
       }
       const context = await getCurrentOfflineContext();
@@ -194,7 +210,7 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
         );
       }
       const scope = preparedScopeFor(requestedModule, context);
-      setOfflineScope(scope);
+      setOfflineScope(scope, "prepared");
       return scope;
     }
 
@@ -218,9 +234,10 @@ async function resolveScope(module?: ModuleName): Promise<OfflineScope> {
       tenant?: { id?: string } | null;
     };
 
-    if (requestedModule && data.module && data.module !== requestedModule) {
-      // The server must answer for the module that was asked about. A mismatch
-      // means the caller would store records under the wrong workspace.
+    if (requestedModule && data.module !== requestedModule) {
+      // The server must answer for the module that was asked about, and must
+      // return that module explicitly. A missing field is deploy skew, not
+      // permission to assume it matched.
       throw new OfflineScopeError(
         "module_mismatch",
         "The server resolved a different workspace than the one requested."

@@ -226,7 +226,7 @@ export default function CollectorDashboardPage({
         // requireTenantCollector(). Seed the local scope with those trusted
         // values so the queue opens for the same tenant/user even before any
         // browser-side identity request completes.
-        setOfflineScope({ tenantId, userId });
+        setOfflineScope({ tenantId, userId }, "seeded");
         await hydrateOfflineAuthorization();
         let readiness = await getOfflineReadiness("susu");
         if (cancelled) return;

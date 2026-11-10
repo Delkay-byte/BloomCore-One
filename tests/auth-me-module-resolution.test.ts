@@ -99,7 +99,7 @@ describe("GET /api/auth/me workspace resolution", () => {
 
     expect(response.status).toBe(200);
     // The old implementation used user.role === "worker" here.
-    expect(mocks.getTenantContext).toHaveBeenCalledWith("susu");
+    expect(mocks.getTenantContext).toHaveBeenCalledWith("susu", "susu");
     expect(body.module).toBe("susu");
     expect(body.tenant.id).toBe("tenant-shared");
     expect(body.userId).toBe("user-dual");
@@ -114,7 +114,7 @@ describe("GET /api/auth/me workspace resolution", () => {
     const response = await GET(request());
     const body = await response.json();
 
-    expect(mocks.getTenantContext).toHaveBeenCalledWith("momo");
+    expect(mocks.getTenantContext).toHaveBeenCalledWith("momo", "momo");
     expect(body.module).toBe("momo");
     expect(body.tenant.id).toBe("tenant-shared");
   });
@@ -127,7 +127,7 @@ describe("GET /api/auth/me workspace resolution", () => {
 
     expect(mocks.getSusuSession).toHaveBeenCalled();
     expect(mocks.getMomoSession).not.toHaveBeenCalled();
-    expect(mocks.getTenantContext).toHaveBeenCalledWith("susu");
+    expect(mocks.getTenantContext).toHaveBeenCalledWith("susu", "susu");
     expect(body.module).toBe("susu");
   });
 
@@ -139,7 +139,7 @@ describe("GET /api/auth/me workspace resolution", () => {
 
     expect(mocks.getMomoSession).toHaveBeenCalled();
     expect(mocks.getSusuSession).not.toHaveBeenCalled();
-    expect(mocks.getTenantContext).toHaveBeenCalledWith("momo");
+    expect(mocks.getTenantContext).toHaveBeenCalledWith("momo", "momo");
     expect(body.module).toBe("momo");
   });
 
@@ -167,7 +167,7 @@ describe("GET /api/auth/me workspace resolution", () => {
     const body = await response.json();
 
     expect(mocks.getAdminSession).toHaveBeenCalled();
-    expect(mocks.getTenantContext).toHaveBeenCalledWith("admin");
+    expect(mocks.getTenantContext).toHaveBeenCalledWith("admin", undefined);
     expect(body.module).toBe("admin");
   });
 

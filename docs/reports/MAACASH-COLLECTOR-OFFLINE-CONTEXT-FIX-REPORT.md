@@ -59,12 +59,12 @@ The failure was a **module-ambiguity defect in `/api/auth/me` combined with an o
 
 | File | Change |
 |---|---|
-| `src/app/api/auth/me/route.ts` | Neutral lookup now resolves and returns the module that actually authenticated the tab. Tenant resolution uses that module, never the primary role. Unknown explicit modules return 400 instead of silently becoming a neutral lookup. Response includes `module`. |
+| `src/app/api/auth/me/route.ts` | Neutral lookup now resolves and returns the module that actually authenticated the tab. Tenant resolution uses that module, never the primary role. Staff modules are resolved with `requiredModule` so tenant entitlement is authoritative. Unknown explicit modules return 400. A module answer must include the requested module. Response includes `module`. |
 | `src/lib/auth.ts` | Added `getAnyModuleSession()`, which returns the session together with its module so callers can use the correct authorization scope. |
 | `src/lib/offline/active-module.ts` | New pure helper mapping `/collector` → `susu`, `/worker` → `momo`, `/admin` → `admin`, `/customer` → `customer`. Used as a request routing hint only; the server still verifies the credential. |
-| `src/lib/offline/preparation.ts` | `prepareOfflineAccess(module?)` requests `/api/auth/me?module=<workspace>`, rejects a mismatched response module, and requires the requested staff module to be authorized before saving a context. Failure paths still leave the previous context and queue untouched. |
-| `src/lib/offline/scope.ts` | Module-aware `getOfflineScope(module?)`; distinct `OfflineScopeError` codes (`unauthenticated`, `no_tenant`, `module_mismatch`, `network`, `timeout`, `offline_expired`, `unavailable`). Cached prepared context is used only for a genuine network/timeout path, only while unexpired, and only for a module the context supports. Explicit 401/403 and HTTP 200 with no tenant always fail closed. |
-| `src/lib/offline/session.ts` | `getOfflineStatus(module?)` reads the same workspace scope as the dashboard. Adds `scope` state, resolves scope once, and never reports an unreadable/unauthorized scope as an empty queue. |
+| `src/lib/offline/preparation.ts` | `prepareOfflineAccess(module?)` requests `/api/auth/me?module=<workspace>`, requires the exact response module, and requires the requested staff module to be authorized before saving a context. Preparation is serialized per requested workspace so an in-flight MoMo preparation is never returned to a Susu caller. Failure paths still leave the previous context and queue untouched. |
+| `src/lib/offline/scope.ts` | Module-aware `getOfflineScope(module?)`; distinct `OfflineScopeError` codes (`unauthenticated`, `no_tenant`, `module_mismatch`, `network`, `timeout`, `offline_expired`, `unavailable`). A requested module must be present and match in the server answer. Cached prepared context is used only for a genuine network/timeout path, only while unexpired, and only for a module the context supports. Scope source is tracked (`server`, `prepared`, `seeded`) so the UI does not claim a fresh online check. Explicit 401/403 and HTTP 200 with no tenant always fail closed. |
+| `src/lib/offline/session.ts` | `getOfflineStatus(module?)` reads the same workspace scope as the dashboard. Adds `scope` state including source, resolves scope once, and never reports an unreadable/unauthorized scope as an empty queue. |
 | `src/components/OfflineSyncStatus.tsx` | Accepts a `module` prop, passes it to status and preparation, shows a truthful per-code error, adds a safe retry that does not delete data, refuses a green success tone when identity or queue checks fail, and labels preparation time separately from successful synchronization. Includes one bounded automatic retry for a cold service-worker attach race. |
 | `src/components/OfflineBootstrap.tsx` | Infers the active workspace module, requests `/api/auth/me?module=...`, verifies the returned module and prepares that workspace instead of using a neutral lookup. |
 | `src/app/collector/(workspace)/dashboard/CollectorDashboardClient.tsx` | Seeds the offline scope from the server-resolved `userId` and `tenantId` produced by `requireTenantCollector()`. Passes `susu` to preparation and to `OfflineSyncStatus`. |
@@ -118,14 +118,15 @@ No database schema, migration, entitlement, collector record, device enrollment 
 |---|---|
 | `npm run typecheck` | Passed, no errors |
 | `npm run lint` | Passed, 0 errors, 72 warnings (no new warnings from this change) |
-| `npm test` | **75 files passed, 762 tests passed** |
+| `npm test` | **75 files passed, 764 tests passed** |
 | `tests/auth-me-module-resolution.test.ts` | 9 tests passed |
-| `tests/offline-module-scope.test.ts` | 16 tests passed |
+| `tests/offline-module-scope.test.ts` | 18 tests passed |
 | Targeted offline/session/tenant suites | 10 files, 92 tests passed |
 | `npx playwright test e2e/maacash-dual-role-switch.spec.ts --project=chromium` | 3 tests passed, including Susu/MoMo identity, tenant, offline queue and both-direction switching |
 | `npx playwright test e2e/mobile.spec.ts --project=mobile-chromium` | 3 tests passed locally, including online prepare → offline reload → cached collector restore. CI retried this suite once after a visibility timeout and then passed (1 flaky). |
 | `npm run build` | Passed |
 | PostgreSQL `pg-offline-idempotency` | Not run locally: no isolated `PG_DATABASE_URL` was available. The CI PostgreSQL job passed in its isolated target. |
+| Security review | No critical or high issue introduced. Findings about seeded-scope truthfulness, strict module matching and entitlement enforcement were fixed. One pre-existing device-context fallback limitation is recorded in section G. |
 
 ---
 
@@ -152,3 +153,4 @@ The public canonical domain remains `https://maacash.bloomcoretech.com`. No DNS,
 4. Nothing was merged or deployed. Approval and CI must complete before release.
 5. IndexedDB and service-worker data are origin-scoped. Records created on `maacash.onrender.com` do not move to `maacash.bloomcoretech.com`; this fix does not and must not create a new database to bridge origins.
 6. The fix preserves every prepared context and queued record, but it cannot recover records that a user already deleted or that exist only under a different browser origin/profile.
+7. Pre-existing residual: during a genuine network failure, the scope may use the device's last prepared context, as before. That context is not cryptographically rebound to the current tab identity offline. Explicit sign-out clears it, but a session expiry or crash can leave it available to the next sign-in on the same browser profile. This change does not widen that path; it now marks the scope as `prepared` instead of claiming a verified online session. Fully binding offline contexts to a per-tab identity requires a separate device-store/session-architecture change and was not attempted in this focused fix.

@@ -98,7 +98,14 @@ export async function GET(request: NextRequest) {
     return json({ error: "Not authenticated" }, 401);
   }
 
-  const tenant = await getTenantContext(sessionModule);
+  // `requiredModule` makes the tenant's entitlement authoritative for staff
+  // workspaces. A token can outlive a module being disabled on the tenant; it
+  // must not keep returning a tenant context for offline scoping in that case.
+  const requiredModule =
+    sessionModule === "momo" || sessionModule === "susu"
+      ? sessionModule
+      : undefined;
+  const tenant = await getTenantContext(sessionModule, requiredModule);
   // Navigation is rendered from server-resolved entitlements, never from a
   // browser flag. The value is informational; every page and action re-checks.
   const entitlement = tenant ? await getZeliEntitlement(tenant.tenantId) : null;

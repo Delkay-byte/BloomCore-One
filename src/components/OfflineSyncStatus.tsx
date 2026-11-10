@@ -150,7 +150,12 @@ export default function OfflineSyncStatus({
 
   const { summary, readiness, online, available, scope } = status;
   const attention = summary.pending + summary.failed;
-  const identityVerified = scope.resolved;
+  // A cached prepared context keeps offline work available, but it does not
+  // prove the current online session. Only a fresh server answer (or the
+  // server-rendered page identity) may be described as verified.
+  const identityVerified =
+    scope.resolved &&
+    (!online || scope.source === "server" || scope.source === "seeded");
   // The queue's own last acknowledged sync is authoritative. When the queue is
   // unreadable, say so instead of presenting the preparation timestamp as a
   // successful synchronization.
@@ -262,11 +267,17 @@ export default function OfflineSyncStatus({
         <p className="mt-1">{readiness.message}</p>
         {identityVerified ? (
           <p className="mt-1 text-xs opacity-80">
-            Current online business session verified.
+            {online
+              ? scope.source === "server"
+                ? "Current online business session verified."
+                : "Workspace identity confirmed by the server when this page loaded."
+              : "Saved offline authorization is active. The online session is not being checked."}
           </p>
         ) : (
           <p className="mt-1 text-xs opacity-80">
-            Current online business session could not be verified.
+            {online
+              ? "Current online business session could not be verified."
+              : "Using saved device preparation. Reconnect to verify the online session."}
           </p>
         )}
         {lastSuccessfulSyncLabel && (
