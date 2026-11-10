@@ -55,6 +55,12 @@ export default function OfflineSessionPrompt() {
     setError("");
     try {
       const readiness = await getOfflineReadiness(module);
+      if (readiness.status === "unlock_required") {
+        // The protected workspace has its own unlock screen. Do not pretend the
+        // dashboard is open before the passphrase succeeds.
+        window.location.assign(moduleRoute(module));
+        return;
+      }
       if (readiness.status !== "ready" && readiness.status !== "active") {
         setError(readiness.message);
         return;
@@ -130,7 +136,8 @@ export default function OfflineSessionPrompt() {
       </p>
       <p className="mt-1 text-xs leading-relaxed text-emerald-900">
         This device was prepared for {context.userName}. Open a previously authorized
-        dashboard below. No password or server connection is required.
+        dashboard below. The offline passphrase is required before saved customer or
+        queue data is shown.
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         {modules.map((module) => (

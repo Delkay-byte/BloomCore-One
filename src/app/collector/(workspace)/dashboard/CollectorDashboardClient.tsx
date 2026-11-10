@@ -27,6 +27,14 @@ import {
 import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, hydrateOfflineAuthorization, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import OfflineSyncStatus from "@/components/OfflineSyncStatus";
+import OfflineUnlockGate from "@/components/OfflineUnlockGate";
+import {
+  checkOfflineIdleLock,
+  isOfflineUnlocked,
+  markOfflineActivity,
+  markOfflineBackground,
+  markOfflineForeground,
+} from "@/lib/offline/unlock";
 import { SkeletonPage } from "@/components/ui/Skeletons";
 import { SuccessTick } from "@/components/ui/SuccessTick";
 import CediAmount from "@/components/CediAmount";
@@ -119,6 +127,8 @@ export default function CollectorDashboardPage({
   // collector is actually working offline now. They are separate concepts.
   const [offlineEnabled, setOfflineEnabled] = useState(false);
   const [offlineActive, setOfflineActive] = useState(false);
+  const [offlineLocked, setOfflineLocked] = useState(false);
+  const [needsUnlockSetup, setNeedsUnlockSetup] = useState(false);
   const [enrollingOffline, setEnrollingOffline] = useState(false);
   const [preparingOffline, setPreparingOffline] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
@@ -232,10 +242,19 @@ export default function CollectorDashboardPage({
         if (cancelled) return;
         applyOfflineReadiness(readiness);
 
+        const unlockContext = await getCurrentOfflineContext();
+        const unlocked = unlockContext ? isOfflineUnlocked(unlockContext) : false;
+        if (!cancelled) {
+          setNeedsUnlockSetup(Boolean(unlockContext && !unlockContext.unlock));
+          setOfflineLocked(Boolean(!navigator.onLine && unlockContext && !unlocked));
+        }
+
         // Automatic background preparation while online. Never blocks the
-        // dashboard, and never claims readiness before it succeeds.
+        // dashboard, never bypasses the offline unlock, and never claims
+        // readiness before it succeeds.
         if (
           navigator.onLine &&
+          unlocked &&
           readiness.status !== "ready" &&
           readiness.status !== "active"
         ) {
@@ -275,6 +294,36 @@ export default function CollectorDashboardPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Lock the offline workspace after inactivity or a long background period.
+  // Timers are best effort; visibility/focus events are also used.
+  useEffect(() => {
+    const activity = () => markOfflineActivity();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        markOfflineBackground();
+        return;
+      }
+      if (markOfflineForeground()) setOfflineLocked(true);
+    };
+    const onFocus = () => {
+      if (markOfflineForeground()) setOfflineLocked(true);
+    };
+    window.addEventListener("pointerdown", activity);
+    window.addEventListener("keydown", activity);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    const interval = setInterval(() => {
+      if (checkOfflineIdleLock()) setOfflineLocked(true);
+    }, 30_000);
+    return () => {
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Background preparation may finish after this page mounted. Reflect the
   // validated local state without asking the server.
   useEffect(() => {
@@ -284,7 +333,12 @@ export default function CollectorDashboardPage({
         .catch(() => undefined);
     };
     window.addEventListener("maacash-offline-status", refresh);
-    return () => window.removeEventListener("maacash-offline-status", refresh);
+    const onUnlockSetup = () => setNeedsUnlockSetup(true);
+    window.addEventListener("maacash-offline-unlock-setup", onUnlockSetup);
+    return () => {
+      window.removeEventListener("maacash-offline-status", refresh);
+      window.removeEventListener("maacash-offline-unlock-setup", onUnlockSetup);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -363,6 +417,10 @@ export default function CollectorDashboardPage({
       const readiness = await getOfflineReadiness("susu");
       applyOfflineReadiness(readiness);
       if (!result.ok) {
+        if (result.requiresUnlockSetup) {
+          setNeedsUnlockSetup(true);
+          return;
+        }
         setError(result.message);
         return;
       }
@@ -651,6 +709,22 @@ export default function CollectorDashboardPage({
     return [...list].sort((a, b) => new Date(b.collectedAt).getTime() - new Date(a.collectedAt).getTime());
   }, [data, searchQuery]);
 
+  if (!isOnline && offlineLocked) {
+    return (
+      <div className="mx-auto max-w-md py-10">
+        <OfflineUnlockGate
+          allowSetup={false}
+          fallbackContext={{ tenantId, userId, userName }}
+          onUnlocked={() => {
+            setOfflineLocked(false);
+            void loadData();
+            void refreshPendingTxs();
+          }}
+        />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="px-1 py-2">
@@ -777,6 +851,23 @@ export default function CollectorDashboardPage({
                 })}. Customer balances may have changed since then.`
               : "This information may be outdated. It is not live server data."}
           </p>
+        </div>
+      )}
+
+      {needsUnlockSetup && isOnline && (
+        <div className="mb-4">
+          <OfflineUnlockGate
+            allowSetup
+            fallbackContext={{ tenantId, userId, userName }}
+            onUnlocked={() => {
+              setNeedsUnlockSetup(false);
+              void (async () => {
+                await prepareOfflineAccess("susu");
+                applyOfflineReadiness(await getOfflineReadiness("susu"));
+                await refreshPendingTxs();
+              })();
+            }}
+          />
         </div>
       )}
 

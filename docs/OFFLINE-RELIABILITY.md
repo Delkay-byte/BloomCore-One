@@ -298,3 +298,25 @@ screen, never a misleading logged-in shell.
 A cached protected page also runs `OfflineSessionGuard`. If the local
 preparation is missing, expired, or does not include the page's module, the app
 returns to the login/offline prompt instead of showing the page.
+
+## 10. Offline unlock and encryption
+
+- A user-specific offline passphrase is required before protected offline data
+  is opened. Minimum length is 12 characters.
+- PBKDF2-SHA-256 with 600,000 iterations and a random per-user/per-device salt
+  derives an AES-256-GCM key. The key exists only in memory.
+- Transaction payloads, cached customers and draft data are encrypted at rest.
+- The device-level context stores only salt, KDF parameters, a verifier
+  ciphertext and timestamps. It never stores the passphrase or raw key.
+- Page load, browser restart, crash, sign-out and inactivity lock the workspace.
+  Idle lock is 15 minutes; background lock is 5 minutes.
+- Progressive cooldowns apply after wrong passphrases. Wrong attempts never
+  delete records.
+- Existing plaintext records are migrated in place after the unlock credential
+  is established. Plaintext backups are kept until encrypted records are read
+  back and decrypted, then removed. No database is recreated.
+- A device without an unlock credential cannot open an offline workspace. It
+  must reconnect once and establish the passphrase online.
+- This protects data at rest and after lock/crash. It does not defend a running
+  page from same-origin code, a compromised browser profile or a compromised
+  device. WebAuthn PRF is a future upgrade path.

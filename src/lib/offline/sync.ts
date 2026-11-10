@@ -15,6 +15,7 @@ import {
   claimTransactionForSync,
   getPendingTransactions,
   getSyncingTransactions,
+  openTransactionPayload,
   openOfflineDatabase,
   recoverStaleSyncing,
   updateTransaction,
@@ -117,13 +118,14 @@ export interface SyncResult {
  */
 async function submitToServer(transaction: OfflineTransaction): Promise<SyncResult> {
   try {
+    const payload = await openTransactionPayload(transaction);
     const response = await fetch("/api/offline/sync-contribution", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({
         idempotencyKey: transaction.idempotencyKey,
-        payload: transaction.payload,
+        payload,
         deviceId: transaction.deviceId,
       }),
     });

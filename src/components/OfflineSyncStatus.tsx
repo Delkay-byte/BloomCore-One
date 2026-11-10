@@ -123,6 +123,9 @@ export default function OfflineSyncStatus({
         isOfflineModule(module) ? module : undefined
       );
       await refresh();
+      if (result.requiresUnlockSetup) {
+        window.dispatchEvent(new Event("maacash-offline-unlock-setup"));
+      }
       setNotice(result.message);
     } catch {
       setNotice(
@@ -264,7 +267,9 @@ export default function OfflineSyncStatus({
                 : "Device prepared"
               : readiness.status === "active"
                 ? "Offline Active"
-                : readiness.status === "expired"
+                : readiness.status === "unlock_required"
+                  ? "Offline workspace locked"
+                  : readiness.status === "expired"
                   ? "Offline authorization expired"
                   : readiness.status === "revoked"
                     ? "Offline authorization revoked"
