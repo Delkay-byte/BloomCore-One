@@ -134,10 +134,15 @@ Local unlock is not authorization. Server rejection preserves the local record. 
 - Branch: `security/maacash-offline-unlock-hardening`
 - Code commit SHA: `0a74a50a0b2cb785097768c949adebfa4159bdb5`
 - PR: https://github.com/Delkay-byte/BloomCore-One/pull/41
+- Merge commit: `2479eba4f091b43206507ee25980c4825490f2dd`
+- Merged: 2026-11-10T22:59:21Z
 - Approval: agent technical review APPROVE; no independent human GitHub approval claimed
-- CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42917832245 — PASS on `0a74a50`
-- Render deployment: pending
-- Production verification: pending
+- PR CI: https://github.com/Delkay-byte/BloomCore-One/actions/runs/42918709735 — PASS
+- Post-merge CI: run 42919463849 — PASS
+- Render deployment: `dep-dbpq3io473hc73c45oh0`, live on `2479eba`
+- Production verification: `/api/health` 200 and `/api/health/ready` 200 with database ok on commit `2479eba`
+- Authenticated production collector acceptance: **BLOCKED** — no authorized production test identity was provided
+- Real Android device/emulator acceptance: **BLOCKED** — no device or emulator was available
 
 ## 8. Remaining limitations
 
@@ -150,3 +155,14 @@ Local unlock is not authorization. Server rejection preserves the local record. 
 7. A reusable recovery code is issued at setup and must be stored offline, separately from the device. If both the passphrase and the recovery code are lost, encrypted records remain preserved but cannot be opened or synchronized. There is no silent reset.
 8. Unlock records created by the earlier, unreleased hardening commit `ea0187e` are not compatible with the final data-key wrapper format. Production was never deployed with that commit; staging devices prepared on it must be re-prepared online.
 9. No independent human security review was performed; agent technical review only.
+10. The rollout was single-stage because no dedicated test tenant or device was available. Real Android acceptance remains blocked. This is not a claim that shared-device use is safe.
+
+## 9. Production verification
+
+- Render service `maacash` (`srv-dbnaciff3r2c7382tjgg`), auto-deploy enabled.
+- Deployment `dep-dbpq3io473hc73c45oh0` live on merge commit `2479eba4f091b43206507ee25980c4825490f2dd`.
+- `GET /api/health` → 200, commit `2479eba`.
+- `GET /api/health/ready` → 200, `database: "ok"`.
+- Unauthenticated boundaries: `/api/auth/me` 401, `/api/offline/enroll` 400 without device, `/api/offline/sync-contribution` 405 on GET, `/collector/dashboard` 307 to login.
+- Authenticated collector acceptance: **BLOCKED** — no authorized production test identity was provided. Do not claim it passed.
+- No Prisma migration was run. No production database or financial record was modified.
