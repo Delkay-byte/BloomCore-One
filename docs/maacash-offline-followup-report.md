@@ -257,7 +257,8 @@ tenant or account.
 | Security review | agent self-review, not independent human approval |
 | PR | https://github.com/Delkay-byte/BloomCore-One/pull/43 |
 | Deployment | not performed |
-| Head SHA | `452767ea09d76e779f2e5295404cecaebad3d1c6` |
+| Feature commit SHA | `452767ea09d76e779f2e5295404cecaebad3d1c6` |
+| Branch head | latest commit on the PR (this report is updated by a docs commit) |
 
 Build record: `npm run build` compiled successfully (`✓ Compiled successfully in 16.2s`). Route
 generation completed without errors.
