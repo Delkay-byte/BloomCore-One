@@ -447,6 +447,9 @@ export default function OfflineSyncStatus({
           <p className="rounded-control bg-red-50 px-3 py-2 text-xs text-red-800">
             <strong>Server rejected.</strong> These records stay on this device
             until the reason is resolved. They are not in the central ledger.
+            {display.reviewCount > 0
+              ? ` ${display.reviewCount} older record${display.reviewCount === 1 ? " has" : "s have"} no conclusive saved reason and need explicit review.`
+              : ""}
           </p>
           <ul className="space-y-1.5 text-xs text-red-800">
             {actionable.map((record) => (
@@ -455,7 +458,9 @@ export default function OfflineSyncStatus({
                   {record.type === "contribution" ? "Contribution" : "Daily account draft"}
                 </span>{" "}
                 · record {record.id.slice(0, 8)} ·{" "}
-                {record.failureReason ?? "Rejected by the server"}
+                {record.classification === "unknown"
+                  ? "Older record: the saved reason is inconclusive. Review before retrying."
+                  : record.failureReason ?? "Rejected by the server"}
               </li>
             ))}
           </ul>

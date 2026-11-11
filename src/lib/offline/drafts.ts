@@ -72,6 +72,8 @@ export interface DraftRecord<T = Record<string, unknown>> {
   protectionVersion?: 1;
   /** Where this draft lives. Absent on records written before this field. */
   storage?: DraftStorageMode;
+  /** An older plaintext copy exists and its removal could not be verified yet. */
+  plaintextCleanupPending?: boolean;
 }
 
 const SECRET_KEY_PATTERN =
@@ -220,6 +222,75 @@ async function readIndexedDraft<T>(
   return record ?? null;
 }
 
+/**
+ * Verify that an old plaintext IndexedDB record is gone. Never deletes a
+ * protected record and never reports success when it could not verify removal.
+ */
+async function cleanupLegacyPlaintextDraft(
+  draftKey: string
+): Promise<{ ok: boolean; legacyFound: boolean }> {
+  if (typeof indexedDB === "undefined") return { ok: true, legacyFound: false };
+  try {
+    const db = await withTimeout(
+      openOfflineDatabase(),
+      DRAFT_SAVE_TIMEOUT_MS,
+      "Draft storage"
+    );
+    const existing = await withTimeout(
+      new Promise<DraftRecord | undefined>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readonly");
+        const request = tx.objectStore("drafts").get(draftKey);
+        request.onsuccess = () => resolve(request.result as DraftRecord | undefined);
+        request.onerror = () => reject(request.error);
+      }),
+      DRAFT_LOAD_TIMEOUT_MS,
+      "Draft read"
+    );
+    if (!existing) return { ok: true, legacyFound: false };
+    if (existing.protectedData) {
+      // A protected record is not a legacy plaintext copy. Leave it untouched.
+      return { ok: true, legacyFound: false };
+    }
+
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readwrite");
+        tx.objectStore("drafts").delete(draftKey);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      }),
+      DRAFT_SAVE_TIMEOUT_MS,
+      "Draft cleanup"
+    );
+
+    const after = await withTimeout(
+      new Promise<DraftRecord | undefined>((resolve, reject) => {
+        const tx = db.transaction("drafts", "readonly");
+        const request = tx.objectStore("drafts").get(draftKey);
+        request.onsuccess = () => resolve(request.result as DraftRecord | undefined);
+        request.onerror = () => reject(request.error);
+      }),
+      DRAFT_LOAD_TIMEOUT_MS,
+      "Draft verification"
+    );
+    return { ok: !after, legacyFound: true };
+  } catch {
+    // Unknown state must not be reported as clean.
+    return { ok: false, legacyFound: true };
+  }
+}
+
+/**
+ * Retry removing an older plaintext copy. Callers show a retryable warning while
+ * this returns false; the session copy stays available.
+ */
+export async function retryPlaintextDraftCleanup(
+  draftKey: string
+): Promise<boolean> {
+  return (await cleanupLegacyPlaintextDraft(draftKey)).ok;
+}
+
 async function deleteIndexedDraft(draftKey: string): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   try {
@@ -239,7 +310,8 @@ async function deleteIndexedDraft(draftKey: string): Promise<void> {
       "Draft delete"
     );
   } catch {
-    // Best effort: a failed cleanup must never block form submission.
+    // Best effort for an explicit user delete; cleanup verification uses the
+    // strict path above so a migration is never reported as complete falsely.
   }
 }
 
@@ -283,7 +355,15 @@ export async function saveDraft<T>(
       storage: "session",
     };
     writeSessionDraft(scope, record);
-    await deleteIndexedDraft(draftKey);
+    const cleanup = await cleanupLegacyPlaintextDraft(draftKey);
+    if (!cleanup.ok) {
+      // The new copy is already in this tab. Do not claim the plaintext
+      // migration finished; the caller shows a retryable storage warning.
+      throw new OfflineStorageError(
+        "write_failed",
+        "Draft saved in this tab, but an older browser copy could not be removed. Retry to finish the cleanup."
+      );
+    }
     return record;
   }
 
@@ -351,26 +431,48 @@ export async function loadDraft<T = Record<string, unknown>>(
     if (!activeContext?.unlock) {
       const sessionRecord = readSessionDraft<T>(scope, draftKey);
       const legacy = await readIndexedDraft<T>(draftKey);
-      if (legacy?.protectedData) {
+      if (legacy?.protectedData && !sessionRecord) {
         // The device has protected drafts but no unlock context. Fail closed.
         throw new OfflineLockedError();
       }
-      if (sessionRecord) {
-        if (isDraftStale(sessionRecord, scope)) {
-          removeSessionValue(sessionStorageKey(scope, draftKey));
-          return null;
-        }
-        return sessionRecord;
+      if (!sessionRecord && !legacy) return null;
+
+      // Reconcile two readable copies by their saved timestamp. The newer draft
+      // wins, so an interrupted migration never loses user input.
+      let winner: DraftRecord<T>;
+      if (sessionRecord && legacy && !legacy.protectedData) {
+        const sessionTime = new Date(sessionRecord.updatedAt).getTime();
+        const legacyTime = new Date(legacy.updatedAt).getTime();
+        winner = legacyTime > sessionTime ? legacy : sessionRecord;
+      } else if (sessionRecord) {
+        winner = sessionRecord;
+      } else {
+        winner = legacy as DraftRecord<T>;
       }
-      if (!legacy) return null;
-      if (isDraftStale(legacy, scope)) {
-        await deleteIndexedDraft(draftKey);
+
+      if (isDraftStale(winner, scope)) {
+        removeSessionValue(sessionStorageKey(scope, draftKey));
+        if (legacy && !legacy.protectedData) {
+          await deleteIndexedDraft(draftKey);
+        }
         return null;
       }
-      // Move a legacy plaintext record into session scope before removing it.
-      writeSessionDraft(scope, { ...legacy, storage: "session" });
-      await deleteIndexedDraft(draftKey);
-      return { ...legacy, storage: "session" };
+
+      if (winner === legacy) {
+        // Confirm the replacement copy before the plaintext source is removed.
+        writeSessionDraft(scope, { ...winner, storage: "session" });
+      }
+
+      const cleanup =
+        legacy && !legacy.protectedData
+          ? await cleanupLegacyPlaintextDraft(draftKey)
+          : { ok: true, legacyFound: false };
+
+      return {
+        ...winner,
+        storage: "session",
+        ...(cleanup.ok ? {} : { plaintextCleanupPending: true }),
+      };
     }
 
     const record = await readIndexedDraft<T>(draftKey);

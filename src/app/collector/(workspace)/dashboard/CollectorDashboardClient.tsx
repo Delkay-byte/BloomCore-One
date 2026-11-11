@@ -136,7 +136,8 @@ export default function CollectorDashboardPage({
   const [preparingOffline, setPreparingOffline] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
-  const [queueAttention, setQueueAttention] = useState(0);
+  const [queueAttention, setQueueAttention] = useState<number | null>(0);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
   const [syncAlert, setSyncAlert] = useState<{
     tone: "success" | "warning" | "error" | "info";
     message: string;
@@ -184,64 +185,78 @@ export default function CollectorDashboardPage({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [recordingFor, showRegisterModal, submitting, regSubmitting]);
 
-  // Online/offline listener — always attached so the connectivity indicator
-  // reflects the real network state. Returning connectivity also clears a
-  // stale local "working offline" activation flag instead of leaving the old
-  // offline banner on screen.
+  // Connectivity listeners. Focus and visibility must read the real browser
+  // state: a tab receiving focus does not prove the internet returned, and the
+  // backend must answer before the page claims a verified online session.
   useEffect(() => {
     const applyReadiness = () =>
       getOfflineReadiness("susu")
         .then((readiness) => applyOfflineReadiness(readiness))
         .catch(() => undefined);
 
+    const reconcileWhenReachable = async () => {
+      const reachable = await checkConnectivity().catch(() => false);
+      setServerReachable(reachable);
+      if (!reachable) return;
+      try {
+        const readiness = await reconcileOfflineConnectivity("susu");
+        applyOfflineReadiness(readiness);
+        if (readiness.status === "preparation_required") {
+          const result = await prepareOfflineAccess("susu");
+          if (result.ok) {
+            applyOfflineReadiness(await getOfflineReadiness("susu"));
+          }
+        }
+      } catch {
+        // Keep the previous local readiness; sync can still run.
+      }
+      await attemptSync();
+    };
+
     const handleOnline = () => {
       setIsOnline(true);
-      void (async () => {
-        try {
-          const readiness = await reconcileOfflineConnectivity("susu");
-          applyOfflineReadiness(readiness);
-          if (readiness.status === "preparation_required") {
-            const result = await prepareOfflineAccess("susu");
-            if (result.ok) {
-              applyOfflineReadiness(await getOfflineReadiness("susu"));
-            }
-          }
-        } catch {
-          // Keep the previous local readiness; sync can still run.
-        }
-        await attemptSync();
-      })();
+      void reconcileWhenReachable();
     };
     const handleOffline = () => {
       setIsOnline(false);
+      setServerReachable(null);
       void applyReadiness();
+    };
+    const handleFocusOrVisible = () => {
+      const actuallyOnline = navigator.onLine;
+      setIsOnline(actuallyOnline);
+      if (!actuallyOnline) {
+        setServerReachable(null);
+        void applyReadiness();
+        return;
+      }
+      void reconcileWhenReachable();
+    };
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState !== "visible") return;
+      handleFocusOrVisible();
     };
     const handleUnlockRequired = () => setOfflineLocked(true);
     const handleStatusChange = () => void applyReadiness();
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-    window.addEventListener("focus", handleOnline);
+    window.addEventListener("focus", handleFocusOrVisible);
     window.addEventListener("maacash-offline-unlock-required", handleUnlockRequired);
     window.addEventListener("maacash-offline-status", handleStatusChange);
     window.addEventListener("maacash-offline-unlock-changed", handleStatusChange);
     document.addEventListener("visibilitychange", handleVisibilityRefresh);
     setIsOnline(navigator.onLine);
+    if (navigator.onLine) void reconcileWhenReachable();
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("focus", handleOnline);
+      window.removeEventListener("focus", handleFocusOrVisible);
       window.removeEventListener("maacash-offline-unlock-required", handleUnlockRequired);
       window.removeEventListener("maacash-offline-status", handleStatusChange);
       window.removeEventListener("maacash-offline-unlock-changed", handleStatusChange);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
-
-    function handleVisibilityRefresh() {
-      if (document.visibilityState !== "visible") return;
-      setIsOnline(navigator.onLine);
-      void applyReadiness();
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -524,8 +539,9 @@ export default function CollectorDashboardPage({
       const summary = await getOfflineQueueSummary();
       setQueueAttention(summary.attention);
     } catch {
-      // An unreadable queue is not an empty queue. Leave the previous count
-      // alone; the OfflineSyncStatus panel reports the read failure.
+      // An unreadable queue is not an empty queue and must not keep showing an
+      // old count. The dashboard renders an explicit unavailable state.
+      setQueueAttention(null);
     }
     const payloads: Record<string, string> = {};
     for (const tx of pending) {
@@ -851,9 +867,9 @@ export default function CollectorDashboardPage({
             </button>
 
             <div className="flex flex-wrap items-center gap-2 sm:justify-end" aria-label="Workspace status">
-              <span className={`badge ${isOnline ? "badge-green" : "badge-yellow"}`}>
-                <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-green-500" : "bg-yellow-500"}`} aria-hidden />
-                {isOnline ? "Online" : "Offline"}
+              <span className={`badge ${!isOnline ? "badge-yellow" : serverReachable === false ? "badge-red" : "badge-green"}`}>
+                <span className={`h-2 w-2 rounded-full ${!isOnline ? "bg-yellow-500" : serverReachable === false ? "bg-red-500" : "bg-green-500"}`} aria-hidden />
+                {!isOnline ? "Offline" : serverReachable === false ? "Server unreachable" : "Online"}
               </span>
 
               <span className={`badge ${offlineAuthExpired ? "badge-red" : !isOnline && offlineEnabled ? "badge-yellow" : offlineEnabled ? "badge-green" : "badge-blue"}`}>
@@ -868,7 +884,9 @@ export default function CollectorDashboardPage({
                       : "Offline available"}
               </span>
 
-              {queueAttention > 0 ? (
+              {queueAttention === null ? (
+                <span className="badge badge-red">Queue unreadable</span>
+              ) : queueAttention > 0 ? (
                 <span className="badge badge-red">{queueAttention} need attention</span>
               ) : pendingTxs.length > 0 ? (
                 <span className="badge badge-yellow">
@@ -923,11 +941,18 @@ export default function CollectorDashboardPage({
           {syncAlert.message}
         </div>
       )}
-      {queueAttention > 0 && syncAlert?.tone !== "error" && (
+      {queueAttention !== null && queueAttention > 0 && syncAlert?.tone !== "error" && (
         <div role="alert" className="banner banner-error text-sm">
           {queueAttention} collection{queueAttention === 1 ? "" : "s"} need
           {queueAttention === 1 ? "s" : ""} attention. The exact server reason is listed
           under Offline records.
+        </div>
+      )}
+      {queueAttention === null && (
+        <div role="status" className="banner banner-warning text-sm">
+          The offline queue could not be read. Saved records are not deleted, and no
+          attention count is available until the queue can be read again. Reload or open
+          Offline records to retry.
         </div>
       )}
       {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}

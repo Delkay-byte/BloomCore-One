@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyStoredFailure,
   countAttention,
   countWaiting,
   deriveOfflineDisplayStatus,
@@ -78,6 +79,47 @@ describe("offline queue attention rules", () => {
   });
 });
 
+describe("historical failed record compatibility", () => {
+  it("treats an older network failure without the new flag as retryable", () => {
+    expect(
+      classifyStoredFailure({
+        failureReason: "No connection to MaaCash. This record will retry.",
+      })
+    ).toBe("retryable");
+    expect(
+      classifyStoredFailure({ failureReason: "Synchronization timed out" })
+    ).toBe("retryable");
+  });
+
+  it("treats a clear validation reason as a rejection", () => {
+    expect(
+      classifyStoredFailure({ failureReason: "Customer is not assigned to this collector" })
+    ).toBe("rejected");
+    expect(classifyStoredFailure({ failureReason: "Invalid amount" })).toBe("rejected");
+  });
+
+  it("keeps an inconclusive older failure for explicit review", () => {
+    expect(classifyStoredFailure({ failureReason: null })).toBe("unknown");
+    expect(classifyStoredFailure({ failureReason: "Unexpected server answer" })).toBe(
+      "unknown"
+    );
+    const summary = summarizeQueueRecords([
+      record({ status: "failed", failureReason: null }),
+    ]);
+    expect(summary.attention).toBe(1);
+    expect(summary.review).toBe(1);
+    expect(summary.waiting).toBe(0);
+  });
+
+  it("does not requeue an unknown historical failure", () => {
+    const summary = summarizeQueueRecords([
+      record({ status: "failed", failureReason: "Unexpected answer" }),
+    ]);
+    expect(summary.failedRecords[0].classification).toBe("unknown");
+    expect(summary.waiting).toBe(0);
+  });
+});
+
 describe("offline display status", () => {
   it("shows online availability without claiming offline activity", () => {
     const display = deriveOfflineDisplayStatus({
@@ -134,6 +176,49 @@ describe("offline display status", () => {
     expect(display.syncedCount).toBe(0);
     expect(display.nextAction).toBe("none");
     expect(display.canShowQueueDetails).toBe(false);
+  });
+
+  it("does not expose a stale attention count when the queue is unavailable", () => {
+    const staleQueue = summarizeQueueRecords([
+      record({
+        status: "failed",
+        failureReason: "Customer is not assigned to this collector",
+        lastFailureRetryable: false,
+      }),
+    ]);
+    const display = deriveOfflineDisplayStatus({
+      online: true,
+      serverReachable: true,
+      readiness: ready,
+      queue: staleQueue,
+      available: false,
+      unlocked: true,
+    });
+    expect(display.queueReadable).toBe(false);
+    expect(display.queueUnavailable).toBe(true);
+    expect(display.attentionCount).toBe(0);
+    expect(display.canShowQueueDetails).toBe(false);
+  });
+
+  it("restores the accurate count when the queue becomes readable again", () => {
+    const readableQueue = summarizeQueueRecords([
+      record({
+        status: "failed",
+        failureReason: "Customer is not assigned to this collector",
+        lastFailureRetryable: false,
+      }),
+    ]);
+    const display = deriveOfflineDisplayStatus({
+      online: true,
+      serverReachable: true,
+      readiness: ready,
+      queue: readableQueue,
+      available: true,
+      unlocked: true,
+    });
+    expect(display.queueReadable).toBe(true);
+    expect(display.attentionCount).toBe(1);
+    expect(display.canShowQueueDetails).toBe(true);
   });
 
   it("hides queue details while locked", () => {

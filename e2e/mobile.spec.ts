@@ -36,18 +36,33 @@ test.describe("collector offline shell on Android-sized screen", () => {
     await loginCollector(page);
     await page.goto("/collector/dashboard");
 
-    await page.getByRole("button", { name: "Enable Offline" }).click();
+    // The Offline records panel owns preparation. There is no separate
+    // "Enable Offline" button that could prepare and activate the same device.
+    const offlinePanel = page.getByRole("region", { name: "Offline records" });
+    await expect(offlinePanel).toBeVisible({ timeout: 30_000 });
+    await offlinePanel.getByRole("button", { name: "Prepare offline access" }).click();
+
+    // First-time setup opens the passphrase gate. The workspace must stay
+    // locked until the passphrase is set.
+    await expect(page.locator("#offline-passphrase")).toBeVisible({ timeout: 30_000 });
     await page.locator("#offline-passphrase").fill(PASSPHRASE);
     await page.locator("#offline-passphrase-confirm").fill(PASSPHRASE);
     await page.getByRole("button", { name: "Set up offline protection" }).click();
+
     await expect(page.getByText("Save your recovery code", { exact: true })).toBeVisible({
       timeout: 30_000,
     });
     await page.getByLabel("I have saved this recovery code somewhere safe.").check();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await expect(page.getByText("Offline Ready", { exact: true }).first()).toBeVisible({
-      timeout: 120_000,
+
+    // Preparation finishes after the recovery code is acknowledged. The panel
+    // reports the real prepared state, not a stale setup instruction.
+    await expect(offlinePanel.getByText("Offline available", { exact: true }).first()).toBeVisible({
+      timeout: 60_000,
     });
+    await expect(
+      offlinePanel.getByText(/Set up an offline passphrase/i)
+    ).toHaveCount(0);
 
     await context.setOffline(true);
     await page.reload();
@@ -56,11 +71,9 @@ test.describe("collector offline shell on Android-sized screen", () => {
     });
     await page.locator("#offline-passphrase").fill(PASSPHRASE);
     await page.getByRole("button", { name: "Unlock offline workspace" }).click();
-    await expect(
-      page.getByText(/Working offline|Offline Active|Offline Ready/, {
-        exact: false,
-      }).first()
-    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("Working offline", { exact: true }).first()).toBeVisible({
+      timeout: 60_000,
+    });
 
     await page.goto("/login");
     await expect(page.getByText("Offline access available", { exact: true })).toBeVisible({
@@ -70,7 +83,7 @@ test.describe("collector offline shell on Android-sized screen", () => {
     await page.waitForURL(/\/collector\/dashboard/, { timeout: 30_000 });
     await page.locator("#offline-passphrase").fill(PASSPHRASE);
     await page.getByRole("button", { name: "Unlock offline workspace" }).click();
-    await expect(page.getByText(/Offline Active|Offline Ready/).first()).toBeVisible({
+    await expect(page.getByText("Working offline", { exact: true }).first()).toBeVisible({
       timeout: 30_000,
     });
 

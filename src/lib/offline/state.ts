@@ -31,6 +31,8 @@ export interface QueueSummaryLike {
   unresolved: number;
   /** Failed records with a permanent server rejection; requires a decision. */
   attention?: number;
+  /** Older failed records whose cause cannot be proven from saved evidence. */
+  review?: number;
   /** Pending records plus retryable failures waiting for another attempt. */
   waiting?: number;
   lastSuccessfulSyncAt: string | null;
@@ -41,6 +43,7 @@ export interface QueueSummaryLike {
     createdAt: string;
     retryCount: number;
     retryable?: boolean;
+    classification?: FailureClassification;
   }>;
 }
 
@@ -54,12 +57,16 @@ export interface OfflineDisplayStatus {
   readinessLabel: string;
   /** Genuine server rejections that need a user decision. */
   attentionCount: number;
+  /** Older failed records whose cause cannot be proven; review explicitly. */
+  reviewCount: number;
   /** Pending records plus retryable failures waiting for the next attempt. */
   waitingCount: number;
   syncingCount: number;
   syncedCount: number;
   /** Queue was readable. When false, no count may be presented as zero. */
   queueReadable: boolean;
+  /** Queue could not be read; the UI must show unavailable, not a stale count. */
+  queueUnavailable: boolean;
   /** Identifiers are safe to render open only when this is true. */
   canShowQueueDetails: boolean;
   lastSuccessfulSyncAt: string | null;
@@ -118,6 +125,42 @@ export function isActionableFailure(record: {
   return record.status === "failed" && record.retryable !== true;
 }
 
+export type FailureClassification = "retryable" | "rejected" | "unknown";
+
+/**
+ * Classify a stored failed record without inventing evidence.
+ *
+ * Records written by the current build carry `lastFailureRetryable`. Older
+ * records may not. For those, only a recognisable transient reason is treated
+ * as retryable; a recognisable validation/authorization reason is a rejection;
+ * anything else stays `unknown` and is kept for explicit review. We never
+ * silently requeue an unknown failure or hide it from the attention count.
+ */
+export function classifyStoredFailure(record: {
+  lastFailureRetryable?: boolean;
+  failureReason?: string | null;
+}): FailureClassification {
+  if (record.lastFailureRetryable === true) return "retryable";
+  if (record.lastFailureRetryable === false) return "rejected";
+  const reason = (record.failureReason ?? "").toLowerCase();
+  if (!reason.trim()) return "unknown";
+  if (
+    /no connection|network|timed? out|temporar|rate.?limit|retry|try again|server (is )?(busy|unavailable)|could not reach|connection (was )?(lost|interrupted)|503|502|504/.test(
+      reason
+    )
+  ) {
+    return "retryable";
+  }
+  if (
+    /not assigned|invalid|not found|permission|forbidden|unauthor|rejected|already (exists|recorded|synced)|closed|duplicate|validation|missing|does not belong/.test(
+      reason
+    )
+  ) {
+    return "rejected";
+  }
+  return "unknown";
+}
+
 export function summarizeQueueRecords(
   records: OfflineTransaction[]
 ): OfflineQueueSummary {
@@ -132,24 +175,35 @@ export function summarizeQueueRecords(
       .sort()
       .at(-1) ?? null;
 
+  const classified = failed.map((record) => ({
+    record,
+    classification: classifyStoredFailure(record),
+  }));
+  const retryableFailed = classified.filter(
+    (item) => item.classification === "retryable"
+  );
+  const actionableFailed = classified.filter(
+    (item) => item.classification !== "retryable"
+  );
+
   return {
     pending: pending.length,
     syncing: syncing.length,
     synced: synced.length,
     failed: failed.length,
     unresolved: pending.length + syncing.length + failed.length,
-    attention: failed.filter((record) => record.lastFailureRetryable !== true).length,
-    waiting:
-      pending.length +
-      failed.filter((record) => record.lastFailureRetryable === true).length,
+    attention: actionableFailed.length,
+    review: actionableFailed.filter((item) => item.classification === "unknown").length,
+    waiting: pending.length + retryableFailed.length,
     lastSuccessfulSyncAt,
-    failedRecords: failed.slice(0, 20).map((record) => ({
-      id: record.id,
-      type: record.type,
-      failureReason: record.failureReason,
-      createdAt: record.createdAt,
-      retryCount: record.retryCount,
-      retryable: record.lastFailureRetryable === true,
+    failedRecords: actionableFailed.concat(retryableFailed).slice(0, 20).map((item) => ({
+      id: item.record.id,
+      type: item.record.type,
+      failureReason: item.record.failureReason,
+      createdAt: item.record.createdAt,
+      retryCount: item.record.retryCount,
+      retryable: item.classification === "retryable",
+      classification: item.classification,
     })),
   };
 }
@@ -157,7 +211,9 @@ export function summarizeQueueRecords(
 export function countAttention(queue: QueueSummaryLike | null): number {
   if (!queue) return 0;
   if (typeof queue.attention === "number") return queue.attention;
-  return queue.failedRecords.filter((record) => record.retryable !== true).length;
+  return queue.failedRecords.filter(
+    (record) => record.retryable !== true
+  ).length;
 }
 
 export function countWaiting(queue: QueueSummaryLike | null): number {
@@ -195,7 +251,7 @@ export function deriveOfflineDisplayStatus({
           : "Checking connection";
 
   const queueReadable = available && queue !== null;
-  const attentionCount = countAttention(queue);
+  const attentionCount = queueReadable ? countAttention(queue) : 0;
   const waitingCount = queueReadable ? countWaiting(queue) : 0;
 
   // "Working offline" requires a real network loss, a prepared workspace and an
@@ -233,10 +289,16 @@ export function deriveOfflineDisplayStatus({
     readiness: readiness.status,
     readinessLabel: READINESS_LABEL[readiness.status],
     attentionCount,
+    reviewCount: queueReadable
+      ? typeof queue!.review === "number"
+        ? queue!.review
+        : queue!.failedRecords.filter((record) => record.classification === "unknown").length
+      : 0,
     waitingCount,
     syncingCount: queueReadable ? queue!.syncing : 0,
     syncedCount: queueReadable ? queue!.synced : 0,
     queueReadable,
+    queueUnavailable: !queueReadable,
     canShowQueueDetails: queueReadable && unlocked,
     lastSuccessfulSyncAt: queueReadable ? queue!.lastSuccessfulSyncAt : null,
     nextAction,

@@ -28,7 +28,7 @@ import {
 } from "./crypto";
 import { OfflineLockedError, requireOfflineKey } from "./unlock";
 import { OfflineStorageError } from "@/lib/errors/friendly";
-import { summarizeQueueRecords } from "./state";
+import { summarizeQueueRecords, classifyStoredFailure } from "./state";
 // Register the cross-tab coordination handler wherever offline storage is used.
 import "./coordination";
 
@@ -1004,6 +1004,8 @@ export interface OfflineQueueSummary {
   unresolved: number;
   /** Failed records with an actionable server rejection. */
   attention: number;
+  /** Older failed records whose cause must be reviewed explicitly. */
+  review?: number;
   /** Pending records plus retryable failures waiting to synchronize. */
   waiting: number;
   lastSuccessfulSyncAt: string | null;
@@ -1014,6 +1016,7 @@ export interface OfflineQueueSummary {
     createdAt: string;
     retryCount: number;
     retryable?: boolean;
+    classification?: "retryable" | "rejected" | "unknown";
   }>;
 }
 
@@ -1036,27 +1039,19 @@ export async function getUnresolvedTransactions(): Promise<OfflineTransaction[]>
 /** One read for the offline status panel and the sign-out safeguard. */
 export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
   const all = await getAllTransactions();
-  const summary = summarizeQueueRecords(all);
-  return {
-    ...summary,
-    attention: summary.failedRecords.filter((record) => record.retryable !== true).length,
-    waiting:
-      summary.pending +
-      summary.failedRecords.filter((record) => record.retryable === true).length,
-  };
+  return summarizeQueueRecords(all);
 }
 
 /**
- * Requeue failures that are safe to retry (network, 5xx, rate limit). A record
- * that reached the retry ceiling after a retryable error is still waiting, not
- * a permanent rejection, so it becomes pending again on the next attempt.
- * Genuine server rejections stay failed and keep needing a user decision.
+ * Requeue failures that are safe to retry (explicit flag or recognisable
+ * transient reason on an older record). Unknown historical failures stay in
+ * `failed` for explicit review; genuine rejections are never requeued.
  */
 export async function requeueRetryableFailures(): Promise<number> {
   const failed = await getFailedTransactions();
   let requeued = 0;
   for (const record of failed) {
-    if (record.lastFailureRetryable !== true) continue;
+    if (classifyStoredFailure(record) !== "retryable") continue;
     await updateTransaction(record.id, {
       status: "pending_sync",
       syncStartedAt: null,

@@ -248,19 +248,19 @@ tenant or account.
 
 | Check | Result |
 |---|---|
-| Unit/integration suite | 802 passed, 79 files (`npm test`) |
+| Unit/integration suite | 818 passed, 79 files (`npm test`) |
 | Typecheck | clean (`npm run typecheck`) |
-| Lint | 0 errors, 71 warnings (`npm run lint`) |
-| Production build | see build record below |
-| Playwright | spec added; not executed in this session (needs prepared E2E DB/server) |
-| PostgreSQL integration | not run in this session |
+| Lint | 0 errors, 70 warnings (`npm run lint`) |
+| Production build | `✓ Compiled successfully` |
+| Playwright (mobile project) | 10/10 passed locally: 7 status tests, 3 mobile shell tests |
+| PostgreSQL integration | not run locally; CI job reports the result |
 | Security review | agent self-review, not independent human approval |
 | PR | https://github.com/Delkay-byte/BloomCore-One/pull/43 |
 | Deployment | not performed |
 | Feature commit SHA | `452767ea09d76e779f2e5295404cecaebad3d1c6` |
 | Branch head | latest commit on the PR (this report is updated by a docs commit) |
 
-Build record: `npm run build` compiled successfully (`✓ Compiled successfully in 16.2s`). Route
+Build record: `npm run build` compiled successfully (`✓ Compiled successfully in 21.7s`). Route
 generation completed without errors.
 
 ### Security self-review
@@ -299,3 +299,86 @@ review is still required.
 8. Approve the device-management proposal before any schema change.
 9. Approve PR creation, merge and deployment.
 10. Keep issue #38 open until every gate is evidenced.
+
+---
+
+## J. Review follow-up (PR #43, second pass)
+
+### Mobile CI failure
+
+**Root cause:** `e2e/mobile.spec.ts:39` still clicked `Enable Offline`. PR #43 removed that
+control and moved preparation into the Offline records panel as `Prepare offline access`. The
+test failed on a stale selector, not on a broken workflow.
+
+**Fix:** the test now follows the real workflow:
+
+1. Wait for the Offline records panel.
+2. Click `Prepare offline access`.
+3. Set and confirm the passphrase.
+4. Acknowledge the recovery code and continue.
+5. Assert the panel reports `Offline available` and no setup instruction remains.
+6. Go offline, reload, assert the workspace is locked, unlock, assert `Working offline`.
+7. Restore from `/login`, assert `Offline access available`, open the collector dashboard,
+   unlock again, assert `Working offline`.
+
+No redundant `Enable Offline` button was reintroduced. The prepared-state assertion uses a
+specific panel label with a normal 60 s preparation allowance, not an inflated timeout.
+
+### New status spec in CI
+
+`playwright.config.ts` now assigns `maacash-offline-status.spec.ts` to the mobile project and
+excludes it from the desktop project, so the CI command
+`npm run test:e2e -- --project=mobile-chromium` executes it exactly once. Local run:
+7/7 status tests passed; mobile shell suite 3/3 passed.
+
+### Focus and visibility reconciliation
+
+`handleOnline` is no longer reused for focus. The dashboard now has separate handlers:
+
+- `online` event: mark online, then require a bounded `/api/health` answer before reconciling
+  activation or attempting synchronization.
+- `offline` event: mark offline and recompute readiness.
+- focus / visibility: read `navigator.onLine`; if false, stay offline and only refresh readiness.
+  If true, require backend reachability before claiming an online session.
+- Backend unreachable state is displayed as `Server unreachable`, not `Online`.
+- No record is marked synced by reconnection; only the existing server acknowledgement path does.
+
+### Legacy draft migration
+
+- Session-mode save writes the new copy first, then verifies removal of the old plaintext row.
+- If verification fails, the save reports a retryable `write_failed` warning. It does not claim
+  the migration completed.
+- Load reconciles session and IndexedDB copies by `updatedAt`; the newer draft wins.
+- A newer legacy copy is copied to session storage before the old row is removed.
+- Protected drafts are never treated as legacy plaintext and are never deleted by cleanup.
+- Cleanup is key-scoped and repeatable after interruption.
+- Sign-out clears session drafts only; protected IndexedDB drafts are untouched.
+
+### Queue unavailable
+
+`refreshPendingTxs()` now sets the attention count to `null` when the queue cannot be read.
+The dashboard renders `Queue unreadable` and an explicit unavailable banner. It never keeps a
+stale count and never shows zero as if the queue were known.
+
+`deriveOfflineDisplayStatus()` also gates `attentionCount` on `queueReadable`, and exposes
+`queueUnavailable`. Locked workspaces still hide queue details.
+
+### Historical failed records
+
+Records written before this change have no `lastFailureRetryable` field. The classifier uses:
+
+1. The explicit flag when present (authoritative).
+2. Otherwise a recognisable transient reason (network, timeout, rate limit, retry) → waiting.
+3. Otherwise a recognisable validation/authorization reason → rejection with reason.
+4. Otherwise `unknown` → counted as attention for **explicit review**, never auto-requeued.
+
+This avoids both blanket requeueing and blanket "permanent failure" labelling. Unknown records
+show a review message instead of a fabricated reason.
+
+### Draft-storage limitation (confirmed)
+
+Online session drafts are sanitised form state in `sessionStorage`. This is not encryption.
+Same-origin JavaScript can read it while the tab is open. It is scoped to the tab and the
+tenant/user, and is not retained like IndexedDB. Protected offline drafts remain AES-GCM
+encrypted and fail closed while locked. No key is stored beside the draft.
+

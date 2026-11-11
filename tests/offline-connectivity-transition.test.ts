@@ -89,4 +89,25 @@ describe("connectivity transitions", () => {
     expect(readiness.status).toBe("ready");
     expect((await getCurrentOfflineContext())?.active).toBe(false);
   });
+
+  it("keeps a locked workspace locked when focus returns offline", async () => {
+    lockOfflineWorkspace();
+    vi.stubGlobal("navigator", { onLine: false });
+
+    const readiness = await getOfflineReadiness("susu");
+    expect(readiness.status).toBe("unlock_required");
+  });
+
+  it("keeps an expired authorization expired when focus returns offline", async () => {
+    const current = await getCurrentOfflineContext();
+    await savePreparedContext({
+      ...current!,
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      active: true,
+    });
+    vi.stubGlobal("navigator", { onLine: false });
+
+    const readiness = await getOfflineReadiness("susu");
+    expect(readiness.status).toBe("expired");
+  });
 });

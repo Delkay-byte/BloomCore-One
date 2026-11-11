@@ -96,4 +96,30 @@ describe("authoritative attention count", () => {
     expect(summaryB.pending).toBe(0);
     expect(summaryB.attention).toBe(0);
   });
+
+  it("classifies older failed records from saved evidence, not a blanket default", async () => {
+    // Pre-upgrade record: no lastFailureRetryable field, but a clear transient
+    // reason. It must be waiting, not permanent attention.
+    await addTransaction(
+      tx("old-network", {
+        status: "failed",
+        failureReason: "No connection to MaaCash. This record will retry.",
+      })
+    );
+    // Pre-upgrade record with no usable reason stays for explicit review.
+    await addTransaction(
+      tx("old-unknown", {
+        status: "failed",
+        failureReason: null,
+      })
+    );
+
+    const summary = await getOfflineQueueSummary();
+    expect(summary.attention).toBe(1);
+    expect(summary.review).toBe(1);
+    expect(summary.waiting).toBe(1);
+    expect(await requeueRetryableFailures()).toBe(1);
+    expect((await getTransaction("old-network"))?.status).toBe("pending_sync");
+    expect((await getTransaction("old-unknown"))?.status).toBe("failed");
+  });
 });

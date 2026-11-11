@@ -298,3 +298,155 @@ describe("form drafts", () => {
     }
   });
 });
+
+describe("legacy plaintext draft migration", () => {
+  beforeEach(async () => {
+    clearSessionDrafts();
+    lockOfflineWorkspace();
+    await clearCurrentOfflineContext();
+    closeCurrentOfflineSession();
+    for (const name of await listOfflineDatabaseNames()) {
+      await deleteDatabase(name).catch(() => {});
+    }
+    clearOfflineScope();
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+  });
+
+  async function putLegacyDraft(
+    draftKey: string,
+    data: Record<string, unknown>,
+    updatedAt: string,
+    scope: { tenantId: string; userId: string } = {
+      tenantId: "tenant-1",
+      userId: "user-a",
+    }
+  ): Promise<void> {
+    const db = await openOfflineDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("drafts", "readwrite");
+      tx.objectStore("drafts").put({
+        id: draftKey,
+        draftKey,
+        tenantId: scope.tenantId,
+        userId: scope.userId,
+        workflow: "susu.customer.create",
+        schemaVersion: DRAFT_SCHEMA_VERSION,
+        updatedAt,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        data,
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+
+  async function rawDraftRows(): Promise<Array<Record<string, unknown>>> {
+    const db = await openOfflineDatabase();
+    const rows = await new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+      const request = db.transaction("drafts", "readonly").objectStore("drafts").getAll();
+      request.onsuccess = () => resolve(request.result as Array<Record<string, unknown>>);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return rows;
+  }
+
+  it("moves a legacy-only draft to session storage and verifies deletion", async () => {
+    await putLegacyDraft("legacy-only", { fullName: "Legacy" }, new Date().toISOString());
+
+    const restored = await loadDraft<{ fullName: string }>("legacy-only");
+    expect(restored?.data.fullName).toBe("Legacy");
+    expect(restored?.storage).toBe("session");
+    expect(restored?.plaintextCleanupPending).toBeUndefined();
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("keeps the newer session copy when an older legacy row remains", async () => {
+    await saveDraft("both", "susu.customer.create", { fullName: "Session newer" });
+    await putLegacyDraft(
+      "both",
+      { fullName: "Legacy older" },
+      new Date(Date.now() - 60_000).toISOString()
+    );
+
+    const restored = await loadDraft<{ fullName: string }>("both");
+    expect(restored?.data.fullName).toBe("Session newer");
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("preserves a newer legacy draft by copying it to session storage", async () => {
+    await saveDraft("both", "susu.customer.create", { fullName: "Session older" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await putLegacyDraft("both", { fullName: "Legacy newer" }, new Date().toISOString());
+
+    const restored = await loadDraft<{ fullName: string }>("both");
+    expect(restored?.data.fullName).toBe("Legacy newer");
+    expect(await rawDraftRows()).toHaveLength(0);
+    // The winning copy survives a second read from session storage.
+    expect((await loadDraft<{ fullName: string }>("both"))?.data.fullName).toBe(
+      "Legacy newer"
+    );
+  });
+
+  it("reports a retryable warning when plaintext cleanup cannot be verified", async () => {
+    await putLegacyDraft("blocked-cleanup", { fullName: "Old" }, new Date().toISOString());
+
+    const spy = vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      throw new Error("database blocked");
+    });
+    try {
+      await expect(
+        saveDraft("blocked-cleanup", "susu.customer.create", { fullName: "New" })
+      ).rejects.toMatchObject({ code: "write_failed" });
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The session copy is preserved, and the plaintext row is still there for a
+    // retry rather than being falsely reported as migrated.
+    expect(await rawDraftRows()).toHaveLength(1);
+    const restored = await loadDraft<{ fullName: string }>("blocked-cleanup");
+    expect(restored?.data.fullName).toBe("New");
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("retries cleanup after an interrupted migration without losing input", async () => {
+    // Simulate an interruption: session copy written first, plaintext not yet
+    // removed. A reload sees both and reconciles safely.
+    await saveDraft("interrupted", "susu.customer.create", { fullName: "Kept" });
+    await putLegacyDraft(
+      "interrupted",
+      { fullName: "Kept" },
+      new Date(Date.now() - 1_000).toISOString()
+    );
+
+    const first = await loadDraft<{ fullName: string }>("interrupted");
+    expect(first?.data.fullName).toBe("Kept");
+    expect(await rawDraftRows()).toHaveLength(0);
+    const reloaded = await loadDraft<{ fullName: string }>("interrupted");
+    expect(reloaded?.data.fullName).toBe("Kept");
+  });
+
+  it("never migrates a draft from a different tenant or user scope", async () => {
+    await putLegacyDraft("foreign", { fullName: "Other user" }, new Date().toISOString(), {
+      tenantId: "tenant-2",
+      userId: "user-b",
+    });
+    expect(await loadDraft("foreign")).toBeNull();
+  });
+
+  it("clears only session drafts on sign-out, never protected drafts", async () => {
+    await saveDraft("session-only", "susu.customer.create", { fullName: "Session" });
+    await prepareProtectedWorkspace();
+    await saveDraft("protected", "susu.customer.create", { fullName: "Protected" });
+    expect(await rawDraftRows()).toHaveLength(1);
+
+    clearSessionDrafts();
+
+    expect(await loadDraft("session-only")).toBeNull();
+    const protectedDraft = await loadDraft<{ fullName: string }>("protected");
+    expect(protectedDraft?.data.fullName).toBe("Protected");
+    expect(await rawDraftRows()).toHaveLength(1);
+  });
+});
