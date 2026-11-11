@@ -255,9 +255,9 @@ tenant or account.
 | Playwright | spec added; not executed in this session (needs prepared E2E DB/server) |
 | PostgreSQL integration | not run in this session |
 | Security review | agent self-review, not independent human approval |
-| PR | not opened |
+| PR | https://github.com/Delkay-byte/BloomCore-One/pull/43 |
 | Deployment | not performed |
-| Head SHA | recorded in the PR when opened |
+| Head SHA | `452767ea09d76e779f2e5295404cecaebad3d1c6` |
 
 Build record: `npm run build` compiled successfully (`✓ Compiled successfully in 16.2s`). Route
 generation completed without errors.
