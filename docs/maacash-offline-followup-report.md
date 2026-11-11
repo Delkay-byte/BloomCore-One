@@ -253,12 +253,13 @@ tenant or account.
 | Lint | 0 errors, 70 warnings (`npm run lint`) |
 | Production build | `✓ Compiled successfully` |
 | Playwright (mobile project) | 10/10 passed locally: 7 status tests, 3 mobile shell tests |
-| PostgreSQL integration | not run locally; CI job reports the result |
+| PostgreSQL integration | CI passed: migration rehearsal, status, drift check, integration tests |
 | Security review | agent self-review, not independent human approval |
 | PR | https://github.com/Delkay-byte/BloomCore-One/pull/43 |
 | Deployment | not performed |
-| Feature commit SHA | `452767ea09d76e779f2e5295404cecaebad3d1c6` |
-| Branch head | latest commit on the PR (this report is updated by a docs commit) |
+| Feature commit SHA | `9878c958e5b7af462165a637b6dd7a71462e55f3` |
+| CI (PR) | https://github.com/Delkay-byte/BloomCore-One/actions/runs/43030941583 — all jobs success |
+| CI (push) | https://github.com/Delkay-byte/BloomCore-One/actions/runs/43030951638 — all jobs success |
 
 Build record: `npm run build` compiled successfully (`✓ Compiled successfully in 21.7s`). Route
 generation completed without errors.
@@ -329,7 +330,9 @@ specific panel label with a normal 60 s preparation allowance, not an inflated t
 `playwright.config.ts` now assigns `maacash-offline-status.spec.ts` to the mobile project and
 excludes it from the desktop project, so the CI command
 `npm run test:e2e -- --project=mobile-chromium` executes it exactly once. Local run:
-7/7 status tests passed; mobile shell suite 3/3 passed.
+7/7 status tests passed; mobile shell suite 3/3 passed. The CI log for run `43030941583`
+explicitly lists `✓ 1 [mobile-chromium] › e2e/maacash-offline-status.spec.ts:63:7 ...`, so the
+spec is executed in GitHub Actions rather than merely present in the repository.
 
 ### Focus and visibility reconciliation
 
