@@ -9,20 +9,26 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { getOfflineStatus, type OfflineStatus } from "@/lib/offline/session";
-import { prepareOfflineAccess } from "@/lib/offline/preparation";
+import { prepareOfflineAccess, reconcileOfflineConnectivity } from "@/lib/offline/preparation";
+import { getCurrentOfflineContext } from "@/lib/offline/device-store";
 import { isOfflineModule } from "@/lib/offline/active-module";
-import { syncPendingTransactions } from "@/lib/offline/sync";
+import {
+  checkConnectivity,
+  summarizeSyncOutcome,
+  syncPendingTransactions,
+} from "@/lib/offline/sync";
+import { isOfflineUnlocked } from "@/lib/offline/unlock";
+import { deriveOfflineDisplayStatus } from "@/lib/offline/state";
 import type { ModuleName } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/Skeletons";
 
 /**
  * Offline readiness, queue status and safe retry.
  *
- * A record saved locally is never labelled as successful. `pending` means the
- * record is on this device only; `synced` means the server acknowledged it. A
- * missing server connection never turns a locally readable status into
- * "unavailable", and a failed identity check is never presented as deleted
- * records.
+ * Connectivity, device preparation, workspace unlock and queue synchronization
+ * are shown as separate facts. A record saved locally is never described as a
+ * successful posting; only a server acknowledgement is "synced". A transient
+ * network failure is "waiting", not "needs attention".
  */
 export default function OfflineSyncStatus({
   className = "",
@@ -37,12 +43,18 @@ export default function OfflineSyncStatus({
   const [preparing, setPreparing] = useState(false);
   const [notice, setNotice] = useState("");
   const [nearLimit, setNearLimit] = useState(false);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await getOfflineStatus(module));
+      const next = await getOfflineStatus(module);
+      setStatus(next);
+      const context = await getCurrentOfflineContext();
+      setUnlocked(context ? isOfflineUnlocked(context) : false);
     } catch {
       setStatus(null);
+      setUnlocked(false);
     } finally {
       setLoading(false);
     }
@@ -60,19 +72,75 @@ export default function OfflineSyncStatus({
     }
   }, [module]);
 
+  /**
+   * Reconcile connectivity on real events only. A bounded server check proves
+   * the backend actually answers; `navigator.onLine` alone does not.
+   */
+  const syncConnectivity = useCallback(async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setServerReachable(null);
+      await reconcileOfflineConnectivity(
+        isOfflineModule(module) ? module : undefined
+      ).catch(() => undefined);
+      return;
+    }
+    const reachable = await checkConnectivity().catch(() => false);
+    setServerReachable(reachable);
+    if (reachable) {
+      // Clear a stale local activation flag; the device is online and ready.
+      await reconcileOfflineConnectivity(
+        isOfflineModule(module) ? module : undefined
+      ).catch(() => undefined);
+    }
+  }, [module]);
+
   useEffect(() => {
-    void refresh();
-    const onConnectivityChange = () => void refresh();
-    const onStatusChange = () => void refresh();
+    void (async () => {
+      await refresh();
+      await syncConnectivity();
+      await refresh();
+    })();
+
+    const onConnectivityChange = () => {
+      setNotice("");
+      void (async () => {
+        await syncConnectivity();
+        await refresh();
+      })();
+    };
+    const onStatusChange = () => {
+      setNotice("");
+      void refresh();
+    };
+    const onUnlockChange = () => {
+      setNotice("");
+      void refresh();
+    };
+    const onFocus = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      void (async () => {
+        await syncConnectivity();
+        await refresh();
+      })();
+    };
+
     window.addEventListener("online", onConnectivityChange);
     window.addEventListener("offline", onConnectivityChange);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
     window.addEventListener("maacash-offline-status", onStatusChange);
+    window.addEventListener("maacash-offline-unlock-changed", onUnlockChange);
     return () => {
       window.removeEventListener("online", onConnectivityChange);
       window.removeEventListener("offline", onConnectivityChange);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
       window.removeEventListener("maacash-offline-status", onStatusChange);
+      window.removeEventListener("maacash-offline-unlock-changed", onUnlockChange);
     };
-  }, [refresh]);
+  }, [refresh, syncConnectivity]);
 
   // A cold first load can race the service worker that attaches the tab
   // credential. Retry the same authenticated check once; a genuine denial still
@@ -91,24 +159,32 @@ export default function OfflineSyncStatus({
     setNotice("");
     try {
       const results = await syncPendingTransactions();
+      const outcome = summarizeSyncOutcome(results);
       await refresh();
-      const synced = results.filter((result) => result.success).length;
-      if (synced > 0) {
+      if (outcome.confirmed > 0) {
         setNotice(
-          `Synced. ${synced} record${synced === 1 ? "" : "s"} confirmed by the server.`
+          `Collection synchronized successfully. ${outcome.confirmed} record${
+            outcome.confirmed === 1 ? "" : "s"
+          } confirmed by the server.`
         );
-      } else if (results.some((result) => result.authExpired)) {
+      } else if (outcome.authExpired) {
         setNotice("Your session expired. Sign in again to synchronize.");
-      } else if (results.length === 0) {
-        setNotice("Nothing to synchronize right now.");
-      } else {
+      } else if (outcome.locked) {
+        setNotice("Unlock the offline workspace before synchronizing.");
+      } else if (outcome.rejected.length > 0) {
         setNotice(
-          "Sync Failed. Some collections could not be synchronized. Your saved records are still on this device."
+          `${outcome.rejected.length} record${
+            outcome.rejected.length === 1 ? " was" : "s were"
+          } rejected by the server. See the reason below.`
         );
+      } else if (outcome.transient > 0) {
+        setNotice("No connection to MaaCash. The records stay on this device and will retry.");
+      } else {
+        setNotice("Nothing to synchronize right now.");
       }
     } catch {
       setNotice(
-        "Sync Failed. Synchronization could not run. Your saved records are still on this device."
+        "Synchronization could not run. Your saved records are still on this device and will retry."
       );
     } finally {
       setSyncing(false);
@@ -157,46 +233,42 @@ export default function OfflineSyncStatus({
     );
   }
 
-  const { summary, readiness, online, available, scope } = status;
-  const attention = summary.pending + summary.failed;
-  // A cached prepared context keeps offline work available, but it does not
-  // prove the current online session. Only a fresh server answer (or the
-  // server-rendered page identity) may be described as verified.
-  const identityVerified =
-    scope.resolved &&
-    (!online || scope.source === "server" || scope.source === "seeded");
-  // The queue's own last acknowledged sync is authoritative. When the queue is
-  // unreadable, say so instead of presenting the preparation timestamp as a
-  // successful synchronization.
-  const lastSuccessfulSyncLabel = summary.lastSuccessfulSyncAt
-    ? new Date(summary.lastSuccessfulSyncAt).toLocaleString("en-GB", {
+  const { summary, readiness, available, scope } = status;
+  const display = deriveOfflineDisplayStatus({
+    online: status.online,
+    serverReachable,
+    readiness,
+    queue: summary,
+    available,
+    unlocked,
+  });
+
+  const lastSuccessfulSyncLabel = display.lastSuccessfulSyncAt
+    ? new Date(display.lastSuccessfulSyncAt).toLocaleString("en-GB", {
         day: "2-digit",
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
       })
     : null;
-  const lastPreparedLabel =
-    !available && readiness.lastSyncedAt
-      ? new Date(readiness.lastSyncedAt).toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null;
+  const lastVerifiedLabel = readiness.context?.authorizedAt
+    ? new Date(readiness.context.authorizedAt).toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
-  // A valid local preparation is real, but it does not prove the current
-  // service session. When identity or the queue cannot be confirmed, do not use
-  // a green success tone.
-  const healthy = available && identityVerified;
-  const readinessTone = !healthy
+  const tone = !available
     ? "bg-amber-50 text-amber-900"
-    : readiness.status === "active"
-      ? "bg-amber-50 text-amber-900"
-      : readiness.status === "ready"
-        ? "bg-emerald-50 text-emerald-900"
-        : "bg-red-50 text-red-800";
+    : display.readiness === "revoked" || display.readiness === "expired"
+      ? "bg-red-50 text-red-800"
+      : display.workingOffline || display.readiness === "unlock_required"
+        ? "bg-amber-50 text-amber-900"
+        : display.readiness === "preparation_required"
+          ? "bg-slate-50 text-slate-800"
+          : "bg-emerald-50 text-emerald-900";
 
   const scopeFailureMessage =
     scope.error === "unauthenticated"
@@ -215,6 +287,32 @@ export default function OfflineSyncStatus({
     ? scopeFailureMessage
     : "Saved-record details could not be read on this device. Your records are not deleted. Reload and try again before clearing site data.";
 
+  const identityLine = (() => {
+    if (!scope.resolved) return null;
+    if (!status.online) {
+      return lastVerifiedLabel
+        ? `Last verified online at ${lastVerifiedLabel}. Offline authorization remains valid until ${
+            readiness.expiresAt
+              ? new Date(readiness.expiresAt).toLocaleString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "the saved expiry"
+          }.`
+        : "Using saved device preparation. Reconnect to verify the online session.";
+    }
+    if (scope.source === "server") {
+      return "Online identity verified by the server for this page.";
+    }
+    return "Workspace loaded from your signed-in server page. Live identity was not re-checked.";
+  })();
+
+  const actionable = summary.failedRecords.filter(
+    (record) => record.retryable !== true
+  );
+
   return (
     <section className={`card ${className}`} aria-labelledby="offline-status-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -223,26 +321,35 @@ export default function OfflineSyncStatus({
             Offline records
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            {online ? "Connected" : "Offline"} · saved for this account on this device
+            Saved on this device · scoped to your account
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {online &&
-            (readiness.status === "preparation_required" ||
-              readiness.status === "expired" ||
-              readiness.status === "revoked") && (
-              <button
-                type="button"
-                onClick={prepareNow}
-                className="btn btn-primary btn-sm"
-                disabled={preparing}
-                aria-busy={preparing}
-              >
-                <ShieldCheck size={14} aria-hidden />
-                {preparing ? "Preparing…" : "Prepare offline access"}
-              </button>
-            )}
-          {online && attention > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {display.readiness === "preparation_required" && status.online && (
+            <button
+              type="button"
+              onClick={prepareNow}
+              className="btn btn-primary btn-sm"
+              disabled={preparing}
+              aria-busy={preparing}
+            >
+              <ShieldCheck size={14} aria-hidden />
+              {preparing ? "Preparing…" : "Prepare offline access"}
+            </button>
+          )}
+          {display.readiness === "unlock_required" && (
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(new Event("maacash-offline-unlock-required"))
+              }
+              className="btn btn-primary btn-sm"
+            >
+              <ShieldCheck size={14} aria-hidden />
+              Unlock offline workspace
+            </button>
+          )}
+          {status.online && display.waitingCount > 0 && (
             <button
               type="button"
               onClick={retry}
@@ -251,68 +358,48 @@ export default function OfflineSyncStatus({
               aria-busy={syncing}
             >
               <RefreshCw size={14} className={syncing ? "animate-spin" : ""} aria-hidden />
-              {syncing ? "Syncing…" : "Retry synchronization"}
+              {syncing ? "Synchronizing…" : "Sync now"}
             </button>
           )}
         </div>
       </div>
 
-      <div className={`mt-3 rounded-control p-3 text-sm ${readinessTone}`} role="status">
-        <p className="font-semibold">
-          {readiness.status === "preparing"
-            ? "Preparing offline access"
-            : readiness.status === "ready"
-              ? healthy
-                ? "Offline Ready"
-                : "Device prepared"
-              : readiness.status === "active"
-                ? "Offline Active"
-                : readiness.status === "unlock_required"
-                  ? "Offline workspace locked"
-                  : readiness.status === "expired"
-                  ? "Offline authorization expired"
-                  : readiness.status === "revoked"
-                    ? "Offline authorization revoked"
-                    : "Preparation Required"}
-        </p>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
+        <div className="rounded-control bg-slate-50 px-3 py-2">
+          <dt className="text-slate-500">Connection</dt>
+          <dd className="mt-0.5 font-semibold text-slate-900">
+            {display.connectivityLabel}
+          </dd>
+        </div>
+        <div className="rounded-control bg-slate-50 px-3 py-2">
+          <dt className="text-slate-500">Device</dt>
+          <dd className="mt-0.5 font-semibold text-slate-900">
+            {display.readinessLabel}
+          </dd>
+        </div>
+        <div className="col-span-2 rounded-control bg-slate-50 px-3 py-2 sm:col-span-1">
+          <dt className="text-slate-500">Offline queue</dt>
+          <dd className="mt-0.5 font-semibold text-slate-900">
+            {!display.queueReadable
+              ? "Unreadable"
+              : display.syncingCount > 0
+                ? `${display.syncingCount} synchronizing`
+                : display.attentionCount > 0
+                  ? `${display.attentionCount} need attention`
+                  : display.waitingCount > 0
+                    ? `${display.waitingCount} waiting to sync`
+                    : "Nothing waiting"}
+          </dd>
+        </div>
+      </dl>
+
+      <div className={`mt-3 rounded-control p-3 text-sm ${tone}`} role="status">
+        <p className="font-semibold">{display.readinessLabel}</p>
         <p className="mt-1">{readiness.message}</p>
-        {identityVerified ? (
-          <p className="mt-1 text-xs opacity-80">
-            {online
-              ? scope.source === "server"
-                ? "Current online business session verified."
-                : "Workspace identity confirmed by the server when this page loaded."
-              : "Saved offline authorization is active. The online session is not being checked."}
-          </p>
-        ) : (
-          <p className="mt-1 text-xs opacity-80">
-            {online
-              ? "Current online business session could not be verified."
-              : "Using saved device preparation. Reconnect to verify the online session."}
-          </p>
-        )}
+        {identityLine && <p className="mt-1 text-xs opacity-80">{identityLine}</p>}
         {lastSuccessfulSyncLabel && (
           <p className="mt-1 text-xs opacity-80">
             Last successful synchronization: {lastSuccessfulSyncLabel}.
-          </p>
-        )}
-        {lastPreparedLabel && (
-          <p className="mt-1 text-xs opacity-80">
-            Last device preparation: {lastPreparedLabel}.
-          </p>
-        )}
-        {readiness.expiresAt &&
-          readiness.status !== "expired" &&
-          readiness.status !== "revoked" && (
-          <p className="mt-1 text-xs opacity-80">
-            Offline authorization valid until{" "}
-            {new Date(readiness.expiresAt).toLocaleString("en-GB", {
-              day: "2-digit",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            .
           </p>
         )}
       </div>
@@ -340,57 +427,58 @@ export default function OfflineSyncStatus({
             Retry reading saved records
           </button>
         </div>
-      ) : attention === 0 ? (
-        <div className="mt-3 flex items-start gap-2 rounded-control bg-emerald-50 p-3 text-sm text-emerald-900">
-          <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
+      ) : display.readiness === "unlock_required" ? (
+        <div className="mt-3 rounded-control bg-slate-50 p-3 text-sm text-slate-700" role="status">
+          Queue details are hidden while the workspace is locked. The records are
+          preserved on this device and cannot be read without the offline passphrase.
+        </div>
+      ) : display.attentionCount > 0 ? (
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-3 text-sm">
+            <span className="badge badge-red">
+              <AlertTriangle size={12} aria-hidden /> {display.attentionCount} need attention
+            </span>
+            {display.waitingCount > 0 && (
+              <span className="badge badge-yellow">
+                <CloudOff size={12} aria-hidden /> {display.waitingCount} waiting to sync
+              </span>
+            )}
+          </div>
+          <p className="rounded-control bg-red-50 px-3 py-2 text-xs text-red-800">
+            <strong>Server rejected.</strong> These records stay on this device
+            until the reason is resolved. They are not in the central ledger.
+          </p>
+          <ul className="space-y-1.5 text-xs text-red-800">
+            {actionable.map((record) => (
+              <li key={record.id} className="rounded-control bg-red-50 px-2.5 py-1.5">
+                <span className="font-medium">
+                  {record.type === "contribution" ? "Contribution" : "Daily account draft"}
+                </span>{" "}
+                · record {record.id.slice(0, 8)} ·{" "}
+                {record.failureReason ?? "Rejected by the server"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : display.waitingCount > 0 ? (
+        <div className="mt-3 flex items-start gap-2 rounded-control bg-amber-50 p-3 text-sm text-amber-900" role="status">
+          <CloudOff size={16} className="mt-0.5 flex-none" aria-hidden />
           <p>
-            {summary.synced === 0
-              ? "Synced. No unsynchronized offline records on this device."
-              : `Synced. All ${summary.synced} offline record${
-                  summary.synced === 1 ? " has" : "s have"
-                } been confirmed by the server.`}
+            {display.waitingCount} collection{display.waitingCount === 1 ? " is" : "s are"}{" "}
+            saved on this device and waiting to synchronize. They are not in the
+            central ledger yet.
           </p>
         </div>
       ) : (
-        <div className="mt-3 space-y-3">
-          <div className="flex flex-wrap gap-3 text-sm">
-            {summary.pending > 0 && (
-              <span className="badge badge-yellow">
-                <CloudOff size={12} aria-hidden /> {summary.pending} saved on device
-              </span>
-            )}
-            {summary.failed > 0 && (
-              <span className="badge badge-red">
-                <AlertTriangle size={12} aria-hidden /> {summary.failed} need attention
-              </span>
-            )}
-            {summary.syncing > 0 && (
-              <span className="badge badge-blue">{summary.syncing} syncing</span>
-            )}
-          </div>
-          {summary.failed > 0 && (
-            <p className="rounded-control bg-red-50 px-3 py-2 text-xs text-red-800">
-              <strong>Sync Failed.</strong> Some collections could not be
-              synchronized. Your saved records are still on this device.
-            </p>
-          )}
-          <p className="text-xs text-slate-600">
-            Records marked <strong>Saved on Device — Not Yet Synced</strong> have not
-            reached the central ledger. Keep this browser&apos;s site data until they
-            synchronize; clearing it removes them permanently.
+        <div className="mt-3 flex items-start gap-2 rounded-control bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
+          <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
+          <p>
+            {display.syncedCount === 0
+              ? "No unsynchronized offline records on this device."
+              : `All ${display.syncedCount} offline record${
+                  display.syncedCount === 1 ? " has" : "s have"
+                } been confirmed by the server.`}
           </p>
-          {summary.failedRecords.length > 0 && (
-            <ul className="space-y-1.5 text-xs text-red-800">
-              {summary.failedRecords.map((record) => (
-                <li key={record.id} className="rounded-control bg-red-50 px-2.5 py-1.5">
-                  <span className="font-medium">
-                    {record.type === "contribution" ? "Contribution" : "Daily account draft"}
-                  </span>{" "}
-                  · {record.failureReason ?? "Rejected by the server"}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 

@@ -10,6 +10,7 @@ import { formatCedi, getGreeting, getDailyQuote } from "@/lib/utils";
 import {
   addTransaction,
   getCachedCustomers,
+  getOfflineQueueSummary,
   getPendingTransactions,
   openTransactionPayload,
   cacheCustomers,
@@ -23,9 +24,10 @@ import {
   activateOfflineAccess,
   getOfflineReadiness,
   prepareOfflineAccess,
+  reconcileOfflineConnectivity,
   type OfflineReadiness,
 } from "@/lib/offline/preparation";
-import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, hydrateOfflineAuthorization, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, type SyncResult } from "@/lib/offline/sync";
+import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, hydrateOfflineAuthorization, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, summarizeSyncOutcome, type SyncResult } from "@/lib/offline/sync";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import OfflineSyncStatus from "@/components/OfflineSyncStatus";
 import OfflineUnlockGate from "@/components/OfflineUnlockGate";
@@ -131,10 +133,14 @@ export default function CollectorDashboardPage({
   const [offlineActive, setOfflineActive] = useState(false);
   const [offlineLocked, setOfflineLocked] = useState(false);
   const [needsUnlockSetup, setNeedsUnlockSetup] = useState(false);
-  const [enrollingOffline, setEnrollingOffline] = useState(false);
   const [preparingOffline, setPreparingOffline] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [queueAttention, setQueueAttention] = useState(0);
+  const [syncAlert, setSyncAlert] = useState<{
+    tone: "success" | "warning" | "error" | "info";
+    message: string;
+  } | null>(null);
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
@@ -149,6 +155,7 @@ export default function CollectorDashboardPage({
   // One key per collection attempt: reused online, offline and on retry.
   const collectKeyRef = useRef<string | null>(null);
   const [success, setSuccess] = useState("");
+  const [successTone, setSuccessTone] = useState<"confirmed" | "saved">("confirmed");
 
   // Customer registration modal
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -178,15 +185,22 @@ export default function CollectorDashboardPage({
   }, [recordingFor, showRegisterModal, submitting, regSubmitting]);
 
   // Online/offline listener — always attached so the connectivity indicator
-  // reflects the real network state (and we auto-sync when reconnecting).
+  // reflects the real network state. Returning connectivity also clears a
+  // stale local "working offline" activation flag instead of leaving the old
+  // offline banner on screen.
   useEffect(() => {
+    const applyReadiness = () =>
+      getOfflineReadiness("susu")
+        .then((readiness) => applyOfflineReadiness(readiness))
+        .catch(() => undefined);
+
     const handleOnline = () => {
       setIsOnline(true);
       void (async () => {
         try {
-          const readiness = await getOfflineReadiness("susu");
+          const readiness = await reconcileOfflineConnectivity("susu");
           applyOfflineReadiness(readiness);
-          if (readiness.status === "preparation_required" || readiness.status === "expired") {
+          if (readiness.status === "preparation_required") {
             const result = await prepareOfflineAccess("susu");
             if (result.ok) {
               applyOfflineReadiness(await getOfflineReadiness("susu"));
@@ -195,17 +209,40 @@ export default function CollectorDashboardPage({
         } catch {
           // Keep the previous local readiness; sync can still run.
         }
-        attemptSync();
+        await attemptSync();
       })();
     };
-    const handleOffline = () => setIsOnline(false);
+    const handleOffline = () => {
+      setIsOnline(false);
+      void applyReadiness();
+    };
+    const handleUnlockRequired = () => setOfflineLocked(true);
+    const handleStatusChange = () => void applyReadiness();
+
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener("focus", handleOnline);
+    window.addEventListener("maacash-offline-unlock-required", handleUnlockRequired);
+    window.addEventListener("maacash-offline-status", handleStatusChange);
+    window.addEventListener("maacash-offline-unlock-changed", handleStatusChange);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
     setIsOnline(navigator.onLine);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("focus", handleOnline);
+      window.removeEventListener("maacash-offline-unlock-required", handleUnlockRequired);
+      window.removeEventListener("maacash-offline-status", handleStatusChange);
+      window.removeEventListener("maacash-offline-unlock-changed", handleStatusChange);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
+
+    function handleVisibilityRefresh() {
+      if (document.visibilityState !== "visible") return;
+      setIsOnline(navigator.onLine);
+      void applyReadiness();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function applyOfflineReadiness(readiness: OfflineReadiness) {
@@ -405,7 +442,7 @@ export default function CollectorDashboardPage({
       return false;
     }
     setOfflineEnabled(true);
-    setOfflineActive(true);
+    setOfflineActive(!navigator.onLine);
     setOfflineAuthExpired(false);
     await refreshPendingTxs();
     startAutoSync(handleSyncResults);
@@ -413,44 +450,8 @@ export default function CollectorDashboardPage({
     return true;
   }
 
-  // First use prepares the device online. Every later tap only checks local
-  // readiness and activates. A device that was never prepared explains that an
-  // initial online setup is required instead of showing a server error.
-  async function enrollAndStartOffline() {
-    if (offlineEnabled) {
-      await startOfflineSession();
-      return;
-    }
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError(
-        "This device needs an initial online setup before it can collect offline. Connect once, sign in, and let preparation finish. Your saved records are not affected."
-      );
-      return;
-    }
-    setEnrollingOffline(true);
-    setPreparingOffline(true);
-    setError("");
-    try {
-      const did = await getOrCreateDeviceId();
-      setDeviceId(did);
-      const result = await prepareOfflineAccess("susu");
-      const readiness = await getOfflineReadiness("susu");
-      applyOfflineReadiness(readiness);
-      if (!result.ok) {
-        if (result.requiresUnlockSetup) {
-          setNeedsUnlockSetup(true);
-          return;
-        }
-        setError(result.message);
-        return;
-      }
-      await startOfflineSession();
-      if (result.failedModules.length > 0) setError(result.message);
-    } finally {
-      setEnrollingOffline(false);
-      setPreparingOffline(false);
-    }
-  }
+  // First use prepares the device online during normal use. This action stays in
+  // the Offline records panel, which owns preparation and queue state.
 
   // Periodically check the local offline authorization window.
   useEffect(() => {
@@ -471,14 +472,47 @@ export default function CollectorDashboardPage({
   }, [offlineEnabled]);
 
   const handleSyncResults = useCallback((results: SyncResult[]) => {
-    const syncedCount = results.filter((r) => r.success).length;
-    const failedCount = results.filter((r) => !r.success).length;
-    if (syncedCount > 0) {
-      setSuccess(`${syncedCount} collection${syncedCount !== 1 ? "s" : ""} synced successfully`);
+    const outcome = summarizeSyncOutcome(results);
+    if (outcome.confirmed > 0) {
+      setSuccess(
+        `Collection synchronized successfully. ${outcome.confirmed} record${
+          outcome.confirmed === 1 ? "" : "s"
+        } confirmed by the server.`
+      );
+      setSuccessTone("confirmed");
       loadData();
     }
-    if (failedCount > 0) {
-      setError(`${failedCount} collection${failedCount !== 1 ? "s" : ""} need${failedCount === 1 ? "s" : ""} attention`);
+    if (outcome.rejected.length > 0) {
+      // A real server rejection is the only case that needs a user decision.
+      const reasons = outcome.rejected
+        .slice(0, 2)
+        .map((item) => item.message)
+        .join(" ");
+      setSyncAlert({
+        tone: "error",
+        message: `${outcome.rejected.length} collection${
+          outcome.rejected.length === 1 ? "" : "s"
+        } need${outcome.rejected.length === 1 ? "s" : ""} attention. ${reasons}`,
+      });
+    } else if (outcome.transient > 0) {
+      setSyncAlert({
+        tone: "warning",
+        message: `${outcome.transient} collection${
+          outcome.transient === 1 ? " is" : "s are"
+        } still saved on this device. Synchronization was interrupted and will retry.`,
+      });
+    } else if (outcome.locked) {
+      setSyncAlert({
+        tone: "info",
+        message: "Unlock the offline workspace to synchronize saved collections.",
+      });
+    } else if (outcome.authExpired) {
+      setSyncAlert({
+        tone: "warning",
+        message: "Your session expired. Sign in again to synchronize saved collections.",
+      });
+    } else {
+      setSyncAlert(null);
     }
     refreshPendingTxs();
   }, []);
@@ -486,6 +520,13 @@ export default function CollectorDashboardPage({
   async function refreshPendingTxs() {
     const pending = await getPendingTransactions();
     setPendingTxs(pending);
+    try {
+      const summary = await getOfflineQueueSummary();
+      setQueueAttention(summary.attention);
+    } catch {
+      // An unreadable queue is not an empty queue. Leave the previous count
+      // alone; the OfflineSyncStatus panel reports the read failure.
+    }
     const payloads: Record<string, string> = {};
     for (const tx of pending) {
       try {
@@ -611,7 +652,10 @@ export default function CollectorDashboardPage({
           if (result.success) {
             collectKeyRef.current = null;
             const resultData = result.data as { daysAllocated: number };
-            setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — ${resultData.daysAllocated} day(s) covered ✓`);
+            setSuccessTone("confirmed");
+            setSuccess(
+              `Collection synchronized successfully. ${recordingFor.customerName}: ${formatCedi(amountNum)} — ${resultData.daysAllocated} day(s) covered.`
+            );
             setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
             loadData();
             return;
@@ -665,7 +709,10 @@ export default function CollectorDashboardPage({
           return;
         }
         collectKeyRef.current = null;
-        setSuccess(`${recordingFor.customerName}: ${formatCedi(amountNum)} — Saved on this device. Waiting to synchronize; not yet in the ledger.`);
+        setSuccessTone("saved");
+        setSuccess(
+          `Saved on this device — pending synchronization.\n${recordingFor.customerName}: ${formatCedi(amountNum)}. Not yet in the central ledger.`
+        );
         setRecordingFor(null); setCollectAmount(""); setCollectNotes("");
         refreshPendingTxs();
       } else if (!navigator.onLine) {
@@ -787,94 +834,100 @@ export default function CollectorDashboardPage({
 
   return (
     <div className="space-y-5">
-      {/* Header with greeting */}
+      {/* Header: one primary business action plus a compact, non-duplicated status area. */}
       <div className="card !p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-slate-900">{getGreeting()}, {userName || "Collector"}</h1>
             <p className="text-sm text-green-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
             <button
               type="button"
               onClick={() => { setShowRegisterModal(true); setRegError(""); }}
-              className="btn btn-primary text-sm"
+              className="btn btn-primary w-full text-sm sm:w-auto"
             >
               <UserPlus size={15} aria-hidden />Register New Customer
             </button>
-            <div className="flex flex-col items-start gap-1 sm:items-end">
-              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${isOnline ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
-                <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-500" : "bg-yellow-500"}`} aria-hidden />
+
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end" aria-label="Workspace status">
+              <span className={`badge ${isOnline ? "badge-green" : "badge-yellow"}`}>
+                <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-green-500" : "bg-yellow-500"}`} aria-hidden />
                 {isOnline ? "Online" : "Offline"}
-              </div>
+              </span>
 
-              {offlineActive && (
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
-                  <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
-                  Offline Active
-                </div>
-              )}
+              <span className={`badge ${offlineAuthExpired ? "badge-red" : !isOnline && offlineEnabled ? "badge-yellow" : offlineEnabled ? "badge-green" : "badge-blue"}`}>
+                {offlineAuthExpired
+                  ? "Reconnect required"
+                  : !offlineEnabled
+                    ? needsUnlockSetup
+                      ? "Offline setup required"
+                      : "Offline not set up"
+                    : !isOnline
+                      ? "Working offline"
+                      : "Offline available"}
+              </span>
 
-              {offlineEnabled && !offlineActive && (
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-                  Offline Ready
-                </div>
-              )}
-
-              {offlineAuthExpired && (
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
-                  <span className="h-2 w-2 rounded-full bg-red-500" aria-hidden />
-                  Reconnect required
-                </div>
-              )}
-
-              {preparingOffline && (
-                <p className="text-[10px] text-slate-500" role="status">
-                  Preparing offline access…
-                </p>
-              )}
-              {lastSyncTime && (
-                <p className="text-[10px] text-slate-400">Last sync: {lastSyncTime}</p>
-              )}
-              {!isOnline && !offlineAuthExpired && offlineAuthExpiry > 0 && (
-                <p className="text-[10px] text-yellow-600">
-                  Offline authorization expires in{" "}
-                  {Math.floor(offlineAuthExpiry / 3600)}h
-                  {Math.floor((offlineAuthExpiry % 3600) / 60)}m
-                </p>
-              )}
-
-              {!offlineEnabled && (
-                <button
-                  type="button"
-                  onClick={enrollAndStartOffline}
-                  disabled={enrollingOffline || preparingOffline}
-                  className="btn btn-secondary text-sm"
-                >
-                  {enrollingOffline || preparingOffline ? "Preparing…" : "Enable Offline"}
-                </button>
-              )}
-              {offlineEnabled && !offlineActive && (
-                <button
-                  type="button"
-                  onClick={startOfflineSession}
-                  disabled={enrollingOffline || preparingOffline || offlineAuthExpired}
-                  className="btn btn-secondary text-sm"
-                >
-                  Enable Offline
-                </button>
+              {queueAttention > 0 ? (
+                <span className="badge badge-red">{queueAttention} need attention</span>
+              ) : pendingTxs.length > 0 ? (
+                <span className="badge badge-yellow">
+                  {pendingTxs.length} waiting to sync
+                </span>
+              ) : (
+                <span className="badge badge-gray">Queue clear</span>
               )}
             </div>
+
+            <p className="text-xs text-slate-500">
+              {preparingOffline
+                ? "Preparing offline access…"
+                : lastSyncTime
+                  ? `Last successful sync ${lastSyncTime}`
+                  : "No successful synchronization yet"}
+              {!isOnline && !offlineAuthExpired && offlineAuthExpiry > 0
+                ? ` · Authorization expires in ${Math.floor(offlineAuthExpiry / 3600)}h${Math.floor((offlineAuthExpiry % 3600) / 60)}m`
+                : ""}
+            </p>
           </div>
         </div>
       </div>
 
       {/* Messages */}
-      {success && (
-        <div role="status" aria-live="polite" className="banner banner-success text-sm flex items-center gap-3">
-          <SuccessTick size={26} label="Collection recorded" />
-          <span className="min-w-0 whitespace-pre-line">{success}</span>
+      {success &&
+        (successTone === "confirmed" ? (
+          <div role="status" aria-live="polite" className="banner banner-success text-sm flex items-center gap-3">
+            <SuccessTick size={26} label="Collection synchronized" />
+            <span className="min-w-0 whitespace-pre-line">{success}</span>
+          </div>
+        ) : (
+          <div role="status" aria-live="polite" className="banner banner-warning !rounded-xl text-sm flex items-start gap-3">
+            <Clock size={20} className="mt-0.5 flex-none text-yellow-700" aria-hidden />
+            <span className="min-w-0 whitespace-pre-line text-yellow-900">{success}</span>
+          </div>
+        ))}
+      {syncAlert && (
+        <div
+          role={syncAlert.tone === "error" ? "alert" : "status"}
+          aria-live="polite"
+          className={`banner text-sm ${
+            syncAlert.tone === "error"
+              ? "banner-error"
+              : syncAlert.tone === "success"
+                ? "banner-success"
+                : syncAlert.tone === "warning"
+                  ? "banner-warning"
+                  : "banner-info"
+          }`}
+        >
+          {syncAlert.message}
+        </div>
+      )}
+      {queueAttention > 0 && syncAlert?.tone !== "error" && (
+        <div role="alert" className="banner banner-error text-sm">
+          {queueAttention} collection{queueAttention === 1 ? "" : "s"} need
+          {queueAttention === 1 ? "s" : ""} attention. The exact server reason is listed
+          under Offline records.
         </div>
       )}
       {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
@@ -1186,12 +1239,12 @@ export default function CollectorDashboardPage({
 
       {/* Recording Modal */}
       {recordingFor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm md:items-center md:p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="collect-title"
-            className="bg-white rounded-t-2xl md:rounded-xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto"
+            className="w-full max-w-md max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-xl pb-[max(1.25rem,env(safe-area-inset-bottom))] md:rounded-xl md:p-6"
           >
             <h3 id="collect-title" className="text-lg font-semibold mb-2">Record Collection</h3>
             <div className="bg-green-50 rounded-lg p-3 mb-4">
@@ -1262,12 +1315,12 @@ export default function CollectorDashboardPage({
 
       {/* Register New Customer Modal */}
       {showRegisterModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm md:items-center md:p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="register-title"
-            className="bg-white rounded-t-2xl md:rounded-xl p-6 w-full max-w-md max-h-[92vh] overflow-y-auto"
+            className="w-full max-w-md max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-xl pb-[max(1.25rem,env(safe-area-inset-bottom))] md:rounded-xl md:p-6"
           >
             <h3 id="register-title" className="text-lg font-semibold mb-2">Register New Customer</h3>
             {!isOnline && (
@@ -1282,7 +1335,7 @@ export default function CollectorDashboardPage({
             )}
             <div className="form-group">
               <label className="form-label" htmlFor="reg-full-name">Full Name *</label>
-              <input id="reg-full-name" type="text" autoComplete="name" value={regFullName} onChange={(e) => setRegFullName(e.target.value)} placeholder="Customer's full name" className="text-lg" disabled={!isOnline} />
+              <input id="reg-full-name" type="text" autoComplete="name" autoFocus value={regFullName} onChange={(e) => setRegFullName(e.target.value)} placeholder="Customer's full name" className="text-lg" disabled={!isOnline} />
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="reg-phone">Phone</label>

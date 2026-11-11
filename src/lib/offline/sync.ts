@@ -18,6 +18,7 @@ import {
   openTransactionPayload,
   openOfflineDatabase,
   recoverStaleSyncing,
+  requeueRetryableFailures,
   updateTransaction,
   type OfflineTransaction,
 } from "./store";
@@ -296,6 +297,10 @@ async function syncBatch(): Promise<SyncResult[]> {
 
   // A previous tab/browser close may have left a record claimed.
   await recoverStaleSyncing();
+  // Retryable failures (network, 5xx, rate limit) are waiting, not rejected.
+  // Requeue them so reaching the retry ceiling never turns them into a
+  // permanent attention item.
+  await requeueRetryableFailures();
 
   const pending = await getPendingTransactions();
   const results: SyncResult[] = [];
@@ -325,6 +330,7 @@ async function syncBatch(): Promise<SyncResult[]> {
         syncedAt: new Date().toISOString(),
         serverResult: JSON.stringify(result.serverResult),
         failureReason: null,
+        lastFailureRetryable: false,
         syncStartedAt: null,
       });
     } else if (result.authExpired) {
@@ -333,6 +339,7 @@ async function syncBatch(): Promise<SyncResult[]> {
         status: "pending_sync",
         syncStartedAt: null,
         failureReason: result.error ?? null,
+        lastFailureRetryable: false,
       });
       break;
     } else if (result.code === "rate_limited") {
@@ -343,6 +350,7 @@ async function syncBatch(): Promise<SyncResult[]> {
         status: "pending_sync",
         syncStartedAt: null,
         failureReason: result.error ?? null,
+        lastFailureRetryable: true,
       });
       break;
     } else if (result.isRetryable && retryCount < MAX_RETRIES) {
@@ -350,13 +358,16 @@ async function syncBatch(): Promise<SyncResult[]> {
         status: "pending_sync",
         retryCount,
         failureReason: result.error ?? null,
+        lastFailureRetryable: true,
         syncStartedAt: null,
       });
     } else {
       await updateTransaction(tx.id, {
         status: "failed",
         retryCount,
-        failureReason: result.error || "Max retries exceeded",
+        failureReason:
+          result.error || (result.isRetryable ? "Waiting to retry" : "Max retries exceeded"),
+        lastFailureRetryable: result.isRetryable,
         syncStartedAt: null,
       });
     }
@@ -474,4 +485,53 @@ export async function currentOfflineDatabaseName(): Promise<string | null> {
 /** Counts for a caller that wants to know whether a sync is currently active. */
 export async function getSyncingCount(): Promise<number> {
   return (await getSyncingTransactions()).length;
+}
+
+export interface SyncOutcomeSummary {
+  /** Records the server accepted and posted to the ledger. */
+  confirmed: number;
+  /** Network/5xx/rate-limit results; waiting, never a user-attention failure. */
+  transient: number;
+  /** Server rejections with a real reason the user must resolve. */
+  rejected: Array<{ transactionId: string; message: string }>;
+  locked: boolean;
+  authExpired: boolean;
+}
+
+/**
+ * Classify a sync batch for the UI. Only a non-retryable server rejection may
+ * become a persistent "needs attention" message. A network failure, an expired
+ * session, a rate limit or a locked workspace must never reuse that wording.
+ */
+export function summarizeSyncOutcome(results: SyncResult[]): SyncOutcomeSummary {
+  const outcome: SyncOutcomeSummary = {
+    confirmed: 0,
+    transient: 0,
+    rejected: [],
+    locked: false,
+    authExpired: false,
+  };
+  for (const result of results) {
+    if (result.success) {
+      outcome.confirmed += 1;
+      continue;
+    }
+    if (result.locked) {
+      outcome.locked = true;
+      continue;
+    }
+    if (result.authExpired) {
+      outcome.authExpired = true;
+      continue;
+    }
+    if (result.isRetryable || result.code === "rate_limited") {
+      outcome.transient += 1;
+      continue;
+    }
+    outcome.rejected.push({
+      transactionId: result.transactionId,
+      message: result.error || "The server rejected this record.",
+    });
+  }
+  return outcome;
 }
