@@ -118,6 +118,25 @@ describe("historical failed record compatibility", () => {
     expect(summary.failedRecords[0].classification).toBe("unknown");
     expect(summary.waiting).toBe(0);
   });
+
+  it("marks a transient failure at its retry ceiling as exhausted review", () => {
+    expect(
+      classifyStoredFailure({
+        lastFailureRetryable: true,
+        failureReason: "Synchronization timed out",
+        retryCount: 5,
+        maxRetries: 5,
+      })
+    ).toBe("exhausted");
+    expect(
+      classifyStoredFailure({
+        lastFailureRetryable: true,
+        failureReason: "Synchronization timed out",
+        retryCount: 2,
+        maxRetries: 5,
+      })
+    ).toBe("retryable");
+  });
 });
 
 describe("offline display status", () => {

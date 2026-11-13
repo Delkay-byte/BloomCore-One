@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteDraft, loadDraft, saveDraft } from "@/lib/offline/drafts";
+import { deleteDraft, loadDraft, retryPlaintextDraftCleanup, saveDraft } from "@/lib/offline/drafts";
 
 export type DraftStatus =
   | "idle"
@@ -136,6 +136,13 @@ export function useFormDraft(
         onRestoredRef.current?.(draft.updatedAt);
       } else {
         setStatus("idle");
+      }
+
+      if (draft?.plaintextCleanupPending) {
+        // An older plaintext copy could not be removed. Surface a retryable
+        // error; the retry action saves again and repeats the verified cleanup.
+        const cleaned = await retryPlaintextDraftCleanup(draftKey);
+        if (!cleaned && !cancelled && mounted.current) setStatus("error");
       }
 
       setReady(true);

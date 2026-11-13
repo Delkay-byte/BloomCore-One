@@ -248,13 +248,13 @@ tenant or account.
 
 | Check | Result |
 |---|---|
-| Unit/integration suite | 818 passed, 79 files (`npm test`) |
+| Unit/integration suite | 823 passed, 79 files (`npm test`) |
 | Typecheck | clean (`npm run typecheck`) |
 | Lint | 0 errors, 70 warnings (`npm run lint`) |
-| Production build | `✓ Compiled successfully` |
+| Production build | `✓ Compiled successfully in 24.5s` |
 | Playwright (mobile project) | 10/10 passed locally: 7 status tests, 3 mobile shell tests |
 | PostgreSQL integration | CI passed: migration rehearsal, status, drift check, integration tests |
-| Security review | agent self-review, not independent human approval |
+| Security review | fresh-context agent review; no unresolved critical/high after corrections |
 | PR | https://github.com/Delkay-byte/BloomCore-One/pull/43 |
 | Deployment | not performed |
 | Feature commit SHA | `9878c958e5b7af462165a637b6dd7a71462e55f3` |
@@ -384,4 +384,58 @@ Online session drafts are sanitised form state in `sessionStorage`. This is not 
 Same-origin JavaScript can read it while the tab is open. It is scoped to the tab and the
 tenant/user, and is not retained like IndexedDB. Protected offline drafts remain AES-GCM
 encrypted and fail closed while locked. No key is stored beside the draft.
+
+---
+
+## K. Fresh-context security review and corrections (merge gate)
+
+A fresh-context agent review examined the complete diff against `origin/main`. It was not an
+independent human approval.
+
+### High findings — corrected
+
+1. **v3 customer migration could double-wrap rows that were already protected.** origin/main
+   wrote `{accountId, protectedData}` rows into the accountId-keyed store. The first migration
+   encrypted that wrapper again, losing customer name and amounts after one decrypt, then cleared
+   the source. Fixed: existing protected envelopes are preserved, the opaque key is replaced, and
+   verification rejects any decrypted value without `accountId`/`customerName` or with a nested
+   envelope. A protected-v3-row regression test was added.
+2. **Server 403 offline-expiry/revocation failed the whole queue permanently.** The client only
+   treated 401 as an authorization pause. The server now returns `code: "offline_auth_expired"`
+   or `"device_revoked"`, and the client leaves every record `pending_sync`, without burning a
+   retry, and stops the batch. Regression tests cover expiry and revocation-shaped responses.
+
+### Medium findings — corrected
+
+- Retry ceiling now pauses an exhausted transient failure as `exhausted` for manual retry instead
+  of re-sending it every 30 seconds. Only a deliberate retry (`retryExhausted: true`) requeues it.
+- A 409 `"already being processed"` idempotency race is retryable; permanent 409 variants remain
+  rejections.
+- The panel no longer says "nothing to synchronize" when the queue still has pending records and
+  another tab may own the sync lock.
+- Legacy rejection text containing "retry"/"try again" is no longer auto-classified transient.
+  Transient markers now require network/timeout/5xx/rate-limit evidence.
+- `plaintextCleanupPending` is surfaced by the form hooks and retried through the existing retry
+  action.
+- A locked workspace save failure now opens the unlock path instead of suggesting a futile retry.
+- Migration payload verification now fails if the source record is missing instead of passing
+  vacuously.
+- Dead legacy crypto helpers (`encryptData`, `decryptData`, hardcoded salt, 100k PBKDF2) were
+  removed so they cannot be reused by mistake.
+- The sign-out dialog distinguishes actionable rejections from records with no conclusive reason.
+
+### Accepted residual (documented, not introduced here)
+
+`getCurrentOfflineContext()` is a device-level pointer. If a session ends without the explicit
+sign-out action, an offline fallback can expose another user's scope **metadata** (draft paths,
+timestamps, workflows; not decrypted customer or financial content, which stays locked). The
+stored workspace remains encrypted. This is pre-existing and tracked for the device-management
+work; it does not grant access to another user's customer or financial data.
+
+### Verdict
+
+No unresolved critical or high finding remains after the corrections above. Medium issues in the
+review were either corrected or explicitly accepted with rationale. Automated tests passing is
+not a substitute for an independent human security review.
+
 

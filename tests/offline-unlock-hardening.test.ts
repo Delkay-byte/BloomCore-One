@@ -5,6 +5,7 @@ import {
   createUnlockRecord,
   decryptString,
   encryptString,
+  protectValue,
   unlockWithRecord,
   unlockWithRecoveryCode,
 } from "@/lib/offline/crypto";
@@ -491,5 +492,59 @@ describe("legacy plaintext migration", () => {
     await expect(getCachedCustomers()).rejects.toMatchObject({
       name: "OfflineLockedError",
     });
+  });
+
+  it("migrates a v3 row that is already protected without double-wrapping it", async () => {
+    const ctx = context(`legacy-protected-customers-${Date.now()}`);
+    setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
+    const databaseName = (await import("@/lib/offline/scope")).offlineDatabaseName({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+    });
+
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+    const key = requireOfflineKey(await getCurrentOfflineContext());
+
+    // origin/main wrote protected rows into the accountId-keyed store.
+    const envelope = await protectValue(key, customer);
+
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 3);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        db.createObjectStore("transactions", { keyPath: "id" });
+        const customers = db.createObjectStore(LEGACY_CUSTOMER_STORE, {
+          keyPath: "accountId",
+        });
+        customers.createIndex("lastSynced", "lastSynced", { unique: false });
+        db.createObjectStore("drafts", { keyPath: "id" });
+        db.createObjectStore("meta", { keyPath: "key" });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction(LEGACY_CUSTOMER_STORE, "readwrite");
+        tx.objectStore(LEGACY_CUSTOMER_STORE).put({
+          accountId: customer.accountId,
+          protectionVersion: 1,
+          protectedData: envelope,
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    const summary = await migrateOfflineRecordsToProtected();
+    expect(summary.customers).toBe(1);
+    const [restored] = await getCachedCustomers();
+    expect(restored.customerName).toBe("Secret Customer");
+    expect(restored.expectedAmount).toBe(20);
+    expect(restored.outstandingDays).toBe(2);
+    expect(await rawRecords(LEGACY_CUSTOMER_STORE)).toHaveLength(0);
   });
 });

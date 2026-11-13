@@ -141,8 +141,11 @@ export default function ConfirmSignOutButton({
                 </div>
                 {summary && summary.attention > 0 && (
                   <p className="text-xs text-red-700 mt-2">
-                    {summary.attention} record{summary.attention === 1 ? " was" : "s were"} rejected
-                    by the server and need attention. They are kept for review.
+                    {summary.attention} record{summary.attention === 1 ? "" : "s"} need
+                    review. Open the offline records panel for the saved reason.
+                    {summary.review
+                      ? ` ${summary.review} older record${summary.review === 1 ? " has" : "s have"} no conclusive reason.`
+                      : ""}
                   </p>
                 )}
               </>

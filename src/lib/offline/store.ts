@@ -115,65 +115,6 @@ interface StoredCustomer {
   lastSynced?: string;
 }
 
-// ── Encryption ─────────────────────────────────────────────────────────
-
-const cryptoKeys = new Map<string, CryptoKey>();
-
-/**
- * Derive an AES-GCM key from a passphrase using PBKDF2.
- * The passphrase is derived from the user's session data.
- */
-async function getOrCreateKey(passphrase: string): Promise<CryptoKey> {
-  const cached = cryptoKeys.get(passphrase);
-  if (cached) return cached;
-
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-
-  const derived = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: encoder.encode("bik-prestige-offline-salt"),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-
-  cryptoKeys.set(passphrase, derived);
-  return derived;
-}
-
-export async function encryptData(data: string, passphrase: string): Promise<string> {
-  const key = await getOrCreateKey(passphrase);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(data);
-  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-  // Combine IV + ciphertext, base64-encode
-  const combined = new Uint8Array(iv.length + encrypted.byteLength);
-  combined.set(iv);
-  combined.set(new Uint8Array(encrypted), iv.length);
-  return btoa(String.fromCharCode(...combined));
-}
-
-export async function decryptData(encryptedBase64: string, passphrase: string): Promise<string> {
-  const key = await getOrCreateKey(passphrase);
-  const combined = Uint8Array.from(atob(encryptedBase64), (c) => c.charCodeAt(0));
-  const iv = combined.slice(0, 12);
-  const ciphertext = combined.slice(12);
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-  return new TextDecoder().decode(decrypted);
-}
-
 // ── IndexedDB Operations ───────────────────────────────────────────────
 
 export async function openOfflineDatabase(): Promise<IDBDatabase> {
@@ -615,13 +556,25 @@ async function migrateLegacyCustomerStore(
   const legacy = await readStore<StoredCustomer>(db, LEGACY_CUSTOMER_STORE);
   if (legacy.length === 0) return 0;
 
-  const protectedRecords: StoredCustomer[] = await Promise.all(
-    legacy.map(async (record) => ({
+  const protectedRecords: StoredCustomer[] = [];
+  for (const record of legacy) {
+    if (record.protectedData) {
+      // origin/main already wrote protected rows into this store. Keep the
+      // existing envelope; re-wrapping it would encrypt the wrapper and lose
+      // customerName, amounts and outstanding days after one decrypt.
+      protectedRecords.push({
+        id: newOpaqueId(),
+        protectionVersion: 1,
+        protectedData: record.protectedData,
+      });
+      continue;
+    }
+    protectedRecords.push({
       id: newOpaqueId(),
-      protectionVersion: 1 as const,
+      protectionVersion: 1,
       protectedData: await protectValue(key, record as unknown as CachedCustomer),
-    }))
-  );
+    });
+  }
 
   const write = db.transaction(CUSTOMER_STORE, "readwrite");
   // The protected store is a cache. Clearing it makes an interrupted migration
@@ -642,7 +595,23 @@ async function migrateLegacyCustomerStore(
         "Saved customer migration verification failed. The plaintext copy was kept."
       );
     }
-    await unprotectValue<CachedCustomer>(key, found.protectedData);
+    const decrypted = await unprotectValue<CachedCustomer & { protectedData?: unknown }>(
+      key,
+      found.protectedData
+    );
+    if (
+      !decrypted ||
+      typeof decrypted.accountId !== "string" ||
+      typeof decrypted.customerName !== "string" ||
+      decrypted.protectedData
+    ) {
+      // A nested envelope means the row was double-wrapped. Fail before the
+      // source store is cleared, so the usable copy survives.
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Saved customer migration verification found an unreadable record. The source copy was kept."
+      );
+    }
   }
 
   const clear = db.transaction(LEGACY_CUSTOMER_STORE, "readwrite");
@@ -888,7 +857,16 @@ export async function migrateOfflineRecordsToProtected(): Promise<OfflineMigrati
       );
     }
     const payload = await unprotectValue<string>(key, record.protectedPayload);
-    if (payload !== (legacyTransactions.find((item) => item.id === record.id)?.payload ?? payload)) {
+    const originalTransaction = legacyTransactions.find(
+      (item) => item.id === record.id
+    );
+    if (!originalTransaction) {
+      throw new OfflineCryptoError(
+        "corrupt_data",
+        "Offline transaction migration lost its source record. Plaintext backup was kept."
+      );
+    }
+    if (payload !== originalTransaction.payload) {
       throw new OfflineCryptoError(
         "corrupt_data",
         "Offline transaction payload verification failed. Plaintext backup was kept."
@@ -1016,7 +994,7 @@ export interface OfflineQueueSummary {
     createdAt: string;
     retryCount: number;
     retryable?: boolean;
-    classification?: "retryable" | "rejected" | "unknown";
+    classification?: "retryable" | "rejected" | "unknown" | "exhausted";
   }>;
 }
 
@@ -1043,15 +1021,21 @@ export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
 }
 
 /**
- * Requeue failures that are safe to retry (explicit flag or recognisable
- * transient reason on an older record). Unknown historical failures stay in
- * `failed` for explicit review; genuine rejections are never requeued.
+ * Requeue failures that are safe to retry. A transient failure below its retry
+ * ceiling returns automatically. A transient failure at the ceiling stays
+ * `failed` (classified `exhausted`) until a user asks to retry it explicitly,
+ * so a permanently failing server condition cannot loop every 30 seconds.
+ * Unknown historical failures and genuine rejections are never requeued.
  */
-export async function requeueRetryableFailures(): Promise<number> {
+export async function requeueRetryableFailures(options: { force?: boolean } = {}): Promise<number> {
   const failed = await getFailedTransactions();
   let requeued = 0;
   for (const record of failed) {
-    if (classifyStoredFailure(record) !== "retryable") continue;
+    const classification = classifyStoredFailure(record);
+    const allowed =
+      classification === "retryable" ||
+      (options.force === true && classification === "exhausted");
+    if (!allowed) continue;
     await updateTransaction(record.id, {
       status: "pending_sync",
       syncStartedAt: null,

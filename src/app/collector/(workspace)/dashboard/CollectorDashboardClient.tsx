@@ -32,6 +32,7 @@ import { OfflineStorageError } from "@/lib/errors/friendly";
 import OfflineSyncStatus from "@/components/OfflineSyncStatus";
 import OfflineUnlockGate from "@/components/OfflineUnlockGate";
 import {
+  OfflineLockedError,
   checkOfflineIdleLock,
   isOfflineUnlocked,
   markOfflineActivity,
@@ -560,7 +561,7 @@ export default function CollectorDashboardPage({
     if (!connected) return;
     setSyncing(true);
     try {
-      const results = await syncPendingTransactions();
+      const results = await syncPendingTransactions({ retryExhausted: true });
       handleSyncResults(results);
     } finally {
       setSyncing(false);
@@ -716,6 +717,13 @@ export default function CollectorDashboardPage({
         try {
           await addTransaction(tx);
         } catch (err) {
+          if (err instanceof OfflineLockedError) {
+            setOfflineLocked(true);
+            setCollectError(
+              "The offline workspace locked before this record could be saved. Unlock it and record the collection again."
+            );
+            return;
+          }
           const quota = err instanceof OfflineStorageError && err.code === "storage_full";
           setCollectError(
             quota

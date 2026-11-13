@@ -125,7 +125,7 @@ export function isActionableFailure(record: {
   return record.status === "failed" && record.retryable !== true;
 }
 
-export type FailureClassification = "retryable" | "rejected" | "unknown";
+export type FailureClassification = "retryable" | "rejected" | "unknown" | "exhausted";
 
 /**
  * Classify a stored failed record without inventing evidence.
@@ -139,13 +139,23 @@ export type FailureClassification = "retryable" | "rejected" | "unknown";
 export function classifyStoredFailure(record: {
   lastFailureRetryable?: boolean;
   failureReason?: string | null;
+  retryCount?: number;
+  maxRetries?: number;
 }): FailureClassification {
-  if (record.lastFailureRetryable === true) return "retryable";
+  if (record.lastFailureRetryable === true) {
+    // A transient failure that reached the retry ceiling is paused for manual
+    // retry, not silently re-sent forever and not labelled a server rejection.
+    const ceiling = record.maxRetries ?? 5;
+    if (typeof record.retryCount === "number" && record.retryCount >= ceiling) {
+      return "exhausted";
+    }
+    return "retryable";
+  }
   if (record.lastFailureRetryable === false) return "rejected";
   const reason = (record.failureReason ?? "").toLowerCase();
   if (!reason.trim()) return "unknown";
   if (
-    /no connection|network|timed? out|temporar|rate.?limit|retry|try again|server (is )?(busy|unavailable)|could not reach|connection (was )?(lost|interrupted)|503|502|504/.test(
+    /no connection|network|timed? out|temporar|rate.?limit|server (is )?(busy|unavailable)|could not reach|connection (was )?(lost|interrupted)|503|502|504/.test(
       reason
     )
   ) {

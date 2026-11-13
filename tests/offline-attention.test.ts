@@ -97,8 +97,7 @@ describe("authoritative attention count", () => {
     expect(summaryB.attention).toBe(0);
   });
 
-  it("classifies older failed records from saved evidence, not a blanket default", async () => {
-    // Pre-upgrade record: no lastFailureRetryable field, but a clear transient
+  it("classifies older failed records from saved evidence, not a blanket default", async () => {    // Pre-upgrade record: no lastFailureRetryable field, but a clear transient
     // reason. It must be waiting, not permanent attention.
     await addTransaction(
       tx("old-network", {
@@ -121,5 +120,30 @@ describe("authoritative attention count", () => {
     expect(await requeueRetryableFailures()).toBe(1);
     expect((await getTransaction("old-network"))?.status).toBe("pending_sync");
     expect((await getTransaction("old-unknown"))?.status).toBe("failed");
+  });
+
+  it("pauses an exhausted transient failure until a manual retry", async () => {
+    await addTransaction(
+      tx("exhausted", {
+        status: "failed",
+        failureReason: "No connection to MaaCash. This record will retry.",
+        lastFailureRetryable: true,
+        retryCount: 5,
+        maxRetries: 5,
+      })
+    );
+
+    const summary = await getOfflineQueueSummary();
+    expect(summary.attention).toBe(1);
+    expect(summary.waiting).toBe(0);
+    expect(summary.failedRecords[0].classification).toBe("exhausted");
+
+    // Automatic sync does not loop a record that already reached its ceiling.
+    expect(await requeueRetryableFailures()).toBe(0);
+    expect((await getTransaction("exhausted"))?.status).toBe("failed");
+
+    // A deliberate user retry may requeue it once.
+    expect(await requeueRetryableFailures({ force: true })).toBe(1);
+    expect((await getTransaction("exhausted"))?.status).toBe("pending_sync");
   });
 });

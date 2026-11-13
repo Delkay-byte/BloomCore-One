@@ -11,6 +11,7 @@ import {
 import { getOfflineStatus, type OfflineStatus } from "@/lib/offline/session";
 import { prepareOfflineAccess, reconcileOfflineConnectivity } from "@/lib/offline/preparation";
 import { getCurrentOfflineContext } from "@/lib/offline/device-store";
+import { getOfflineQueueSummary } from "@/lib/offline/store";
 import { isOfflineModule } from "@/lib/offline/active-module";
 import {
   checkConnectivity,
@@ -158,7 +159,7 @@ export default function OfflineSyncStatus({
     setSyncing(true);
     setNotice("");
     try {
-      const results = await syncPendingTransactions();
+      const results = await syncPendingTransactions({ retryExhausted: true });
       const outcome = summarizeSyncOutcome(results);
       await refresh();
       if (outcome.confirmed > 0) {
@@ -180,7 +181,12 @@ export default function OfflineSyncStatus({
       } else if (outcome.transient > 0) {
         setNotice("No connection to MaaCash. The records stay on this device and will retry.");
       } else {
-        setNotice("Nothing to synchronize right now.");
+        const remaining = await getOfflineQueueSummary().catch(() => null);
+        setNotice(
+          remaining && remaining.pending > 0
+            ? "Synchronization did not run. Another tab may be syncing, or the queue could not be read. Try again."
+            : "Nothing to synchronize right now."
+        );
       }
     } catch {
       setNotice(
@@ -349,7 +355,11 @@ export default function OfflineSyncStatus({
               Unlock offline workspace
             </button>
           )}
-          {status.online && display.waitingCount > 0 && (
+          {status.online &&
+            (display.waitingCount > 0 ||
+              summary.failedRecords.some(
+                (record) => record.classification === "exhausted"
+              )) && (
             <button
               type="button"
               onClick={retry}
@@ -460,7 +470,9 @@ export default function OfflineSyncStatus({
                 · record {record.id.slice(0, 8)} ·{" "}
                 {record.classification === "unknown"
                   ? "Older record: the saved reason is inconclusive. Review before retrying."
-                  : record.failureReason ?? "Rejected by the server"}
+                  : record.classification === "exhausted"
+                    ? `${record.failureReason ?? "Repeated connection failure"} — retry when the connection is stable.`
+                    : record.failureReason ?? "Rejected by the server"}
               </li>
             ))}
           </ul>
