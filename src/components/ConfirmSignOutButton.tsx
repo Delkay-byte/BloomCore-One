@@ -60,7 +60,7 @@ export default function ConfirmSignOutButton({
         setNotice("Still offline. The records stay safely on this device.");
       } else {
         setNotice(
-          `${result.pending + result.failed} record${result.pending + result.failed === 1 ? "" : "s"} still need attention. They stay on this device.`
+          `${result.pending + result.failed} unsynchronized record${result.pending + result.failed === 1 ? "" : "s"} stay on this device. Sign in again to synchronize.`
         );
       }
     } catch {
@@ -139,10 +139,13 @@ export default function ConfirmSignOutButton({
                   They are not in {PRODUCT_NAME}&apos;s central ledger until synchronization
                   succeeds. Do not clear this browser&apos;s site data.
                 </div>
-                {summary && summary.failed > 0 && (
+                {summary && summary.attention > 0 && (
                   <p className="text-xs text-red-700 mt-2">
-                    {summary.failed} record{summary.failed === 1 ? "" : "s"} need attention
-                    after repeated failures. They are kept for review.
+                    {summary.attention} record{summary.attention === 1 ? "" : "s"} need
+                    review. Open the offline records panel for the saved reason.
+                    {summary.review
+                      ? ` ${summary.review} older record${summary.review === 1 ? " has" : "s have"} no conclusive reason.`
+                      : ""}
                   </p>
                 )}
               </>

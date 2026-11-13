@@ -11,7 +11,6 @@ import {
   createUnlockRecord,
   unlockWithRecoveryCode,
   unlockWithRecord,
-  type OfflineUnlockRecord,
 } from "./crypto";
 import {
   clearOfflineUnlockFailures,

@@ -29,6 +29,36 @@ import {
   endOfflineSession,
 } from "@/lib/offline/session";
 import type { OfflineTransaction } from "@/lib/offline/store";
+import { createUnlockRecord } from "@/lib/offline/crypto";
+import {
+  clearCurrentOfflineContext,
+  getCurrentOfflineContext,
+  savePreparedContext,
+} from "@/lib/offline/device-store";
+import { lockOfflineWorkspace, unlockOfflineWorkspace } from "@/lib/offline/unlock";
+
+const PASSPHRASE = "tenant isolation passphrase";
+
+async function prepareTenantOneUserA(): Promise<void> {
+  const now = new Date().toISOString();
+  const { record } = await createUnlockRecord(PASSPHRASE);
+  await savePreparedContext({
+    tenantId: "tenant-1",
+    userId: "user-a",
+    userName: "User A",
+    role: "collector",
+    modules: ["susu"],
+    moduleStates: { susu: { deviceId: "device-1", preparedAt: now, lastSyncedAt: now } },
+    unlock: record,
+    preparedAt: now,
+    authorizedAt: now,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    lastSyncedAt: now,
+    active: false,
+    activeModule: null,
+  });
+  await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+}
 
 function tx(id: string, userId: string): OfflineTransaction {
   return {
@@ -84,12 +114,15 @@ describe("offline IndexedDB isolation", () => {
 
   it("does not expose one user's cache or queued transactions to another", async () => {
     setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+    await prepareTenantOneUserA();
     await addTransaction(tx("tx-a", "user-a"));
     await cacheCustomers([customer]);
 
     expect(await getPendingTransactions()).toHaveLength(1);
     expect(await getCachedCustomers()).toHaveLength(1);
 
+    lockOfflineWorkspace();
+    await clearCurrentOfflineContext();
     clearOfflineScope();
     setOfflineScope({ tenantId: "tenant-1", userId: "user-b" });
 
@@ -99,6 +132,10 @@ describe("offline IndexedDB isolation", () => {
     clearOfflineScope();
     setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
     expect(await getPendingTransactions()).toHaveLength(1);
+    // The cached customer is still encrypted under user A's own database.
+    await expect(getCachedCustomers()).rejects.toMatchObject({
+      name: "OfflineLockedError",
+    });
   });
 
   it("preserves pending records when the session ends", async () => {

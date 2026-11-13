@@ -66,6 +66,51 @@ describe("offline queue safety", () => {
     vi.unstubAllGlobals();
   });
 
+  it("pauses the whole batch on offline authorization expiry instead of failing records", async () => {
+    await addTransaction(tx("tx-expiry-a"));
+    await addTransaction(tx("tx-expiry-b"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            success: false,
+            error: "Offline authorization expired. Please reconnect and sign in again.",
+            code: "offline_auth_expired",
+          },
+          403
+        )
+      )
+    );
+
+    const results = await syncPendingTransactions();
+    expect(results).toHaveLength(1);
+    const first = await getTransaction("tx-expiry-a");
+    const second = await getTransaction("tx-expiry-b");
+    expect(first?.status).toBe("pending_sync");
+    expect(first?.retryCount).toBe(0);
+    expect(second?.status).toBe("pending_sync");
+    expect(second?.retryCount).toBe(0);
+  });
+
+  it("treats a concurrent idempotency reservation as a short retry", async () => {
+    await addTransaction(tx("tx-concurrent"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          { success: false, error: "Transaction is already being processed" },
+          409
+        )
+      )
+    );
+
+    await syncPendingTransactions();
+    const record = await getTransaction("tx-concurrent");
+    expect(record?.status).toBe("pending_sync");
+    expect(record?.failureReason).toMatch(/already being processed/i);
+  });
+
   it("lets only one tab claim a pending record", async () => {
     await addTransaction(tx("tx-1"));
     expect(await claimTransactionForSync("tx-1")).toBe(true);

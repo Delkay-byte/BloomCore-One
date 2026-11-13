@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteDraft, loadDraft, saveDraft } from "@/lib/offline/drafts";
+import { deleteDraft, loadDraft, retryPlaintextDraftCleanup, saveDraft } from "@/lib/offline/drafts";
 import type { DraftStatus } from "./useFormDraft";
 
 export interface UseObjectDraftOptions<T> {
@@ -132,6 +132,11 @@ export function useObjectDraft<T>({
         setDirty(false);
       } else {
         setStatus("idle");
+      }
+
+      if (draft?.plaintextCleanupPending) {
+        const cleaned = await retryPlaintextDraftCleanup(draftKey);
+        if (!cleaned && !cancelled && mounted.current) setStatus("error");
       }
 
       hydrated.current = true;

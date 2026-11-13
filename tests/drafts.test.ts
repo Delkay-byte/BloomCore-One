@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRAFT_SCHEMA_VERSION,
   DRAFT_TTL_MS,
+  clearSessionDrafts,
   deleteDraft,
   listDrafts,
   loadDraft,
@@ -18,9 +19,42 @@ import {
   setOfflineScope,
 } from "@/lib/offline/scope";
 import { openOfflineDatabase } from "@/lib/offline/store";
+import { createUnlockRecord } from "@/lib/offline/crypto";
+import {
+  clearCurrentOfflineContext,
+  getCurrentOfflineContext,
+  savePreparedContext,
+} from "@/lib/offline/device-store";
+import { lockOfflineWorkspace, unlockOfflineWorkspace } from "@/lib/offline/unlock";
+
+const PASSPHRASE = "draft protection passphrase";
+
+async function prepareProtectedWorkspace(): Promise<void> {
+  const now = new Date().toISOString();
+  const { record } = await createUnlockRecord(PASSPHRASE);
+  await savePreparedContext({
+    tenantId: "tenant-1",
+    userId: "user-a",
+    userName: "User A",
+    role: "collector",
+    modules: ["susu"],
+    moduleStates: { susu: { deviceId: "device-1", preparedAt: now, lastSyncedAt: now } },
+    unlock: record,
+    preparedAt: now,
+    authorizedAt: now,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    lastSyncedAt: now,
+    active: false,
+    activeModule: null,
+  });
+  await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+}
 
 describe("form drafts", () => {
   beforeEach(async () => {
+    clearSessionDrafts();
+    lockOfflineWorkspace();
+    await clearCurrentOfflineContext();
     closeCurrentOfflineSession();
     for (const name of await listOfflineDatabaseNames()) {
       await deleteDatabase(name).catch(() => {});
@@ -81,17 +115,21 @@ describe("form drafts", () => {
   });
 
   it("expires old drafts instead of restoring stale work", async () => {
-    await saveDraft("customer:new", "susu.customer.create", { fullName: "Old" });
-    const stored = await loadDraft<Record<string, unknown>>("customer:new");
-    expect(stored).not.toBeNull();
-
-    // Rewrite the expiry into the past, then read again.
+    // A pre-hardening plaintext record is the only kind that can carry a stale
+    // expiry in IndexedDB; session drafts are pruned on read too.
     const db = await openOfflineDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction("drafts", "readwrite");
       tx.objectStore("drafts").put({
-        ...stored,
+        id: "customer:new",
+        draftKey: "customer:new",
+        tenantId: "tenant-1",
+        userId: "user-a",
+        workflow: "susu.customer.create",
+        schemaVersion: DRAFT_SCHEMA_VERSION,
+        updatedAt: new Date(Date.now() - 10_000).toISOString(),
         expiresAt: new Date(Date.now() - 1000).toISOString(),
+        data: { fullName: "Old" },
       });
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -99,6 +137,26 @@ describe("form drafts", () => {
     db.close();
 
     expect(await loadDraft("customer:new")).toBeNull();
+  });
+
+  it("keeps online drafts out of IndexedDB instead of storing plaintext", async () => {
+    const saved = await saveDraft("customer:new", "susu.customer.create", {
+      fullName: "Ama Mensah",
+      phone: "+233200000000",
+    });
+    expect(saved.storage).toBe("session");
+
+    const db = await openOfflineDatabase();
+    const raw = await new Promise<unknown[]>((resolve, reject) => {
+      const request = db.transaction("drafts", "readonly").objectStore("drafts").getAll();
+      request.onsuccess = () => resolve(request.result as unknown[]);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    expect(raw).toHaveLength(0);
+
+    const restored = await loadDraft<{ fullName: string }>("customer:new");
+    expect(restored?.data.fullName).toBe("Ama Mensah");
   });
 
   it("clears a draft after a successful submission", async () => {
@@ -112,6 +170,52 @@ describe("form drafts", () => {
     await saveDraft("b", "workflow", { value: 2 });
     expect((await listDrafts()).length).toBe(2);
     expect(await pruneExpiredDrafts()).toBe(0);
+  });
+
+  it("encrypts drafts when an unlock exists and fails closed while locked", async () => {
+    await prepareProtectedWorkspace();
+    const saved = await saveDraft("customer:protected", "susu.customer.create", {
+      fullName: "Secret Customer",
+      accountId: "acct-secret",
+    });
+    expect(saved.storage).toBe("protected");
+    expect(saved.data).toEqual({});
+
+    const db = await openOfflineDatabase();
+    const raw = await new Promise<unknown[]>((resolve, reject) => {
+      const request = db.transaction("drafts", "readonly").objectStore("drafts").getAll();
+      request.onsuccess = () => resolve(request.result as unknown[]);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    expect(JSON.stringify(raw)).not.toContain("Secret Customer");
+    expect(JSON.stringify(raw)).not.toContain("acct-secret");
+
+    lockOfflineWorkspace();
+    await expect(loadDraft("customer:protected")).rejects.toMatchObject({
+      name: "OfflineLockedError",
+    });
+
+    await unlockOfflineWorkspace(
+      (await getCurrentOfflineContext())!,
+      PASSPHRASE
+    );
+    const restored = await loadDraft<{ fullName: string }>("customer:protected");
+    expect(restored?.data.fullName).toBe("Secret Customer");
+  });
+
+  it("does not persist passwords or tokens in either storage mode", async () => {
+    await saveDraft("secret-form", "susu.portal", {
+      fullName: "Ama",
+      password: "plain-text-password",
+      otp: "123456",
+      token: "jwt-token",
+    });
+    const restored = await loadDraft<Record<string, unknown>>("secret-form");
+    const encoded = JSON.stringify(restored);
+    expect(encoded).not.toContain("plain-text-password");
+    expect(encoded).not.toContain("123456");
+    expect(encoded).not.toContain("jwt-token");
   });
 
   it("uses a seven-day default retention window", () => {
@@ -192,5 +296,157 @@ describe("form drafts", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("legacy plaintext draft migration", () => {
+  beforeEach(async () => {
+    clearSessionDrafts();
+    lockOfflineWorkspace();
+    await clearCurrentOfflineContext();
+    closeCurrentOfflineSession();
+    for (const name of await listOfflineDatabaseNames()) {
+      await deleteDatabase(name).catch(() => {});
+    }
+    clearOfflineScope();
+    setOfflineScope({ tenantId: "tenant-1", userId: "user-a" });
+  });
+
+  async function putLegacyDraft(
+    draftKey: string,
+    data: Record<string, unknown>,
+    updatedAt: string,
+    scope: { tenantId: string; userId: string } = {
+      tenantId: "tenant-1",
+      userId: "user-a",
+    }
+  ): Promise<void> {
+    const db = await openOfflineDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("drafts", "readwrite");
+      tx.objectStore("drafts").put({
+        id: draftKey,
+        draftKey,
+        tenantId: scope.tenantId,
+        userId: scope.userId,
+        workflow: "susu.customer.create",
+        schemaVersion: DRAFT_SCHEMA_VERSION,
+        updatedAt,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        data,
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+
+  async function rawDraftRows(): Promise<Array<Record<string, unknown>>> {
+    const db = await openOfflineDatabase();
+    const rows = await new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+      const request = db.transaction("drafts", "readonly").objectStore("drafts").getAll();
+      request.onsuccess = () => resolve(request.result as Array<Record<string, unknown>>);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return rows;
+  }
+
+  it("moves a legacy-only draft to session storage and verifies deletion", async () => {
+    await putLegacyDraft("legacy-only", { fullName: "Legacy" }, new Date().toISOString());
+
+    const restored = await loadDraft<{ fullName: string }>("legacy-only");
+    expect(restored?.data.fullName).toBe("Legacy");
+    expect(restored?.storage).toBe("session");
+    expect(restored?.plaintextCleanupPending).toBeUndefined();
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("keeps the newer session copy when an older legacy row remains", async () => {
+    await saveDraft("both", "susu.customer.create", { fullName: "Session newer" });
+    await putLegacyDraft(
+      "both",
+      { fullName: "Legacy older" },
+      new Date(Date.now() - 60_000).toISOString()
+    );
+
+    const restored = await loadDraft<{ fullName: string }>("both");
+    expect(restored?.data.fullName).toBe("Session newer");
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("preserves a newer legacy draft by copying it to session storage", async () => {
+    await saveDraft("both", "susu.customer.create", { fullName: "Session older" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await putLegacyDraft("both", { fullName: "Legacy newer" }, new Date().toISOString());
+
+    const restored = await loadDraft<{ fullName: string }>("both");
+    expect(restored?.data.fullName).toBe("Legacy newer");
+    expect(await rawDraftRows()).toHaveLength(0);
+    // The winning copy survives a second read from session storage.
+    expect((await loadDraft<{ fullName: string }>("both"))?.data.fullName).toBe(
+      "Legacy newer"
+    );
+  });
+
+  it("reports a retryable warning when plaintext cleanup cannot be verified", async () => {
+    await putLegacyDraft("blocked-cleanup", { fullName: "Old" }, new Date().toISOString());
+
+    const spy = vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      throw new Error("database blocked");
+    });
+    try {
+      await expect(
+        saveDraft("blocked-cleanup", "susu.customer.create", { fullName: "New" })
+      ).rejects.toMatchObject({ code: "write_failed" });
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The session copy is preserved, and the plaintext row is still there for a
+    // retry rather than being falsely reported as migrated.
+    expect(await rawDraftRows()).toHaveLength(1);
+    const restored = await loadDraft<{ fullName: string }>("blocked-cleanup");
+    expect(restored?.data.fullName).toBe("New");
+    expect(await rawDraftRows()).toHaveLength(0);
+  });
+
+  it("retries cleanup after an interrupted migration without losing input", async () => {
+    // Simulate an interruption: session copy written first, plaintext not yet
+    // removed. A reload sees both and reconciles safely.
+    await saveDraft("interrupted", "susu.customer.create", { fullName: "Kept" });
+    await putLegacyDraft(
+      "interrupted",
+      { fullName: "Kept" },
+      new Date(Date.now() - 1_000).toISOString()
+    );
+
+    const first = await loadDraft<{ fullName: string }>("interrupted");
+    expect(first?.data.fullName).toBe("Kept");
+    expect(await rawDraftRows()).toHaveLength(0);
+    const reloaded = await loadDraft<{ fullName: string }>("interrupted");
+    expect(reloaded?.data.fullName).toBe("Kept");
+  });
+
+  it("never migrates a draft from a different tenant or user scope", async () => {
+    await putLegacyDraft("foreign", { fullName: "Other user" }, new Date().toISOString(), {
+      tenantId: "tenant-2",
+      userId: "user-b",
+    });
+    expect(await loadDraft("foreign")).toBeNull();
+  });
+
+  it("clears only session drafts on sign-out, never protected drafts", async () => {
+    await saveDraft("session-only", "susu.customer.create", { fullName: "Session" });
+    await prepareProtectedWorkspace();
+    await saveDraft("protected", "susu.customer.create", { fullName: "Protected" });
+    expect(await rawDraftRows()).toHaveLength(1);
+
+    clearSessionDrafts();
+
+    expect(await loadDraft("session-only")).toBeNull();
+    const protectedDraft = await loadDraft<{ fullName: string }>("protected");
+    expect(protectedDraft?.data.fullName).toBe("Protected");
+    expect(await rawDraftRows()).toHaveLength(1);
   });
 });

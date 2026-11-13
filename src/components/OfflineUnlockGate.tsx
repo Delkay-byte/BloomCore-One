@@ -206,6 +206,7 @@ export default function OfflineUnlockGate({
         setPassphrase("");
         setConfirm("");
         setRecoveryCode(code);
+        window.dispatchEvent(new Event("maacash-offline-unlock-changed"));
         return;
       } else {
         if (useRecovery) {
@@ -216,6 +217,7 @@ export default function OfflineUnlockGate({
       }
       setPassphrase("");
       setConfirm("");
+      window.dispatchEvent(new Event("maacash-offline-unlock-changed"));
       onUnlocked();
     } catch (err) {
       setError(
@@ -326,6 +328,7 @@ export default function OfflineUnlockGate({
                 await migrateOfflineRecordsToProtected();
                 setRecoveryCode("");
                 setSavedRecovery(false);
+                window.dispatchEvent(new Event("maacash-offline-unlock-changed"));
                 onUnlocked();
               } catch (err) {
                 setError(

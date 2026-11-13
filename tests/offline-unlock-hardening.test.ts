@@ -5,6 +5,7 @@ import {
   createUnlockRecord,
   decryptString,
   encryptString,
+  protectValue,
   unlockWithRecord,
   unlockWithRecoveryCode,
 } from "@/lib/offline/crypto";
@@ -28,6 +29,8 @@ import {
   unlockOfflineWorkspace,
 } from "@/lib/offline/unlock";
 import {
+  CUSTOMER_STORE,
+  LEGACY_CUSTOMER_STORE,
   addTransaction,
   cacheCustomers,
   getCachedCustomers,
@@ -40,7 +43,6 @@ import {
   type CachedCustomer,
   type OfflineTransaction,
 } from "@/lib/offline/store";
-import { saveDraft } from "@/lib/offline/drafts";
 import { syncPendingTransactions } from "@/lib/offline/sync";
 import {
   clearOfflineScope,
@@ -198,12 +200,15 @@ describe("encrypted offline storage", () => {
     await cacheCustomers([customer]);
 
     const storedTx = await rawRecords<OfflineTransaction>("transactions");
-    const storedCustomers = await rawRecords<Record<string, unknown>>("customers");
+    const storedCustomers = await rawRecords<Record<string, unknown>>(CUSTOMER_STORE);
     expect(storedTx[0].payload).toBe("");
     expect(JSON.stringify(storedTx)).not.toContain("Secret Customer");
     expect(JSON.stringify(storedTx)).not.toContain("acct-secret");
     expect(JSON.stringify(storedCustomers)).not.toContain("Secret Customer");
     expect(JSON.stringify(storedCustomers)).not.toContain("C-SECRET");
+    // The account number is not an object key or index value any more.
+    expect(JSON.stringify(storedCustomers)).not.toContain("acct-secret");
+    expect(storedCustomers[0].id).not.toBe("acct-secret");
 
     const [read] = await (await import("@/lib/offline/store")).getPendingTransactions();
     expect(await openTransactionPayload(read)).toContain("Secret Customer");
@@ -376,23 +381,39 @@ describe("legacy plaintext migration", () => {
     await savePreparedContext(ctx);
     setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
     await addTransaction(transaction("tx-migrate", ctx.tenantId, ctx.userId));
-    await cacheCustomers([customer]);
-    await saveDraft("collector:draft", "collector.contribution", {
-      customerName: "Secret Customer",
-      amount: 50,
+    // Simulate a pre-hardening plaintext draft record. New online drafts are
+    // session-only and never reach IndexedDB.
+    const legacyDb = await openOfflineDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = legacyDb.transaction("drafts", "readwrite");
+      tx.objectStore("drafts").put({
+        id: "collector:draft",
+        draftKey: "collector:draft",
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+        workflow: "collector.contribution",
+        schemaVersion: 2,
+        updatedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        data: { customerName: "Secret Customer", amount: 50 },
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
+    legacyDb.close();
     expect(await needsOfflineEncryptionMigration()).toBe(false); // no unlock yet
 
     const { record } = await createUnlockRecord(PASSPHRASE);
     await savePreparedContext({ ...ctx, unlock: record });
     await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+    await cacheCustomers([customer]);
     expect(await needsOfflineEncryptionMigration()).toBe(true);
 
     const summary = await migrateOfflineRecordsToProtected();
     expect(summary).toMatchObject({
       migrated: true,
       transactions: 1,
-      customers: 1,
+      customers: 0,
       drafts: 1,
     });
 
@@ -402,12 +423,128 @@ describe("legacy plaintext migration", () => {
     expect(storedTx[0].idempotencyKey).toBe("tx-migrate");
     expect(storedTx[0].protectedPayload).toBeTruthy();
     expect(JSON.stringify(storedTx)).not.toContain("Secret Customer");
+    const storedCustomers = await rawRecords<Record<string, unknown>>(CUSTOMER_STORE);
+    expect(JSON.stringify(storedCustomers)).not.toContain("acct-secret");
+    expect(JSON.stringify(storedCustomers)).not.toContain("Secret Customer");
     expect(await rawRecords("transactions_legacy_v2")).toHaveLength(0);
-    expect(await rawRecords("customers_legacy_v2")).toHaveLength(0);
     expect(await rawRecords("drafts_legacy_v2")).toHaveLength(0);
 
     const second = await migrateOfflineRecordsToProtected();
     expect(second.alreadyProtected).toBe(true);
     expect(await rawRecords("transactions")).toHaveLength(1);
+  });
+
+  it("moves a v3 plaintext customer cache to opaque encrypted keys without data loss", async () => {
+    const ctx = context(`legacy-customers-${Date.now()}`);
+    setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
+    const scope = { tenantId: ctx.tenantId, userId: ctx.userId };
+    const databaseName = (await import("@/lib/offline/scope")).offlineDatabaseName(scope);
+
+    // Recreate the v3 shape: the account number was the object-store key.
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 3);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        db.createObjectStore("transactions", { keyPath: "id" });
+        const customers = db.createObjectStore(LEGACY_CUSTOMER_STORE, {
+          keyPath: "accountId",
+        });
+        customers.createIndex("lastSynced", "lastSynced", { unique: false });
+        db.createObjectStore("drafts", { keyPath: "id" });
+        db.createObjectStore("meta", { keyPath: "key" });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction(LEGACY_CUSTOMER_STORE, "readwrite");
+        tx.objectStore(LEGACY_CUSTOMER_STORE).put({
+          ...customer,
+          accountId: "acct-secret",
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+
+    const summary = await migrateOfflineRecordsToProtected();
+    expect(summary.customers).toBe(1);
+
+    const raw = await rawRecords<Record<string, unknown>>(CUSTOMER_STORE);
+    expect(raw).toHaveLength(1);
+    expect(JSON.stringify(raw)).not.toContain("acct-secret");
+    expect(JSON.stringify(raw)).not.toContain("Secret Customer");
+    expect(raw[0].id).toBeTypeOf("string");
+    expect(raw[0].id).not.toBe("acct-secret");
+    expect(await rawRecords(LEGACY_CUSTOMER_STORE)).toHaveLength(0);
+
+    const [restored] = await getCachedCustomers();
+    expect(restored.accountId).toBe("acct-secret");
+    expect(restored.customerName).toBe("Secret Customer");
+
+    lockOfflineWorkspace();
+    await expect(getCachedCustomers()).rejects.toMatchObject({
+      name: "OfflineLockedError",
+    });
+  });
+
+  it("migrates a v3 row that is already protected without double-wrapping it", async () => {
+    const ctx = context(`legacy-protected-customers-${Date.now()}`);
+    setOfflineScope({ tenantId: ctx.tenantId, userId: ctx.userId });
+    const databaseName = (await import("@/lib/offline/scope")).offlineDatabaseName({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+    });
+
+    const { record } = await createUnlockRecord(PASSPHRASE);
+    await savePreparedContext({ ...ctx, unlock: record });
+    await unlockOfflineWorkspace((await getCurrentOfflineContext())!, PASSPHRASE);
+    const key = requireOfflineKey(await getCurrentOfflineContext());
+
+    // origin/main wrote protected rows into the accountId-keyed store.
+    const envelope = await protectValue(key, customer);
+
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 3);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        db.createObjectStore("transactions", { keyPath: "id" });
+        const customers = db.createObjectStore(LEGACY_CUSTOMER_STORE, {
+          keyPath: "accountId",
+        });
+        customers.createIndex("lastSynced", "lastSynced", { unique: false });
+        db.createObjectStore("drafts", { keyPath: "id" });
+        db.createObjectStore("meta", { keyPath: "key" });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction(LEGACY_CUSTOMER_STORE, "readwrite");
+        tx.objectStore(LEGACY_CUSTOMER_STORE).put({
+          accountId: customer.accountId,
+          protectionVersion: 1,
+          protectedData: envelope,
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    const summary = await migrateOfflineRecordsToProtected();
+    expect(summary.customers).toBe(1);
+    const [restored] = await getCachedCustomers();
+    expect(restored.customerName).toBe("Secret Customer");
+    expect(restored.expectedAmount).toBe(20);
+    expect(restored.outstandingDays).toBe(2);
+    expect(await rawRecords(LEGACY_CUSTOMER_STORE)).toHaveLength(0);
   });
 });

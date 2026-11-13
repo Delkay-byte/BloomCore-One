@@ -755,6 +755,12 @@ export async function activateOfflineAccess(
     };
   }
 
+  if (isBrowserOnline()) {
+    // Activation is only meaningful while the connection is down. Online, the
+    // prepared workspace stays available without claiming "Offline Active".
+    return { ok: true, readiness: await getOfflineReadiness(target) };
+  }
+
   const updated = await setOfflineActivation(true, target);
   setOfflineScope(
     { tenantId: context.tenantId, userId: context.userId },
@@ -873,15 +879,50 @@ export async function getOfflineReadiness(
     };
   }
   return {
-    status: context.active ? "active" : "ready",
+    status: context.active && !isBrowserOnline() ? "active" : "ready",
     module: target,
     context,
-    message: context.active
-      ? "You are working offline. New collections will sync when internet returns."
-      : "This device is prepared for offline collection.",
+    message:
+      context.active && !isBrowserOnline()
+        ? "You are working offline. New collections will save on this device and sync when the server confirms them."
+        : "This device is prepared for offline collection. Offline data is available if the connection drops.",
     lastSyncedAt: context.lastSyncedAt,
     expiresAt: context.expiresAt,
   };
+}
+
+function isBrowserOnline(): boolean {
+  return typeof navigator === "undefined" ? true : navigator.onLine !== false;
+}
+
+/**
+ * Clear a persisted local activation flag after connectivity returns. The
+ * activation flag records that the user was working offline; it must never
+ * outlive the network loss that justified it.
+ */
+export async function deactivateOfflineAccess(
+  module?: OfflineModule
+): Promise<OfflineReadiness> {
+  const context = await getCurrentOfflineContext();
+  if (context?.active) {
+    await setOfflineActivation(false);
+    notifyOfflineStatusChanged();
+  }
+  return getOfflineReadiness(module);
+}
+
+/**
+ * Reconcile the persisted activation flag with the real connection state.
+ * Called on the `online` event, window focus and visibility restoration, so a
+ * restored connection replaces "Offline Active" without requiring a reload.
+ */
+export async function reconcileOfflineConnectivity(
+  module?: OfflineModule
+): Promise<OfflineReadiness> {
+  if (isBrowserOnline()) {
+    return deactivateOfflineAccess(module);
+  }
+  return getOfflineReadiness(module);
 }
 
 export function moduleRoute(module: OfflineModule): string {

@@ -111,7 +111,11 @@ export async function POST(request: NextRequest) {
         details: { reason: "Device not enrolled or revoked", deviceId },
       });
       return NextResponse.json(
-        { success: false, error: "Device not enrolled or revoked" },
+        {
+          success: false,
+          error: "Device not enrolled or revoked",
+          code: "device_revoked",
+        },
         { status: 403 }
       );
     }
@@ -131,6 +135,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: "Offline authorization expired. Please reconnect and sign in again.",
+          code: "offline_auth_expired",
         },
         { status: 403 }
       );

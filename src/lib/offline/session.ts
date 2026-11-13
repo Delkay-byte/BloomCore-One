@@ -31,7 +31,7 @@ import {
   type OfflineQueueSummary,
 } from "./store";
 import { syncPendingTransactions } from "./sync";
-import { pruneExpiredDrafts } from "./drafts";
+import { pruneExpiredDrafts, clearSessionDrafts } from "./drafts";
 import {
   getOfflineReadiness,
   type OfflineReadiness,
@@ -90,6 +90,9 @@ export async function syncBeforeSignOut(): Promise<SignOutSummary> {
 export function endOfflineSession(): void {
   lockOfflineWorkspace();
   closeCurrentOfflineSession();
+  // Online drafts live only in this tab's session storage; a sign-out must not
+  // leave another person's unfinished work readable in the same profile.
+  clearSessionDrafts();
   void clearCurrentOfflineContext();
 }
 
@@ -344,6 +347,8 @@ function emptySummary(): OfflineQueueSummary {
     synced: 0,
     failed: 0,
     unresolved: 0,
+    attention: 0,
+    waiting: 0,
     lastSuccessfulSyncAt: null,
     failedRecords: [],
   };
