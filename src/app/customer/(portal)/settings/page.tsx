@@ -10,6 +10,8 @@ import {
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import PasswordInput from "@/components/PasswordInput";
+import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { ConfirmDialog } from "@/components/ui/Modal";
 
 interface UserProfile {
@@ -72,8 +74,9 @@ export default function CustomerSettingsPage() {
       return;
     }
 
-    if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters");
+    const policyError = validatePasswordPolicy(newPassword);
+    if (policyError) {
+      setError(policyError);
       return;
     }
 
@@ -257,10 +260,13 @@ export default function CustomerSettingsPage() {
                     name="newPassword"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Min 8 characters"
+                    placeholder="At least 12 characters"
                     required
                     autoComplete="new-password"
                   />
+                  <div className="mt-2">
+                    <PasswordPolicyChecklist password={newPassword} />
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Confirm New Password *</label>

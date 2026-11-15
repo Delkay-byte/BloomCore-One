@@ -568,9 +568,10 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
 
     const user = await db.user.findUnique({
       where: { id: payload.userId },
-      select: { tokenVersion: true, status: true },
+      select: { tokenVersion: true, status: true, emailVerified: true },
     });
     if (!user || user.status !== "active") return false;
+    if (!user.emailVerified) return false;
     if (user.tokenVersion !== (payload.tokenVersion ?? 0)) return false;
     return true;
   } catch {

@@ -18,11 +18,15 @@ const SSO_ERRORS: Record<string, string> = {
     "The account linking request expired. Start the sign-in again.",
   sso_link_failed:
     "Account linking could not be completed. Please try again.",
+  password_change_required:
+    "A password upgrade is required. Sign in with your current password to set a new one.",
 };
 
 const SSO_NOTICES: Record<string, string> = {
   sso_linked:
     "Account linked successfully. Use “Sign in with BloomCore Identity” from now on.",
+  password_upgraded:
+    "Password updated. Sign in with your new password.",
 };
 
 // The platform login is its own security boundary. An operator with a valid

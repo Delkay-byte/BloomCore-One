@@ -266,12 +266,12 @@ describe("Platform authentication", () => {
     weak.set("currentPassword", "SuperPass123");
     weak.set("newPassword", "short");
     weak.set("confirmPassword", "short");
-    expect((await platformChangePassword(weak)).error).toMatch(/8 characters/i);
+    expect((await platformChangePassword(weak)).error).toMatch(/12 characters/i);
 
     const good = new FormData();
     good.set("currentPassword", "SuperPass123");
-    good.set("newPassword", "NewStrong9");
-    good.set("confirmPassword", "NewStrong9");
+    good.set("newPassword", "NewStrong!Pass123");
+    good.set("confirmPassword", "NewStrong!Pass123");
     const result = await platformChangePassword(good);
     expect(result.success).toBe(true);
 
@@ -281,7 +281,7 @@ describe("Platform authentication", () => {
     expect(await getPlatformSession()).toBeNull();
 
     // …and the new password authenticates.
-    const login = await authenticatePlatformAdmin(admin.email, "NewStrong9");
+    const login = await authenticatePlatformAdmin(admin.email, "NewStrong!Pass123");
     expect(login.ok).toBe(true);
   });
 });

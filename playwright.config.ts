@@ -29,12 +29,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
       // The mobile project owns the Android-sized shell tests and the offline
       // status spec, so CI runs each exactly once.
-      testIgnore: /mobile\.spec\.ts|maacash-offline-status\.spec\.ts/,
+      testIgnore: /mobile\.spec\.ts|maacash-offline-status\.spec\.ts|maacash-auth-security\.spec\.ts/,
     },
     {
       name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
-      testMatch: /(mobile|maacash-offline-status)\.spec\.ts/,
+      testMatch: /(mobile|maacash-offline-status|maacash-auth-security)\.spec\.ts/,
     },
   ],
   webServer: process.env.E2E_BASE_URL

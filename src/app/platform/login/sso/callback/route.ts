@@ -198,9 +198,11 @@ export async function GET(request: Request): Promise<Response> {
     const errorParam =
       result.reason === "mfa_required"
         ? "sso_mfa_required"
-        : result.reason === "inactive"
-          ? "sso_not_authorised"
-          : "sso_failed";
+        : result.reason === "password_change_required"
+          ? "password_change_required"
+          : result.reason === "inactive"
+            ? "sso_not_authorised"
+            : "sso_failed";
     return redirectToLogin("error", errorParam);
   }
 

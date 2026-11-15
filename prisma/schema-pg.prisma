@@ -27,6 +27,9 @@ model User {
   status             String    @default("active")
   passwordHash       String
   forcePasswordReset Boolean   @default(false)
+  emailVerified      Boolean   @default(true)
+  emailVerifiedAt    DateTime?
+  passwordPolicyVersion Int    @default(0)
   momoEnabled        Boolean   @default(false) // Module capability: MoMo worker
   susuEnabled        Boolean   @default(false) // Module capability: Susu collector
   tokenVersion       Int       @default(0) // Bumped to invalidate existing sessions
@@ -44,6 +47,7 @@ model User {
   dailyAccounts         DailyAccount[]
   collector             Collector?
   passwordResetTokens   PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   devices               DeviceEnrollment[]
   recordedContributions Contribution[]       @relation("RecordedContributions")
   receivedContributions Contribution[]       @relation("ReceivedContributions")
@@ -196,6 +200,7 @@ model Customer {
   portalEnabled            Boolean   @default(false)
   portalPasswordHash       String?
   forcePortalPasswordReset Boolean   @default(false)
+  passwordPolicyVersion    Int       @default(0)
   tokenVersion             Int       @default(0) // Bumped to invalidate existing customer sessions
   mfaEnabled               Boolean   @default(false)
   mfaSecret                String? // AES-256-GCM encrypted TOTP secret
@@ -486,6 +491,23 @@ model DailyAccountRevision {
 // PASSWORD RECOVERY
 // =====================
 
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  tenantId  String?
+  userId    String
+  tokenHash String    @unique // SHA-256 hash of the raw token - never store raw token
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@index([tenantId])
+}
+
 model PasswordResetToken {
   id        String    @id @default(cuid())
   tenantId  String?
@@ -631,6 +653,7 @@ model PlatformSuperAdmin {
   passwordHash       String
   status             String    @default("active") // active | inactive
   forcePasswordReset Boolean   @default(false)
+  passwordPolicyVersion Int    @default(0)
   tokenVersion       Int       @default(0)
   mfaEnabled         Boolean   @default(false)
   mfaSecret          String? // AES-256-GCM encrypted TOTP secret

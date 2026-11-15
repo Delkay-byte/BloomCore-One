@@ -110,12 +110,7 @@ export async function verifyPlatformPassword(
 }
 
 /** Shared credential policy: length, an uppercase letter and a digit. */
-export function validatePasswordPolicy(password: string): string | null {
-  if (password.length < 8) return "Password must be at least 8 characters";
-  if (!/[A-Z]/.test(password)) return "Password must contain an uppercase letter";
-  if (!/[0-9]/.test(password)) return "Password must contain a digit";
-  return null;
-}
+export { validatePasswordPolicy } from "./security/password-policy";
 
 async function createPlatformToken(
   payload: PlatformJwtPayload

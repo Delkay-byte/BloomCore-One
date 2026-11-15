@@ -6,6 +6,8 @@ import { requireTenantAdminMomo, requireTenantAdminSusu, assertTenantEntity } fr
 import { createStaffSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { validateStatusTransition } from "@/lib/security/status";
+import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
 
 export interface ActionResponse {
@@ -100,6 +102,7 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
         role: validated.data.role,
         status: validated.data.status,
         forcePasswordReset: true,
+        emailVerified: false,
         susuEnabled: validated.data.role === "collector",
       },
       select: {
@@ -132,6 +135,7 @@ export async function createStaff(formData: FormData): Promise<ActionResponse> {
 
   revalidatePath("/admin/staff");
   revalidatePath("/admin/dashboard");
+  await issueEmailVerification(user.id).catch(() => undefined);
   return { success: true, data: user };
 }
 
@@ -401,8 +405,9 @@ export async function resetStaffPassword(
   }
 
   const newPassword = formData.get("newPassword") as string;
-  if (!newPassword || newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   const passwordHash = await hashPassword(newPassword);

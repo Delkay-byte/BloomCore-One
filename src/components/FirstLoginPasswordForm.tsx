@@ -9,6 +9,7 @@ import {
 } from "@/lib/actions/auth.actions";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
+import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 import { BrandLockup } from "@/components/brand/Brand";
 import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
@@ -46,6 +47,7 @@ export default function FirstLoginPasswordForm({
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -179,13 +181,12 @@ export default function FirstLoginPasswordForm({
                   required
                   autoComplete="new-password"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-200"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
                 />
-                <p className="mt-1.5 text-xs text-ink-muted">
-                  At least 8 characters
-                  {mode === "platform"
-                    ? ", including one uppercase letter and one number."
-                    : "."}
-                </p>
+                <div className="mt-2">
+                  <PasswordPolicyChecklist password={newPassword} />
+                </div>
               </div>
 
               <div className="form-group">

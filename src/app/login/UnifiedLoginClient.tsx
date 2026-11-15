@@ -11,6 +11,9 @@ import {
   tabSessionsSupported,
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
+import {
+  rememberPasswordChangeChallenge,
+} from "@/lib/security/password-change-client";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -132,12 +135,14 @@ export default function UnifiedLoginClient({
   );
   const [invalidAdmin, setInvalidAdmin] = useState(requested === "admin");
   const [error, setError] = useState("");
+  const [emailUnverified, setEmailUnverified] = useState("");
   const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(0);
 
   const selectedConfig = selectedRole ? ROLE_BY_KEY[selectedRole] : null;
   // Surface the "password reset successful" notice from the ?reason deep link.
   const passwordReset = sp.reason === "password_reset";
+  const passwordUpgraded = sp.reason === "password_upgraded";
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -153,8 +158,14 @@ export default function UnifiedLoginClient({
       const result = await unifiedLogin(formData);
       if (!result || !result.success) {
         if (result?.adminLogin) setInvalidAdmin(true);
+        setEmailUnverified(result?.emailUnverified ? result.email ?? "" : "");
         setError(result?.error || "Login failed");
         setChallenge((value) => value + 1);
+        return;
+      }
+      if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
+        rememberPasswordChangeChallenge(result.challengeToken);
+        window.location.assign(result.redirectTo);
         return;
       }
       if (result.mfaToken && result.redirectTo) {
@@ -291,9 +302,24 @@ export default function UnifiedLoginClient({
               Password reset successful. Please sign in with your new password.
             </div>
           )}
+          {passwordUpgraded && (
+            <div role="status" className="banner banner-success mb-4 text-sm">
+              Password updated. Please sign in with your new password.
+            </div>
+          )}
           {error && (
             <div role="alert" aria-live="assertive" className="banner banner-error mb-4 text-sm">
               {error}
+              {emailUnverified && (
+                <p className="mt-2">
+                  <Link
+                    href={`/verify-email?email=${encodeURIComponent(emailUnverified)}`}
+                    className="font-semibold underline"
+                  >
+                    Resend verification email
+                  </Link>
+                </p>
+              )}
             </div>
           )}
 

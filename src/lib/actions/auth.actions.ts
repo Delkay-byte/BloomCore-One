@@ -41,6 +41,11 @@ import {
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
+import {
+  createPasswordChangeChallenge,
+  verifyPasswordChangeChallenge,
+} from "@/lib/security/password-change-challenge";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 
 /**
@@ -79,6 +84,14 @@ export interface ActionResponse {
   mfa?: "verify" | "enroll";
   /** Short-lived, tab-scoped MFA challenge (never a session). */
   mfaToken?: string;
+  /** The account must change its password before any session is issued. */
+  passwordChangeRequired?: boolean;
+  /** Purpose-bound challenge for the change screen. Never a session. */
+  challengeToken?: string;
+  /** The email address still needs verification. */
+  emailUnverified?: boolean;
+  /** Address to prefill on the verification screen (after a correct password). */
+  email?: string;
 }
 
 /**
@@ -95,6 +108,34 @@ function dashboardPathFor(module: ModuleName): string {
   if (module === "admin") return "/admin/dashboard";
   if (module === "momo") return "/worker/dashboard";
   return "/collector/dashboard";
+}
+
+/**
+ * Issue the purpose-bound challenge instead of a session. No module guard
+ * accepts this token, so the account cannot open dashboards, customers,
+ * financial records or offline queues until the password is changed.
+ */
+async function passwordChangeResponse(
+  subjectType: "user" | "customer",
+  subjectId: string,
+  module: ModuleName
+): Promise<{
+  success: true;
+  passwordChangeRequired: true;
+  challengeToken: string;
+  redirectTo: string;
+}> {
+  const challengeToken = await createPasswordChangeChallenge(
+    subjectType,
+    subjectId,
+    module
+  );
+  return {
+    success: true,
+    passwordChangeRequired: true,
+    challengeToken,
+    redirectTo: "/password-upgrade?required=1",
+  };
 }
 
 export async function login(
@@ -147,10 +188,31 @@ export async function login(
 
   await recordLoginSuccess(email, guard.ip, "login");
 
+  if (!user.emailVerified) {
+    return {
+      success: false,
+      emailUnverified: true,
+      email: user.email,
+      error:
+        "Verify your email address before signing in. Open the verification link sent to your inbox, or request another one.",
+    };
+  }
+
+  const moduleHint: ModuleName =
+    user.role === "admin" ? "admin" : user.momoEnabled ? "momo" : "susu";
+  if (user.forcePasswordReset) {
+    await createAuditLog({
+      userId: user.id,
+      action: "auth.password_upgrade_required",
+      entityType: "user",
+      entityId: user.id,
+    });
+    return passwordChangeResponse("user", user.id, moduleHint);
+  }
+
   // Every account type passes through the MFA policy gate, including the
   // legacy shared-login action.
-  const mfaModule: "admin" | "momo" | "susu" =
-    user.role === "admin" ? "admin" : user.momoEnabled ? "momo" : "susu";
+  const mfaModule: "admin" | "momo" | "susu" = moduleHint;
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "user",
     subjectId: user.id,
@@ -280,6 +342,28 @@ export async function selectWorkspace(
     return { success: false, error: "You are not authorized for this module." };
   }
 
+  // A workspace-selection token must never bypass verification or the
+  // mandatory password upgrade. Re-check the persisted account state.
+  const account = await db.user.findUnique({
+    where: { id: selection.userId },
+    select: { status: true, emailVerified: true, forcePasswordReset: true },
+  });
+  if (!account || account.status !== "active") {
+    return { success: false, error: "Workspace selection expired. Please sign in again." };
+  }
+  if (!account.emailVerified) {
+    return {
+      success: false,
+      error: "Verify your email address before opening a workspace.",
+    };
+  }
+  if (account.forcePasswordReset) {
+    return {
+      success: false,
+      error: "Sign in again to complete the required password upgrade.",
+    };
+  }
+
   const issued = await issueModuleSession(selection.userId, module);
 
   // The selection token is single-use. The shared legacy cookie is removed
@@ -335,6 +419,20 @@ export async function switchWorkspace(
   }
   if (sourceModule === target) {
     return { success: true };
+  }
+
+  const account = await db.user.findUnique({
+    where: { id: userId },
+    select: { status: true, emailVerified: true, forcePasswordReset: true },
+  });
+  if (!account || account.status !== "active") {
+    return { success: false, error: "Not authenticated" };
+  }
+  if (!account.emailVerified || account.forcePasswordReset) {
+    return {
+      success: false,
+      error: "Sign in again to complete the required account security upgrade.",
+    };
   }
 
   // Re-resolve the tenant and the user's effective module capabilities from
@@ -548,9 +646,9 @@ export async function changePassword(
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
-  const currentPassword = (formData.get("currentPassword") as string)?.trim();
-  const newPassword = (formData.get("newPassword") as string)?.trim();
-  const confirmPassword = (formData.get("confirmPassword") as string)?.trim();
+  const currentPassword = formData.get("currentPassword") as string;
+  const newPassword = formData.get("newPassword") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
 
   if (!currentPassword) {
     return { success: false, error: "Current password is required" };
@@ -560,8 +658,9 @@ export async function changePassword(
     return { success: false, error: "Passwords don't match" };
   }
 
-  if (newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   const dbUser = await db.user.findUnique({ where: { id: session.userId } });
@@ -583,6 +682,7 @@ export async function changePassword(
     data: {
       passwordHash: newHash,
       forcePasswordReset: false,
+      passwordPolicyVersion: 1,
       tokenVersion: { increment: 1 },
     },
   });
@@ -636,8 +736,9 @@ export async function resolveCustomerAuth(
   turnstileToken?: string | null
 ): Promise<
   | { payload: JwtPayload }
-  | { error: string }
+  | { error: string; emailUnverified?: boolean; email?: string }
   | { mfa: "verify" | "enroll"; mfaToken: string }
+  | { passwordChangeRequired: true; challengeToken: string; redirectTo: string }
 > {
   if (!identifier || !password) {
     return { error: CUSTOMER_GENERIC_ERROR };
@@ -718,6 +819,10 @@ export async function resolveCustomerAuth(
 
   await recordLoginSuccess(identifier, guard.ip, "customer_login");
 
+  if (customer.forcePortalPasswordReset) {
+    return passwordChangeResponse("customer", customer.id, "customer");
+  }
+
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "customer",
     subjectId: customer.id,
@@ -761,8 +866,9 @@ export async function resolveStaffAuth(
   turnstileToken?: string | null
 ): Promise<
   | { payload: JwtPayload }
-  | { error: string }
+  | { error: string; emailUnverified?: boolean; email?: string }
   | { mfa: "verify" | "enroll"; mfaToken: string }
+  | { passwordChangeRequired: true; challengeToken: string; redirectTo: string }
 > {
   if (!identifier || !password) {
     return { error: STAFF_GENERIC_ERROR };
@@ -815,6 +921,19 @@ export async function resolveStaffAuth(
   }
 
   await recordLoginSuccess(identifier, guard.ip, "login");
+
+  if (!user.emailVerified) {
+    return {
+      error:
+        "Verify your email address before signing in. Open the verification link sent to your inbox, or request another one.",
+      emailUnverified: true,
+      email: user.email,
+    };
+  }
+
+  if (user.forcePasswordReset) {
+    return passwordChangeResponse("user", user.id, module);
+  }
 
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "user",
@@ -873,7 +992,22 @@ export async function customerLogin(
     password ?? "",
     turnstileToken
   );
-  if ("error" in result) return { success: false, error: result.error };
+  if ("error" in result) {
+    return {
+      success: false,
+      error: result.error,
+      emailUnverified: result.emailUnverified,
+      email: result.email,
+    };
+  }
+  if ("passwordChangeRequired" in result) {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: result.challengeToken,
+      redirectTo: result.redirectTo,
+    };
+  }
   if ("mfa" in result) {
     return {
       success: true,
@@ -936,7 +1070,22 @@ export async function unifiedLogin(
       password ?? "",
       turnstileToken
     );
-    if ("error" in result) return { success: false, error: result.error };
+    if ("error" in result) {
+    return {
+      success: false,
+      error: result.error,
+      emailUnverified: result.emailUnverified,
+      email: result.email,
+    };
+  }
+  if ("passwordChangeRequired" in result) {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: result.challengeToken,
+      redirectTo: result.redirectTo,
+    };
+  }
     if ("mfa" in result) {
       return {
         success: true,
@@ -969,7 +1118,22 @@ export async function unifiedLogin(
     mod,
     turnstileToken
   );
-  if ("error" in result) return { success: false, error: result.error };
+  if ("error" in result) {
+    return {
+      success: false,
+      error: result.error,
+      emailUnverified: result.emailUnverified,
+      email: result.email,
+    };
+  }
+  if ("passwordChangeRequired" in result) {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: result.challengeToken,
+      redirectTo: result.redirectTo,
+    };
+  }
   if ("mfa" in result) {
     return {
       success: true,
@@ -1037,6 +1201,19 @@ export async function adminLogin(
 
   await recordLoginSuccess(email, guard.ip, "admin_login");
 
+  if (!user.emailVerified) {
+    return {
+      success: false,
+      emailUnverified: true,
+      email: user.email,
+      error:
+        "Verify your email address before signing in. Open the verification link sent to your inbox, or request another one.",
+    };
+  }
+  if (user.forcePasswordReset) {
+    return passwordChangeResponse("user", user.id, "admin");
+  }
+
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "user",
     subjectId: user.id,
@@ -1073,6 +1250,106 @@ export async function adminLogin(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Forced password upgrade challenge
+// ---------------------------------------------------------------------------
+
+/**
+ * Complete the mandatory change using the purpose-bound challenge issued at
+ * login. No session exists yet, so this action cannot be used to open any other
+ * feature. On success the user signs in again with the new password (MFA is
+ * reapplied at that login).
+ */
+export async function completeRequiredPasswordChange(
+  formData: FormData
+): Promise<ActionResponse> {
+  const challengeToken = String(formData.get("challengeToken") ?? "");
+  const newPassword = formData.get("newPassword") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
+
+  const challenge = await verifyPasswordChangeChallenge(challengeToken);
+  if (!challenge) {
+    return {
+      success: false,
+      error: "This password-change session has expired. Sign in again to continue.",
+    };
+  }
+  if (newPassword !== confirmPassword) {
+    return { success: false, error: "Passwords don't match" };
+  }
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) return { success: false, error: policyError };
+
+  const newHash = await hashPassword(newPassword);
+
+  if (challenge.subjectType === "user") {
+    // Conditional update makes concurrent submissions safe: only the request
+    // that flips forcePasswordReset from true can change the password.
+    const updated = await db.user.updateMany({
+      where: {
+        id: challenge.subjectId,
+        status: "active",
+        forcePasswordReset: true,
+      },
+      data: {
+        passwordHash: newHash,
+        forcePasswordReset: false,
+        passwordPolicyVersion: 1,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return {
+        success: false,
+        error: "This password upgrade is no longer required. Sign in again.",
+      };
+    }
+    await revokeAllUserSessions("user", challenge.subjectId, "forced_password_upgrade");
+    await createAuditLog({
+      userId: challenge.subjectId,
+      action: "auth.forced_password_upgraded",
+      entityType: "user",
+      entityId: challenge.subjectId,
+    });
+    return { success: true, redirectTo: "/login?reason=password_upgraded" };
+  }
+
+  if (challenge.subjectType === "customer") {
+    const updated = await db.customer.updateMany({
+      where: {
+        id: challenge.subjectId,
+        status: "active",
+        forcePortalPasswordReset: true,
+      },
+      data: {
+        portalPasswordHash: newHash,
+        forcePortalPasswordReset: false,
+        passwordPolicyVersion: 1,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return {
+        success: false,
+        error: "This password upgrade is no longer required. Sign in again.",
+      };
+    }
+    await revokeAllUserSessions("customer", challenge.subjectId, "forced_password_upgrade");
+    await createAuditLog({
+      userId: challenge.subjectId,
+      action: "auth.forced_customer_password_upgraded",
+      entityType: "customer",
+      entityId: challenge.subjectId,
+    });
+    return { success: true, redirectTo: "/login?role=customer&reason=password_upgraded" };
+  }
+
+  return {
+    success: false,
+    error: "This password-change session is not valid here. Sign in again.",
+  };
+}
+
 export async function customerChangePassword(
   formData: FormData
 ): Promise<ActionResponse> {
@@ -1084,9 +1361,9 @@ export async function customerChangePassword(
     return { success: false, error: "Session expired. Please sign in again." };
   }
 
-  const currentPassword = (formData.get("currentPassword") as string)?.trim();
-  const newPassword = (formData.get("newPassword") as string)?.trim();
-  const confirmPassword = (formData.get("confirmPassword") as string)?.trim();
+  const currentPassword = formData.get("currentPassword") as string;
+  const newPassword = formData.get("newPassword") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
 
   if (!currentPassword) {
     return { success: false, error: "Current password is required" };
@@ -1096,8 +1373,9 @@ export async function customerChangePassword(
     return { success: false, error: "Passwords don't match" };
   }
 
-  if (newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   const customer = await db.customer.findUnique({ where: { id: session.userId } });
@@ -1118,6 +1396,7 @@ export async function customerChangePassword(
     data: {
       portalPasswordHash: newHash,
       forcePortalPasswordReset: false,
+      passwordPolicyVersion: 1,
       tokenVersion: { increment: 1 },
     },
   });

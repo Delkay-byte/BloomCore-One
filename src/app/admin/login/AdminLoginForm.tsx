@@ -11,6 +11,7 @@ import {
   tabSessionsSupported,
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
+import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-client";
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
@@ -23,12 +24,19 @@ const WORKSPACE_POINTS = [
 
 export default function AdminLoginForm() {
   const [error, setError] = useState("");
+  const [emailUnverified, setEmailUnverified] = useState("");
   const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(0);
 
   const [passwordReset] = useState(() => {
     if (typeof window !== "undefined") {
       return new URLSearchParams(window.location.search).get("reason") === "password_reset";
+    }
+    return false;
+  });
+  const [passwordUpgraded] = useState(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("reason") === "password_upgraded";
     }
     return false;
   });
@@ -46,8 +54,14 @@ export default function AdminLoginForm() {
     try {
       const result = await adminLogin(formData);
       if (!result || !result.success) {
+        setEmailUnverified(result?.emailUnverified ? result.email ?? "" : "");
         setError(result?.error || "Login failed");
         setChallenge((value) => value + 1);
+        return;
+      }
+      if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
+        rememberPasswordChangeChallenge(result.challengeToken);
+        window.location.assign(result.redirectTo);
         return;
       }
       if (result.mfaToken && result.redirectTo) {
@@ -163,9 +177,25 @@ export default function AdminLoginForm() {
                   Password reset successful. Sign in with your new password.
                 </div>
               )}
+              {passwordUpgraded && (
+                <div role="status" className="banner banner-success mt-6 flex items-start gap-2 text-sm">
+                  <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
+                  Password updated. Sign in with your new password.
+                </div>
+              )}
               {error && (
                 <div role="alert" className="banner banner-error mt-6 text-sm">
                   {error}
+                  {emailUnverified && (
+                    <p className="mt-2">
+                      <Link
+                        href={`/verify-email?email=${encodeURIComponent(emailUnverified)}`}
+                        className="font-semibold underline"
+                      >
+                        Resend verification email
+                      </Link>
+                    </p>
+                  )}
                 </div>
               )}
 

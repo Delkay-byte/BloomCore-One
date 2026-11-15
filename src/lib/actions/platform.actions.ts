@@ -33,6 +33,12 @@ import { logSecurityEvent } from "@/lib/security/log";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
+import {
+  createPasswordChangeChallenge,
+  verifyPasswordChangeChallenge,
+} from "@/lib/security/password-change-challenge";
+import { revokeAllSubjectSessions } from "@/lib/security/session-store";
+import { issueEmailVerification } from "@/lib/security/account-tokens";
 import { headers } from "next/headers";
 
 export interface PlatformActionResponse {
@@ -44,6 +50,8 @@ export interface PlatformActionResponse {
   redirectTo?: string;
   mfa?: "verify" | "enroll";
   mfaToken?: string;
+  passwordChangeRequired?: boolean;
+  challengeToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,9 +63,10 @@ function generateTempPassword(): string {
   const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const lower = "abcdefghijkmnpqrstuvwxyz";
   const digits = "23456789";
-  const all = upper + lower + digits;
+  const symbols = "!@#$%&*?";
+  const all = upper + lower + digits + symbols;
   const pick = (set: string) => set[randomBytes(1)[0] % set.length];
-  let out = pick(upper) + pick(lower) + pick(digits);
+  let out = pick(upper) + pick(lower) + pick(digits) + pick(symbols);
   for (let i = 0; i < 9; i++) out += pick(all);
   // Shuffle so the guaranteed characters are not in predictable positions.
   return out
@@ -141,6 +150,19 @@ export async function platformLogin(
 
   await recordLoginSuccess(email, guard.ip, "platform_login");
 
+  if (result.admin.forcePasswordReset) {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: await createPasswordChangeChallenge(
+        "platform",
+        result.admin.adminId,
+        "platform"
+      ),
+      redirectTo: "/password-upgrade?required=1",
+    };
+  }
+
   const adminRow = await db.platformSuperAdmin.findUnique({
     where: { id: result.admin.adminId },
     select: { mfaEnabled: true },
@@ -188,6 +210,66 @@ export async function platformLogin(
       ? "/platform/first-login"
       : "/platform/dashboard",
   };
+}
+
+/**
+ * Complete the forced platform-password upgrade using the login challenge.
+ * No platform session is issued here; the operator signs in again afterwards.
+ */
+export async function completeRequiredPlatformPasswordChange(
+  formData: FormData
+): Promise<PlatformActionResponse> {
+  const challengeToken = String(formData.get("challengeToken") ?? "");
+  const newPassword = String(formData.get("newPassword") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  const challenge = await verifyPasswordChangeChallenge(challengeToken);
+  if (!challenge || challenge.subjectType !== "platform") {
+    return {
+      success: false,
+      error: "This password-change session has expired. Sign in again to continue.",
+    };
+  }
+  if (newPassword !== confirmPassword) {
+    return { success: false, error: "New passwords do not match" };
+  }
+  const policyError = validatePasswordPolicy(newPassword);
+  if (policyError) return { success: false, error: policyError };
+
+  const updated = await db.platformSuperAdmin.updateMany({
+    where: {
+      id: challenge.subjectId,
+      status: "active",
+      forcePasswordReset: true,
+    },
+    data: {
+      passwordHash: await hashPlatformPassword(newPassword),
+      forcePasswordReset: false,
+      passwordPolicyVersion: 1,
+      tokenVersion: { increment: 1 },
+    },
+  });
+  if (updated.count !== 1) {
+    return {
+      success: false,
+      error: "This password upgrade is no longer required. Sign in again.",
+    };
+  }
+  await revokeAllSubjectSessions(
+    "platform",
+    challenge.subjectId,
+    "forced_password_upgrade"
+  );
+  const admin = await db.platformSuperAdmin.findUnique({
+    where: { id: challenge.subjectId },
+    select: { email: true },
+  });
+  await createPlatformAuditLog({
+    actorId: challenge.subjectId,
+    actorEmail: admin?.email ?? "platform-admin",
+    action: PLATFORM_AUDIT_ACTIONS.PLATFORM_PASSWORD_CHANGED,
+  });
+  return { success: true, redirectTo: "/platform/login?reason=password_upgraded" };
 }
 
 export async function platformLogout(): Promise<PlatformActionResponse> {
@@ -250,6 +332,7 @@ export async function platformChangePassword(
     data: {
       passwordHash: await hashPlatformPassword(newPassword),
       forcePasswordReset: false,
+      passwordPolicyVersion: 1,
       tokenVersion: { increment: 1 },
     },
   });
@@ -631,6 +714,7 @@ export async function enrollTenant(
           status: "active",
           passwordHash,
           forcePasswordReset: true,
+          emailVerified: false,
           momoEnabled: true,
           susuEnabled: true,
           tenantId: tenant.id,
@@ -677,6 +761,7 @@ export async function enrollTenant(
 
     revalidatePath("/platform/tenants");
     revalidatePath("/platform/dashboard");
+    await issueEmailVerification(created.admin.id).catch(() => undefined);
 
     return {
       success: true,

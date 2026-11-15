@@ -129,6 +129,7 @@ describe("PostgreSQL Zeli analytics", () => {
         status: "active",
         source: "manual",
         reason: "PostgreSQL entitlement lifecycle test",
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
         expiresAt: new Date("2026-12-31T23:59:59.000Z"),
       },
     });

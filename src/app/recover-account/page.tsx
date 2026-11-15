@@ -78,11 +78,11 @@ export default function RecoverAccountPage() {
                     name="newPassword"
                     type="password"
                     required
-                    minLength={8}
+                    minLength={12}
                     autoComplete="new-password"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    At least 8 characters, one uppercase letter and one number.
+                    At least 12 characters with an uppercase letter, a lowercase letter, a number and a symbol.
                   </p>
                 </div>
                 <div className="form-group">
@@ -92,7 +92,7 @@ export default function RecoverAccountPage() {
                     name="confirmPassword"
                     type="password"
                     required
-                    minLength={8}
+                    minLength={12}
                     autoComplete="new-password"
                   />
                 </div>

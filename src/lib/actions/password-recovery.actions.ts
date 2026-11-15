@@ -13,6 +13,8 @@ import { humanizeSeconds } from "@/lib/security/auth-guard";
 import { logSecurityEvent } from "@/lib/security/log";
 import { validatePasswordPolicy } from "@/lib/platform-auth";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
+import { sendTransactionalEmail } from "@/lib/email/resend";
+import { passwordResetEmail } from "@/lib/email/templates";
 
 export interface ActionResponse {
   success: boolean;
@@ -111,9 +113,9 @@ export async function requestPasswordReset(
     where: { email: normalisedEmail },
   });
 
-  if (!user || user.status !== "active") {
-    // Same timing-independent response. No token is generated for an unknown
-    // account, but the caller cannot tell the difference.
+  if (!user || user.status !== "active" || !user.emailVerified) {
+    // Same response for unknown, inactive and unverified accounts. A reset link
+    // is never sent to an address that has not been verified.
     return genericSuccess;
   }
 
@@ -123,7 +125,7 @@ export async function requestPasswordReset(
 
   const rawToken = generateToken();
   const tokenHash = sha256(rawToken);
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
 
   await db.passwordResetToken.create({
     data: {
@@ -143,17 +145,23 @@ export async function requestPasswordReset(
     ipAddress: ip ?? undefined,
   });
 
-  /*
-   * No email provider is configured in this deployment. The raw token must
-   * NEVER be returned to the browser (that would be an account-takeover
-   * primitive). Delivery is an outstanding owner action documented in
-   * docs/security/PRODUCTION-SECURITY-ROLLOUT.md.
-   */
-  if (process.env.PASSWORD_RESET_DELIVERY === "console") {
-    console.warn(
-      "[SECURITY] Password reset token generated but no email channel is configured. " +
-        "Delivery is blocked until an email provider is integrated."
-    );
+  const template = passwordResetEmail({
+    fullName: user.fullName,
+    token: rawToken,
+    expiresInMinutes: 30,
+  });
+  const delivery = await sendTransactionalEmail({
+    to: user.email,
+    ...template,
+    tag: "password_reset",
+  });
+
+  if (!delivery.ok) {
+    // The token was never delivered. Remove it so a later retry starts clean.
+    // The caller still receives the generic response and cannot infer failure.
+    await db.passwordResetToken
+      .deleteMany({ where: { tokenHash, usedAt: null } })
+      .catch(() => undefined);
   }
 
   return genericSuccess;
@@ -246,6 +254,7 @@ export async function completePasswordReset(params: {
       data: {
         passwordHash: newHash,
         forcePasswordReset: false,
+        passwordPolicyVersion: 1,
         tokenVersion: { increment: 1 },
       },
     });

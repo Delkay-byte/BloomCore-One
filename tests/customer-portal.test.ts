@@ -254,7 +254,7 @@ describe("Create customer with temporary password", () => {
     fd.set("fullName", "New Portal Customer");
     fd.set("phone", "+233241111111");
     fd.set("dailyContribution", "50");
-    fd.set("temporaryPassword", "TempPass123");
+    fd.set("temporaryPassword", "TempStrong!Pass123");
 
     const result = await customerActions.createCustomer(fd);
     expect(result.success).toBe(true);
@@ -264,7 +264,7 @@ describe("Create customer with temporary password", () => {
     expect(created.portalEnabled).toBe(true);
     expect(created.forcePortalPasswordReset).toBe(true);
     expect(created.portalPasswordHash).toBeTruthy();
-    expect(created.portalPasswordHash).not.toBe("TempPass123"); // stored hashed, never plaintext
+    expect(created.portalPasswordHash).not.toBe("TempStrong!Pass123"); // stored hashed, never plaintext
   });
 
   it("does not enable portal access when no password is supplied", async () => {
@@ -286,6 +286,6 @@ describe("Create customer with temporary password", () => {
     fd.set("temporaryPassword", "short");
     const result = await customerActions.createCustomer(fd);
     expect(result.success).toBe(false);
-    expect(result.error).toMatch(/8 characters/i);
+    expect(result.error).toMatch(/12 characters/i);
   });
 });

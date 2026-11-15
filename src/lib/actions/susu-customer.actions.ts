@@ -9,6 +9,7 @@ import {
   type TenantContext,
 } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
@@ -77,11 +78,11 @@ export async function createCustomer(
   if (!dailyContribution || dailyContribution <= 0) {
     return { success: false, error: "Daily contribution must be greater than 0" };
   }
-  if (temporaryPassword && temporaryPassword.length < 8) {
-    return {
-      success: false,
-      error: "Temporary password must be at least 8 characters",
-    };
+  if (temporaryPassword) {
+    const policyError = validatePasswordPolicy(temporaryPassword);
+    if (policyError) {
+      return { success: false, error: `Temporary password: ${policyError}` };
+    }
   }
 
   // Customer, account, card fee and first cycle are created together so a
@@ -880,11 +881,12 @@ export async function createCustomerPortalAccess(
   if (!loginIdentifier) {
     return { success: false, error: "Login identifier is required" };
   }
-  if (!temporaryPassword || temporaryPassword.length < 8) {
-    return {
-      success: false,
-      error: "Temporary password must be at least 8 characters",
-    };
+  if (!temporaryPassword) {
+    return { success: false, error: "Temporary password is required" };
+  }
+  const tempPolicyError = validatePasswordPolicy(temporaryPassword);
+  if (tempPolicyError) {
+    return { success: false, error: tempPolicyError };
   }
 
   if (!(await assertTenantEntity("customer", customerId, ctx))) {
@@ -938,8 +940,9 @@ export async function resetCustomerPassword(
   const ctx = await requireTenantAdminSusu();
 
   const newPassword = formData.get("newPassword") as string;
-  if (!newPassword || newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   if (!(await assertTenantEntity("customer", customerId, ctx))) {
