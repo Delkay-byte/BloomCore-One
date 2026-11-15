@@ -42,3 +42,17 @@ ALTER TABLE "EmailVerificationToken" ADD CONSTRAINT "EmailVerificationToken_user
 -- statements make the intent reviewable and idempotent.
 UPDATE "User" SET "emailVerified" = true WHERE "emailVerified" IS DISTINCT FROM true;
 UPDATE "User" SET "forcePasswordReset" = true;
+
+-- Every password-authenticated platform administrator must upgrade too. The
+-- established flag is reused; passwordPolicyVersion is metadata, not the gate.
+UPDATE "PlatformSuperAdmin"
+SET "forcePasswordReset" = true
+WHERE "passwordHash" IS NOT NULL AND "passwordHash" <> '';
+
+-- Customer portal accounts are only marked when they actually have usable
+-- portal credentials. Customers without portal access are untouched.
+UPDATE "Customer"
+SET "forcePortalPasswordReset" = true
+WHERE "portalEnabled" = true
+  AND "portalPasswordHash" IS NOT NULL
+  AND "portalPasswordHash" <> '';

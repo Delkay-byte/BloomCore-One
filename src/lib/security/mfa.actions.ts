@@ -25,6 +25,7 @@ import {
   consumeMfaChallenge,
   consumeMfaEnrollmentProof,
 } from "@/lib/security/session-store";
+import { createPasswordChangeChallenge } from "@/lib/security/password-change-challenge";
 
 /**
  * MFA server actions.
@@ -45,6 +46,9 @@ export interface MfaActionResult {
   /** Issued only after a successful challenge; handed to this tab's worker. */
   sessionToken?: string;
   redirectTo?: string;
+  /** Present instead of a session when the account must upgrade its password. */
+  passwordChangeRequired?: boolean;
+  challengeToken?: string;
 }
 
 async function clientIp(): Promise<string | null> {
@@ -53,6 +57,22 @@ async function clientIp(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function mfaOutcomeResult(outcome: PostMfaOutcome): MfaActionResult {
+  if (outcome.kind === "challenge") {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: outcome.token,
+      redirectTo: outcome.redirectTo,
+    };
+  }
+  return {
+    success: true,
+    sessionToken: outcome.token,
+    redirectTo: outcome.redirectTo,
+  };
 }
 
 function dashboardFor(module: string): string {
@@ -75,11 +95,20 @@ async function mfaRateLimited(
   )} minute(s) and try again.`;
 }
 
+type PostMfaOutcome =
+  | { kind: "session"; token: string; redirectTo: string }
+  | {
+      kind: "challenge";
+      token: string;
+      redirectTo: string;
+      passwordChangeRequired: true;
+    };
+
 async function issueSessionFromChallenge(challenge: {
   module: string;
   subjectId: string;
   tokenVersion: number;
-}): Promise<{ token: string; redirectTo: string }> {
+}): Promise<PostMfaOutcome> {
   if (challenge.module === "platform") {
     const admin = await db.platformSuperAdmin.findUnique({
       where: { id: challenge.subjectId },
@@ -88,20 +117,23 @@ async function issueSessionFromChallenge(challenge: {
     if (admin.tokenVersion !== challenge.tokenVersion) {
       throw new Error("Session expired. Please sign in again.");
     }
+    if (admin.forcePasswordReset) {
+      return {
+        kind: "challenge",
+        passwordChangeRequired: true,
+        token: await createPasswordChangeChallenge("platform", admin.id, "platform"),
+        redirectTo: "/password-upgrade?required=1",
+      };
+    }
     const token = await setPlatformSession({
       adminId: admin.id,
       email: admin.email,
       fullName: admin.fullName,
-      forcePasswordReset: admin.forcePasswordReset,
+      forcePasswordReset: false,
       tokenVersion: admin.tokenVersion,
       amr: "pwd+mfa",
     });
-    return {
-      token,
-      redirectTo: admin.forcePasswordReset
-        ? "/platform/first-login"
-        : "/platform/dashboard",
-    };
+    return { kind: "session", token, redirectTo: "/platform/dashboard" };
   }
 
   if (challenge.module === "customer") {
@@ -114,6 +146,14 @@ async function issueSessionFromChallenge(challenge: {
     if ((customer.tokenVersion ?? 0) !== challenge.tokenVersion) {
       throw new Error("Session expired. Please sign in again.");
     }
+    if (customer.forcePortalPasswordReset) {
+      return {
+        kind: "challenge",
+        passwordChangeRequired: true,
+        token: await createPasswordChangeChallenge("customer", customer.id, "customer"),
+        redirectTo: "/password-upgrade?required=1",
+      };
+    }
     const token = await setModuleSession("customer", {
       userId: customer.id,
       email: customer.email || `${customer.customerId}@bloomcore.local`,
@@ -122,31 +162,34 @@ async function issueSessionFromChallenge(challenge: {
       modules: ["customer"],
       module: "customer",
       tenantId: customer.tenantId,
-      forcePasswordReset: customer.forcePortalPasswordReset ?? false,
+      forcePasswordReset: false,
       tokenVersion: customer.tokenVersion ?? 0,
       amr: "pwd+mfa",
     });
-    return {
-      token,
-      redirectTo: customer.forcePortalPasswordReset
-        ? "/customer/first-login"
-        : "/customer/dashboard",
-    };
+    return { kind: "session", token, redirectTo: "/customer/dashboard" };
   }
 
   const user = await db.user.findUnique({ where: { id: challenge.subjectId } });
   if (!user || user.status !== "active") throw new Error("Account unavailable");
+  if (!user.emailVerified) throw new Error("Verify your email address before signing in.");
   if (user.tokenVersion !== challenge.tokenVersion) {
     throw new Error("Session expired. Please sign in again.");
   }
 
   const sessionModule = challenge.module as "admin" | "momo" | "susu";
+  if (user.forcePasswordReset) {
+    return {
+      kind: "challenge",
+      passwordChangeRequired: true,
+      token: await createPasswordChangeChallenge("user", user.id, sessionModule),
+      redirectTo: "/password-upgrade?required=1",
+    };
+  }
   const issued = await issueModuleSession(user.id, sessionModule, true);
   return {
+    kind: "session",
     token: issued.token,
-    redirectTo: issued.payload.forcePasswordReset
-      ? `/${sessionModule === "admin" ? "admin" : sessionModule === "momo" ? "worker" : "collector"}/first-login`
-      : dashboardFor(sessionModule),
+    redirectTo: dashboardFor(sessionModule),
   };
 }
 
@@ -245,7 +288,7 @@ export async function finishMfaEnrollmentAction(
       error: "Enrolment was not confirmed. Verify a code before continuing.",
     };
   }
-  let issued: { token: string; redirectTo: string };
+  let issued: PostMfaOutcome;
   try {
     issued = await issueSessionFromChallenge(challenge);
   } catch (error) {
@@ -254,11 +297,7 @@ export async function finishMfaEnrollmentAction(
       error: error instanceof Error ? error.message : "Could not open a session.",
     };
   }
-  return {
-    success: true,
-    sessionToken: issued.token,
-    redirectTo: issued.redirectTo,
-  };
+  return mfaOutcomeResult(issued);
 }
 
 /** Verify a TOTP/recovery code for a pending login and open the session. */
@@ -325,7 +364,7 @@ export async function verifyMfaLoginAction(
     };
   }
 
-  let issued: { token: string; redirectTo: string };
+  let issued: PostMfaOutcome;
   try {
     issued = await issueSessionFromChallenge(challenge);
   } catch (error) {
@@ -344,11 +383,7 @@ export async function verifyMfaLoginAction(
     entityId: challenge.subjectId,
   });
 
-  return {
-    success: true,
-    sessionToken: issued.token,
-    redirectTo: issued.redirectTo,
-  };
+  return mfaOutcomeResult(issued);
 }
 
 /** Settings: start enrolment for the currently authenticated account. */

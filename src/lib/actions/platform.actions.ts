@@ -150,19 +150,6 @@ export async function platformLogin(
 
   await recordLoginSuccess(email, guard.ip, "platform_login");
 
-  if (result.admin.forcePasswordReset) {
-    return {
-      success: true,
-      passwordChangeRequired: true,
-      challengeToken: await createPasswordChangeChallenge(
-        "platform",
-        result.admin.adminId,
-        "platform"
-      ),
-      redirectTo: "/password-upgrade?required=1",
-    };
-  }
-
   const adminRow = await db.platformSuperAdmin.findUnique({
     where: { id: result.admin.adminId },
     select: { mfaEnabled: true },
@@ -184,6 +171,19 @@ export async function platformLogin(
       mfa: mfaStep.mode,
       mfaToken: mfaStep.token,
       redirectTo: `/mfa/${mfaStep.mode}`,
+    };
+  }
+
+  if (result.admin.forcePasswordReset) {
+    return {
+      success: true,
+      passwordChangeRequired: true,
+      challengeToken: await createPasswordChangeChallenge(
+        "platform",
+        result.admin.adminId,
+        "platform"
+      ),
+      redirectTo: "/password-upgrade?required=1",
     };
   }
 

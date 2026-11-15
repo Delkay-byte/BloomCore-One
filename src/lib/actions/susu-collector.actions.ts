@@ -69,8 +69,12 @@ export async function createCollector(
   if (!email) {
     return { success: false, error: "Email is required" };
   }
-  if (!password || password.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  if (!password) {
+    return { success: false, error: "Password is required" };
+  }
+  const policyError = validatePasswordPolicy(password);
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   // Email is globally unique (login resolves by email with no tenant hint).

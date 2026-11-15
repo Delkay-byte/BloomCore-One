@@ -50,8 +50,10 @@
    `bloomcore-one:password-change`, 10-minute expiry, purpose and subject claims). It is stored
    only in the tab's `sessionStorage`, never in a URL, and authorises only the change action. It
    is not a session and cannot read protected endpoints.
-5. **Login order:** credentials → account active → email verified → mandatory-change challenge
-   → MFA → session. An unverified or change-required account never receives a session.
+5. **Login order:** credentials → account active → email verified → required MFA (verify or
+   enrol) → mandatory-change challenge → session. An unverified or change-required account
+   never receives a session. If MFA is required, the challenge is issued only from the MFA
+   completion action after the factor is proven.
 6. **Platform SSO:** an operator with `forcePasswordReset` is not given a platform session; the
    callback directs them to the local login so the challenge path can be used.
 7. **Email safety:** all sends go through one Resend client. Tests and an explicit disabled mode
@@ -137,10 +139,13 @@ No secret values are recorded here.
 ### Login changes
 
 - Staff/admin/customer/platform password logins check, in order: password → active status →
-  email verified (User) → mandatory-change challenge → MFA → session.
+  email verified (User) → required MFA verify/enrolment → mandatory-change challenge → session.
 - A mandatory account receives `{ passwordChangeRequired, challengeToken }` and **no**
   `sessionToken`. The client stores the challenge in sessionStorage and opens
   `/password-upgrade?required=1`.
+- The MFA success and enrolment-finish actions re-read the persisted account state. If the
+  forced-change flag is set they return the password-change challenge instead of a session.
+  A password-only login cannot skip MFA to reach the challenge.
 - `completeRequiredPasswordChange` verifies the challenge, policy and persisted flag, updates
   the hash, clears the flag, records `passwordPolicyVersion = 1`, increments tokenVersion,
   revokes older sessions and asks the user to sign in again.
@@ -195,6 +200,9 @@ Additive PostgreSQL migration
 - `Customer.passwordPolicyVersion INTEGER NOT NULL DEFAULT 0`
 - New `EmailVerificationToken` table + indexes + cascade foreign key to `User`
 - Backfill: all existing User rows verified; all existing User rows `forcePasswordReset = true`
+- Backfill: every PlatformSuperAdmin with a password hash `forcePasswordReset = true`
+- Backfill: portal-enabled Customers with a non-empty `portalPasswordHash`
+  `forcePortalPasswordReset = true`; customers without portal credentials untouched
 
 No table is dropped, recreated or truncated. No password hash, role, tenant, financial,
 customer, device or offline row is changed by the migration. SQLite uses the matching
@@ -202,7 +210,7 @@ customer, device or offline row is changed by the migration. SQLite uses the mat
 
 ## 8. Tests executed
 
-- `npm test`: **839 passed / 80 files** (includes 16 new authentication tests).
+- `npm test`: **847 passed / 81 files** (includes 24 new authentication/MFA tests and the collector policy test).
 - `npm run typecheck`: clean.
 - `npm run lint`: 0 errors (71 warnings; no new errors).
 - `npm run build`: compiled successfully.
@@ -214,9 +222,9 @@ customer, device or offline row is changed by the migration. SQLite uses the mat
   - `migrate diff --exit-code`: no difference;
   - upgrade rehearsal: a user inserted at the previous schema revision became
     `emailVerified=true`, `passwordPolicyVersion=0`, `forcePasswordReset=true`;
-  - PostgreSQL integration tests: **35 passed / 7 files**.
+  - PostgreSQL integration tests: **36 passed / 8 files**.
 
-Coverage includes registration verification, token reuse/expiry, resend cooldown, delivery
+Coverage includes MFA-before-challenge for verified and enrolment paths, challenge type separation, expiry/replay, registration verification, token reuse/expiry, resend cooldown, delivery
 failure, unverified login block, mandatory challenge for staff/admin/customer/platform, no
 session before change, weak password rejection, challenge replay, old password invalidation,
 generic reset responses, token consumption, tenant isolation and existing-session behaviour.

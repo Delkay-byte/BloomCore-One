@@ -81,7 +81,7 @@ async function seedPilotData() {
       },
     });
 
-    const workerHash = await bcrypt.hash('Worker123', 10);
+    const workerHash = await bcrypt.hash('Worker!Pass1234', 10);
     const worker = await prisma.user.create({
       data: {
         fullName: `Pilot Worker ${i}`,
@@ -99,7 +99,7 @@ async function seedPilotData() {
   invariant('4 MoMo workers created', 4, workerUsers.length);
 
   // === ADMIN ===
-  const adminHash = await bcrypt.hash('Admin123', 10);
+  const adminHash = await bcrypt.hash('Admin!Pass1234', 10);
   const admin = await prisma.user.create({
     data: {
       fullName: 'Pilot Admin',
@@ -173,7 +173,7 @@ async function seedPilotData() {
   invariant('5 Susu customers created', 5, susuCustomers.length);
 
   // === 2 Collectors ===
-  const coll1Hash = await bcrypt.hash('Collector123', 10);
+  const coll1Hash = await bcrypt.hash('Collector!Pass1234', 10);
   const coll1User = await prisma.user.create({
     data: {
       fullName: 'Pilot Collector A',
@@ -187,7 +187,7 @@ async function seedPilotData() {
     data: { userId: coll1User.id, status: 'active' },
   });
 
-  const coll2Hash = await bcrypt.hash('Collector123', 10);
+  const coll2Hash = await bcrypt.hash('Collector!Pass1234', 10);
   const coll2User = await prisma.user.create({
     data: {
       fullName: 'Pilot Collector B',

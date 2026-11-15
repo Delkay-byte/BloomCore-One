@@ -200,15 +200,6 @@ export async function login(
 
   const moduleHint: ModuleName =
     user.role === "admin" ? "admin" : user.momoEnabled ? "momo" : "susu";
-  if (user.forcePasswordReset) {
-    await createAuditLog({
-      userId: user.id,
-      action: "auth.password_upgrade_required",
-      entityType: "user",
-      entityId: user.id,
-    });
-    return passwordChangeResponse("user", user.id, moduleHint);
-  }
 
   // Every account type passes through the MFA policy gate, including the
   // legacy shared-login action.
@@ -231,6 +222,16 @@ export async function login(
       mfaToken: mfaStep.token,
       redirectTo: `/mfa/${mfaStep.mode}`,
     };
+  }
+
+  if (user.forcePasswordReset) {
+    await createAuditLog({
+      userId: user.id,
+      action: "auth.password_upgrade_required",
+      entityType: "user",
+      entityId: user.id,
+    });
+    return passwordChangeResponse("user", user.id, moduleHint);
   }
 
   const modules: ("momo" | "susu")[] = [];
@@ -819,10 +820,6 @@ export async function resolveCustomerAuth(
 
   await recordLoginSuccess(identifier, guard.ip, "customer_login");
 
-  if (customer.forcePortalPasswordReset) {
-    return passwordChangeResponse("customer", customer.id, "customer");
-  }
-
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "customer",
     subjectId: customer.id,
@@ -835,6 +832,10 @@ export async function resolveCustomerAuth(
     tokenVersion: customer.tokenVersion ?? 0,
   });
   if (mfaStep) return { mfa: mfaStep.mode, mfaToken: mfaStep.token };
+
+  if (customer.forcePortalPasswordReset) {
+    return passwordChangeResponse("customer", customer.id, "customer");
+  }
 
   const payload: JwtPayload = {
     userId: customer.id,
@@ -931,10 +932,6 @@ export async function resolveStaffAuth(
     };
   }
 
-  if (user.forcePasswordReset) {
-    return passwordChangeResponse("user", user.id, module);
-  }
-
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "user",
     subjectId: user.id,
@@ -947,6 +944,10 @@ export async function resolveStaffAuth(
     tokenVersion: user.tokenVersion,
   });
   if (mfaStep) return { mfa: mfaStep.mode, mfaToken: mfaStep.token };
+
+  if (user.forcePasswordReset) {
+    return passwordChangeResponse("user", user.id, module);
+  }
 
   const authorizedModules: ("momo" | "susu")[] = [];
   if (user.momoEnabled) authorizedModules.push("momo");
@@ -1210,9 +1211,6 @@ export async function adminLogin(
         "Verify your email address before signing in. Open the verification link sent to your inbox, or request another one.",
     };
   }
-  if (user.forcePasswordReset) {
-    return passwordChangeResponse("user", user.id, "admin");
-  }
 
   const mfaStep = await beginMfaStepIfRequired({
     subjectType: "user",
@@ -1232,6 +1230,10 @@ export async function adminLogin(
       mfaToken: mfaStep.token,
       redirectTo: `/mfa/${mfaStep.mode}`,
     };
+  }
+
+  if (user.forcePasswordReset) {
+    return passwordChangeResponse("user", user.id, "admin");
   }
 
   const payload = await buildSessionPayload(user.id);
@@ -1314,40 +1316,63 @@ export async function completeRequiredPasswordChange(
     return { success: true, redirectTo: "/login?reason=password_upgraded" };
   }
 
-  if (challenge.subjectType === "customer") {
-    const updated = await db.customer.updateMany({
-      where: {
-        id: challenge.subjectId,
-        status: "active",
-        forcePortalPasswordReset: true,
-      },
-      data: {
-        portalPasswordHash: newHash,
-        forcePortalPasswordReset: false,
-        passwordPolicyVersion: 1,
-        tokenVersion: { increment: 1 },
-      },
-    });
-    if (updated.count !== 1) {
-      return {
-        success: false,
-        error: "This password upgrade is no longer required. Sign in again.",
-      };
-    }
-    await revokeAllUserSessions("customer", challenge.subjectId, "forced_password_upgrade");
-    await createAuditLog({
-      userId: challenge.subjectId,
-      action: "auth.forced_customer_password_upgraded",
-      entityType: "customer",
-      entityId: challenge.subjectId,
-    });
-    return { success: true, redirectTo: "/login?role=customer&reason=password_upgraded" };
-  }
-
   return {
     success: false,
-    error: "This password-change session is not valid here. Sign in again.",
+    error: "This password-change session is not valid for this account type.",
   };
+}
+
+/**
+ * Customer-portal counterpart. Kept separate so a challenge minted for a User
+ * (or platform operator) can never update a Customer record, and vice versa.
+ */
+export async function completeRequiredCustomerPasswordChange(
+  formData: FormData
+): Promise<ActionResponse> {
+  const challengeToken = String(formData.get("challengeToken") ?? "");
+  const newPassword = formData.get("newPassword") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
+
+  const challenge = await verifyPasswordChangeChallenge(challengeToken);
+  if (!challenge || challenge.subjectType !== "customer") {
+    return {
+      success: false,
+      error: "This password-change session has expired. Sign in again to continue.",
+    };
+  }
+  if (newPassword !== confirmPassword) {
+    return { success: false, error: "Passwords don't match" };
+  }
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) return { success: false, error: policyError };
+
+  const updated = await db.customer.updateMany({
+    where: {
+      id: challenge.subjectId,
+      status: "active",
+      forcePortalPasswordReset: true,
+    },
+    data: {
+      portalPasswordHash: await hashPassword(newPassword),
+      forcePortalPasswordReset: false,
+      passwordPolicyVersion: 1,
+      tokenVersion: { increment: 1 },
+    },
+  });
+  if (updated.count !== 1) {
+    return {
+      success: false,
+      error: "This password upgrade is no longer required. Sign in again.",
+    };
+  }
+  await revokeAllUserSessions("customer", challenge.subjectId, "forced_password_upgrade");
+  await createAuditLog({
+    userId: challenge.subjectId,
+    action: "auth.forced_customer_password_upgraded",
+    entityType: "customer",
+    entityId: challenge.subjectId,
+  });
+  return { success: true, redirectTo: "/login?role=customer&reason=password_upgraded" };
 }
 
 export async function customerChangePassword(

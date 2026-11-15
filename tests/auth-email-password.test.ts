@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
 import { prisma, cleanDatabase } from "./setup";
 import {
   adminLogin,
+  completeRequiredCustomerPasswordChange,
   completeRequiredPasswordChange,
   resolveCustomerAuth,
   resolveStaffAuth,
@@ -19,11 +20,21 @@ import {
 } from "@/lib/actions/email-verification.actions";
 import { consumeEmailVerification, issueEmailVerification } from "@/lib/security/account-tokens";
 import { verifyPasswordChangeChallenge } from "@/lib/security/password-change-challenge";
+import {
+  confirmMfaEnrollmentAction,
+  finishMfaEnrollmentAction,
+  startMfaEnrollmentAction,
+  verifyMfaLoginAction,
+} from "@/lib/security/mfa.actions";
+import { beginMfaEnrollment, confirmMfaEnrollment } from "@/lib/security/mfa";
+import { totpCode } from "@/lib/security/totp";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { clearEmailOutbox, getEmailOutbox } from "@/lib/email/resend";
 
 const OLD_PASSWORD = "OldPass123!";
 const NEW_PASSWORD = "NewStrong!Pass123";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 async function makeUser(overrides: Record<string, unknown> = {}) {
   return prisma.user.create({
@@ -50,6 +61,10 @@ beforeEach(async () => {
   await cleanDatabase();
   clearEmailOutbox();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+afterEach(() => {
   vi.unstubAllEnvs();
 });
 
@@ -303,6 +318,195 @@ describe("password reset email", () => {
   });
 });
 
+describe("MFA is never bypassed by the mandatory password upgrade", () => {
+  async function enrollMfa(user: { id: string; email: string }) {
+    const started = await beginMfaEnrollment({
+      subjectType: "user",
+      subjectId: user.id,
+      accountName: user.email,
+    });
+    const confirmed = await confirmMfaEnrollment({
+      subjectType: "user",
+      subjectId: user.id,
+      code: totpCode(started.secret),
+    });
+    if (!confirmed) throw new Error("MFA enrolment failed");
+    return { secret: started.secret, recoveryCodes: confirmed.recoveryCodes };
+  }
+
+  it("requires MFA verification before issuing the password-change challenge", async () => {
+    vi.stubEnv("MFA_ENFORCEMENT", "enforce");
+    const user = await makeUser({
+      forcePasswordReset: true,
+      mfaEnabled: false,
+    });
+    const mfa = await enrollMfa(user);
+
+    const login = await resolveStaffAuth(user.email, OLD_PASSWORD, "momo");
+    expect(login).toHaveProperty("mfa", "verify");
+    expect(login).not.toHaveProperty("challengeToken");
+    expect(login).not.toHaveProperty("payload");
+    const mfaToken = (login as { mfaToken: string }).mfaToken;
+
+    const verification = new FormData();
+    verification.set("challenge", mfaToken);
+    verification.set("code", mfa.recoveryCodes[0]);
+    const verified = await verifyMfaLoginAction(verification);
+    expect(verified.success).toBe(true);
+    expect(verified.passwordChangeRequired).toBe(true);
+    expect(verified.challengeToken).toBeTruthy();
+    expect(verified.sessionToken).toBeUndefined();
+
+    const updated = await prisma.user.findUnique({ where: { id: user.id } });
+    expect(updated?.forcePasswordReset).toBe(true);
+
+    const change = new FormData();
+    change.set("challengeToken", verified.challengeToken!);
+    change.set("newPassword", NEW_PASSWORD);
+    change.set("confirmPassword", NEW_PASSWORD);
+    expect((await completeRequiredPasswordChange(change)).success).toBe(true);
+  });
+
+  it("requires MFA enrolment before the password-change challenge", async () => {
+    vi.stubEnv("MFA_ENFORCEMENT", "enforce");
+    const user = await makeUser({ forcePasswordReset: true, mfaEnabled: false });
+
+    const login = await resolveStaffAuth(user.email, OLD_PASSWORD, "momo");
+    expect(login).toHaveProperty("mfa", "enroll");
+    const mfaToken = (login as { mfaToken: string }).mfaToken;
+
+    const started = await startMfaEnrollmentAction(mfaToken);
+    expect(started.success).toBe(true);
+    expect(started.manualKey).toBeTruthy();
+
+    const confirm = new FormData();
+    confirm.set("challenge", mfaToken);
+    confirm.set("code", totpCode(started.manualKey!));
+    const confirmed = await confirmMfaEnrollmentAction(confirm);
+    expect(confirmed.success).toBe(true);
+
+    const finish = new FormData();
+    finish.set("challenge", mfaToken);
+    const finished = await finishMfaEnrollmentAction(finish);
+    expect(finished.success).toBe(true);
+    expect(finished.passwordChangeRequired).toBe(true);
+    expect(finished.challengeToken).toBeTruthy();
+    expect(finished.sessionToken).toBeUndefined();
+  });
+
+  it("still enforces MFA after the upgrade when the user signs in again", async () => {
+    vi.stubEnv("MFA_ENFORCEMENT", "enforce");
+    const user = await makeUser({ forcePasswordReset: true, mfaEnabled: false });
+    const mfa = await enrollMfa(user);
+
+    const first = await resolveStaffAuth(user.email, OLD_PASSWORD, "momo");
+    const mfaToken = (first as { mfaToken: string }).mfaToken;
+    const verify = new FormData();
+    verify.set("challenge", mfaToken);
+    verify.set("code", mfa.recoveryCodes[0]);
+    const verified = await verifyMfaLoginAction(verify);
+    const change = new FormData();
+    change.set("challengeToken", verified.challengeToken!);
+    change.set("newPassword", NEW_PASSWORD);
+    change.set("confirmPassword", NEW_PASSWORD);
+    expect((await completeRequiredPasswordChange(change)).success).toBe(true);
+
+    const second = await resolveStaffAuth(user.email, NEW_PASSWORD, "momo");
+    expect(second).toHaveProperty("mfa", "verify");
+    expect(second).not.toHaveProperty("payload");
+
+    const secondVerify = new FormData();
+    secondVerify.set("challenge", (second as { mfaToken: string }).mfaToken);
+    secondVerify.set("code", mfa.recoveryCodes[1]);
+    const session = await verifyMfaLoginAction(secondVerify);
+    expect(session.success).toBe(true);
+    expect(session.sessionToken).toBeTruthy();
+    expect(session.passwordChangeRequired).toBeUndefined();
+  });
+
+  it("issues the challenge directly when the MFA policy is optional and no MFA is enrolled", async () => {
+    vi.stubEnv("MFA_ENFORCEMENT", "optional");
+    const user = await makeUser({ forcePasswordReset: true, mfaEnabled: false });
+    const login = await resolveStaffAuth(user.email, OLD_PASSWORD, "momo");
+    expect(login).toHaveProperty("passwordChangeRequired", true);
+    expect(login).not.toHaveProperty("mfa");
+    expect(login).not.toHaveProperty("payload");
+  });
+
+  it("rejects an expired challenge and a challenge used on the wrong account type", async () => {
+    const user = await makeUser({ forcePasswordReset: true });
+    const login = await resolveStaffAuth(user.email, OLD_PASSWORD, "momo");
+    const challengeToken = (login as { challengeToken: string }).challengeToken;
+
+    const realNow = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(realNow + 11 * 60 * 1000);
+    try {
+      const form = new FormData();
+      form.set("challengeToken", challengeToken);
+      form.set("newPassword", NEW_PASSWORD);
+      form.set("confirmPassword", NEW_PASSWORD);
+      const expired = await completeRequiredPasswordChange(form);
+      expect(expired.success).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const customer = await prisma.customer.create({
+      data: {
+        customerId: `BIK-C-WRONG-${Date.now()}`,
+        fullName: "Wrong Type",
+        status: "active",
+        portalEnabled: true,
+        portalPasswordHash: await bcrypt.hash(OLD_PASSWORD, 12),
+        forcePortalPasswordReset: true,
+      },
+    });
+    const customerLogin = await resolveCustomerAuth(customer.customerId, OLD_PASSWORD);
+    const customerChallenge = (customerLogin as { challengeToken: string })
+      .challengeToken;
+    const wrongAction = new FormData();
+    wrongAction.set("challengeToken", customerChallenge);
+    wrongAction.set("newPassword", NEW_PASSWORD);
+    wrongAction.set("confirmPassword", NEW_PASSWORD);
+    expect((await completeRequiredPasswordChange(wrongAction)).success).toBe(false);
+
+    const platformForm = new FormData();
+    platformForm.set("challengeToken", challengeToken);
+    platformForm.set("newPassword", NEW_PASSWORD);
+    platformForm.set("confirmPassword", NEW_PASSWORD);
+    expect((await completeRequiredPlatformPasswordChange(platformForm)).success).toBe(
+      false
+    );
+  });
+
+  it("does not clear the flag on a failed upgrade and cannot upgrade another account", async () => {
+    const first = await makeUser({ email: "first@example.com", forcePasswordReset: true });
+    const second = await makeUser({ email: "second@example.com", forcePasswordReset: true });
+    const login = await resolveStaffAuth(first.email, OLD_PASSWORD, "momo");
+    const challengeToken = (login as { challengeToken: string }).challengeToken;
+
+    const weak = new FormData();
+    weak.set("challengeToken", challengeToken);
+    weak.set("newPassword", "weak");
+    weak.set("confirmPassword", "weak");
+    expect((await completeRequiredPasswordChange(weak)).success).toBe(false);
+    expect(
+      (await prisma.user.findUnique({ where: { id: first.id } }))?.forcePasswordReset
+    ).toBe(true);
+
+    const strong = new FormData();
+    strong.set("challengeToken", challengeToken);
+    strong.set("newPassword", NEW_PASSWORD);
+    strong.set("confirmPassword", NEW_PASSWORD);
+    expect((await completeRequiredPasswordChange(strong)).success).toBe(true);
+
+    const secondAfter = await prisma.user.findUnique({ where: { id: second.id } });
+    expect(secondAfter?.forcePasswordReset).toBe(true);
+    expect(await bcrypt.compare(OLD_PASSWORD, secondAfter!.passwordHash)).toBe(true);
+  });
+});
+
 describe("all authentication entry points enforce the upgrade", () => {
   it("customer login returns a challenge and completes without a session", async () => {
     const customer = await prisma.customer.create({
@@ -326,7 +530,7 @@ describe("all authentication entry points enforce the upgrade", () => {
     form.set("challengeToken", challengeToken);
     form.set("newPassword", NEW_PASSWORD);
     form.set("confirmPassword", NEW_PASSWORD);
-    const changed = await completeRequiredPasswordChange(form);
+    const changed = await completeRequiredCustomerPasswordChange(form);
     expect(changed.success).toBe(true);
 
     const updated = await prisma.customer.findUnique({ where: { id: customer.id } });

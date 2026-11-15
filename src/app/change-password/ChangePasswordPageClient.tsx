@@ -6,7 +6,10 @@ import { Check, ShieldCheck } from "lucide-react";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import PasswordInput from "@/components/PasswordInput";
 import { BrandLockup } from "@/components/brand/Brand";
-import { completeRequiredPasswordChange } from "@/lib/actions/auth.actions";
+import {
+  completeRequiredCustomerPasswordChange,
+  completeRequiredPasswordChange,
+} from "@/lib/actions/auth.actions";
 import { completeRequiredPlatformPasswordChange } from "@/lib/actions/platform.actions";
 import { PASSWORD_CHANGE_CHALLENGE_KEY } from "@/lib/security/password-change-client";
 import { PASSWORD_REQUIREMENTS } from "@/lib/security/password-policy";
@@ -64,10 +67,13 @@ function RequiredPasswordChange() {
       formData.set("confirmPassword", confirmPassword);
       // The action verifies the signed token. Reading the unverified subject is
       // only a routing hint and cannot grant anything.
+      const subject = challengeSubjectType(challengeToken);
       const result =
-        challengeSubjectType(challengeToken) === "platform"
+        subject === "platform"
           ? await completeRequiredPlatformPasswordChange(formData)
-          : await completeRequiredPasswordChange(formData);
+          : subject === "customer"
+            ? await completeRequiredCustomerPasswordChange(formData)
+            : await completeRequiredPasswordChange(formData);
       if (!result.success) {
         setError(result.error || "The password could not be changed.");
         return;
