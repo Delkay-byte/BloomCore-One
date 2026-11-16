@@ -1,4 +1,4 @@
-// Package catalogue limits and prospective-customer enquiries.
+-- Package catalogue limits and prospective-customer enquiries.
 
 ALTER TABLE "ZeliPlan" ADD COLUMN "locationLimit" INTEGER;
 ALTER TABLE "ZeliPlan" ADD COLUMN "staffLimit" INTEGER;

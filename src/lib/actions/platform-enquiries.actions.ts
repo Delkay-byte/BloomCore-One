@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requirePlatformPage } from "@/lib/platform-auth";
 import { createPlatformAuditLog } from "@/lib/platform-audit";
+import {
+  ENQUIRY_STATUSES,
+  type EnquiryRow,
+} from "@/lib/pricing/enquiry-status";
 
 /**
  * Platform review of prospective-customer enquiries.
@@ -12,29 +16,6 @@ import { createPlatformAuditLog } from "@/lib/platform-audit";
  * subscription: provisioning and payment stay in their existing controlled
  * flows.
  */
-
-export const ENQUIRY_STATUSES = [
-  "new",
-  "contacted",
-  "qualified",
-  "converted",
-  "rejected",
-] as const;
-
-export type EnquiryStatus = (typeof ENQUIRY_STATUSES)[number];
-
-export interface EnquiryRow {
-  id: string;
-  businessName: string;
-  contactName: string;
-  phone: string;
-  email: string | null;
-  locationCount: number | null;
-  interestedPlan: string | null;
-  message: string | null;
-  status: string;
-  createdAt: string;
-}
 
 export async function listAccountEnquiries(): Promise<EnquiryRow[]> {
   await requirePlatformPage();

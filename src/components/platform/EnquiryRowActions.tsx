@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { updateAccountEnquiryStatus } from "@/lib/actions/platform-enquiries.actions";
 
-const STATUSES = ["new", "contacted", "qualified", "converted", "rejected"] as const;
+import { ENQUIRY_STATUSES } from "@/lib/pricing/enquiry-status";
 
 export default function EnquiryRowActions({
   id,
@@ -47,7 +47,7 @@ export default function EnquiryRowActions({
           aria-label="Enquiry status"
           disabled={busy}
         >
-          {STATUSES.map((option) => (
+          {ENQUIRY_STATUSES.map((option) => (
             <option key={option} value={option}>
               {option}
             </option>
