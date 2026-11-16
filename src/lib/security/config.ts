@@ -108,10 +108,7 @@ export interface TurnstileConfig {
   timeoutMs: number;
 }
 
-const DEFAULT_TURNSTILE_HOSTNAMES = [
-  "maacash.bloomcoretech.com",
-  "maacash.onrender.com",
-];
+const DEFAULT_TURNSTILE_HOSTNAMES = ["maacash.bloomcoretech.com"];
 
 export function turnstileConfig(): TurnstileConfig {
   const enabled = envBoolean("TURNSTILE_ENABLED", false);

@@ -113,8 +113,7 @@ describe("SEC-09 static-asset exemption is a closed list", () => {
       "/favicon.ico",
       "/robots.txt",
       "/logo.svg",
-      "/fonts/inter.woff2",
-      "/docs/guide.pdf",
+      "/branding/maacash-logo.svg",
     ]) {
       expect(isStaticAssetPath(path)).toBe(true);
     }
@@ -128,6 +127,9 @@ describe("SEC-09 static-asset exemption is a closed list", () => {
       "/worker/daily/a.b",
       "/api/auth/session.json.evil",
       "/collector/customers/1.2.3.4",
+      "/admin/staff/report.json",
+      "/admin/report.pdf",
+      "/susu/admin/data.css",
     ]) {
       expect(isStaticAssetPath(path)).toBe(false);
     }

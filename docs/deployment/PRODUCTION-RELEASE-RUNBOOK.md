@@ -80,7 +80,7 @@ Not deployed. This section records the release checks required for the hardening
 4. Smoke-test one step-up path with a synthetic staging account, not a customer:
    password confirmation -> withdrawal/correction grant -> single use.
 5. Confirm Turnstile siteverify succeeds from the deployed origin (valid, expired and
-   replayed token cases) if `TURNSTILE_ENABLED=true`.
+   replayed token cases) when Turnstile is enabled.
 6. Run the retained PostgreSQL concurrency suite against a disposable database.
 7. Do not merge or deploy until the owner approves the final PR head.
 

@@ -161,6 +161,7 @@ export default function SusuWithdrawalsPage() {
       const result = await reverseWithdrawal({
         withdrawalId: reverseTarget.id,
         reason: reverseReason.trim(),
+        stepUpToken,
       });
       if (!result.success) {
         setReverseError(result.error || "The withdrawal could not be reversed.");

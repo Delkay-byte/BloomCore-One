@@ -140,6 +140,7 @@ export default function SusuContributionsPage() {
       const result = await reverseContribution({
         contributionId: reverseTarget.id,
         reason: reverseReason.trim(),
+        stepUpToken,
       });
       if (!result.success) {
         setReverseError(result.error || "The contribution could not be reversed.");

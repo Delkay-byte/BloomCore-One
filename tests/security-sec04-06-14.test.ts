@@ -50,7 +50,8 @@ import {
   handleAccountEmailChanged,
   issueEmailVerification,
 } from "@/lib/security/account-tokens";
-import { beginMfaEnrollment } from "@/lib/security/mfa";
+import { beginMfaEnrollment, confirmMfaEnrollment, verifyMfaCode } from "@/lib/security/mfa";
+import { hashRecoveryCode, totpCode } from "@/lib/security/totp";
 import { selfDisableAction } from "@/lib/security/mfa.actions";
 import {
   stepUpContextHash,
@@ -578,5 +579,44 @@ describe("SEC-15 MFA enrollment and disable controls", () => {
     expect(limited).toBe(true);
     const row = await prisma.user.findUniqueOrThrow({ where: { id: admin.id } });
     expect(row.mfaEnabled).toBe(true);
+  });
+});
+
+describe("SEC-07 legacy recovery-code compatibility", () => {
+  it("uses migrated rows without throwing when the legacy JSON is still present", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: `sec07-legacy-${Date.now()}@test.local`,
+        fullName: "Legacy Codes",
+        role: "admin",
+        status: "active",
+        passwordHash: "not-used",
+      },
+    });
+    const started = await beginMfaEnrollment({
+      subjectType: "user",
+      subjectId: user.id,
+      accountName: user.email,
+    });
+    const confirmed = await confirmMfaEnrollment({
+      subjectType: "user",
+      subjectId: user.id,
+      code: totpCode(started.secret),
+    });
+    expect(confirmed).not.toBeNull();
+    const codes = confirmed!.recoveryCodes;
+    // Simulate a database where the migration copied rows but the legacy JSON
+    // array has not been cleared yet.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { mfaRecoveryCodes: JSON.stringify(codes.map(hashRecoveryCode)) },
+    });
+    const result = await verifyMfaCode({
+      subjectType: "user",
+      subjectId: user.id,
+      code: codes[1],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.usedRecoveryCode).toBe(true);
   });
 });

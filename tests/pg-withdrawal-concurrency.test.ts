@@ -38,13 +38,15 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
+import { hashStepUpToken, stepUpContextHash } from "@/lib/security/step-up";
 
 const prisma = new PrismaClient();
+let grantSeq = 0;
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
+    TRUNCATE TABLE "StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",
@@ -132,7 +134,7 @@ async function seed() {
       .setExpirationTime("1h")
       .sign(JWT_SECRET)
   );
-  return { tenant, admin, account, cycle };
+  return { tenant, admin, account, cycle, sessionIat: now };
 }
 
 describe("PostgreSQL concurrent withdrawals", () => {
@@ -141,11 +143,34 @@ describe("PostgreSQL concurrent withdrawals", () => {
   });
 
   it("does not let two simultaneous withdrawals overdraw the account", { timeout: 60000 }, async () => {
-    const { tenant, account, cycle } = await seed();
+    const { tenant, admin, account, cycle, sessionIat } = await seed();
+    const grant = async (amountMinor: string) => {
+      const raw = `pg-withdraw-grant-${++grantSeq}-${Date.now()}`;
+      await prisma.stepUpGrant.create({
+        data: {
+          tokenHash: hashStepUpToken(raw),
+          subjectType: "user",
+          subjectId: admin.id,
+          sessionId: `legacy:${admin.id}:${sessionIat}`,
+          purpose: "susu.withdrawal",
+          targetType: "susuAccount",
+          targetId: account.id,
+          contextHash: stepUpContextHash({
+            purpose: "susu.withdrawal",
+            targetType: "susuAccount",
+            targetId: account.id,
+            context: { amountMinor, currency: "GHS" },
+          }),
+          expiresAt: new Date(Date.now() + 300000),
+        },
+      });
+      return raw;
+    };
+    const [grantA, grantB] = [await grant("8000"), await grant("8000")];
 
     const [first, second] = await Promise.all([
-      processWithdrawal({ accountId: account.id, requestedAmount: 80 }),
-      processWithdrawal({ accountId: account.id, requestedAmount: 80 }),
+      processWithdrawal({ accountId: account.id, requestedAmount: 80, stepUpToken: grantA }),
+      processWithdrawal({ accountId: account.id, requestedAmount: 80, stepUpToken: grantB }),
     ]);
 
     const successes = [first, second].filter((r) => r.success);
@@ -177,19 +202,44 @@ describe("PostgreSQL concurrent withdrawals", () => {
   });
 
   it("posts a retried withdrawal once when the idempotency key matches", { timeout: 60000 }, async () => {
-    const { account } = await seed();
+    const { account, admin, sessionIat } = await seed();
     const key = "pg-retry-key-0001";
+    const grant = async () => {
+      const raw = `pg-retry-grant-${++grantSeq}-${Date.now()}`;
+      await prisma.stepUpGrant.create({
+        data: {
+          tokenHash: hashStepUpToken(raw),
+          subjectType: "user",
+          subjectId: admin.id,
+          sessionId: `legacy:${admin.id}:${sessionIat}`,
+          purpose: "susu.withdrawal",
+          targetType: "susuAccount",
+          targetId: account.id,
+          contextHash: stepUpContextHash({
+            purpose: "susu.withdrawal",
+            targetType: "susuAccount",
+            targetId: account.id,
+            context: { amountMinor: "2000", currency: "GHS" },
+          }),
+          expiresAt: new Date(Date.now() + 300000),
+        },
+      });
+      return raw;
+    };
+    const [grantA, grantB] = [await grant(), await grant()];
 
     const [first, second] = await Promise.all([
       processWithdrawal({
         accountId: account.id,
         requestedAmount: 20,
         idempotencyKey: key,
+        stepUpToken: grantA,
       }),
       processWithdrawal({
         accountId: account.id,
         requestedAmount: 20,
         idempotencyKey: key,
+        stepUpToken: grantB,
       }),
     ]);
 

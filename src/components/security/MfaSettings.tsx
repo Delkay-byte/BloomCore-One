@@ -35,11 +35,11 @@ export default function MfaSettings() {
     };
   }, []);
 
-  async function start() {
+  async function start(restart = false) {
     setBusy(true);
     setError("");
     setMessage("");
-    const result = await selfEnrollmentAction();
+    const result = await selfEnrollmentAction(restart);
     setBusy(false);
     if (!result.success) {
       setError(result.error ?? "Could not start enrolment.");
@@ -90,7 +90,7 @@ export default function MfaSettings() {
           </p>
         </div>
         {!enabled && !qr && loaded && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={start} disabled={busy}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => start()} disabled={busy}>
             {busy ? "Starting..." : "Set up MFA"}
           </button>
         )}
@@ -107,6 +107,14 @@ export default function MfaSettings() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr} alt="Authenticator enrolment QR code" width={200} height={200} />
           <p className="text-xs text-slate-500 mt-2 break-all">Manual key: {manualKey}</p>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm mt-2"
+            onClick={() => start(true)}
+            disabled={busy}
+          >
+            Generate a new secret
+          </button>
           <form action={confirm} className="mt-3 flex items-end gap-2">
             <div className="form-group flex-1">
               <label className="form-label" htmlFor="code">6-digit code</label>

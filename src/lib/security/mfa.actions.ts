@@ -286,6 +286,7 @@ export async function confirmMfaEnrollmentAction(
     return { success: false, error: "This enrolment was already completed. Please sign in again." };
   }
 
+  await notifyMfaChange(challenge.email, "enroll");
   await createAuditLog({
     userId: challenge.subjectId,
     action: "auth.mfa_enrolled",
@@ -416,7 +417,7 @@ export async function verifyMfaLoginAction(
 }
 
 /** Settings: start enrolment for the currently authenticated account. */
-export async function selfEnrollmentAction(): Promise<MfaActionResult> {
+export async function selfEnrollmentAction(restart = false): Promise<MfaActionResult> {
   const admin = await getAdminSession();
   if (admin) {
     const row = await db.user.findUnique({
@@ -439,6 +440,7 @@ export async function selfEnrollmentAction(): Promise<MfaActionResult> {
       subjectType: "user",
       subjectId: admin.userId,
       accountName: admin.email,
+      restart,
     });
     return {
       success: true,
@@ -468,6 +470,7 @@ export async function selfEnrollmentAction(): Promise<MfaActionResult> {
       subjectType: "platform",
       subjectId: platform.adminId,
       accountName: platform.email,
+      restart,
     });
     return {
       success: true,
@@ -497,6 +500,7 @@ export async function selfConfirmAction(
       code,
     });
     if (!result) return { success: false, error: "That code is not valid." };
+    await notifyMfaChange(admin.email, "enroll");
     return { success: true, recoveryCodes: result.recoveryCodes };
   }
 
@@ -513,6 +517,7 @@ export async function selfConfirmAction(
       code,
     });
     if (!result) return { success: false, error: "That code is not valid." };
+    await notifyMfaChange(platform.email, "enroll");
     return { success: true, recoveryCodes: result.recoveryCodes };
   }
 

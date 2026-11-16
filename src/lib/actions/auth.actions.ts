@@ -56,6 +56,7 @@ import {
   createStepUpGrant,
   STEP_UP_TTL_MS,
   stepUpSessionBinding,
+  revokeSessionStepUpGrants,
   type StepUpPurpose,
 } from "@/lib/security/step-up";
 
@@ -480,6 +481,7 @@ export async function logout(): Promise<ActionResponse> {
   const active = await getAnyAuthUser();
   if (active) {
     await revokeSessionToken(active, "logout");
+    await revokeSessionStepUpGrants(active.jti);
     await createAuditLog({
       userId: active.userId,
       action: "auth.logout",
@@ -720,6 +722,7 @@ export async function changePassword(
   // Re-issue THIS module's session with the new tokenVersion. All previous
   // sessions (including any stolen cookie) are revoked server-side first.
   await revokeAllUserSessions("user", session.userId, "password_changed");
+  await revokeSessionStepUpGrants(session.jti);
   const refreshed = {
     ...(await buildSessionPayload(session.userId)),
     amr: session.amr,

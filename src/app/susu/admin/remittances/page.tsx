@@ -2,7 +2,7 @@
 import { SkeletonTable } from "@/components/ui/Skeletons";
 
 import { Landmark, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getRemittances,
@@ -50,6 +50,7 @@ export default function SusuRemittancesPage() {
   const [remittedAmount, setRemittedAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const remittanceKeyRef = useRef<string | null>(null);
   const [reverseTarget, setReverseTarget] = useState<RemittanceRecord | null>(null);
   const [showReverseReauth, setShowReverseReauth] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
@@ -102,13 +103,17 @@ export default function SusuRemittancesPage() {
     setSuccess("");
 
     try {
+      const idempotencyKey = remittanceKeyRef.current ?? crypto.randomUUID();
+      remittanceKeyRef.current = idempotencyKey;
       const result = await recordRemittance({
         collectorId: selectedCollector,
         remittedAmount: amountNum,
         notes: notes || undefined,
+        idempotencyKey,
       });
 
       if (result.success) {
+        remittanceKeyRef.current = null;
         const data = result.data as { variance: number; expectedAmount: number };
         setSuccess(
           `Money handed in recorded. Expected: ${formatCedi(data.expectedAmount)}, Handed In: ${formatCedi(amountNum)}, Difference: ${formatCedi(data.variance)}`
@@ -151,6 +156,7 @@ export default function SusuRemittancesPage() {
       const result = await reverseRemittance({
         remittanceId: reverseTarget.id,
         reason: reverseReason.trim(),
+        stepUpToken,
       });
       if (!result.success) {
         setReverseError(result.error || "The remittance could not be reversed.");

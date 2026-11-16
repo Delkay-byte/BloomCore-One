@@ -151,6 +151,12 @@ async function ensureRecoveryCodesMigrated(
     return;
   }
   if (hashes.length === 0) return;
+  const existing = await db.mfaRecoveryCode.count({
+    where: { subjectType, subjectId },
+  });
+  // The migration already copied these rows. Re-inserting would violate the
+  // per-subject unique index and break recovery exactly when it is needed.
+  if (existing > 0) return;
   const unique = Array.from(new Set(hashes));
   await db.mfaRecoveryCode.createMany({
     data: unique.map((codeHash) => ({ subjectType, subjectId, codeHash })),
