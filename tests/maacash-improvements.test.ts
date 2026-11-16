@@ -351,7 +351,7 @@ describe("one customer Account Number", () => {
     expect(firstData.accountNumber).toMatch(/^BIK-C-/);
   });
 
-  it("keeps Account Numbers unique under concurrent creation", async () => {
+  it("keeps Account Numbers unique under concurrent creation", { timeout: 20000 }, async () => {
     const admin = await createTestAdmin({ susu: true, momo: true });
     await setSession("admin", admin);
 

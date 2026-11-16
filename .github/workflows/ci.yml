@@ -177,10 +177,11 @@ jobs:
           done
           git check-ignore -q .env.example && { echo ".env.example must stay trackable"; exit 1; } || true
 
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Gitleaks (full reachable history, redacted)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --log-opts="--all" --redact --no-banner \
+            --exit-code 1 --verbose
 
   codeql:
     name: CodeQL static analysis
@@ -188,7 +189,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -201,5 +201,15 @@ jobs:
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
 
-      - name: Analyze
+      - name: Analyze (SARIF artifact; code scanning is not enabled on this repository)
         uses: github/codeql-action/analyze@v3
+        with:
+          output: codeql-results.sarif
+          upload: never
+
+      - name: Upload CodeQL SARIF
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results
+          path: codeql-results.sarif
+          if-no-files-found: error
