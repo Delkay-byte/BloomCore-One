@@ -41,9 +41,12 @@
    tenant enrollment. There is no public self-registration to attach a sign-up screen to.
    Customer portal accounts authenticate by phone/Account Number and keep their existing
    business-issued provisioning; their changed passwords use the same policy.
-2. **Existing accounts are not locked out.** The migration marks every existing `User` verified
-   and requires a password upgrade at next password login. Existing active sessions are not
-   revoked by deployment.
+2. **Existing accounts are not locked out of their data permanently, but existing sessions
+   stop working.** The migration marks every existing `User` verified and requires a password
+   upgrade. Because the upgrade is mandatory, a session that predates the flag is refused by
+   `isSessionCurrent`, `getTenantContext` and the platform guards: the account must complete the
+   challenge flow, which issues a fresh session only afterwards. No password hash, role, tenant
+   or financial record is changed by this.
 3. **`forcePasswordReset` remains the persisted mandatory flag.** A successful compliant change
    clears it and records `passwordPolicyVersion = 1`.
 4. **Password-change challenge:** a dedicated JWT (audience
@@ -151,7 +154,11 @@ No secret values are recorded here.
   revokes older sessions and asks the user to sign in again.
 - Platform SSO refuses to mint a session for an operator with `forcePasswordReset`; the
   callback returns an error that directs them to the local login challenge.
-- `isSessionCurrent` rejects a User session whose email is not verified.
+- `isSessionCurrent` rejects a User session whose email is not verified, and rejects any session
+  whose account still carries a mandatory password-upgrade flag. `getTenantContext` applies the
+  same rule, and `requirePlatformAdmin` redirects a forced-upgrade operator to the standalone
+  first-login screen. A session created before the flag therefore cannot be used to skip the
+  challenge.
 
 ### Email verification
 
@@ -239,9 +246,14 @@ generic reset responses, token consumption, tenant isolation and existing-sessio
 - Platform operators use the platform recovery process; they are not sent tenant reset emails.
 - The reset link token is in the URL query, as is conventional for email links. The page does
   not load third-party resources; the token is single-use, 30 minutes, hashed at rest.
-- Pre-deployment sessions are not revoked. A user already signed in keeps that session until
-  it expires or they sign out; the mandatory upgrade applies on their next password login.
-  This is the requested transition behaviour and is documented in the PR.
+- Pre-upgrade sessions are refused, not silently kept. A signed-in user whose account carries the
+  mandatory-upgrade flag is treated as having no session: the next request lands on the challenge
+  or sign-in screen, and a fresh session is issued only after the compliant change. This is the
+  deliberate outcome of the security assessment finding SEC-02, and it is documented in the PR.
+- `issueModuleSession` lives in `src/lib/session-issuance.ts`, deliberately outside every
+  `"use server"` module, so it cannot be invoked as a server action (assessment finding SEC-01).
+- Offline Susu contribution sync takes the same per-account advisory lock as the online path, so
+  concurrent syncs cannot allocate the same cycle day twice (assessment finding SEC-03).
 - Email delivery depends on Resend and the configured sender domain. A missing key or sender
   fails safely; the account remains pending and a resend is possible.
 - `EMAIL_TEST_FORCE_PROVIDER` exists only so tests can exercise provider failure with a stubbed

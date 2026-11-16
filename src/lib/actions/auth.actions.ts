@@ -21,6 +21,10 @@ import {
   type JwtPayload,
   type ModuleName,
 } from "@/lib/auth";
+import {
+  buildSessionPayload,
+  issueModuleSession,
+} from "@/lib/session-issuance";
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { getTenantContext } from "@/lib/tenant";
@@ -295,43 +299,11 @@ function firstLoginPathFor(module: ModuleName): string {
   return `/${module === "admin" ? "admin" : module === "momo" ? "worker" : "collector"}/first-login`;
 }
 
-async function buildSessionPayload(userId: string): Promise<JwtPayload> {
-  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  const modules: ("momo" | "susu")[] = [];
-  if (user.momoEnabled) modules.push("momo");
-  if (user.susuEnabled) modules.push("susu");
-  return {
-    userId: user.id,
-    email: user.email,
-    fullName: user.fullName,
-    role: user.role as "admin" | "worker" | "collector",
-    modules,
-    locationId: user.locationId ?? undefined,
-    tenantId: user.tenantId,
-    forcePasswordReset: user.forcePasswordReset,
-    tokenVersion: user.tokenVersion,
-  };
-}
-
 /**
- * Issue a fresh session for `userId` for the given module.
- * Returns the token so the calling tab can register it with its worker.
+ * Session payload construction and issuance live in `@/lib/session-issuance`.
+ * They must not be server actions: a `"use server"` export would let any caller
+ * mint a session for an arbitrary user id.
  */
-export async function issueModuleSession(
-  userId: string,
-  module: ModuleName,
-  mfaVerified = false
-): Promise<{ payload: JwtPayload; token: string }> {
-  const payload = await buildSessionPayload(userId);
-  const withAmr: JwtPayload = {
-    ...payload,
-    module,
-    amr: mfaVerified ? "pwd+mfa" : "pwd",
-  };
-  const token = await setModuleSession(module, withAmr);
-  return { payload: withAmr, token };
-}
-
 export async function selectWorkspace(
   module: "momo" | "susu"
 ): Promise<ActionResponse> {

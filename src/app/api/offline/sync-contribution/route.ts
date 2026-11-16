@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getApiTenantContext, type TenantContext } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
+import { lockAccountForUpdate } from "@/lib/db-lock";
 import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import {
@@ -419,6 +420,11 @@ export async function POST(request: NextRequest) {
     };
     try {
       result = await db.$transaction(async (tx) => {
+      // Serialize day allocation for this Susu account, exactly like the
+      // online contribution path. Without the lock two offline syncs with
+      // different idempotency keys can both observe the same unpaid days and
+      // allocate them twice.
+      await lockAccountForUpdate(tx, accountId);
       const existingAllocations = await tx.contributionAllocation.findMany({
         where: { contribution: { cycleId: cycle.id, reversedAt: null }, tenantId: ctx.tenantId },
       });

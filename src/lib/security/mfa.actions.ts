@@ -15,7 +15,7 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { logSecurityEvent } from "@/lib/security/log";
 import { createAuditLog } from "@/lib/audit";
-import { issueModuleSession } from "@/lib/actions/auth.actions";
+import { issueModuleSession } from "@/lib/session-issuance";
 import {
   setPlatformSession,
   getPlatformAdminOrNull,

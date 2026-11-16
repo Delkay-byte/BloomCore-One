@@ -292,6 +292,13 @@ export async function requirePlatformAdmin(): Promise<PlatformSession> {
   if (!session) {
     redirect("/platform/login");
   }
+  // A platform session issued before a mandatory password upgrade is not
+  // sufficient for any platform operation, including write actions that call
+  // this guard directly. The standalone first-login screen reads the session
+  // with getPlatformAdminOrNull() instead, so this cannot loop.
+  if (session.forcePasswordReset) {
+    redirect("/platform/first-login");
+  }
   return session;
 }
 

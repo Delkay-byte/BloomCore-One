@@ -572,7 +572,7 @@ describe("all authentication entry points enforce the upgrade", () => {
     expect(updated?.passwordPolicyVersion).toBe(1);
   });
 
-  it("does not revoke an existing active session merely because the flag is set", async () => {
+  it("rejects a live session while a mandatory password upgrade is pending", async () => {
     const user = await makeUser({ forcePasswordReset: true, tokenVersion: 4 });
     const token = await createModuleSession("momo", {
       userId: user.id,
@@ -587,7 +587,9 @@ describe("all authentication entry points enforce the upgrade", () => {
     });
     const payload = await verifyToken<JwtPayload>(token);
     expect(payload).not.toBeNull();
-    expect(await isSessionCurrent(payload!)).toBe(true);
+    // The upgrade cannot be skipped by keeping a session that predates the
+    // flag: the challenge flow issues a fresh session only after completion.
+    expect(await isSessionCurrent(payload!)).toBe(false);
   });
 
   it("rejects a session for an unverified account", async () => {
@@ -603,6 +605,35 @@ describe("all authentication entry points enforce the upgrade", () => {
       tokenVersion: user.tokenVersion,
     });
     const payload = await verifyToken<JwtPayload>(token);
+    expect(await isSessionCurrent(payload!)).toBe(false);
+  });
+
+  it("rejects a live customer portal session while a portal upgrade is pending", async () => {
+    const customer = await prisma.customer.create({
+      data: {
+        customerId: "CUST-SEC-02",
+        fullName: "Portal Customer",
+        phone: "0200000000",
+        status: "active",
+        portalEnabled: true,
+        portalPasswordHash: await bcrypt.hash(OLD_PASSWORD, 12),
+        forcePortalPasswordReset: true,
+        tokenVersion: 2,
+      },
+    });
+    const token = await createModuleSession("customer", {
+      userId: customer.id,
+      email: "portal@example.com",
+      fullName: customer.fullName,
+      role: "customer",
+      modules: ["customer"],
+      module: "customer",
+      tenantId: customer.tenantId,
+      forcePasswordReset: true,
+      tokenVersion: customer.tokenVersion ?? 0,
+    });
+    const payload = await verifyToken<JwtPayload>(token);
+    expect(payload).not.toBeNull();
     expect(await isSessionCurrent(payload!)).toBe(false);
   });
 });

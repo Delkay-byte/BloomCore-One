@@ -214,9 +214,18 @@ describe("Business enrollment", () => {
       susuEnabled: admin.susuEnabled,
     });
     const ctx = await getTenantContext("admin");
-    expect(ctx).not.toBeNull();
-    expect(ctx!.tenantId).toBe(data.tenantId);
-    expect(ctx!.modules.sort()).toEqual(["momo", "susu"]);
+    // A freshly provisioned administrator must complete the mandatory password
+    // upgrade before tenant data is reachable.
+    expect(ctx).toBeNull();
+
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: { forcePasswordReset: false, passwordPolicyVersion: 1 },
+    });
+    const afterUpgrade = await getTenantContext("admin");
+    expect(afterUpgrade).not.toBeNull();
+    expect(afterUpgrade!.tenantId).toBe(data.tenantId);
+    expect(afterUpgrade!.modules.sort()).toEqual(["momo", "susu"]);
   });
 
   it("generates distinct tenant codes for consecutive enrollments", async () => {
