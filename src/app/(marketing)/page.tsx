@@ -27,6 +27,7 @@ import {
   PRODUCT_NAME,
   PRODUCT_POSITIONING,
 } from "@/lib/site";
+import { ADMIN_LOGIN_PATH } from "@/lib/site";
 import { pageMetadata } from "@/lib/metadata";
 import WorkspacePreview from "./WorkspacePreview";
 import { MomoShowcase, Pillars, SusuShowcase } from "./ProductShowcase";
@@ -173,6 +174,21 @@ export default function HomePage() {
             <p className="mt-5 text-sm text-brand-300">
               Built by {COMPANY_NAME}. Workspaces are created for verified
               businesses; there is no open public sign-up.
+            </p>
+            <p className="mt-2 text-sm">
+              <Link
+                href="/pricing"
+                className="font-semibold text-gold-300 underline-offset-4 hover:underline"
+              >
+                View packages and pricing
+              </Link>
+              <span className="px-2 text-brand-400">·</span>
+              <Link
+                href={ADMIN_LOGIN_PATH}
+                className="font-semibold text-brand-100 underline-offset-4 hover:underline"
+              >
+                Business owner sign in
+              </Link>
             </p>
           </div>
 

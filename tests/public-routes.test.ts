@@ -33,6 +33,7 @@ describe("Public marketing route list", () => {
     expect([...PUBLIC_MARKETING_ROUTES]).toEqual([
       "/",
       "/features",
+      "/pricing",
       "/solutions",
       "/about",
       "/contact",

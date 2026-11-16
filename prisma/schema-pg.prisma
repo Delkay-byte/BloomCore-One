@@ -1086,6 +1086,9 @@ model ZeliPlan {
   features         String? // JSON array of feature labels
   usageAllowance   Int?
   trialDays        Int      @default(0)
+  locationLimit    Int? // approved package: maximum business locations
+  staffLimit       Int? // approved package: maximum staff accounts
+  supportLevel     String? // approved package: support tier label
   providerPlanCode String? // optional Paystack plan for recurring billing
   status           String   @default("draft") // draft | active | archived
   isPublic         Boolean  @default(false)
@@ -1406,4 +1409,25 @@ model FinancialApproval {
 
   @@index([tenantId, status, createdAt])
   @@index([action, targetId])
+}
+
+model AccountEnquiry {
+  id              String   @id @default(cuid())
+  businessName    String
+  contactName     String
+  phone           String
+  email           String?
+  locationCount   Int?
+  interestedPlan  String?
+  message         String?
+  status          String   @default("new") // new | contacted | qualified | converted | rejected
+  source          String?
+  notes           String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([createdAt])
 }
