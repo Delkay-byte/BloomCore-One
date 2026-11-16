@@ -48,6 +48,12 @@ export default function SusuCollectorsPage() {
   const [momoFor, setMomoFor] = useState<string | null>(null);
   const [showReauth, setShowReauth] = useState(false);
   const [pendingReset, setPendingReset] = useState<{ collectorId: string; formData: FormData } | null>(null);
+  const [pendingCapability, setPendingCapability] = useState<{
+    userId: string;
+    enabled: boolean;
+    locationId?: string;
+  } | null>(null);
+  const [showCapabilityReauth, setShowCapabilityReauth] = useState(false);
 
   useEffect(() => {
     loadCollectors();
@@ -89,13 +95,13 @@ export default function SusuCollectorsPage() {
     setShowReauth(true);
   }
 
-  async function executeResetPassword() {
+  async function executeResetPassword(stepUpToken: string) {
     if (!pendingReset) return;
     setSubmitting(true);
     setError("");
     setSuccess("");
     try {
-      const result = await resetCollectorPassword(pendingReset.collectorId, pendingReset.formData);
+      const result = await resetCollectorPassword(pendingReset.collectorId, pendingReset.formData, stepUpToken);
       if (result.success) {
         setSuccess("Temporary password created. The user must change this password after first login — existing sessions were signed out.");
         setResetFor(null);
@@ -110,15 +116,24 @@ export default function SusuCollectorsPage() {
     }
   }
 
-  async function handleMomoToggle(userId: string, enabled: boolean, locationId?: string) {
+  function handleMomoToggle(userId: string, enabled: boolean, locationId?: string) {
+    setPendingCapability({ userId, enabled, locationId });
+    setShowCapabilityReauth(true);
+  }
+
+  async function performMomoToggle(stepUpToken: string) {
+    if (!pendingCapability) return;
+    const { userId, enabled, locationId } = pendingCapability;
     setSubmitting(true);
     setError("");
     setSuccess("");
     try {
-      const result = await setMomoCapability(userId, enabled, locationId);
+      const result = await setMomoCapability(userId, enabled, locationId, stepUpToken);
       if (result.success) {
         setSuccess(enabled ? "MoMo module enabled for this account." : "MoMo module disabled for this account.");
         setMomoFor(null);
+        setShowCapabilityReauth(false);
+        setPendingCapability(null);
         loadCollectors();
       } else {
         setError(result.error || "Failed to update MoMo capability");
@@ -163,6 +178,26 @@ export default function SusuCollectorsPage() {
         title="Confirm your identity"
         description="For your security, enter your password before resetting this collector's password."
         actionLabel="Reset Password"
+        module="admin"
+        purpose="collector.password_reset"
+        targetType="collector"
+        targetId={pendingReset?.collectorId}
+      />
+      <ReauthDialog
+        open={showCapabilityReauth}
+        onClose={() => setShowCapabilityReauth(false)}
+        onConfirmed={performMomoToggle}
+        title="Confirm the capability change"
+        description="Enter your own administrator password to change this person's module access."
+        actionLabel="Apply change"
+        module="admin"
+        purpose="capability.change"
+        targetType="module_capability"
+        targetId={
+          pendingCapability
+            ? `${pendingCapability.userId}:momo:${pendingCapability.enabled ? "on" : "off"}`
+            : undefined
+        }
       />
 
       {showForm && (

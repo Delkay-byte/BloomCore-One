@@ -53,6 +53,18 @@ import { verifyPasswordAction } from "@/lib/actions/auth.actions";
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
 
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
+
+async function withdrawalGrant(accountId: string, amountMinor: string): Promise<string> {
+  const result = await verifyPasswordAction(ADMIN_PASSWORD, {
+    module: "admin",
+    purpose: "susu.withdrawal",
+    targetType: "susuAccount",
+    targetId: accountId,
+    context: { amountMinor, currency: "GHS" },
+  });
+  if (!result.success) throw new Error(result.error ?? "step-up failed");
+  return (result.data as { stepUpToken: string }).stepUpToken;
+}
 const ADMIN_PASSWORD = "Test1234!";
 
 async function tokenFor(
@@ -290,6 +302,7 @@ describe("Susu withdrawal processing and audit", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "withdraw-one-key",
+      stepUpToken: await withdrawalGrant(account.id, "2000"),
     });
     expect(result.success).toBe(true);
 
@@ -319,6 +332,7 @@ describe("Susu withdrawal processing and audit", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "duplicate-key-1",
+      stepUpToken: await withdrawalGrant(account.id, "2000"),
     });
     expect(first.success).toBe(true);
 
@@ -326,6 +340,7 @@ describe("Susu withdrawal processing and audit", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "duplicate-key-1",
+      stepUpToken: await withdrawalGrant(account.id, "2000"),
     });
     expect(second.success).toBe(false);
     expect(second.error).toMatch(/already processed/i);
@@ -343,12 +358,14 @@ describe("Susu withdrawal processing and audit", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "commission-first",
+      stepUpToken: await withdrawalGrant(account.id, "2000"),
     });
     expect(first.success).toBe(true);
     const second = await processWithdrawal({
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "commission-second",
+      stepUpToken: await withdrawalGrant(account.id, "2000"),
     });
     expect(second.success).toBe(true);
 
@@ -372,6 +389,7 @@ describe("Susu withdrawal processing and audit", () => {
     const result = await processWithdrawal({
       accountId: account.id,
       requestedAmount: 25,
+      stepUpToken: await withdrawalGrant(account.id, "2500"),
     });
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/insufficient balance/i);

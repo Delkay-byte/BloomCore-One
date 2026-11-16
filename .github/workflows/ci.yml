@@ -155,3 +155,51 @@ jobs:
           TURNSTILE_ENABLED: "false"
           RATE_LIMIT_HMAC_SECRET: e2e-rate-limit-secret-32-bytes-long
           MFA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+  secret-scan:
+    name: Secret scan (working tree and full history)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify secret-file ignores
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in .env.production .env.staging .env.test .secrets/test.key; do
+            mkdir -p "$(dirname "$f")"
+            : > "$f"
+            git check-ignore -q "$f" || { echo "Secret file is not ignored: $f"; exit 1; }
+            rm -f "$f"
+          done
+          git check-ignore -q .env.example && { echo ".env.example must stay trackable"; exit 1; } || true
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: CodeQL static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3

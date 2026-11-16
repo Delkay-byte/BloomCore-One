@@ -9,6 +9,12 @@ import { formatCedi } from "@/lib/utils";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { lockAccountForUpdate } from "@/lib/db-lock";
+import { getAdminSession } from "@/lib/auth";
+import {
+  claimStepUpGrant,
+  StepUpDeniedError,
+} from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
 
 export interface ActionResponse {
   success: boolean;
@@ -42,10 +48,13 @@ export async function processWithdrawal(params: {
   requestedAmount: number;
   notes?: string;
   idempotencyKey?: string;
+  /** SEC-04: purpose-bound single-use grant from verifyPasswordAction. */
+  stepUpToken?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
 
-  const { accountId, requestedAmount, notes, idempotencyKey } = params;
+  const { accountId, requestedAmount, notes, idempotencyKey, stepUpToken } = params;
+  const session = await getAdminSession();
 
   // Monetary validation: finite, positive, at most two decimal places.
   if (
@@ -104,6 +113,23 @@ export async function processWithdrawal(params: {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      // SEC-04: consume the grant inside the same transaction as every balance
+      // change, bound to this account and this exact amount.
+      const stepUp = await claimStepUpGrant(tx, {
+        token: stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(session, ctx.userId),
+        purpose: "susu.withdrawal",
+        targetType: "susuAccount",
+        targetId: account.id,
+        context: {
+          amountMinor: String(Math.round(amount * 100)),
+          currency: "GHS",
+        },
+      });
+      if (!stepUp.ok) throw new StepUpDeniedError(stepUp.error);
+
       // Serialise balance changes for this account on PostgreSQL.
       await lockAccountForUpdate(tx, account.id);
 
@@ -236,6 +262,9 @@ export async function processWithdrawal(params: {
     revalidatePath("/susu/admin");
     return { success: true, data: result };
   } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: error.message };
+    }
     if (
       typeof error === "object" &&
       error !== null &&

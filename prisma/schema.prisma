@@ -30,7 +30,8 @@ model User {
   tokenVersion       Int       @default(0) // Bumped to invalidate existing sessions
   mfaEnabled         Boolean   @default(false)
   mfaSecret          String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes   String? // JSON array of SHA-256 recovery-code hashes
+  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
   mfaEnrolledAt      DateTime?
   mfaLastUsedAt      DateTime?
   mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
@@ -200,7 +201,8 @@ model Customer {
   tokenVersion             Int       @default(0) // Bumped to invalidate existing customer sessions
   mfaEnabled               Boolean   @default(false)
   mfaSecret                String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes         String? // JSON array of SHA-256 recovery-code hashes
+  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
   mfaEnrolledAt            DateTime?
   mfaLastUsedAt            DateTime?
   mfaLastTotpStep          Int? // Last accepted TOTP step (replay prevention)
@@ -444,7 +446,11 @@ model CollectorRemittance {
   variance       Decimal // expected - remitted
   status         String    @default("pending") // pending | reconciled | discrepancy
   recordedById   String // Admin who recorded
-  referenceId    String    @unique // Idempotency key
+  referenceId    String    @unique // Server-issued reference shown in reports
+  // SEC-06: client idempotency key scoped to the tenant. Retries with the same
+  // key return the original row; reuse with different parameters is rejected.
+  idempotencyKey String?
+  requestHash    String?
   notes          String?
   reversedAt     DateTime?
   reversedById   String?
@@ -460,6 +466,7 @@ model CollectorRemittance {
   @@index([createdAt])
   @@index([referenceId])
   @@index([tenantId])
+  @@unique([tenantId, idempotencyKey])
 }
 
 /// Immutable snapshot of a daily account before an administrative correction.
@@ -492,6 +499,10 @@ model EmailVerificationToken {
   tenantId  String?
   userId    String
   tokenHash String    @unique // SHA-256 hash of the raw token - never store raw token
+  // SEC-14: hash of the normalized destination address this token was issued
+  // for. Verification refuses when it differs from the account's current
+  // normalized address. Null on legacy rows, which are invalidated.
+  destinationEmailHash String?
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -653,7 +664,8 @@ model PlatformSuperAdmin {
   tokenVersion       Int       @default(0)
   mfaEnabled         Boolean   @default(false)
   mfaSecret          String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes   String? // JSON array of SHA-256 recovery-code hashes
+  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
   mfaEnrolledAt      DateTime?
   mfaLastUsedAt      DateTime?
   mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
@@ -1269,4 +1281,42 @@ model ZeliAvailability {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+
+// SEC-04: server-side, single-use step-up authorization grant.
+// Only a SHA-256 hash of the opaque bearer token is stored.
+model StepUpGrant {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  subjectType String // user | platform
+  subjectId   String
+  sessionId   String // JWT jti / SessionRecord.id the grant is bound to
+  purpose     String
+  targetType  String?
+  targetId    String?
+  contextHash String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  revokedAt   DateTime?
+
+  @@index([sessionId])
+  @@index([subjectType, subjectId])
+  @@index([expiresAt])
+}
+
+// SEC-07: one hashed MFA recovery code per row so consumption is a single
+// conditional mutation. Subject existence and type are validated in code.
+model MfaRecoveryCode {
+  id          String    @id @default(cuid())
+  subjectType String // user | platform | customer
+  subjectId   String
+  codeHash    String
+  createdAt   DateTime  @default(now())
+  usedAt      DateTime?
+
+  @@unique([subjectType, subjectId, codeHash])
+  @@index([subjectType, subjectId])
+  @@index([createdAt])
 }

@@ -30,7 +30,26 @@ import {
   getDailyAccountCorrectionData,
 } from "@/lib/actions/daily-account.actions";
 
+import { verifyPasswordAction as grantFor } from "@/lib/actions/auth.actions";
+
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
+
+async function stepUpToken(
+  purpose: import("@/lib/security/step-up").StepUpPurpose,
+  targetType: string,
+  targetId: string,
+  context?: Record<string, unknown>
+): Promise<string> {
+  const result = await grantFor("Test1234!", {
+    module: "admin",
+    purpose,
+    targetType,
+    targetId,
+    context,
+  });
+  if (!result.success) throw new Error(result.error ?? "step-up failed");
+  return (result.data as { stepUpToken: string }).stepUpToken;
+}
 
 async function setAdminSession(user: { id: string; email: string }, modules: string[] = ["susu", "momo"]) {
   const now = Math.floor(Date.now() / 1000);
@@ -95,12 +114,14 @@ describe("financial corrections", () => {
     const first = await reverseRemittance({
       remittanceId,
       reason: "Recorded against the wrong collector",
+      stepUpToken: await stepUpToken("susu.remittance.reverse", "remittance", remittanceId),
     });
     expect(first.success).toBe(true);
 
     const second = await reverseRemittance({
       remittanceId,
       reason: "Attempting the same reversal twice",
+      stepUpToken: await stepUpToken("susu.remittance.reverse", "remittance", remittanceId),
     });
     expect(second.success).toBe(false);
 
@@ -176,7 +197,10 @@ describe("financial corrections", () => {
         closingCash: "125",
         expenses: JSON.stringify([{ description: "Transport", amount: 5 }]),
       }),
-      "Debts collected figure omitted from the original submission"
+      "Debts collected figure omitted from the original submission",
+      await stepUpToken("finance.daily_account.correct", "dailyAccount", account.id, {
+        version: account.revisionCount,
+      })
     );
     expect(result.success).toBe(true);
 
@@ -249,8 +273,22 @@ describe("financial corrections", () => {
       });
 
     const results = await Promise.all([
-      correctDailyAccount(account.id, form(), "First concurrent correction reason"),
-      correctDailyAccount(account.id, form(), "Second concurrent correction reason"),
+      correctDailyAccount(
+        account.id,
+        form(),
+        "First concurrent correction reason",
+        await stepUpToken("finance.daily_account.correct", "dailyAccount", account.id, {
+          version: account.revisionCount,
+        })
+      ),
+      correctDailyAccount(
+        account.id,
+        form(),
+        "Second concurrent correction reason",
+        await stepUpToken("finance.daily_account.correct", "dailyAccount", account.id, {
+          version: account.revisionCount,
+        })
+      ),
     ]);
     const successes = results.filter((result) => result.success).length;
     // SQLite serialises the two interactive transactions, so the second call
@@ -319,7 +357,10 @@ describe("financial corrections", () => {
         closingCash: "0",
         expenses: "[]",
       }),
-      "Read-model correction for the revision screen"
+      "Read-model correction for the revision screen",
+      await stepUpToken("finance.daily_account.correct", "dailyAccount", account.id, {
+        version: account.revisionCount,
+      })
     );
     expect(corrected.success).toBe(true);
 

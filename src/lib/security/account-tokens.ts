@@ -18,6 +18,17 @@ export function hashAccountToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
+/** One normalization policy for account emails and token destinations. */
+export function normalizeAccountEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function hashDestinationEmail(email: string): string {
+  return createHash("sha256")
+    .update(`verify-destination:${normalizeAccountEmail(email)}`)
+    .digest("hex");
+}
+
 export function generateAccountToken(): string {
   return randomBytes(32).toString("base64url");
 }
@@ -33,7 +44,8 @@ export interface IssueVerificationResult {
  * this result is for audit and tests only.
  */
 export async function issueEmailVerification(
-  userId: string
+  userId: string,
+  options?: { force?: boolean }
 ): Promise<IssueVerificationResult> {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -56,6 +68,7 @@ export async function issueEmailVerification(
     select: { createdAt: true },
   });
   if (
+    !options?.force &&
     latest &&
     Date.now() - latest.createdAt.getTime() < VERIFICATION_RESEND_COOLDOWN_MS
   ) {
@@ -74,6 +87,7 @@ export async function issueEmailVerification(
         userId,
         tenantId: user.tenantId,
         tokenHash: hashAccountToken(rawToken),
+        destinationEmailHash: hashDestinationEmail(user.email),
         expiresAt,
       },
     });
@@ -97,9 +111,46 @@ export async function issueEmailVerification(
     await db.emailVerificationToken
       .deleteMany({ where: { tokenHash: hashAccountToken(rawToken), usedAt: null } })
       .catch(() => undefined);
+    // SEC-16: operator-visible, non-secret delivery failure. The account stays
+    // pending and the user can request another message once the provider is
+    // healthy; no raw token or address is recorded here.
+    await db.auditLog
+      .create({
+        data: {
+          tenantId: user.tenantId,
+          userId,
+          action: "email.verification_delivery_failed",
+          entityType: "user",
+          entityId: userId,
+          details: JSON.stringify({
+            tag: "email_verification",
+            retryable: delivery.retryable === true,
+            providerStatus: delivery.status ?? null,
+          }),
+        },
+      })
+      .catch(() => undefined);
     return { sent: false, reason: "send_failed" };
   }
   return { sent: true };
+}
+
+/**
+ * SEC-14: call after an administrative email change. Every outstanding link is
+ * invalidated, the new address starts unverified, and a fresh message is sent.
+ */
+export async function handleAccountEmailChanged(userId: string): Promise<void> {
+  await db.$transaction(async (tx) => {
+    await tx.emailVerificationToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    await tx.user.update({
+      where: { id: userId },
+      data: { emailVerified: false, emailVerifiedAt: null },
+    });
+  });
+  await issueEmailVerification(userId, { force: true }).catch(() => undefined);
 }
 
 export type ConsumeVerificationResult =
@@ -119,12 +170,18 @@ export async function consumeEmailVerification(
   const tokenHash = hashAccountToken(rawToken);
   const record = await db.emailVerificationToken.findUnique({
     where: { tokenHash },
-    select: { id: true, userId: true, expiresAt: true, usedAt: true },
+    select: {
+      id: true,
+      userId: true,
+      expiresAt: true,
+      usedAt: true,
+      destinationEmailHash: true,
+    },
   });
   if (!record) return { ok: false, reason: "invalid" };
   const user = await db.user.findUnique({
     where: { id: record.userId },
-    select: { id: true, status: true, emailVerified: true },
+    select: { id: true, status: true, emailVerified: true, email: true },
   });
   if (record.usedAt) {
     // Idempotent for the same account: a second click after a successful
@@ -135,8 +192,14 @@ export async function consumeEmailVerification(
       : { ok: false, reason: "used" };
   }
   if (record.expiresAt.getTime() <= Date.now()) return { ok: false, reason: "expired" };
-
   if (!user || user.status !== "active") return { ok: false, reason: "inactive" };
+
+  // SEC-14: the token must have been issued for the address currently on the
+  // account. Legacy tokens have no snapshot and were invalidated by migration.
+  if (!record.destinationEmailHash) return { ok: false, reason: "invalid" };
+  if (record.destinationEmailHash !== hashDestinationEmail(user.email)) {
+    return { ok: false, reason: "invalid" };
+  }
 
   const consumed = await db.$transaction(async (tx) => {
     const update = await tx.emailVerificationToken.updateMany({

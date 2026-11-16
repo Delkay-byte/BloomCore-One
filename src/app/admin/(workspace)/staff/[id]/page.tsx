@@ -9,6 +9,7 @@ import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getStaffById, updateStaff, resetStaffPassword, toggleStaffStatus } from "@/lib/actions/staff.actions";
 import { formatDateTime } from "@/lib/utils";
 import PasswordInput from "@/components/PasswordInput";
+import ReauthDialog from "@/components/ReauthDialog";
 
 interface StaffDetail {
   id: string;
@@ -44,6 +45,8 @@ export default function StaffDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [pendingPasswordReset, setPendingPasswordReset] = useState<FormData | null>(null);
+  const [showReauth, setShowReauth] = useState(false);
 
   useEffect(() => { loadStaff(); }, [staffId]);
 
@@ -82,12 +85,18 @@ export default function StaffDetailPage() {
     }
   }
 
-  async function handlePasswordReset(formData: FormData) {
+  function handlePasswordReset(formData: FormData) {
+    setPendingPasswordReset(formData);
+    setShowReauth(true);
+  }
+
+  async function executePasswordReset(stepUpToken: string) {
+    if (!pendingPasswordReset) return;
     setSubmitting(true);
     setError("");
     setSuccess("");
     try {
-      const result = await resetStaffPassword(staffId, formData);
+      const result = await resetStaffPassword(staffId, pendingPasswordReset, stepUpToken);
       if (result.success) {
         setSuccess("Password reset. Existing sessions invalidated. Share the new password securely.");
         setShowPasswordReset(false);
@@ -99,6 +108,8 @@ export default function StaffDetailPage() {
       if (handleRedirect(err, setError, "An unexpected error occurred")) return;
     } finally {
       setSubmitting(false);
+      setShowReauth(false);
+      setPendingPasswordReset(null);
     }
   }
 
@@ -129,6 +140,21 @@ export default function StaffDetailPage() {
 
   return (
     <div>
+      <ReauthDialog
+        open={showReauth}
+        onClose={() => {
+          setShowReauth(false);
+          setPendingPasswordReset(null);
+        }}
+        onConfirmed={executePasswordReset}
+        title="Confirm your identity"
+        description="For your security, enter your own administrator password before resetting this staff member's password."
+        actionLabel="Reset Password"
+        module="admin"
+        purpose="staff.password_reset"
+        targetType="user"
+        targetId={staffId}
+      />
       <div className="flex items-center justify-between mb-8">
         <div>
           <Link href="/admin/staff" className="text-sm text-brand-700 hover:underline">← Staff Directory</Link>

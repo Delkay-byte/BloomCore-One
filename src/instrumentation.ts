@@ -12,6 +12,8 @@
 
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
+import { assertEmailConfigurationForProduction } from "./lib/email/resend";
+
 function sweepInterval(): number {
   const configured = Number(process.env.ZELI_EXPIRY_INTERVAL_MS ?? "");
   return Number.isFinite(configured) && configured >= 60_000 ? configured : SWEEP_INTERVAL_MS;
@@ -33,6 +35,10 @@ async function runSweep(): Promise<void> {
 
 export function register(): void {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // SEC-16: fail the boot when transactional email is deliberately disabled or
+  // required sender configuration is missing. A transient provider outage
+  // later never crashes the application.
+  assertEmailConfigurationForProduction();
   if (process.env.VITEST) return;
   if (process.env.ZELI_EXPIRY_SCHEDULER === "disabled") return;
   if (started) return;

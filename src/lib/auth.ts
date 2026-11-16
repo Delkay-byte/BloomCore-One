@@ -127,6 +127,8 @@ export interface SelectionPayload {
   email: string;
   fullName: string;
   modules: ("momo" | "susu")[];
+  /** Authentication context established by the completed login. */
+  amr?: "pwd" | "pwd+mfa";
   jti?: string;
   tokenUse?: "workspace-selection";
 }

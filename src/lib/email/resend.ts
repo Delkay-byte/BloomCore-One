@@ -14,8 +14,46 @@ export interface TransactionalEmail {
   tag?: string;
 }
 
+export interface EmailConfigStatus {
+  configured: boolean;
+  deliveryDisabled: boolean;
+  hasApiKey: boolean;
+  hasSender: boolean;
+  baseUrl: string;
+}
+
+/** Safe, non-secret view of transactional-email configuration. */
+export function emailConfigStatus(): EmailConfigStatus {
+  return {
+    configured: Boolean(process.env.RESEND_API_KEY && emailFromAddress()),
+    deliveryDisabled:
+      process.env.EMAIL_DELIVERY === "disabled" ||
+      process.env.RESEND_DISABLED === "true",
+    hasApiKey: Boolean(process.env.RESEND_API_KEY),
+    hasSender: Boolean(emailFromAddress()),
+    baseUrl: appBaseUrl(),
+  };
+}
+
+/**
+ * SEC-16 production preflight. A deliberately disabled or unconfigured
+ * transactional email path must fail the deployment, not lock new accounts out
+ * silently. Transient provider outages do not call this function.
+ */
+export function assertEmailConfigurationForProduction(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const status = emailConfigStatus();
+  if (!status.configured || status.deliveryDisabled) {
+    throw new Error(
+      "Transactional email is required in production. Set RESEND_API_KEY and EMAIL_FROM_SECURITY (or EMAIL_FROM), and do not disable delivery."
+    );
+  }
+}
+
 export interface EmailDeliveryResult {
   ok: boolean;
+  /** True when a retry could reasonably succeed later. */
+  retryable?: boolean;
   /** True when delivery was intentionally skipped (test/disabled mode). */
   skipped?: boolean;
   /** Provider status when the request was made. Never includes the body. */
@@ -113,11 +151,15 @@ export async function sendTransactionalEmail(
     if (!response.ok) {
       // Status only. The provider body can contain recipient data.
       console.error(`[email] Resend rejected a transactional email (status ${response.status}).`);
-      return { ok: false, status: response.status };
+      return {
+      ok: false,
+      status: response.status,
+      retryable: response.status === 429 || response.status >= 500,
+    };
     }
     return { ok: true, status: response.status };
   } catch {
     console.error("[email] Resend request failed before a response was received.");
-    return { ok: false };
+    return { ok: false, retryable: true };
   }
 }

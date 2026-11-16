@@ -46,7 +46,26 @@ import {
   reverseWithdrawal,
 } from "@/lib/actions/financial-reversal.actions";
 
+import { verifyPasswordAction as grantFor } from "@/lib/actions/auth.actions";
+
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
+
+async function stepUpToken(
+  purpose: import("@/lib/security/step-up").StepUpPurpose,
+  targetType: string,
+  targetId: string,
+  context?: Record<string, unknown>
+): Promise<string> {
+  const result = await grantFor("Test1234!", {
+    module: "admin",
+    purpose,
+    targetType,
+    targetId,
+    context,
+  });
+  if (!result.success) throw new Error(result.error ?? "step-up failed");
+  return (result.data as { stepUpToken: string }).stepUpToken;
+}
 
 async function setAdminSession(user: { id: string; email: string }) {
   const now = Math.floor(Date.now() / 1000);
@@ -107,6 +126,7 @@ describe("financial operation security", () => {
     const result = await processWithdrawal({
       accountId: account.id,
       requestedAmount: 10,
+      stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "1000", currency: "GHS" }),
     });
 
     expect(result.success).toBe(false);
@@ -141,6 +161,7 @@ describe("financial operation security", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "withdrawal-key-0001",
+    stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "2000", currency: "GHS" }),
     });
     expect(first.success).toBe(true);
 
@@ -148,6 +169,7 @@ describe("financial operation security", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "withdrawal-key-0001",
+    stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "2000", currency: "GHS" }),
     });
     expect(replay.success).toBe(false);
     expect(replay.error).toMatch(/already processed/i);
@@ -156,6 +178,7 @@ describe("financial operation security", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "withdrawal-key-0002",
+    stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "2000", currency: "GHS" }),
     });
     expect(second.success).toBe(true);
 
@@ -183,6 +206,7 @@ describe("financial operation security", () => {
       accountId: account.id,
       requestedAmount: 20,
       idempotencyKey: "reverse-key-0001",
+    stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "2000", currency: "GHS" }),
     });
     expect(withdrawal.success).toBe(true);
     const original = await prisma.withdrawal.findFirstOrThrow({
@@ -192,12 +216,14 @@ describe("financial operation security", () => {
     const reversal = await reverseWithdrawal({
       withdrawalId: original.id,
       reason: "Customer disputed the payout; cash returned to the office.",
+      stepUpToken: await stepUpToken("susu.withdrawal.reverse", "withdrawal", original.id),
     });
     expect(reversal.success).toBe(true);
 
     const duplicate = await reverseWithdrawal({
       withdrawalId: original.id,
       reason: "Attempt to reverse the same withdrawal twice.",
+      stepUpToken: await stepUpToken("susu.withdrawal.reverse", "withdrawal", original.id),
     });
     expect(duplicate.success).toBe(false);
 
@@ -230,12 +256,14 @@ describe("financial operation security", () => {
     const reversal = await reverseContribution({
       contributionId: original.id,
       reason: "Contribution was recorded against the wrong customer account.",
+      stepUpToken: await stepUpToken("susu.contribution.reverse", "contribution", original.id),
     });
     expect(reversal.success).toBe(true);
 
     const duplicate = await reverseContribution({
       contributionId: original.id,
       reason: "Duplicate reversal attempt should be rejected.",
+      stepUpToken: await stepUpToken("susu.contribution.reverse", "contribution", original.id),
     });
     expect(duplicate.success).toBe(false);
 
@@ -251,6 +279,7 @@ describe("financial operation security", () => {
     const spend = await processWithdrawal({
       accountId: account.id,
       requestedAmount: 10,
+      stepUpToken: await stepUpToken("susu.withdrawal", "susuAccount", account.id, { amountMinor: "1000", currency: "GHS" }),
     });
     expect(spend.success).toBe(false);
   });

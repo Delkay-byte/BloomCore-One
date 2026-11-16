@@ -13,6 +13,7 @@ import {
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import { PromptDialog } from "@/components/ui/Modal";
+import ReauthDialog from "@/components/ReauthDialog";
 import { useToast } from "@/components/ui/Toast";
 
 interface RemittanceRecord {
@@ -50,6 +51,7 @@ export default function SusuRemittancesPage() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [reverseTarget, setReverseTarget] = useState<RemittanceRecord | null>(null);
+  const [showReverseReauth, setShowReverseReauth] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
   const [reverseBusy, setReverseBusy] = useState(false);
   const [reverseError, setReverseError] = useState("");
@@ -132,12 +134,17 @@ export default function SusuRemittancesPage() {
     setReverseError("");
   }
 
-  async function submitReverse() {
+  function submitReverse() {
     if (!reverseTarget || reverseBusy) return;
     if (reverseReason.trim().length < 10) {
       setReverseError("Enter a reversal reason of at least 10 characters.");
       return;
     }
+    setShowReverseReauth(true);
+  }
+
+  async function performReverse(stepUpToken: string) {
+    if (!reverseTarget || reverseBusy) return;
     setReverseBusy(true);
     setReverseError("");
     try {
@@ -153,6 +160,7 @@ export default function SusuRemittancesPage() {
       toast.push("success", "Remittance reversed successfully.");
       setReverseTarget(null);
       setReverseReason("");
+      setShowReverseReauth(false);
       await loadRemittances();
     } catch {
       setReverseError("The remittance could not be reversed. Please try again.");
@@ -354,6 +362,18 @@ export default function SusuRemittancesPage() {
         onChange={setReverseReason}
         error={reverseError}
         multiline
+      />
+      <ReauthDialog
+        open={showReverseReauth}
+        onClose={() => setShowReverseReauth(false)}
+        onConfirmed={performReverse}
+        title="Confirm the reversal"
+        description="Enter your own administrator password to reverse this remittance."
+        actionLabel="Reverse remittance"
+        module="admin"
+        purpose="susu.remittance.reverse"
+        targetType="remittance"
+        targetId={reverseTarget?.id}
       />
     </div>
   );

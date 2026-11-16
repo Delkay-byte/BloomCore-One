@@ -39,6 +39,15 @@ import {
 } from "@/lib/security/password-change-challenge";
 import { revokeAllSubjectSessions } from "@/lib/security/session-store";
 import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { mfaPolicy } from "@/lib/security/config";
+import {
+  claimStepUpGrant,
+  createStepUpGrant,
+  STEP_UP_TTL_MS,
+  type StepUpPurpose,
+} from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
+import { verifyPlatformPassword } from "@/lib/platform-auth";
 import { headers } from "next/headers";
 
 export interface PlatformActionResponse {
@@ -322,6 +331,7 @@ export async function platformChangePassword(
   if (!admin) {
     return { success: false, error: "Not authenticated" };
   }
+  const currentPayload = await getPlatformTokenPayload();
   const bcrypt = await import("bcryptjs");
   if (!(await bcrypt.compare(currentPassword, admin.passwordHash))) {
     return { success: false, error: "Current password is incorrect" };
@@ -345,6 +355,9 @@ export async function platformChangePassword(
     fullName: admin.fullName,
     forcePasswordReset: false,
     tokenVersion: admin.tokenVersion + 1,
+    // SEC-08: preserve the server-derived authentication context. A password
+    // change never manufactures MFA status the session did not already hold.
+    amr: currentPayload?.amr ?? "pwd",
   });
 
   await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.PLATFORM_PASSWORD_CHANGED);
@@ -951,9 +964,12 @@ export async function updateTenantModules(
  */
 export async function resetTenantAdminAccess(
   tenantId: string,
-  adminUserId: string
+  adminUserId: string,
+  stepUpToken?: string
 ): Promise<PlatformActionResponse> {
   const session = await requirePlatformAdmin();
+  const platformPayload = await getPlatformTokenPayload();
+
   if (!(await platformSensitiveAllowed(session, "platform:mutate"))) {
     return {
       success: false,
@@ -972,14 +988,34 @@ export async function resetTenantAdminAccess(
   }
 
   const tempPassword = generateTempPassword();
-  await db.user.update({
-    where: { id: admin.id },
-    data: {
-      passwordHash: await hashPlatformPassword(tempPassword),
-      forcePasswordReset: true,
-      tokenVersion: { increment: 1 },
-    },
+  const passwordHash = await hashPlatformPassword(tempPassword);
+  const steppedUp = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "platform",
+      subjectId: session.adminId,
+      sessionId: stepUpSessionBinding(platformPayload, session.adminId),
+      purpose: "tenant.admin_access_reset",
+      targetType: "tenant_admin",
+      targetId: `${tenantId}:${adminUserId}`,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: admin.id },
+      data: {
+        passwordHash,
+        forcePasswordReset: true,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!steppedUp) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await auditPlatformEvent(session, PLATFORM_AUDIT_ACTIONS.TENANT_ADMIN_RECOVERY_INITIATED, {
     tenantId: tenant.id,
@@ -996,6 +1032,83 @@ export async function resetTenantAdminAccess(
       adminEmail: admin.email,
       // One-time credential for out-of-band handover. Never logged.
       temporaryPassword: tempPassword,
+    },
+  };
+}
+
+/**
+ * SEC-04: verify the platform operator's password and issue a purpose-bound,
+ * single-use step-up grant. MFA is required when enforcement is on or the
+ * account has enrolled a factor; a browser-supplied claim is never accepted.
+ */
+export async function verifyPlatformStepUpAction(
+  password: string,
+  options: {
+    purpose: StepUpPurpose;
+    targetType?: string;
+    targetId?: string;
+    context?: Record<string, unknown>;
+  }
+): Promise<PlatformActionResponse> {
+  const session = await requirePlatformAdmin();
+  const payload = await getPlatformTokenPayload();
+  if (!payload) {
+    return { success: false, error: "Your session has expired. Please sign in again." };
+  }
+
+  if (typeof password !== "string" || password.length === 0) {
+    return { success: false, error: "Password is required" };
+  }
+  const rate = await consumeRateLimit(
+    "platform:step_up",
+    session.adminId,
+    RATE_LIMITS.adminSensitive
+  );
+  if (!rate.allowed) {
+    return { success: false, error: "Too many attempts. Please wait and try again." };
+  }
+  const admin = await db.platformSuperAdmin.findUnique({
+    where: { id: session.adminId },
+  });
+  if (!admin || admin.status !== "active") {
+    return { success: false, error: "Not authorized." };
+  }
+  if (!(await verifyPlatformPassword(password, admin.passwordHash))) {
+    await auditPlatformEvent(session, "platform.step_up_failed", {
+      entityType: "PlatformSuperAdmin",
+      entityId: admin.id,
+      details: { purpose: options.purpose },
+    });
+    return { success: false, error: "Incorrect password" };
+  }
+  if (admin.mfaEnabled || mfaPolicy() === "enforce") {
+    if (payload.amr !== "pwd+mfa") {
+      return {
+        success: false,
+        error: "Multi-factor authentication is required for this action. Sign in again.",
+      };
+    }
+  }
+  const grant = await createStepUpGrant({
+    subjectType: "platform",
+    subjectId: admin.id,
+    sessionId: stepUpSessionBinding(payload, admin.id),
+    purpose: options.purpose,
+    targetType: options.targetType,
+    targetId: options.targetId,
+    context: options.context,
+  });
+  await auditPlatformEvent(session, "platform.step_up_succeeded", {
+    entityType: "PlatformSuperAdmin",
+    entityId: admin.id,
+    details: { purpose: options.purpose },
+  });
+  return {
+    success: true,
+    data: {
+      stepUpToken: grant.token,
+      expiresAt: grant.expiresAt.toISOString(),
+      expiresInMs: STEP_UP_TTL_MS,
     },
   };
 }

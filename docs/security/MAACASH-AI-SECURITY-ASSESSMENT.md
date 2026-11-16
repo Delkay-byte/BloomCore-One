@@ -958,3 +958,37 @@ This branch is **not** ready to merge under the stated definition of done. SEC-0
 SEC-14 and the SEC-06 idempotency half remain open, and several residual items are
 unaddressed. The branch improves the baseline (SEC-05 code, SEC-06 validation and
 integrity, SEC-09, SEC-10, SEC-12) without regressing existing behaviour.
+
+
+---
+
+# Second remediation pass (2026-11-16)
+
+This section is additive. The first remediation table above is retained as history.
+
+Branch: `security/comprehensive-hardening-sec-01-to-sec-16`, PR #48, based on `d6d1577`.
+
+The second pass closed the outstanding code findings:
+
+- **SEC-04:** added `StepUpGrant`, a hash-only, subject/session/purpose/target/context-bound,
+  five-minute, single-use grant consumed inside the protected transaction. Wired to withdrawals,
+  financial reversals/corrections, password resets, tenant-admin recovery and capability changes.
+- **SEC-06:** added tenant-scoped remittance idempotency with request hashing and duplicate
+  reconciliation on the unique conflict.
+- **SEC-07:** replaced the JSON recovery-code array with one hashed row per code and atomic
+  conditional consumption; legacy hashes are migrated, not invalidated.
+- **SEC-14:** bound verification tokens to the normalized destination and added email-change
+  invalidation/reissue.
+- **SEC-08:** workspace selection and platform password re-issue preserve the server-derived `amr`.
+- **SEC-15:** added per-subject MFA management limits, pending-enrolment idempotency, disable
+  reason/confirmation/audit/notification.
+- **SEC-16:** added a production email configuration preflight, retryable failure classification
+  and audited delivery failures.
+
+Verification completed in this pass: 929 SQLite tests, 20 PostgreSQL tests (including new
+concurrency cases for SEC-03, SEC-04 and SEC-07), typecheck, lint, production build and a
+legacy-data migration rehearsal. See `docs/security/SECURITY-REMEDIATION-REGISTER.md`.
+
+Remaining work is external or policy-level: Prisma 7 major upgrade, a controlled staging run for
+Turnstile/proxy/action-surface behaviour, security-event retention/alerting, financial maker-checker
+and the dynamic/secret-history scanners listed in residual risk I. Production was not changed.

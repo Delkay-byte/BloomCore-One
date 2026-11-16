@@ -146,6 +146,14 @@ export default function MfaSettings() {
             <label className="form-label" htmlFor="disable-code">Current code or recovery code</label>
             <input id="disable-code" name="code" required />
           </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="disable-reason">Reason (required)</label>
+            <input id="disable-reason" name="reason" minLength={10} maxLength={500} required />
+          </div>
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="confirm" required className="mt-1" />
+            <span>I understand that disabling MFA removes a sign-in protection from this account.</span>
+          </label>
           <button type="submit" className="btn btn-danger btn-sm" disabled={busy}>
             Disable MFA
           </button>

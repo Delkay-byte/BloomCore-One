@@ -51,6 +51,13 @@ import {
 } from "@/lib/security/password-change-challenge";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
+import { mfaPolicy } from "@/lib/security/config";
+import {
+  createStepUpGrant,
+  STEP_UP_TTL_MS,
+  stepUpSessionBinding,
+  type StepUpPurpose,
+} from "@/lib/security/step-up";
 
 /**
  * A valid bcrypt hash of a value nobody knows. Comparing against it for unknown
@@ -74,6 +81,7 @@ async function verifyPasswordConstantTime(
 export interface ActionResponse {
   success: boolean;
   error?: string;
+  data?: unknown;
   /** When true, the error relates to an admin attempting the shared login. */
   adminLogin?: boolean;
   /**
@@ -286,6 +294,9 @@ export async function login(
     email: user.email,
     fullName: user.fullName,
     modules,
+    // Password-only is the only path that reaches workspace selection; MFA
+    // completion issues a module session directly.
+    amr: "pwd",
   });
   await setSelectionSession(selectionToken);
   return {
@@ -337,7 +348,11 @@ export async function selectWorkspace(
     };
   }
 
-  const issued = await issueModuleSession(selection.userId, module);
+  const issued = await issueModuleSession(
+    selection.userId,
+    module,
+    selection.amr === "pwd+mfa"
+  );
 
   // The selection token is single-use. The shared legacy cookie is removed
   // only for migration; no new selection cookie is written.
@@ -491,7 +506,14 @@ export async function logout(): Promise<ActionResponse> {
  */
 export async function verifyPasswordAction(
   password: string,
-  options?: { module?: ModuleName }
+  options?: {
+    module?: ModuleName;
+    /** SEC-04: purpose-bound single-use grant, created on success. */
+    purpose?: StepUpPurpose;
+    targetType?: string;
+    targetId?: string;
+    context?: Record<string, unknown>;
+  }
 ): Promise<ActionResponse> {
   if (typeof password !== "string" || password.length === 0) {
     return { success: false, error: "Password is required" };
@@ -580,8 +602,43 @@ export async function verifyPasswordAction(
     action: "auth.reauth_success",
     entityType: "user",
     entityId: context.user.userId,
-    details: { module: context.module },
+    details: {
+      module: context.module,
+      ...(options?.purpose ? { purpose: options.purpose } : {}),
+    },
   });
+
+  // SEC-04: create a purpose-bound, single-use grant. A browser boolean is
+  // never accepted; the grant is the only proof the protected action will
+  // recognise.
+  if (options?.purpose) {
+    if (dbUser.mfaEnabled || mfaPolicy() === "enforce") {
+      if (context.user.amr !== "pwd+mfa") {
+        return {
+          success: false,
+          error:
+            "Multi-factor authentication is required for this action. Sign in again and complete verification.",
+        };
+      }
+    }
+    const grant = await createStepUpGrant({
+      subjectType: "user",
+      subjectId: context.user.userId,
+      sessionId: stepUpSessionBinding(context.user, context.user.userId),
+      purpose: options.purpose,
+      targetType: options.targetType,
+      targetId: options.targetId,
+      context: options.context,
+    });
+    return {
+      success: true,
+      data: {
+        stepUpToken: grant.token,
+        expiresAt: grant.expiresAt.toISOString(),
+        expiresInMs: STEP_UP_TTL_MS,
+      },
+    };
+  }
 
   return { success: true };
 }

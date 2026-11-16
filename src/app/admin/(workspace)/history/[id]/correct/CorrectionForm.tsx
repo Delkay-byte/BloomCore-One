@@ -14,6 +14,7 @@ import {
 } from "@/lib/momo-reconciliation";
 import { sumExpenseLines } from "@/lib/expense-lines";
 import { formatCedi, formatDateTime } from "@/lib/utils";
+import ReauthDialog from "@/components/ReauthDialog";
 
 type MoneyField =
   | "openingMomoFloat"
@@ -52,6 +53,8 @@ export default function CorrectionForm({
   data: DailyAccountCorrectionView;
 }) {
   const router = useRouter();
+  const [pendingCorrection, setPendingCorrection] = useState<FormData | null>(null);
+  const [showReauth, setShowReauth] = useState(false);
   const [values, setValues] = useState<Record<MoneyField, number>>({
     openingMomoFloat: data.values.openingMomoFloat,
     openingCash: data.values.openingCash,
@@ -151,25 +154,36 @@ export default function CorrectionForm({
       return;
     }
 
+    const formData = new FormData();
+    for (const field of FIELDS) {
+      formData.set(field.key, String(values[field.key]));
+    }
+    formData.set("totalAirtimeSold", String(airtimeSold));
+    formData.set("reconciliationNote", reconciliationNote.trim());
+    formData.set(
+      "expenses",
+      JSON.stringify(
+        expenses.map((expense) => ({
+          description: expense.description,
+          amount: Number(expense.amount),
+        }))
+      )
+    );
+    setSaving(false);
+    setPendingCorrection(formData);
+    setShowReauth(true);
+  }
+
+  async function performCorrection(stepUpToken: string) {
+    if (!pendingCorrection) return;
     setSaving(true);
     try {
-      const formData = new FormData();
-      for (const field of FIELDS) {
-        formData.set(field.key, String(values[field.key]));
-      }
-      formData.set("totalAirtimeSold", String(airtimeSold));
-      formData.set("reconciliationNote", reconciliationNote.trim());
-      formData.set(
-        "expenses",
-        JSON.stringify(
-          expenses.map((expense) => ({
-            description: expense.description,
-            amount: Number(expense.amount),
-          }))
-        )
+      const result = await correctDailyAccount(
+        data.id,
+        pendingCorrection,
+        reason,
+        stepUpToken
       );
-
-      const result = await correctDailyAccount(data.id, formData, reason);
       if (!result.success) {
         setError(result.error ?? "The correction could not be saved.");
         return;
@@ -177,6 +191,8 @@ export default function CorrectionForm({
       setSuccess(
         "Correction saved. The previous values are preserved in revision history."
       );
+      setShowReauth(false);
+      setPendingCorrection(null);
       router.refresh();
     } catch {
       setError("The correction could not be saved. Reload and try again.");
@@ -575,6 +591,19 @@ export default function CorrectionForm({
           </div>
         )}
       </aside>
+      <ReauthDialog
+        open={showReauth}
+        onClose={() => setShowReauth(false)}
+        onConfirmed={performCorrection}
+        title="Confirm the correction"
+        description="Enter your own administrator password to save this financial correction."
+        actionLabel="Save correction"
+        module="admin"
+        purpose="finance.daily_account.correct"
+        targetType="dailyAccount"
+        targetId={data.id}
+        context={{ version: data.revisionCount }}
+      />
     </div>
   );
 }

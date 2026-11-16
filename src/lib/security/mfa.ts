@@ -2,7 +2,6 @@ import QRCode from "qrcode";
 import { db } from "../db";
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
-  consumeRecoveryCode,
   generateRecoveryCodes,
   generateTotpSecret,
   hashRecoveryCode,
@@ -26,9 +25,13 @@ interface MfaRow {
   mfaEnabled: boolean;
   mfaSecret: string | null;
   mfaRecoveryCodes: string | null;
+  mfaPendingSecretAt?: Date | null;
 }
 
 const ISSUER = "MaaCash";
+
+/** A pending TOTP secret is reused for this long before it is replaced. */
+export const MFA_ENROLLMENT_PENDING_TTL_MS = 15 * 60 * 1000;
 
 function actorTypeFor(
   subjectType: MfaSubjectType
@@ -49,6 +52,7 @@ async function loadSubject(
         mfaEnabled: true,
         mfaSecret: true,
         mfaRecoveryCodes: true,
+        mfaPendingSecretAt: true,
       },
     });
   }
@@ -59,6 +63,7 @@ async function loadSubject(
         mfaEnabled: true,
         mfaSecret: true,
         mfaRecoveryCodes: true,
+        mfaPendingSecretAt: true,
       },
     });
   }
@@ -68,6 +73,7 @@ async function loadSubject(
       mfaEnabled: true,
       mfaSecret: true,
       mfaRecoveryCodes: true,
+      mfaPendingSecretAt: true,
     },
   });
 }
@@ -86,6 +92,97 @@ async function updateSubject(
   }
 }
 
+/**
+ * SEC-07: persist one hashed recovery code per row, replacing any previous set.
+ * Plaintext codes never reach storage and are shown to the user exactly once.
+ */
+async function replaceRecoveryCodes(
+  subjectType: MfaSubjectType,
+  subjectId: string,
+  plainCodes: string[]
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    await tx.mfaRecoveryCode.deleteMany({ where: { subjectType, subjectId } });
+    await tx.mfaRecoveryCode.createMany({
+      data: plainCodes.map((code) => ({
+        subjectType,
+        subjectId,
+        codeHash: hashRecoveryCode(code),
+      })),
+    });
+    // The legacy JSON array is retired in the same transaction so there is no
+    // second, non-atomic source of truth.
+    if (subjectType === "platform") {
+      await tx.platformSuperAdmin.update({
+        where: { id: subjectId },
+        data: { mfaRecoveryCodes: null },
+      });
+    } else if (subjectType === "customer") {
+      await tx.customer.update({
+        where: { id: subjectId },
+        data: { mfaRecoveryCodes: null },
+      });
+    } else {
+      await tx.user.update({
+        where: { id: subjectId },
+        data: { mfaRecoveryCodes: null },
+      });
+    }
+  });
+}
+
+/** Copy any legacy JSON hashes into rows before the first consumption. */
+async function ensureRecoveryCodesMigrated(
+  subjectType: MfaSubjectType,
+  subjectId: string,
+  legacyJson: string | null
+): Promise<void> {
+  if (!legacyJson) return;
+  let hashes: string[] = [];
+  try {
+    const parsed = JSON.parse(legacyJson);
+    if (Array.isArray(parsed)) {
+      hashes = parsed.filter(
+        (item): item is string =>
+          typeof item === "string" && /^[0-9a-f]{64}$/.test(item)
+      );
+    }
+  } catch {
+    return;
+  }
+  if (hashes.length === 0) return;
+  const unique = Array.from(new Set(hashes));
+  await db.mfaRecoveryCode.createMany({
+    data: unique.map((codeHash) => ({ subjectType, subjectId, codeHash })),
+  });
+}
+
+/**
+ * Conditionally consume one recovery code. The `usedAt: null` filter is the
+ * concurrency gate: across connections and instances exactly one request can
+ * claim the row.
+ */
+async function consumeRecoveryCodeAtomic(
+  subjectType: MfaSubjectType,
+  subjectId: string,
+  code: string,
+  now: number
+): Promise<boolean> {
+  const codeHash = hashRecoveryCode(code);
+  const row = await db.mfaRecoveryCode.findUnique({
+    where: {
+      subjectType_subjectId_codeHash: { subjectType, subjectId, codeHash },
+    },
+    select: { id: true, usedAt: true },
+  });
+  if (!row || row.usedAt) return false;
+  const claimed = await db.mfaRecoveryCode.updateMany({
+    where: { id: row.id, usedAt: null },
+    data: { usedAt: new Date(now) },
+  });
+  return claimed.count === 1;
+}
+
 export interface EnrollmentStart {
   secret: string;
   otpauthUrl: string;
@@ -100,12 +197,47 @@ export async function beginMfaEnrollment(params: {
   subjectType: MfaSubjectType;
   subjectId: string;
   accountName: string;
+  /** Explicit user restart discards the pending secret instead of reusing it. */
+  restart?: boolean;
 }): Promise<EnrollmentStart> {
+  const existing = await loadSubject(params.subjectType, params.subjectId);
+  const pendingAgeMs =
+    existing?.mfaPendingSecretAt != null
+      ? Date.now() - existing.mfaPendingSecretAt.getTime()
+      : Number.POSITIVE_INFINITY;
+  if (
+    !params.restart &&
+    existing?.mfaSecret &&
+    !existing.mfaEnabled &&
+    pendingAgeMs < MFA_ENROLLMENT_PENDING_TTL_MS
+  ) {
+    // SEC-15: repeated start requests return the same unexpired pending secret
+    // instead of silently replacing the QR the user is currently scanning.
+    const pendingSecret = decryptSecret(existing.mfaSecret);
+    if (pendingSecret) {
+      const pendingUrl = otpauthUrl({
+        secret: pendingSecret,
+        accountName: params.accountName,
+        issuer: ISSUER,
+      });
+      return {
+        secret: pendingSecret,
+        otpauthUrl: pendingUrl,
+        qrDataUrl: await QRCode.toDataURL(pendingUrl, {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 240,
+        }),
+      };
+    }
+  }
+
   const secret = generateTotpSecret();
   await updateSubject(params.subjectType, params.subjectId, {
     mfaSecret: encryptSecret(secret),
     mfaEnabled: false,
     mfaRecoveryCodes: null,
+    mfaPendingSecretAt: new Date(),
   });
 
   const url = otpauthUrl({
@@ -150,11 +282,12 @@ export async function confirmMfaEnrollment(params: {
   }
 
   const recoveryCodes = generateRecoveryCodes(10);
+  await replaceRecoveryCodes(params.subjectType, params.subjectId, recoveryCodes);
   await updateSubject(params.subjectType, params.subjectId, {
     mfaEnabled: true,
     mfaEnrolledAt: new Date(),
     mfaLastUsedAt: new Date(),
-    mfaRecoveryCodes: JSON.stringify(recoveryCodes.map(hashRecoveryCode)),
+    mfaPendingSecretAt: null,
   });
 
   logSecurityEvent({
@@ -233,8 +366,18 @@ export async function verifyMfaCode(params: {
     return { ok: true, usedRecoveryCode: false };
   }
 
-  const recovery = consumeRecoveryCode(row.mfaRecoveryCodes, params.code);
-  if (!recovery.ok) {
+  await ensureRecoveryCodesMigrated(
+    params.subjectType,
+    params.subjectId,
+    row.mfaRecoveryCodes
+  );
+  const consumed = await consumeRecoveryCodeAtomic(
+    params.subjectType,
+    params.subjectId,
+    params.code,
+    now
+  );
+  if (!consumed) {
     logSecurityEvent({
       event: "mfa.verify_failed",
       outcome: "failure",
@@ -249,9 +392,8 @@ export async function verifyMfaCode(params: {
     return { ok: false, usedRecoveryCode: false };
   }
 
-  // Recovery code is consumed in the same write that records the new list.
+  // The row is already consumed by the conditional update above.
   await updateSubject(params.subjectType, params.subjectId, {
-    mfaRecoveryCodes: recovery.remaining,
     mfaLastUsedAt: new Date(now),
   });
   logSecurityEvent({
@@ -271,12 +413,31 @@ export async function disableMfa(params: {
 }): Promise<boolean> {
   const verification = await verifyMfaCode(params);
   if (!verification.ok) return false;
-  await updateSubject(params.subjectType, params.subjectId, {
+  const cleared = {
     mfaEnabled: false,
     mfaSecret: null,
     mfaRecoveryCodes: null,
+    mfaPendingSecretAt: null,
     mfaEnrolledAt: null,
     mfaLastUsedAt: null,
+  };
+  await db.$transaction(async (tx) => {
+    await tx.mfaRecoveryCode.deleteMany({
+      where: { subjectType: params.subjectType, subjectId: params.subjectId },
+    });
+    if (params.subjectType === "platform") {
+      await tx.platformSuperAdmin.update({
+        where: { id: params.subjectId },
+        data: cleared,
+      });
+    } else if (params.subjectType === "customer") {
+      await tx.customer.update({
+        where: { id: params.subjectId },
+        data: cleared,
+      });
+    } else {
+      await tx.user.update({ where: { id: params.subjectId }, data: cleared });
+    }
   });
   logSecurityEvent({
     event: "mfa.disabled",

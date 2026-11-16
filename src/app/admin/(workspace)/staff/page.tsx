@@ -7,6 +7,7 @@ import DraftIndicator from "@/components/DraftIndicator";
 
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import ReauthDialog from "@/components/ReauthDialog";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getStaff,
@@ -61,6 +62,12 @@ export default function StaffPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [moduleBusyId, setModuleBusyId] = useState<string | null>(null);
+  const [pendingCapability, setPendingCapability] = useState<{
+    member: StaffMember;
+    module: "momo" | "susu";
+    enabled: boolean;
+  } | null>(null);
+  const [showCapabilityReauth, setShowCapabilityReauth] = useState(false);
   const [removeCapability, setRemoveCapability] = useState<{
     staff: StaffMember;
     module: "momo" | "susu";
@@ -122,7 +129,7 @@ export default function StaffPage() {
     });
   }
 
-  async function handleCapability(
+  function handleCapability(
     member: StaffMember,
     module: "momo" | "susu",
     enabled: boolean
@@ -132,6 +139,13 @@ export default function StaffPage() {
       toast.push("error", "Assign a MoMo location before enabling MoMo.");
       return;
     }
+    setPendingCapability({ member, module, enabled });
+    setShowCapabilityReauth(true);
+  }
+
+  async function performCapability(stepUpToken: string) {
+    if (!pendingCapability) return;
+    const { member, module, enabled } = pendingCapability;
     setModuleBusyId(`${member.id}:${module}`);
     setError("");
     try {
@@ -139,7 +153,8 @@ export default function StaffPage() {
         member.id,
         module,
         enabled,
-        module === "momo" ? member.location?.id : undefined
+        module === "momo" ? member.location?.id : undefined,
+        stepUpToken
       );
       if (result.success) {
         toast.push(
@@ -186,6 +201,22 @@ export default function StaffPage() {
 
   return (
     <div>
+      <ReauthDialog
+        open={showCapabilityReauth}
+        onClose={() => setShowCapabilityReauth(false)}
+        onConfirmed={performCapability}
+        title="Confirm the capability change"
+        description="Enter your own administrator password to change this person's module access."
+        actionLabel="Apply change"
+        module="admin"
+        purpose="capability.change"
+        targetType="module_capability"
+        targetId={
+          pendingCapability
+            ? `${pendingCapability.member.id}:${pendingCapability.module}:${pendingCapability.enabled ? "on" : "off"}`
+            : undefined
+        }
+      />
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Staff Directory</h1>

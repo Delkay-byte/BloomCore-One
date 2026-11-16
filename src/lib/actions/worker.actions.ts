@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { getAdminSession, hashPassword } from "@/lib/auth";
 import {
   requireTenantAdminMomo,
   requireTenantAdminSusu,
@@ -9,10 +9,12 @@ import {
 } from "@/lib/tenant";
 import { createWorkerSchema, editWorkerSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
-import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { handleAccountEmailChanged, issueEmailVerification } from "@/lib/security/account-tokens";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
+import { claimStepUpGrant } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
 
 export interface ActionResponse {
   success: boolean;
@@ -215,6 +217,17 @@ export async function updateWorker(
     });
   }
 
+  if (target.email !== worker.email) {
+    await handleAccountEmailChanged(workerId);
+    await createAuditLog({
+      userId: ctx.userId,
+      action: "user.email_changed",
+      entityType: "user",
+      entityId: workerId,
+      details: { previousEmail: target.email, newEmail: worker.email },
+    });
+  }
+
   await createAuditLog({
     userId: ctx.userId,
     action: "user.worker_updated",
@@ -230,9 +243,12 @@ export async function updateWorker(
 
 export async function resetWorkerPassword(
   workerId: string,
-  formData: FormData
+  formData: FormData,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminMomo();
+  const session = await getAdminSession();
+
 
   const target = await db.user.findFirst({
     where: { id: workerId, tenantId: ctx.tenantId },
@@ -250,14 +266,33 @@ export async function resetWorkerPassword(
 
   const passwordHash = await hashPassword(newPassword);
 
-  await db.user.update({
-    where: { id: workerId },
-    data: {
-      passwordHash,
-      forcePasswordReset: true,
-      tokenVersion: { increment: 1 },
-    },
+  const steppedUp = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(session, ctx.userId),
+      purpose: "worker.password_reset",
+      targetType: "user",
+      targetId: workerId,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: workerId },
+      data: {
+        passwordHash,
+        forcePasswordReset: true,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!steppedUp) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,

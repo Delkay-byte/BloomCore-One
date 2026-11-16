@@ -58,6 +58,42 @@ production service, plus the record of the authentication release of 2026-11-16.
 | Origin alias | `maacash.onrender.com` returns 404 |
 | Legacy | `bik-prestige-legacy` suspended; returns 503 |
 
+## Pending release — SEC-01 to SEC-16 hardening (PR #48)
+
+Not deployed. This section records the release checks required for the hardening branch.
+
+1. Apply the additive migration
+   `20261116_security_stepup_recovery_email_remittance` with `prisma migrate deploy`.
+   Before applying it, confirm:
+   - No duplicate `(tenantId, idempotencyKey)` values exist in `CollectorRemittance`
+     (all existing rows are expected to have NULL keys).
+   - The count of legacy recovery-code hashes by subject type matches the post-migration
+     `MfaRecoveryCode` count. Only 64-hex hashes are copied.
+   - Unused legacy `EmailVerificationToken` rows are expected to be invalidated; users
+     receive a fresh verification link.
+2. Verify the schema: `StepUpGrant`, `MfaRecoveryCode`, the remittance unique index, the
+   email destination column and the MFA pending-timestamp columns.
+3. Confirm the production email preflight passes. The application now refuses to boot in
+   production when `RESEND_API_KEY`/sender identity is missing or delivery is disabled.
+   Verify `RESEND_API_KEY`, `EMAIL_FROM_SECURITY`, `SITE_URL` and `NEXTAUTH_URL` in the
+   Render dashboard without printing values.
+4. Smoke-test one step-up path with a synthetic staging account, not a customer:
+   password confirmation -> withdrawal/correction grant -> single use.
+5. Confirm Turnstile siteverify succeeds from the deployed origin (valid, expired and
+   replayed token cases) if `TURNSTILE_ENABLED=true`.
+6. Run the retained PostgreSQL concurrency suite against a disposable database.
+7. Do not merge or deploy until the owner approves the final PR head.
+
+### Owner actions still required
+
+- Prisma 7 major-upgrade decision (the remaining high production advisories are the Prisma
+  CLI/config chain).
+- Controlled staging dynamic tests for Turnstile, trusted-proxy behaviour and the compiled
+  server-action surface.
+- Gitleaks full-history scan and CodeQL/Semgrep/Trivy/ZAP execution where available.
+- Decide the policy and UI for financial maker-checker and second-person break-glass approval.
+
+
 ## Security position (record accurately)
 
 An AI-assisted security assessment was performed before release. It is **not** an

@@ -1,0 +1,10 @@
+# Gitleaks false positives (test fixtures only; no live credential)
+# Historical commit fingerprints are pinned so a genuine future secret still fails.
+70ee74f9e145aa0df21d41194aef13335d8761da:tests/reauth.test.ts:generic-api-key:321
+70ee74f9e145aa0df21d41194aef13335d8761da:tests/reauth.test.ts:generic-api-key:328
+f48929a1c9788023268c4e290269c0468b2d7a4a:tests/reauth.test.ts:generic-api-key:321
+f48929a1c9788023268c4e290269c0468b2d7a4a:tests/reauth.test.ts:generic-api-key:328
+f2f59a146fd6269dfa8ad7e9a80ab977ae0bae35:tests/zeli-availability-actions.test.ts:stripe-access-token:167
+7080d61c0acdf857a515d5e4c091f1c0941d6d97:tests/financial-security.test.ts:generic-api-key:139
+7080d61c0acdf857a515d5e4c091f1c0941d6d97:tests/financial-security.test.ts:generic-api-key:146
+7080d61c0acdf857a515d5e4c091f1c0941d6d97:tests/financial-security.test.ts:generic-api-key:154

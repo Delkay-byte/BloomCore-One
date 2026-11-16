@@ -57,6 +57,7 @@ import {
   setTenantStatus,
   updateTenantModules,
   resetTenantAdminAccess,
+  verifyPlatformStepUpAction,
 } from "@/lib/actions/platform.actions";
 import { requireTenantAdminSusu } from "@/lib/tenant";
 
@@ -375,7 +376,17 @@ describe("Tenant lifecycle — suspension without data loss", () => {
     const tenant = await createTestTenant();
     const admin = await createTestAdmin({ tenantId: tenant.id });
 
-    const result = await resetTenantAdminAccess(tenant.id, admin.id);
+    const grant = await verifyPlatformStepUpAction("SuperPass123", {
+      purpose: "tenant.admin_access_reset",
+      targetType: "tenant_admin",
+      targetId: `${tenant.id}:${admin.id}`,
+    });
+    expect(grant.success).toBe(true);
+    const result = await resetTenantAdminAccess(
+      tenant.id,
+      admin.id,
+      (grant.data as { stepUpToken: string }).stepUpToken
+    );
     expect(result.success).toBe(true);
     const data = result.data as { temporaryPassword: string; adminEmail: string };
     expect(data.adminEmail).toBe(admin.email);

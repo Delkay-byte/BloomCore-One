@@ -43,6 +43,18 @@ import {
 import { parseReconciliationStatus } from "@/lib/momo-reconciliation";
 import { createCustomer } from "@/lib/actions/susu-customer.actions";
 import { setStaffModuleCapability } from "@/lib/actions/staff.actions";
+import { verifyPasswordAction } from "@/lib/actions/auth.actions";
+
+async function capabilityGrant(targetId: string): Promise<string> {
+  const result = await verifyPasswordAction(PASSWORD, {
+    module: "admin",
+    purpose: "capability.change",
+    targetType: "module_capability",
+    targetId,
+  });
+  if (!result.success) throw new Error(result.error ?? "step-up failed");
+  return (result.data as { stepUpToken: string }).stepUpToken;
+}
 import { resolveCustomerAuth } from "@/lib/actions/auth.actions";
 import { SHARED_PHONE_MESSAGE } from "@/lib/customer-identifiers";
 
@@ -445,7 +457,13 @@ describe("dual-role staff identity", () => {
     });
     await setSession("admin", admin);
 
-    const promoted = await setStaffModuleCapability(agent.id, "susu", true);
+    const promoted = await setStaffModuleCapability(
+      agent.id,
+      "susu",
+      true,
+      undefined,
+      await capabilityGrant(`${agent.id}:susu:on`)
+    );
     expect(promoted.success).toBe(true);
 
     const same = await prisma.user.findUniqueOrThrow({ where: { id: agent.id } });
@@ -458,7 +476,13 @@ describe("dual-role staff identity", () => {
     });
     expect(collector?.status).toBe("active");
 
-    const disabled = await setStaffModuleCapability(agent.id, "susu", false);
+    const disabled = await setStaffModuleCapability(
+      agent.id,
+      "susu",
+      false,
+      undefined,
+      await capabilityGrant(`${agent.id}:susu:off`)
+    );
     expect(disabled.success).toBe(true);
     const stillOne = await prisma.user.findUniqueOrThrow({ where: { id: agent.id } });
     expect(stillOne.momoEnabled).toBe(true);

@@ -10,6 +10,7 @@ export default defineConfig({
       JWT_SECRET: "test-secret-for-vitest",
       NODE_ENV: "test",
       ALLOW_LEGACY_COOKIE_SESSIONS: "1",
+      DATABASE_URL: process.env.PG_DATABASE_URL,
     },
     fileParallelism: false,
   },

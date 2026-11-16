@@ -8,6 +8,9 @@ import { randomBytes } from "crypto";
 import { lockAccountForUpdate } from "@/lib/db-lock";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { getAdminSession } from "@/lib/auth";
+import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
 
 export interface ReversalResponse {
   success: boolean;
@@ -30,8 +33,11 @@ function reference(prefix: string): string {
 export async function reverseWithdrawal(input: {
   withdrawalId: string;
   reason: string;
+  stepUpToken?: string;
 }): Promise<ReversalResponse> {
   const ctx = await requireTenantAdminSusu();
+  const session = await getAdminSession();
+
   const reason = input.reason?.trim() ?? "";
   if (reason.length < 10 || reason.length > 500) {
     return { success: false, error: "Enter a reversal reason of at least 10 characters." };
@@ -62,6 +68,17 @@ export async function reverseWithdrawal(input: {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: input.stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(session, ctx.userId),
+        purpose: "susu.withdrawal.reverse",
+        targetType: "withdrawal",
+        targetId: original.id,
+      });
+      if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
       await lockAccountForUpdate(tx, original.accountId);
 
       const already = await tx.withdrawal.findFirst({
@@ -148,6 +165,9 @@ export async function reverseWithdrawal(input: {
     revalidatePath("/susu/admin");
     return { success: true, reversalId: result.id };
   } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: error.message };
+    }
     if (error instanceof Error && error.message === "ALREADY_REVERSED") {
       return { success: false, error: "This withdrawal has already been reversed." };
     }
@@ -171,8 +191,11 @@ export async function reverseWithdrawal(input: {
 export async function reverseContribution(input: {
   contributionId: string;
   reason: string;
+  stepUpToken?: string;
 }): Promise<ReversalResponse> {
   const ctx = await requireTenantAdminSusu();
+  const session = await getAdminSession();
+
   const reason = input.reason?.trim() ?? "";
   if (reason.length < 10 || reason.length > 500) {
     return { success: false, error: "Enter a reversal reason of at least 10 characters." };
@@ -200,6 +223,17 @@ export async function reverseContribution(input: {
 
   try {
     const reversal = await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: input.stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(session, ctx.userId),
+        purpose: "susu.contribution.reverse",
+        targetType: "contribution",
+        targetId: original.id,
+      });
+      if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
       await lockAccountForUpdate(tx, original.accountId);
 
       const already = await tx.contribution.findFirst({
@@ -251,6 +285,9 @@ export async function reverseContribution(input: {
     revalidatePath("/susu/admin");
     return { success: true, reversalId: reversal.id };
   } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: error.message };
+    }
     if (error instanceof Error && error.message === "ALREADY_REVERSED") {
       return { success: false, error: "This contribution has already been reversed." };
     }

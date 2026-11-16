@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { getAdminSession, hashPassword } from "@/lib/auth";
 import {
   requireTenantAdminSusu,
   requireTenantCollector,
@@ -12,7 +12,7 @@ import { createAuditLog } from "@/lib/audit";
 import { issueEmailVerification } from "@/lib/security/account-tokens";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { validateStatusTransition } from "@/lib/security/status";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
@@ -21,6 +21,15 @@ import {
   expectedRemittanceAmount,
   validateRemittanceAmount,
 } from "@/lib/finance/remittance";
+import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
+
+class RemittanceConflictError extends Error {
+  constructor() {
+    super("This idempotency key was already used with different remittance details.");
+    this.name = "RemittanceConflictError";
+  }
+}
 
 export interface ActionResponse {
   success: boolean;
@@ -131,9 +140,12 @@ export async function createCollector(
  */
 export async function resetCollectorPassword(
   collectorId: string,
-  formData: FormData
+  formData: FormData,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const session = await getAdminSession();
+
 
   if (!(await assertTenantEntity("collector", collectorId, ctx))) {
     return { success: false, error: "Collector not found" };
@@ -155,14 +167,33 @@ export async function resetCollectorPassword(
 
   const passwordHash = await hashPassword(newPassword);
 
-  await db.user.update({
-    where: { id: collector.userId },
-    data: {
-      passwordHash,
-      forcePasswordReset: true,
-      tokenVersion: { increment: 1 },
-    },
+  const steppedUp = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(session, ctx.userId),
+      purpose: "collector.password_reset",
+      targetType: "collector",
+      targetId: collectorId,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: collector.userId },
+      data: {
+        passwordHash,
+        forcePasswordReset: true,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!steppedUp) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -185,9 +216,12 @@ export async function resetCollectorPassword(
 export async function setMomoCapability(
   userId: string,
   enabled: boolean,
-  locationId?: string
+  locationId?: string,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const capabilitySession = await getAdminSession();
+
 
   if (enabled && !ctx.momoEnabled) {
     return {
@@ -231,14 +265,33 @@ export async function setMomoCapability(
     }
   }
 
-  await db.user.update({
-    where: { id: userId },
-    data: {
-      momoEnabled: enabled,
-      ...(enabled ? { locationId } : {}),
-      tokenVersion: { increment: 1 },
-    },
+  const applied = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(capabilitySession, ctx.userId),
+      purpose: "capability.change",
+      targetType: "module_capability",
+      targetId: `${userId}:momo:${enabled ? "on" : "off"}`,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        momoEnabled: enabled,
+        ...(enabled ? { locationId } : {}),
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!applied) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -390,6 +443,8 @@ export async function recordRemittance(params: {
   collectorId: string;
   remittedAmount: number;
   notes?: string;
+  /** SEC-06: client-generated key that makes retries return the original row. */
+  idempotencyKey?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
   const { collectorId, remittedAmount, notes } = params;
@@ -401,6 +456,21 @@ export async function recordRemittance(params: {
     return { success: false, error: amount.error };
   }
   const remitted = amount.value;
+
+  const rawKey = params.idempotencyKey;
+  if (rawKey !== undefined && !/^[A-Za-z0-9:_-]{8,120}$/.test(rawKey)) {
+    return { success: false, error: "Invalid idempotency key." };
+  }
+  const idempotencyKey = rawKey ? `REM-${rawKey}` : null;
+  const requestHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        collectorId,
+        amountMinor: String(Math.round(remitted * 100)),
+        notes: notes?.trim() ?? "",
+      })
+    )
+    .digest("hex");
 
   const rate = await consumeRateLimit(
     "finance:remittance_record",
@@ -425,6 +495,18 @@ export async function recordRemittance(params: {
     // submissions cannot both compute the same expected amount from the same
     // anchor and insert twice.
     await lockAccountForUpdate(tx, `collector-remittance:${collectorId}`);
+
+    if (idempotencyKey) {
+      const existing = await tx.collectorRemittance.findFirst({
+        where: { tenantId: ctx.tenantId, idempotencyKey },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) {
+          throw new RemittanceConflictError();
+        }
+        return existing;
+      }
+    }
 
     const existingRemittances = await tx.collectorRemittance.findMany({
       where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
@@ -463,10 +545,38 @@ export async function recordRemittance(params: {
         status: variance === 0 ? "reconciled" : "discrepancy",
         recordedById: ctx.userId,
         referenceId,
+        idempotencyKey,
+        requestHash,
         notes,
       },
     });
+  }).catch(async (error) => {
+    if (error instanceof RemittanceConflictError) return null;
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002" &&
+      idempotencyKey
+    ) {
+      const existing = await db.collectorRemittance.findFirst({
+        where: { tenantId: ctx.tenantId, idempotencyKey },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new RemittanceConflictError();
+        return existing;
+      }
+    }
+    throw error;
   });
+
+  if (!remittance) {
+    return {
+      success: false,
+      error:
+        "This idempotency key was already used with different remittance details.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -498,8 +608,11 @@ export async function recordRemittance(params: {
 export async function reverseRemittance(params: {
   remittanceId: string;
   reason: string;
+  stepUpToken?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const remittanceSession = await getAdminSession();
+
   const reason = params.reason?.trim() ?? "";
   if (reason.length < 10 || reason.length > 500) {
     return {
@@ -525,20 +638,46 @@ export async function reverseRemittance(params: {
     return { success: false, error: "This remittance has already been reversed." };
   }
 
-  const updated = await db.collectorRemittance.updateMany({
-    where: {
-      id: original.id,
-      tenantId: ctx.tenantId,
-      reversedAt: null,
-    },
-    data: {
-      status: "reversed",
-      reversedAt: new Date(),
-      reversedById: ctx.userId,
-      reversalReason: reason,
-    },
+  let updatedCount = 0;
+  await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: params.stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(remittanceSession, ctx.userId),
+      purpose: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+    });
+    if (!grant.ok) throw new StepUpDeniedError(grant.error);
+    const updated = await tx.collectorRemittance.updateMany({
+      where: {
+        id: original.id,
+        tenantId: ctx.tenantId,
+        reversedAt: null,
+      },
+      data: {
+        status: "reversed",
+        reversedAt: new Date(),
+        reversedById: ctx.userId,
+        reversalReason: reason,
+      },
+    });
+    updatedCount = updated.count;
+  }).catch((error) => {
+    if (error instanceof StepUpDeniedError) {
+      updatedCount = -1;
+      return;
+    }
+    throw error;
   });
-  if (updated.count !== 1) {
+  if (updatedCount === -1) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
+  if (updatedCount !== 1) {
     return { success: false, error: "This remittance has already been reversed." };
   }
 
