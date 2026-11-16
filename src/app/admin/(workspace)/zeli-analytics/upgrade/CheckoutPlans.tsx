@@ -1,8 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CreditCard, Loader2 } from "lucide-react";
-import { startZeliCheckout, startZeliTrial } from "@/lib/actions/zeli-billing.actions";
+import { CheckCircle2, CreditCard, Loader2, Smartphone } from "lucide-react";
+import {
+  checkZeliMobileMoneyPayment,
+  startZeliCheckout,
+  startZeliMobileMoneyCheckout,
+  startZeliTrial,
+} from "@/lib/actions/zeli-billing.actions";
+
+const MOBILE_MONEY_NETWORKS = [
+  { code: "mtn", label: "MTN MoMo" },
+  { code: "atl", label: "ATMoney / Airtel Money" },
+  { code: "vod", label: "Telecel Cash" },
+] as const;
 
 export interface CheckoutPlan {
   code: string;
@@ -28,6 +39,12 @@ export default function CheckoutPlans({
   const [selected, setSelected] = useState<string | null>(plans[0]?.code ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [momoNetwork, setMomoNetwork] = useState<string>("mtn");
+  const [momoPhone, setMomoPhone] = useState("");
+  const [momoBusy, setMomoBusy] = useState(false);
+  const [momoReference, setMomoReference] = useState<string | null>(null);
+  const [momoStatus, setMomoStatus] = useState<string>("");
+  const [momoPending, setMomoPending] = useState(false);
 
   async function trial() {
     if (!selected) return;
@@ -60,6 +77,64 @@ export default function CheckoutPlans({
       setError("Checkout could not be started. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function startMobileMoney() {
+    if (!selected) return;
+    setMomoBusy(true);
+    setError("");
+    setMomoStatus("");
+    setMomoReference(null);
+    setMomoPending(false);
+    try {
+      const result = await startZeliMobileMoneyCheckout({
+        planCode: selected,
+        phone: momoPhone,
+        provider: momoNetwork,
+      });
+      if (!result.success || !result.data) {
+        setError(result.error ?? "The mobile money request could not be started.");
+        return;
+      }
+      setMomoReference(result.data.reference);
+      setMomoPending(true);
+      setMomoStatus(
+        result.data.displayText ??
+          result.data.message ??
+          "Approve the payment prompt on your phone, then check the status here."
+      );
+    } catch {
+      setError("The mobile money request could not be started. Please try again.");
+    } finally {
+      setMomoBusy(false);
+    }
+  }
+
+  async function checkMobileMoney() {
+    if (!momoReference) return;
+    setMomoBusy(true);
+    setError("");
+    try {
+      const result = await checkZeliMobileMoneyPayment(momoReference);
+      if (result.success && result.data?.status === "success") {
+        setMomoStatus("Payment confirmed. Your subscription is active.");
+        setMomoPending(false);
+        window.location.assign("/admin/zeli-analytics?subscription=active");
+        return;
+      }
+      if (result.success) {
+        setMomoStatus(
+          "Still waiting for authorisation. Approve the prompt on your phone, then check again."
+        );
+        return;
+      }
+      setMomoStatus(result.error ?? "The payment was not completed. No charge was applied.");
+      setMomoPending(false);
+    } catch {
+      setError("Payment status could not be checked. Please try again.");
+    } finally {
+      setMomoBusy(false);
     }
   }
 
@@ -163,6 +238,85 @@ export default function CheckoutPlans({
         server verifies the payment event; returning to this page alone does not
         grant access.
       </p>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-brand-900">
+          <Smartphone size={15} aria-hidden />
+          Pay with Ghana mobile money
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Choose your network and number. Paystack sends a prompt to your phone;
+          you have 180 seconds to approve it. Your subscription activates only
+          after the payment is verified.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="text-xs font-medium text-slate-700">
+            Network
+            <select
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={momoNetwork}
+              onChange={(event) => setMomoNetwork(event.target.value)}
+              disabled={momoBusy}
+            >
+              {MOBILE_MONEY_NETWORKS.map((network) => (
+                <option key={network.code} value={network.code}>
+                  {network.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-slate-700">
+            Mobile money number
+            <input
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              placeholder="0551234987"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={momoPhone}
+              onChange={(event) => setMomoPhone(event.target.value)}
+              disabled={momoBusy}
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={startMobileMoney}
+            className="btn btn-secondary"
+            disabled={momoBusy || !selected || momoPhone.trim().length < 9}
+          >
+            {momoBusy && !momoReference ? (
+              <Loader2 size={15} className="animate-spin" aria-hidden />
+            ) : (
+              <Smartphone size={15} aria-hidden />
+            )}
+            Send payment prompt
+          </button>
+          <button
+            type="button"
+            onClick={checkMobileMoney}
+            className="btn btn-primary"
+            disabled={momoBusy || !momoReference}
+          >
+            {momoBusy && momoReference ? (
+              <Loader2 size={15} className="animate-spin" aria-hidden />
+            ) : null}
+            Check payment status
+          </button>
+        </div>
+        {momoStatus && (
+          <p
+            className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+              momoPending ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {momoStatus}
+          </p>
+        )}
+      </section>
     </div>
   );
 }

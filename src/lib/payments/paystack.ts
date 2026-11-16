@@ -238,6 +238,225 @@ export function verifyWebhookSignature(rawBody: string, signature: string | null
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+/* ------------------------------------------------------------------------- *
+ * Webhook signing secrets
+ *
+ * Paystack now signs events with a dedicated webhook signing secret and sends
+ * them in `Paystack-Signature`:
+ *
+ *   Paystack-Signature: t=<unix seconds>,v1=<key id>:<128 hex chars>[,v1=...]
+ *
+ * The MAC is HMAC-SHA512 over `${t}.${rawBody}` keyed with the whole signing
+ * secret. The event is genuine when any `v1` matches. During a rotation the
+ * dashboard emits one `v1` per active secret, so both are accepted.
+ *
+ * The legacy `x-paystack-signature` header stays supported until the account
+ * starts delivering the new header. Once `Paystack-Signature` is present it is
+ * the only accepted proof: a failing new signature is never rescued by the
+ * legacy header.
+ * ------------------------------------------------------------------------- */
+
+const SIGNATURE_TOLERANCE_SECONDS = 300;
+const HEX_SHA512 = /^[0-9a-f]{128}$/;
+
+/**
+ * Every configured signing secret, newest first.
+ *
+ * Only values with Paystack's documented `whsec_` prefix are trusted. A stale or
+ * malformed value must not cause genuine, correctly signed events to be
+ * rejected, so anything else is ignored and the legacy header stays in use.
+ */
+export function paystackSigningSecrets(): string[] {
+  return [
+    process.env.PAYSTACK_WEBHOOK_SIGNING_SECRET,
+    process.env.PAYSTACK_WEBHOOK_SIGNING_SECRET_PREVIOUS,
+  ]
+    .map((value) => (value ?? "").trim())
+    .filter((value) => value.startsWith("whsec_"));
+}
+
+export function paystackSignatureHeaderConfigured(): boolean {
+  return paystackSigningSecrets().length > 0;
+}
+
+interface ParsedSignatureHeader {
+  timestamp: number;
+  signatures: string[];
+}
+
+function parseSignatureHeader(header: string): ParsedSignatureHeader | null {
+  let timestamp: number | null = null;
+  const signatures: string[] = [];
+  for (const part of header.split(",")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    const key = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (key === "t") {
+      if (!/^[0-9]+$/.test(value)) return null;
+      timestamp = Number(value);
+    } else if (key === "v1") {
+      const colon = value.indexOf(":");
+      if (colon === -1) continue;
+      const hex = value.slice(colon + 1).trim().toLowerCase();
+      if (HEX_SHA512.test(hex)) signatures.push(hex);
+    }
+  }
+  if (timestamp === null || signatures.length === 0) return null;
+  return { timestamp, signatures };
+}
+
+/**
+ * Verify a `Paystack-Signature` header. Returns false for a malformed header,
+ * an out-of-window timestamp, a missing signing secret or no matching v1.
+ */
+export function verifyPaystackSignatureHeader(
+  rawBody: string,
+  header: string | null,
+  options: { secrets?: string[]; nowSeconds?: number } = {}
+): boolean {
+  if (!header) return false;
+  const secrets = options.secrets ?? paystackSigningSecrets();
+  if (secrets.length === 0) return false;
+  const parsed = parseSignatureHeader(header);
+  if (!parsed) return false;
+  const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parsed.timestamp) > SIGNATURE_TOLERANCE_SECONDS) return false;
+
+  const macInput = `${parsed.timestamp}.${rawBody}`;
+  let matched = false;
+  for (const secret of secrets) {
+    const expected = createHmac("sha512", secret).update(macInput).digest("hex");
+    const expectedBuffer = Buffer.from(expected);
+    for (const candidate of parsed.signatures) {
+      const given = Buffer.from(candidate);
+      // Compare every candidate so timing does not reveal which one matched.
+      if (
+        given.length === expectedBuffer.length &&
+        timingSafeEqual(given, expectedBuffer)
+      ) {
+        matched = true;
+      }
+    }
+  }
+  return matched;
+}
+
+export type PaystackSignatureScheme = "signature-header" | "legacy" | "none";
+
+export interface PaystackWebhookVerification {
+  ok: boolean;
+  scheme: PaystackSignatureScheme;
+  reason?: string;
+}
+
+/**
+ * Verify a webhook delivery from the headers Paystack actually sent.
+ *
+ * Precedence: if `Paystack-Signature` is present it must verify. The legacy
+ * header is used only when the new header is absent, which is exactly the
+ * transition Paystack documents.
+ */
+export function verifyWebhookRequest(
+  rawBody: string,
+  headers: {
+    paystackSignature?: string | null;
+    legacySignature?: string | null;
+  },
+  options: { secrets?: string[]; nowSeconds?: number } = {}
+): PaystackWebhookVerification {
+  const paystackSignature = headers.paystackSignature?.trim();
+  if (paystackSignature) {
+    const ok = verifyPaystackSignatureHeader(rawBody, paystackSignature, options);
+    return ok
+      ? { ok: true, scheme: "signature-header" }
+      : { ok: false, scheme: "signature-header", reason: "invalid_signature_header" };
+  }
+  if (verifyWebhookSignature(rawBody, headers.legacySignature ?? null)) {
+    return { ok: true, scheme: "legacy" };
+  }
+  return { ok: false, scheme: "none", reason: "missing_or_invalid_signature" };
+}
+
+/* ------------------------------------------------------------------------- *
+ * Ghana mobile money charge
+ * ------------------------------------------------------------------------- */
+
+export type MobileMoneyProvider = "mtn" | "atl" | "vod";
+
+export const MOBILE_MONEY_PROVIDERS: Record<MobileMoneyProvider, string> = {
+  mtn: "MTN Mobile Money",
+  atl: "ATMoney / Airtel Money",
+  vod: "Telecel Cash",
+};
+
+export interface MobileMoneyCharge {
+  reference: string;
+  status: string;
+  displayText: string | null;
+  message: string | null;
+}
+
+/**
+ * Start a Ghana mobile money charge (POST /charge).
+ *
+ * The customer authorises on their phone, so a `pay_offline` response only
+ * means the prompt was delivered. Nothing may be treated as paid here; the
+ * subscription is activated by the verified `charge.success` event or by a
+ * server-side transaction verification.
+ */
+export async function chargeMobileMoney(input: {
+  email: string;
+  amountSubunit: number;
+  currency: string;
+  phone: string;
+  provider: MobileMoneyProvider;
+  reference: string;
+  metadata: Record<string, string>;
+}): Promise<MobileMoneyCharge> {
+  if (input.currency.toUpperCase() !== "GHS") {
+    throw new PaystackError("Mobile money is only available in GHS.", "invalid_currency");
+  }
+  if (!Number.isInteger(input.amountSubunit) || input.amountSubunit < 1) {
+    throw new PaystackError("Invalid payment amount.", "invalid_amount");
+  }
+  if (!/^[A-Za-z0-9._=-]{6,120}$/.test(input.reference)) {
+    throw new PaystackError("Invalid payment reference.", "invalid_reference");
+  }
+  if (!(input.provider in MOBILE_MONEY_PROVIDERS)) {
+    throw new PaystackError("Unsupported mobile money network.", "invalid_provider");
+  }
+  if (!/^0\d{9}$/.test(input.phone)) {
+    throw new PaystackError("Enter a valid Ghana mobile money number.", "invalid_phone");
+  }
+
+  const body = await request<{
+    status?: boolean;
+    message?: string;
+    data?: { reference?: string; status?: string; display_text?: string; message?: string };
+  }>("/charge", {
+    method: "POST",
+    body: JSON.stringify({
+      email: input.email,
+      amount: String(input.amountSubunit),
+      currency: "GHS",
+      reference: input.reference,
+      mobile_money: { phone: input.phone, provider: input.provider },
+      metadata: JSON.stringify(input.metadata),
+    }),
+  });
+  if (!body.status || !body.data) {
+    throw new PaystackError("Mobile money charge could not be started.", "charge_failed");
+  }
+  return {
+    reference: String(body.data.reference ?? input.reference),
+    status: String(body.data.status ?? "pending").toLowerCase(),
+    displayText: body.data.display_text ?? null,
+    message: body.data.message ?? body.message ?? null,
+  };
+}
+
+
 export interface PaystackRefund {
   id: number;
   status: "pending" | "processed" | "failed";

@@ -2,16 +2,21 @@ import { randomBytes, createHash } from "crypto";
 import { db } from "@/lib/db";
 import type { TenantContext } from "@/lib/tenant";
 import {
+  chargeMobileMoney,
   initializeTransaction,
   paystackReadyForCheckout,
   paystackConfigured,
   refundTransaction,
   verifyTransaction,
-  verifyWebhookSignature,
+  verifyWebhookRequest,
+  MOBILE_MONEY_PROVIDERS,
+  PaystackError,
+  type MobileMoneyProvider,
   type PaystackTransaction,
 } from "./paystack";
 import { getZeliEntitlement } from "@/lib/zeli/entitlements";
 import { assertZeliAvailable } from "@/lib/zeli/availability";
+import { normalizeGhanaPhone } from "@/lib/utils";
 
 /**
  * Zeli subscription lifecycle.
@@ -74,6 +79,12 @@ function amountSubunit(value: unknown): number {
     throw new SubscriptionError("The package price is not valid.", "invalid_price");
   }
   return Math.round(amount * 100);
+}
+
+/** Ghana mobile money wants the local 0XXXXXXXXX form, as Paystack documents. */
+function normalizeMobileMoneyPhone(input: string): string | null {
+  const candidates = normalizeGhanaPhone(String(input ?? "").trim());
+  return candidates.find((value) => /^0\d{9}$/.test(value)) ?? null;
 }
 
 function baseUrl(): string {
@@ -149,10 +160,23 @@ export function paymentProviderStatus(): {
 }
 
 /** Start a checkout for a tenant administrator. Price comes from the database. */
-export async function createZeliCheckout(
+interface PreparedCheckout {
+  plan: { id: string; code: string; price: unknown; currency: string };
+  email: string;
+  reference: string;
+  createdId: string;
+}
+
+/**
+ * Shared validation and pending-row creation for every provider flow (hosted
+ * checkout and direct Ghana mobile money). The price always comes from the
+ * database; nothing here accepts an amount from the browser.
+ */
+async function preparePendingSubscription(
   ctx: TenantContext,
-  planCode: string
-): Promise<{ authorizationUrl: string; reference: string }> {
+  planCode: string,
+  channel: "hosted" | "mobile_money" = "hosted"
+): Promise<PreparedCheckout> {
   await assertZeliAvailable();
   if (ctx.role !== "admin") {
     throw new SubscriptionError("Only a business administrator can subscribe.", "forbidden");
@@ -196,7 +220,11 @@ export async function createZeliCheckout(
     throw new SubscriptionError("A billing contact email is required.", "missing_email");
   }
 
-  const reference = `ZELI-${ctx.tenantId.slice(0, 8)}-${randomBytes(8).toString("hex")}`;
+  // Reference prefix records the flow, so the webhook can require provider
+  // verification for direct mobile money charges. References are ours.
+  const reference = `${
+    channel === "mobile_money" ? "ZELIM" : "ZELI"
+  }-${ctx.tenantId.slice(0, 8)}-${randomBytes(8).toString("hex")}`;
   const pendingKey = `${ctx.tenantId}:${plan.id}`;
   const cutoff = new Date(Date.now() - PENDING_CHECKOUT_TTL_MS);
 
@@ -242,6 +270,27 @@ export async function createZeliCheckout(
     throw error;
   }
 
+  return { plan, email, reference, createdId: created.id };
+}
+
+async function failPendingCheckout(id: string, reason: string): Promise<void> {
+  await db.zeliSubscription.updateMany({
+    where: { id, status: "pending" },
+    data: {
+      status: "failed",
+      pendingKey: null,
+      failureReason: reason.slice(0, 200),
+    },
+  });
+}
+
+/** Start a hosted-checkout payment for a tenant administrator. */
+export async function createZeliCheckout(
+  ctx: TenantContext,
+  planCode: string
+): Promise<{ authorizationUrl: string; reference: string }> {
+  const { plan, email, reference, createdId } = await preparePendingSubscription(ctx, planCode);
+
   try {
     const initialized = await initializeTransaction({
       email,
@@ -250,7 +299,7 @@ export async function createZeliCheckout(
       reference,
       callbackUrl: `${baseUrl()}/admin/zeli-analytics/checkout/callback?reference=${encodeURIComponent(reference)}`,
       metadata: {
-        zeli_subscription_id: created.id,
+        zeli_subscription_id: createdId,
         plan_code: plan.code,
       },
     });
@@ -259,17 +308,175 @@ export async function createZeliCheckout(
     }
     return { authorizationUrl: initialized.authorizationUrl, reference };
   } catch (error) {
-    await db.zeliSubscription.updateMany({
-      where: { id: created.id, status: "pending" },
-      data: {
-        status: "failed",
-        pendingKey: null,
-        failureReason: error instanceof Error ? error.message.slice(0, 200) : "initialization failed",
-      },
-    });
+    await failPendingCheckout(
+      createdId,
+      error instanceof Error ? error.message : "initialization failed"
+    );
     if (error instanceof SubscriptionError) throw error;
     throw new SubscriptionError("Payment checkout could not be started. Please try again.", "initialization_failed");
   }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Ghana mobile money (direct charge)
+ * ------------------------------------------------------------------------- */
+
+export interface MobileMoneyCheckout {
+  reference: string;
+  /** Provider status from the charge attempt, e.g. `pay_offline`. Never paid. */
+  status: string;
+  /** Paystack's instruction text for the customer's phone. */
+  displayText: string | null;
+  message: string | null;
+}
+
+/**
+ * Start a Ghana mobile money charge. The customer authorises on their phone, so
+ * nothing here marks the subscription paid: activation only happens through the
+ * verified `charge.success` event or a server-side verification.
+ */
+export async function startZeliMobileMoneyCharge(
+  ctx: TenantContext,
+  planCode: string,
+  input: { phone: string; provider: MobileMoneyProvider }
+): Promise<MobileMoneyCheckout> {
+  const phone = normalizeMobileMoneyPhone(input.phone);
+  if (!phone) {
+    throw new SubscriptionError("Enter a valid Ghana mobile money number.", "invalid_phone");
+  }
+  if (!(input.provider in MOBILE_MONEY_PROVIDERS)) {
+    throw new SubscriptionError("Choose MTN, ATMoney/Airtel Money or Telecel.", "invalid_provider");
+  }
+  const { plan, email, reference, createdId } = await preparePendingSubscription(
+    ctx,
+    planCode,
+    "mobile_money"
+  );
+  if (String(plan.currency).toUpperCase() !== "GHS") {
+    await failPendingCheckout(createdId, "mobile money requires GHS pricing");
+    throw new SubscriptionError(
+      "Mobile money is only available for GHS packages.",
+      "invalid_currency"
+    );
+  }
+
+  try {
+    const charge = await chargeMobileMoney({
+      email,
+      amountSubunit: amountSubunit(plan.price),
+      currency: "GHS",
+      phone,
+      provider: input.provider,
+      reference,
+      metadata: { zeli_subscription_id: createdId, plan_code: plan.code, channel: "mobile_money" },
+    });
+    if (charge.reference !== reference) {
+      throw new SubscriptionError("Payment provider returned a different reference.", "reference_mismatch");
+    }
+    if (charge.status === "failed") {
+      await failPendingCheckout(createdId, charge.message ?? "charge declined");
+      throw new SubscriptionError(
+        "The mobile money charge was declined. No payment was taken.",
+        "charge_failed"
+      );
+    }
+    return {
+      reference,
+      status: charge.status,
+      displayText: charge.displayText,
+      message: charge.message,
+    };
+  } catch (error) {
+    if (error instanceof SubscriptionError) throw error;
+    await failPendingCheckout(
+      createdId,
+      error instanceof Error ? error.message : "charge could not be started"
+    );
+    if (error instanceof PaystackError) {
+      throw new SubscriptionError(
+        "The mobile money request could not be sent. No payment was taken.",
+        "charge_unavailable"
+      );
+    }
+    throw new SubscriptionError("The mobile money request could not be sent.", "charge_unavailable");
+  }
+}
+
+/**
+ * Customer-initiated status check for a mobile money charge.
+ *
+ * Paystack asks merchants to verify when no webhook arrives within the 180
+ * second authorisation window. This is also what the UI polls after the prompt.
+ * Activation stays idempotent: the same canonical event id is used as the
+ * webhook path.
+ */
+export async function checkZeliMobileMoneyStatus(
+  ctx: TenantContext,
+  reference: string
+): Promise<{
+  status: "pending" | "success" | "failed" | "ignored";
+  message: string;
+  decision?: string;
+}> {
+  if (ctx.role !== "admin") {
+    throw new SubscriptionError("Only a business administrator can check a payment.", "forbidden");
+  }
+  if (!/^[A-Za-z0-9._=-]{6,120}$/.test(reference)) {
+    throw new SubscriptionError("Invalid payment reference.", "invalid_reference");
+  }
+  const subscription = await db.zeliSubscription.findFirst({
+    where: { providerReference: reference, tenantId: ctx.tenantId },
+    select: { id: true, status: true, paidAt: true },
+  });
+  if (!subscription) {
+    throw new SubscriptionError("Payment not found.", "not_found");
+  }
+  if (subscription.paidAt) {
+    return { status: "success", message: "Payment already confirmed." };
+  }
+
+  const transaction = await verifyTransaction(reference);
+  if (transaction.status === "success") {
+    const eventId =
+      transaction.id != null
+        ? `paystack:charge.success:${transaction.id}`
+        : `paystack:charge.success:ref:${reference}`;
+    const result = await fulfilPaidSubscription({
+      reference,
+      eventId,
+      eventType: "charge.success",
+      transaction,
+    });
+    if (result.decision === "failed" || result.decision === "exception") {
+      return {
+        status: "failed",
+        message: "The payment could not be matched to this package. Contact support before paying again.",
+        decision: result.decision,
+      };
+    }
+    return {
+      status: "success",
+      message: "Payment confirmed. Your subscription is active.",
+      decision: result.decision,
+    };
+  }
+
+  if (
+    transaction.status === "failed" ||
+    transaction.status === "reversed" ||
+    transaction.status === "abandoned"
+  ) {
+    return {
+      status: "failed",
+      message: "The payment was not completed. No charge was applied. You can try again.",
+    };
+  }
+
+  return {
+    status: "pending",
+    message:
+      "Waiting for the mobile money authorisation. Approve the prompt on your phone, then check again.",
+  };
 }
 
 export type FulfilDecision =
@@ -828,9 +1035,14 @@ function canonicalEventId(eventType: string, data: PaystackWebhookBody["data"], 
 
 export async function handlePaystackWebhook(
   rawBody: string,
-  signature: string | null
+  legacySignature: string | null,
+  paystackSignatureHeader: string | null = null
 ): Promise<{ ok: boolean; status: number; decision: string }> {
-  if (!verifyWebhookSignature(rawBody, signature)) {
+  const verification = verifyWebhookRequest(rawBody, {
+    legacySignature,
+    paystackSignature: paystackSignatureHeader,
+  });
+  if (!verification.ok) {
     return { ok: false, status: 401, decision: "invalid_signature" };
   }
   let body: PaystackWebhookBody;
@@ -861,20 +1073,40 @@ export async function handlePaystackWebhook(
       }
       return { ok: true, status: 200, decision: "ignored" };
     }
+
+    // A signed webhook proves origin, not settlement. Direct mobile money
+    // charges carry the ZELIM prefix, so they require an authoritative
+    // server-side verification: the provider's answer decides the status and
+    // the amount. Hosted-checkout payments keep the verified-webhook path and
+    // are reconciled through the return callback and platform reconciliation.
+    const requiresProviderVerification = reference.startsWith("ZELIM-");
+
+    let transaction: PaystackTransaction = {
+      status: String(data.status ?? "success"),
+      reference,
+      amount: Number(data.amount ?? 0),
+      currency: String(data.currency ?? ""),
+      paidAt: data.paid_at ?? null,
+      customerCode: data.customer?.customer_code ?? null,
+      metadata: webhookMetadata(data.metadata),
+      id: typeof data.id === "number" ? data.id : null,
+    };
+
+    if (requiresProviderVerification && paystackConfigured()) {
+      try {
+        transaction = await verifyTransaction(reference);
+      } catch {
+        // No activation without provider confirmation; Paystack retries.
+        await finishEvent(eventId, "failed", "verification_unavailable");
+        return { ok: false, status: 500, decision: "verification_unavailable" };
+      }
+    }
+
     const result = await fulfilPaidSubscription({
       reference,
       eventId,
       eventType,
-      transaction: {
-        status: String(data.status ?? "success"),
-        reference,
-        amount: Number(data.amount ?? 0),
-        currency: String(data.currency ?? ""),
-        paidAt: data.paid_at ?? null,
-        customerCode: data.customer?.customer_code ?? null,
-        metadata: webhookMetadata(data.metadata),
-        id: typeof data.id === "number" ? data.id : null,
-      },
+      transaction,
     });
     return {
       ok: result.decision !== "failed" && result.decision !== "exception",

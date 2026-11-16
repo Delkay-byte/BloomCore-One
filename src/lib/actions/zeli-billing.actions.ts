@@ -7,17 +7,92 @@ import { assertZeliAvailable } from "@/lib/zeli/availability";
 import { randomBytes } from "crypto";
 import {
   cancelZeliSubscription,
+  checkZeliMobileMoneyStatus,
   createZeliCheckout,
   listPublicZeliPlans,
   paymentProviderStatus,
+  startZeliMobileMoneyCharge,
   SubscriptionError,
   verifyAndFulfil,
 } from "@/lib/payments/zeli-subscriptions";
+import type { MobileMoneyProvider } from "@/lib/payments/paystack";
 
 export interface BillingActionResponse<T = unknown> {
   success: boolean;
   error?: string;
   data?: T;
+}
+
+/**
+ * Start a Ghana mobile money charge. The customer authorises on their phone;
+ * this never activates the subscription by itself.
+ */
+export async function startZeliMobileMoneyCheckout(input: {
+  planCode: string;
+  phone: string;
+  provider: string;
+}): Promise<
+  BillingActionResponse<{
+    reference: string;
+    status: string;
+    displayText: string | null;
+    message: string | null;
+  }>
+> {
+  try {
+    await assertZeliAvailable();
+    const ctx = await requireTenantAdmin();
+    const code = String(input?.planCode ?? "").trim();
+    if (!/^[a-z0-9][a-z0-9_-]{2,60}$/i.test(code)) {
+      return { success: false, error: "Choose a valid package." };
+    }
+    const provider = String(input?.provider ?? "").trim().toLowerCase();
+    if (provider !== "mtn" && provider !== "atl" && provider !== "vod") {
+      return { success: false, error: "Choose MTN, ATMoney/Airtel Money or Telecel." };
+    }
+    const charge = await startZeliMobileMoneyCharge(ctx, code, {
+      phone: String(input?.phone ?? ""),
+      provider: provider as MobileMoneyProvider,
+    });
+    return {
+      success: true,
+      data: {
+        reference: charge.reference,
+        status: charge.status,
+        displayText: charge.displayText,
+        message: charge.message,
+      },
+    };
+  } catch (error) {
+    if (error instanceof SubscriptionError) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "The mobile money request could not be started." };
+  }
+}
+
+/** Poll a mobile money charge. Verification and activation happen server-side. */
+export async function checkZeliMobileMoneyPayment(
+  reference: string
+): Promise<
+  BillingActionResponse<{ status: "pending" | "success" | "failed" | "ignored" }>
+> {
+  try {
+    const ctx = await requireTenantAdmin();
+    const result = await checkZeliMobileMoneyStatus(
+      ctx,
+      String(reference ?? "").trim()
+    );
+    if (result.status === "failed") {
+      return { success: false, error: result.message, data: { status: result.status } };
+    }
+    return { success: true, data: { status: result.status } };
+  } catch (error) {
+    if (error instanceof SubscriptionError) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "Payment status could not be checked." };
+  }
 }
 
 export async function startZeliCheckout(
