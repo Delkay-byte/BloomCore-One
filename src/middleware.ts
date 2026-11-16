@@ -11,6 +11,13 @@ import {
   TAB_ASSERTION_HEADER,
   verifyTabAssertion,
 } from "@/lib/security/tab-assertion";
+import {
+  isMaintenanceBlocked,
+  maintenanceHeaders,
+  maintenanceState,
+  MAINTENANCE_HTML,
+  MAINTENANCE_MESSAGE,
+} from "@/lib/maintenance/guard";
 
 // Require JWT_SECRET — fail hard if missing
 const JWT_SECRET_RAW = process.env.JWT_SECRET;
@@ -182,6 +189,33 @@ async function resolveClaims(
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // ---------------------------------------------------------------------
+  // MAINTENANCE GUARD — evaluated before CSP, authentication, sessions, API
+  // handlers and server actions. While MAINTENANCE_MODE is on, only the
+  // health/readiness probes and immutable static assets are served; every
+  // other path returns 503 so no old application build can authenticate
+  // against a schema that has already been migrated.
+  // ---------------------------------------------------------------------
+  if (isMaintenanceBlocked(pathname, maintenanceState())) {
+    const wantsJson =
+      pathname.startsWith("/api") ||
+      (request.headers.get("accept") ?? "").includes("application/json");
+    return new NextResponse(
+      wantsJson
+        ? JSON.stringify({ maintenance: true, message: MAINTENANCE_MESSAGE })
+        : MAINTENANCE_HTML,
+      {
+        status: 503,
+        headers: {
+          ...maintenanceHeaders(),
+          "Content-Type": wantsJson
+            ? "application/json; charset=utf-8"
+            : "text/html; charset=utf-8",
+        },
+      }
+    );
+  }
 
   const nonce = crypto.randomUUID();
   const csp = buildCsp(nonce, process.env.NODE_ENV === "development");
