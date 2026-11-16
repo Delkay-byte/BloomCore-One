@@ -166,6 +166,7 @@ export async function createCustomer(
         code === "P2002" ||
         code === "P2034" ||
         code === "P2028" ||
+        code === "P1008" ||
         /database is locked|SQLITE_BUSY|timed out|transaction already closed/i.test(
           message
         )

@@ -30,7 +30,7 @@ jobs:
       - name: Prepare disposable SQLite test database
         run: npx prisma db push --skip-generate
         env:
-          DATABASE_URL: file:../tests/test.db
+          DATABASE_URL: file:../tests/test.db?connection_limit=1&socket_timeout=30
 
       - name: Lint
         run: npm run lint
