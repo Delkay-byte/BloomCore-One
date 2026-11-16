@@ -154,9 +154,11 @@ describe("client IP extraction", () => {
       "true-client-ip": "203.0.113.7",
       "cf-connecting-ip": "198.51.100.9",
     });
+    // SEC-05: the edge-set Cloudflare header wins. True-Client-IP is not
+    // guaranteed to be overwritten, so it is only used with explicit opt-in.
     expect(getClientIp(headers)).toEqual({
-      ip: "203.0.113.7",
-      source: "true-client-ip",
+      ip: "198.51.100.9",
+      source: "cf-connecting-ip",
     });
   });
 

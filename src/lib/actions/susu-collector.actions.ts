@@ -16,6 +16,11 @@ import { randomBytes } from "crypto";
 import { validateStatusTransition } from "@/lib/security/status";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { lockAccountForUpdate } from "@/lib/db-lock";
+import {
+  expectedRemittanceAmount,
+  validateRemittanceAmount,
+} from "@/lib/finance/remittance";
 
 export interface ActionResponse {
   success: boolean;
@@ -389,8 +394,21 @@ export async function recordRemittance(params: {
   const ctx = await requireTenantAdminSusu();
   const { collectorId, remittedAmount, notes } = params;
 
-  if (remittedAmount <= 0) {
-    return { success: false, error: "Remitted amount must be greater than 0" };
+  // SEC-06: reject anything that is not a finite, positive, two-decimal money
+  // value. `NaN <= 0` is false, so a bare sign check let NaN through.
+  const amount = validateRemittanceAmount(remittedAmount);
+  if (!amount.ok) {
+    return { success: false, error: amount.error };
+  }
+  const remitted = amount.value;
+
+  const rate = await consumeRateLimit(
+    "finance:remittance_record",
+    `${ctx.tenantId}:${ctx.userId}`,
+    RATE_LIMITS.financeMutation
+  );
+  if (!rate.allowed) {
+    return { success: false, error: "Too many financial actions. Please wait and try again." };
   }
 
   if (!(await assertTenantEntity("collector", collectorId, ctx))) {
@@ -402,46 +420,52 @@ export async function recordRemittance(params: {
   });
   if (!collector) return { success: false, error: "Collector not found" };
 
-  const existingRemittances = await db.collectorRemittance.findMany({
-    where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
-    select: { createdAt: true },
-    orderBy: { createdAt: "desc" },
-    take: 1,
-  });
+  const remittance = await db.$transaction(async (tx) => {
+    // Serialize remittance recording for this collector so two concurrent
+    // submissions cannot both compute the same expected amount from the same
+    // anchor and insert twice.
+    await lockAccountForUpdate(tx, `collector-remittance:${collectorId}`);
 
-  const lastRemittanceDate =
-    existingRemittances.length > 0
-      ? existingRemittances[0].createdAt
-      : new Date(0);
+    const existingRemittances = await tx.collectorRemittance.findMany({
+      where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
+      select: { createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
 
-  const unremittedContributions = await db.contribution.findMany({
-    where: {
-      collectorId,
-      tenantId: ctx.tenantId,
-      collectionDate: { gt: lastRemittanceDate },
-    },
-  });
+    const lastRemittanceDate =
+      existingRemittances.length > 0
+        ? existingRemittances[0].createdAt
+        : new Date(0);
 
-  const expectedAmount = unremittedContributions.reduce(
-    (sum, c) => sum + Number(c.amount),
-    0
-  );
-  const variance = expectedAmount - remittedAmount;
+    // Reversed contributions were never actually collected, so they must not
+    // inflate the expected cash handover.
+    const unremittedContributions = await tx.contribution.findMany({
+      where: {
+        collectorId,
+        tenantId: ctx.tenantId,
+        collectionDate: { gt: lastRemittanceDate },
+        reversedAt: null,
+      },
+    });
 
-  const referenceId = `REM-${randomBytes(8).toString("hex")}`;
+    const expectedAmount = expectedRemittanceAmount(unremittedContributions);
+    const variance = expectedAmount - remitted;
+    const referenceId = `REM-${randomBytes(8).toString("hex")}`;
 
-  const remittance = await db.collectorRemittance.create({
-    data: {
-      tenantId: ctx.tenantId,
-      collectorId,
-      expectedAmount,
-      remittedAmount,
-      variance,
-      status: variance === 0 ? "reconciled" : "discrepancy",
-      recordedById: ctx.userId,
-      referenceId,
-      notes,
-    },
+    return tx.collectorRemittance.create({
+      data: {
+        tenantId: ctx.tenantId,
+        collectorId,
+        expectedAmount,
+        remittedAmount: remitted,
+        variance,
+        status: variance === 0 ? "reconciled" : "discrepancy",
+        recordedById: ctx.userId,
+        referenceId,
+        notes,
+      },
+    });
   });
 
   await createAuditLog({
@@ -449,7 +473,12 @@ export async function recordRemittance(params: {
     action: "susu.remittance_recorded",
     entityType: "remittance",
     entityId: remittance.id,
-    details: { collectorId, expectedAmount, remittedAmount, variance },
+    details: {
+      collectorId,
+      expectedAmount: Number(remittance.expectedAmount),
+      remittedAmount: Number(remittance.remittedAmount),
+      variance: Number(remittance.variance),
+    },
   });
 
   revalidatePath("/susu/admin/remittances");

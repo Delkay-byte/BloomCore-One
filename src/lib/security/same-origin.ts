@@ -32,17 +32,10 @@ function expectedOrigins(request: NextRequest): Set<string> {
       // Ignore malformed configuration; it cannot widen the allow-list.
     }
   }
-  // Render terminates TLS at its proxy and forwards the public host/proto.
-  // Only trust these headers when explicitly configured for a trusted proxy.
-  if (process.env.TRUSTED_PROXY_HEADERS === "true") {
-    const host = request.headers.get("x-forwarded-host");
-    const proto = request.headers.get("x-forwarded-proto") || "https";
-    if (host && /^[a-z0-9.:-]+$/i.test(host) && (proto === "https" || proto === "http")) {
-      origins.add(`${proto}://${host}`);
-    }
-    const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME;
-    if (renderHost) origins.add(`https://${renderHost}`);
-  }
+  // The canonical origin allow-list is explicit configuration only. Forwarded
+  // host headers are attacker-controllable and must never widen it.
+  const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME;
+  if (renderHost) origins.add(`https://${renderHost}`);
   return origins;
 }
 
