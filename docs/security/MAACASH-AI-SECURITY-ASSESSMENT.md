@@ -985,7 +985,7 @@ The second pass closed the outstanding code findings:
 - **SEC-16:** added a production email configuration preflight, retryable failure classification
   and audited delivery failures.
 
-Verification completed in this pass: 929 SQLite tests, 20 PostgreSQL tests (including new
+Verification completed in this pass: 930 SQLite tests, PostgreSQL migration rehearsal plus targeted concurrency tests (including new
 concurrency cases for SEC-03, SEC-04 and SEC-07), typecheck, lint, production build and a
 legacy-data migration rehearsal. See `docs/security/SECURITY-REMEDIATION-REGISTER.md`.
 

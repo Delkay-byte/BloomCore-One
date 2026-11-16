@@ -3,7 +3,7 @@
 **Branch:** `security/comprehensive-hardening-sec-01-to-sec-16` (PR #48)
 **Baseline:** `d6d1577471733c00278000360a16fe2fea091dcc`
 **Register date:** 2026-11-16
-**Status:** implementation complete for SEC-01 to SEC-16 at the code/test level; owner review and controlled production deployment remain.
+**Status:** implementation complete for SEC-01 to SEC-16 at the code/test level; owner review and controlled production deployment remain. GitHub Actions is green on head `787ffcc` (push and pull_request): SQLite, PostgreSQL migration rehearsal, mobile browser, secret scan and CodeQL.
 
 This register is additive to `docs/security/MAACASH-AI-SECURITY-ASSESSMENT.md`. The original
 assessment, its subject commit and its findings are preserved unchanged. This document records
@@ -13,11 +13,11 @@ the second remediation pass.
 
 | Check | Result |
 |---|---|
-| Unit/integration suites (SQLite) | 86 files, 929 tests passed |
-| PostgreSQL suite (disposable `maacash_test`) | 4 files, 20 tests passed |
+| Unit/integration suites (SQLite) | 86 files, 930 tests passed |
+| PostgreSQL suite (disposable `maacash_test`) | CI migration rehearsal + integration suite passed (22 targeted tests locally, including new concurrency cases) |
 | TypeScript | `tsc --noEmit` clean |
 | ESLint | 0 errors (existing warnings only) |
-| Production build | `next build --webpack` succeeded |
+| Production build | `next build --webpack` succeeded (CI) |
 | Migration rehearsal | Fresh database plus legacy-data database both applied cleanly |
 | Production data | Not touched. No production migration, deploy, password, MFA or financial record changed. |
 
