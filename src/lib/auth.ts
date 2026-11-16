@@ -559,19 +559,37 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
     if (payload.role === "customer") {
       const customer = await db.customer.findUnique({
         where: { id: payload.userId },
-        select: { status: true, tokenVersion: true },
+        select: {
+          status: true,
+          tokenVersion: true,
+          forcePortalPasswordReset: true,
+        },
       });
       if (!customer || customer.status !== "active") return false;
       if ((customer.tokenVersion ?? 0) !== (payload.tokenVersion ?? 0)) return false;
+      // A session created before a mandatory portal password upgrade cannot
+      // outlive the flag: the upgrade must be completed through the challenge
+      // flow, which issues a fresh session only afterwards.
+      if (customer.forcePortalPasswordReset) return false;
       return true;
     }
 
     const user = await db.user.findUnique({
       where: { id: payload.userId },
-      select: { tokenVersion: true, status: true },
+      select: {
+        tokenVersion: true,
+        status: true,
+        emailVerified: true,
+        forcePasswordReset: true,
+      },
     });
     if (!user || user.status !== "active") return false;
+    if (!user.emailVerified) return false;
     if (user.tokenVersion !== (payload.tokenVersion ?? 0)) return false;
+    // Same rule for tenant accounts: no live session survives a mandatory
+    // password upgrade, so the challenge cannot be skipped by keeping an older
+    // session open.
+    if (user.forcePasswordReset) return false;
     return true;
   } catch {
     return false;

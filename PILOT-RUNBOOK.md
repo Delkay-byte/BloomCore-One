@@ -201,13 +201,13 @@ npx tsx prisma/staging-rehearsal.ts
 
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@bikprestige.com | Admin123 |
-| Worker 1 | kwame@bikprestige.com | Worker123 (Accra Central) |
-| Worker 2 | ama@bikprestige.com | Worker123 (Kumasi) |
-| Worker 3 | kofi@bikprestige.com | Worker123 (Takoradi) |
-| Worker 4 | efua@bikprestige.com | Worker123 (Tamale) |
-| Collector 1 | kwadwo@bikprestige.com | Collector123 |
-| Collector 2 | akosua@bikprestige.com | Collector123 |
+| Admin | admin@bikprestige.com | Admin!Pass1234 |
+| Worker 1 | kwame@bikprestige.com | Worker!Pass1234 (Accra Central) |
+| Worker 2 | ama@bikprestige.com | Worker!Pass1234 (Kumasi) |
+| Worker 3 | kofi@bikprestige.com | Worker!Pass1234 (Takoradi) |
+| Worker 4 | efua@bikprestige.com | Worker!Pass1234 (Tamale) |
+| Collector 1 | kwadwo@bikprestige.com | Collector!Pass1234 |
+| Collector 2 | akosua@bikprestige.com | Collector!Pass1234 |
 
 **For production:** Create new admin credentials immediately. Change all default passwords.
 

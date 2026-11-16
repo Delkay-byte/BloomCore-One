@@ -70,7 +70,7 @@ const PLATFORM_PUBLIC_ROUTES = ["/platform/login"];
 // above as a redirect-only entry point. "/migrate" must stay public: it is the
 // old-origin offline migration entry point and explains the sign-in step itself
 // instead of bouncing a device to the login form without context.
-const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/mfa", "/recover-account", "/migrate", "/api/health", "/api/diag"];
+const PUBLIC_ROUTES = ["/access", "/login", "/forgot-password", "/reset-password", "/verify-email", "/password-upgrade", "/mfa", "/recover-account", "/migrate", "/api/health", "/api/diag"];
 const CUSTOMER_PUBLIC_ROUTES = ["/customer/login", "/customer/forgot-password"];
 // The dedicated administrator login must be reachable without any session.
 const ADMIN_PUBLIC_ROUTES = ["/admin/login"];

@@ -115,13 +115,15 @@ export async function getTenantContext(
           tokenVersion: true,
           portalEnabled: true,
           tenantId: true,
+          forcePortalPasswordReset: true,
         },
       });
       if (
         !customer ||
         customer.status !== "active" ||
         !customer.portalEnabled ||
-        (customer.tokenVersion ?? 0) !== (session.tokenVersion ?? 0)
+        (customer.tokenVersion ?? 0) !== (session.tokenVersion ?? 0) ||
+        customer.forcePortalPasswordReset
       ) {
         return null;
       }
@@ -139,10 +141,14 @@ export async function getTenantContext(
         tenantId: true,
         momoEnabled: true,
         susuEnabled: true,
+        forcePasswordReset: true,
       },
     });
     if (!user || user.status !== "active") return null;
     if (user.tokenVersion !== (session.tokenVersion ?? 0)) return null;
+    // A mandatory password upgrade must be completed before tenant data is
+    // reachable, so a session that predates the upgrade flag cannot be used.
+    if (user.forcePasswordReset) return null;
 
     // No tenant assigned => not authorized for any tenant data. Fail closed.
     if (!user.tenantId) return null;

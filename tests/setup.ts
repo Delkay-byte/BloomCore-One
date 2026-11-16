@@ -35,6 +35,7 @@ export async function cleanDatabase() {
     prisma.dailyAccount.deleteMany(),
     prisma.auditLog.deleteMany(),
     prisma.passwordResetToken.deleteMany(),
+    prisma.emailVerificationToken.deleteMany(),
     prisma.offlineTransaction.deleteMany(),
     prisma.deviceEnrollment.deleteMany(),
     prisma.zeliTeamTester.deleteMany(),

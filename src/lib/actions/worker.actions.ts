@@ -9,6 +9,8 @@ import {
 } from "@/lib/tenant";
 import { createWorkerSchema, editWorkerSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
+import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
 
@@ -81,6 +83,7 @@ export async function createWorker(
       locationId: validated.data.locationId,
       status: validated.data.status,
       forcePasswordReset: true,
+      emailVerified: false,
     },
     select: {
       id: true,
@@ -103,6 +106,7 @@ export async function createWorker(
 
   revalidatePath("/admin/workers");
   revalidatePath("/admin/dashboard");
+  await issueEmailVerification(worker.id).catch(() => undefined);
   return { success: true, data: worker };
 }
 
@@ -239,8 +243,9 @@ export async function resetWorkerPassword(
   }
 
   const newPassword = formData.get("newPassword") as string;
-  if (!newPassword || newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   const passwordHash = await hashPassword(newPassword);

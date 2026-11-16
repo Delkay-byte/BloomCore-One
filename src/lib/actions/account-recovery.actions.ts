@@ -454,6 +454,7 @@ export async function redeemRecoveryCode(input: {
         data: {
           portalPasswordHash: passwordHash,
           forcePortalPasswordReset: false,
+          passwordPolicyVersion: 1,
           tokenVersion: { increment: 1 },
         },
       });
@@ -463,6 +464,7 @@ export async function redeemRecoveryCode(input: {
         data: {
           passwordHash,
           forcePasswordReset: false,
+          passwordPolicyVersion: 1,
           tokenVersion: { increment: 1 },
         },
       });

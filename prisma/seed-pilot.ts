@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🌱 Seeding BIK Prestige Enterprise pilot database...\n");
 
-  const adminPassword = await bcrypt.hash("Admin123", 12);
+  const adminPassword = await bcrypt.hash("Admin!Pass1234", 12);
 
   // 0. Ensure the BIK Prestige Enterprise tenant exists (idempotent)
   const bikTenant = await prisma.businessTenant.upsert({
@@ -69,7 +69,7 @@ async function main() {
   console.log("\n🎉 Seed complete! Admin can now log in and create workers/collectors/customers from the dashboard.");
   console.log("\n📋 Admin Login:");
   console.log("   Email:    admin@bikprestige.com");
-  console.log("   Password: Admin123");
+  console.log("   Password: Admin!Pass1234");
   console.log("   (Change password after first login)");
 }
 

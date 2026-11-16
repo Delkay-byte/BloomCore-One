@@ -11,9 +11,9 @@ export const BIK_TENANT_CODE = "BIK-HQ-001";
 async function main() {
   console.log("🌱 Seeding BIK Prestige Enterprise database...\n");
 
-  const adminPassword = await bcrypt.hash("Admin123", 12);
-  const workerPassword = await bcrypt.hash("Worker123", 12);
-  const collectorPassword = await bcrypt.hash("Collector123", 12);
+  const adminPassword = await bcrypt.hash("Admin!Pass1234", 12);
+  const workerPassword = await bcrypt.hash("Worker!Pass1234", 12);
+  const collectorPassword = await bcrypt.hash("Collector!Pass1234", 12);
 
   // 0. Ensure the BIK Prestige Enterprise tenant exists
   const bikTenant = await prisma.businessTenant.upsert({
@@ -220,13 +220,13 @@ async function main() {
   console.log("\n🎉 Seeding complete!");
   console.log("\n📋 Dev Credentials:");
   console.log("─────────────────────────────────");
-  console.log("Admin:      admin@bikprestige.com / Admin123");
-  console.log("Worker 1:   kwame@bikprestige.com / Worker123 (Accra Central)");
-  console.log("Worker 2:   ama@bikprestige.com / Worker123 (Kumasi)");
-  console.log("Worker 3:   kofi@bikprestige.com / Worker123 (Takoradi)");
-  console.log("Worker 4:   efua@bikprestige.com / Worker123 (Tamale)");
-  console.log("Collector 1: kwadwo@bikprestige.com / Collector123");
-  console.log("Collector 2: akosua@bikprestige.com / Collector123");
+  console.log("Admin:      admin@bikprestige.com / Admin!Pass1234");
+  console.log("Worker 1:   kwame@bikprestige.com / Worker!Pass1234 (Accra Central)");
+  console.log("Worker 2:   ama@bikprestige.com / Worker!Pass1234 (Kumasi)");
+  console.log("Worker 3:   kofi@bikprestige.com / Worker!Pass1234 (Takoradi)");
+  console.log("Worker 4:   efua@bikprestige.com / Worker!Pass1234 (Tamale)");
+  console.log("Collector 1: kwadwo@bikprestige.com / Collector!Pass1234");
+  console.log("Collector 2: akosua@bikprestige.com / Collector!Pass1234");
   console.log("─────────────────────────────────");
 }
 

@@ -10,6 +10,7 @@ import {
   getMfaChallenge,
 } from "@/lib/security/tab-session-client";
 import { BrandLockup } from "@/components/brand/Brand";
+import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-client";
 
 export default function MfaVerifyForm() {
   const router = useRouter();
@@ -33,6 +34,12 @@ export default function MfaVerifyForm() {
       const result = await verifyMfaLoginAction(formData);
       if (!result.success) {
         setError(result.error || "Verification failed");
+        return;
+      }
+      if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
+        clearMfaChallenge();
+        rememberPasswordChangeChallenge(result.challengeToken);
+        window.location.assign(result.redirectTo);
         return;
       }
       if (!result.sessionToken || !result.redirectTo) {

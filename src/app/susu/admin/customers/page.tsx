@@ -469,7 +469,7 @@ export default function SusuCustomersPage() {
                   name="temporaryPassword"
                   value={portalPassword}
                   onChange={(e) => setPortalPassword(e.target.value)}
-                  placeholder="Min 8 characters"
+                  placeholder="Min 12 characters with upper, lower, number and symbol"
                   required
                 />
                 <p className="form-hint">Give this password to the customer privately.</p>

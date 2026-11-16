@@ -9,6 +9,8 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { createAuditLog } from "@/lib/audit";
+import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { validateStatusTransition } from "@/lib/security/status";
@@ -67,8 +69,12 @@ export async function createCollector(
   if (!email) {
     return { success: false, error: "Email is required" };
   }
-  if (!password || password.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  if (!password) {
+    return { success: false, error: "Password is required" };
+  }
+  const policyError = validatePasswordPolicy(password);
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   // Email is globally unique (login resolves by email with no tenant hint).
@@ -91,6 +97,7 @@ export async function createCollector(
         passwordHash,
         susuEnabled: true,
         forcePasswordReset: true,
+        emailVerified: false,
       },
     });
 
@@ -110,6 +117,7 @@ export async function createCollector(
   });
 
   revalidatePath("/susu/admin/collectors");
+  await issueEmailVerification(created.user.id).catch(() => undefined);
   return { success: true, data: created };
 }
 
@@ -135,8 +143,9 @@ export async function resetCollectorPassword(
   }
 
   const newPassword = formData.get("newPassword") as string;
-  if (!newPassword || newPassword.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const policyError = validatePasswordPolicy(newPassword ?? "");
+  if (policyError) {
+    return { success: false, error: policyError };
   }
 
   const passwordHash = await hashPassword(newPassword);

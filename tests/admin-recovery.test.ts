@@ -194,13 +194,13 @@ describe("administrator-assisted recovery", () => {
 
     const redeemed = await redeemRecoveryCode({
       code: issued.code!,
-      newPassword: "NewPass123",
-      confirmPassword: "NewPass123",
+      newPassword: "NewStrong!Pass123",
+      confirmPassword: "NewStrong!Pass123",
     });
     expect(redeemed.success).toBe(true);
 
     const updated = await prisma.user.findUnique({ where: { id: worker.id } });
-    expect(await verifyPassword("NewPass123", updated!.passwordHash)).toBe(true);
+    expect(await verifyPassword("NewStrong!Pass123", updated!.passwordHash)).toBe(true);
     expect(updated!.tokenVersion).toBe(1);
 
     const sessions = await prisma.sessionRecord.findMany({
@@ -210,8 +210,8 @@ describe("administrator-assisted recovery", () => {
 
     const replay = await redeemRecoveryCode({
       code: issued.code!,
-      newPassword: "Another123",
-      confirmPassword: "Another123",
+      newPassword: "Another!Pass1234",
+      confirmPassword: "Another!Pass1234",
     });
     expect(replay.success).toBe(false);
   });
@@ -233,8 +233,8 @@ describe("administrator-assisted recovery", () => {
 
     const result = await redeemRecoveryCode({
       code: issued.code!,
-      newPassword: "NewPass123",
-      confirmPassword: "NewPass123",
+      newPassword: "NewStrong!Pass123",
+      confirmPassword: "NewStrong!Pass123",
     });
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/invalid or has expired/i);
@@ -263,12 +263,12 @@ describe("administrator-assisted recovery", () => {
 
     const redeemed = await redeemRecoveryCode({
       code: issued.code!,
-      newPassword: "NewPass123",
-      confirmPassword: "NewPass123",
+      newPassword: "NewStrong!Pass123",
+      confirmPassword: "NewStrong!Pass123",
     });
     expect(redeemed.success).toBe(true);
     const updated = await prisma.customer.findUnique({ where: { id: customer.id } });
-    expect(await verifyPassword("NewPass123", updated!.portalPasswordHash!)).toBe(true);
+    expect(await verifyPassword("NewStrong!Pass123", updated!.portalPasswordHash!)).toBe(true);
   });
 
   it("resets MFA and revokes sessions without exposing secrets", async () => {

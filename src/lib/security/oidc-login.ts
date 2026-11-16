@@ -37,7 +37,7 @@ export type SsoSignInResult =
     }
   | {
       ok: false;
-      reason: "no_link" | "inactive" | "mfa_required";
+      reason: "no_link" | "inactive" | "mfa_required" | "password_change_required";
     };
 
 export async function completeSsoSignIn(input: {
@@ -84,6 +84,17 @@ export async function completeSsoSignIn(input: {
       details: { idpAmr: input.idpAmr },
     });
     return { ok: false, reason: "mfa_required" };
+  }
+
+  // A forced password upgrade must never receive a platform session, including
+  // through SSO. The operator completes the local login challenge instead.
+  if (admin.forcePasswordReset) {
+    await auditSsoEvent(PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_DENIED, {
+      actorId: admin.id,
+      actorEmail: admin.email,
+      reason: "password_change_required",
+    });
+    return { ok: false, reason: "password_change_required" };
   }
 
   const jti = randomUUID();

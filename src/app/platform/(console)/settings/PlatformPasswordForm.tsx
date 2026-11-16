@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
 import { registerTabSession } from "@/lib/security/tab-session-client";
 import { useToast } from "@/components/ui/Toast";
+import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 
 export default function PlatformPasswordForm() {
   const router = useRouter();
@@ -12,6 +13,7 @@ export default function PlatformPasswordForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -65,13 +67,15 @@ export default function PlatformPasswordForm() {
           id="newPassword"
           name="newPassword"
           required
-          minLength={8}
+          minLength={12}
           autoComplete="new-password"
           aria-describedby="newPassword-hint"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
         />
-        <p className="form-hint" id="newPassword-hint">
-          At least 8 characters with an uppercase letter and a digit.
-        </p>
+        <div className="mt-2">
+          <PasswordPolicyChecklist password={newPassword} />
+        </div>
       </div>
       <div className="form-group">
         <label className="form-label" htmlFor="confirmPassword">Confirm new password</label>
@@ -80,7 +84,7 @@ export default function PlatformPasswordForm() {
           id="confirmPassword"
           name="confirmPassword"
           required
-          minLength={8}
+          minLength={12}
           autoComplete="new-password"
         />
       </div>

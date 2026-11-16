@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { expenseLinesSchema, hasCurrencyPrecision } from "@/lib/expense-lines";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
+
+/** Authoritative password policy, shared by every form schema. */
+export const strongPasswordSchema = z.string().superRefine((value, ctx) => {
+  const error = validatePasswordPolicy(value);
+  if (error) ctx.addIssue({ code: "custom", message: error });
+});
 
 export const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Please enter a valid email"),
@@ -9,11 +16,7 @@ export const loginSchema = z.object({
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z
-      .string()
-      .min(8, "Password must be at least 8 characters")
-      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-      .regex(/[0-9]/, "Password must contain at least one number"),
+    newPassword: strongPasswordSchema,
     confirmPassword: z.string().min(1, "Please confirm your password"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -38,11 +41,7 @@ export const createWorkerSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters").max(100),
   email: z.string().email("Please enter a valid email"),
   phone: z.string().max(20).optional(),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number"),
+  password: strongPasswordSchema,
   locationId: z.string().min(1, "Please select a location"),
   status: z.enum(["active", "inactive"]).default("active"),
 });
@@ -59,11 +58,7 @@ export const createStaffSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters").max(100),
   email: z.string().email("Please enter a valid email"),
   phone: z.string().max(20).optional(),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number"),
+  password: strongPasswordSchema,
   role: z.enum(["worker", "collector"]),
   status: z.enum(["active", "inactive"]).default("active"),
 });

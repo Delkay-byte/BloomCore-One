@@ -14,6 +14,7 @@ import {
   getMfaChallenge,
 } from "@/lib/security/tab-session-client";
 import { BrandLockup } from "@/components/brand/Brand";
+import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-client";
 
 export default function MfaEnrollFlow() {
   const router = useRouter();
@@ -68,7 +69,17 @@ export default function MfaEnrollFlow() {
       const payload = new FormData();
       payload.set("challenge", challenge);
       const result = await finishMfaEnrollmentAction(payload);
-      if (!result.success || !result.sessionToken || !result.redirectTo) {
+      if (!result.success) {
+        setError(result.error || "Could not finish enrolment.");
+        return;
+      }
+      if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
+        clearMfaChallenge();
+        rememberPasswordChangeChallenge(result.challengeToken);
+        window.location.assign(result.redirectTo);
+        return;
+      }
+      if (!result.sessionToken || !result.redirectTo) {
         setError(result.error || "Could not finish enrolment.");
         return;
       }

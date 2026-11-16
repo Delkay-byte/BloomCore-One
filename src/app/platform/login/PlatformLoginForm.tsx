@@ -12,6 +12,7 @@ import {
   tabSessionsSupported,
 } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
+import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-client";
 import { BrandLockup } from "@/components/brand/Brand";
 
 interface PlatformLoginFormProps {
@@ -46,6 +47,11 @@ export default function PlatformLoginForm({
       if (!result || !result.success) {
         setError(result?.error || "Login failed");
         setChallenge((value) => value + 1);
+        return;
+      }
+      if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
+        rememberPasswordChangeChallenge(result.challengeToken);
+        window.location.assign(result.redirectTo);
         return;
       }
       if (result.mfaToken && result.redirectTo) {

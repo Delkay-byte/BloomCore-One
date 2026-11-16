@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { changePassword } from "@/lib/actions/auth.actions";
 import { registerTabSession } from "@/lib/security/tab-session-client";
 import PasswordInput from "@/components/PasswordInput";
+import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
+import { validatePasswordPolicy } from "@/lib/security/password-policy";
 
 const DASHBOARD_BY_ROLE: Record<string, string> = {
   admin: "/admin/dashboard",
@@ -27,6 +29,7 @@ export default function ChangePasswordForm({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -36,8 +39,9 @@ export default function ChangePasswordForm({
     const newPassword = (formData.get("newPassword") as string) || "";
     const confirmPassword = (formData.get("confirmPassword") as string) || "";
 
-    if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters");
+    const policyError = validatePasswordPolicy(newPassword);
+    if (policyError) {
+      setError(policyError);
       setLoading(false);
       return;
     }
@@ -132,8 +136,13 @@ export default function ChangePasswordForm({
             name="newPassword"
             required
             autoComplete="new-password"
-            placeholder="Min 8 characters"
+            placeholder="At least 12 characters"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
           />
+          <div className="mt-2">
+            <PasswordPolicyChecklist password={newPassword} />
+          </div>
         </div>
         <div className="form-group">
           <label className="form-label" htmlFor="confirmPassword">
