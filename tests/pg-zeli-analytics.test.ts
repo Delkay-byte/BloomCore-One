@@ -129,6 +129,9 @@ describe("PostgreSQL Zeli analytics", () => {
         status: "active",
         source: "manual",
         reason: "PostgreSQL entitlement lifecycle test",
+        // Pin the start date: the schema default is now(), which would place
+        // the entitlement in the future relative to the frozen NOW used below.
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
         expiresAt: new Date("2026-12-31T23:59:59.000Z"),
       },
     });
