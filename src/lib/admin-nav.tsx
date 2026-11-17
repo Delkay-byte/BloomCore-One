@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Banknote,
+  CreditCard,
   BookText,
   ClipboardList,
   FileBarChart,
@@ -66,6 +67,7 @@ export const navSections: NavSection[] = [
   {
     title: "Administration",
     items: [
+      { href: "/admin/billing", label: "Billing & Plan", icon: CreditCard },
       { href: "/admin/staff", label: "Staff", icon: UserCog },
       { href: "/admin/audit", label: "Activity History", icon: ScrollText },
       { href: "/admin/settings", label: "Settings", icon: Settings },

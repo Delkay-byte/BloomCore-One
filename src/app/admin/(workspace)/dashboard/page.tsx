@@ -20,6 +20,7 @@ import { getGreeting } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import SecurityAlertsCard from "@/components/security/SecurityAlertsCard";
 import { PageHeader, StatCard } from "@/components/ui/DataDisplay";
+import NotificationFeed from "@/components/notifications/NotificationFeed";
 
 interface MoMoStats {
   totalActiveLocations: number;
@@ -45,6 +46,19 @@ interface MoMoStats {
     status: string;
     difference: number | null;
   }>;
+  notifications: {
+    unread: number;
+    items: Array<{
+      id: string;
+      kind: string;
+      severity: string;
+      title: string;
+      body: string;
+      href: string | null;
+      readAt: string | null;
+      createdAt: string;
+    }>;
+  };
 }
 
 interface SusuStats {
@@ -369,6 +383,15 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+      {momoStats?.notifications && (
+        <div className="mt-6">
+          <NotificationFeed
+            audience="tenant"
+            items={momoStats.notifications.items}
+            unread={momoStats.notifications.unread}
+          />
         </div>
       )}
     </div>

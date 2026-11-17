@@ -12,6 +12,7 @@ import { assertTurnstileConfigurationForProduction } from "./lib/security/config
 
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const BILLING_INTERVAL_MS = 60 * 60 * 1000;
 
 let started = false;
 
@@ -28,6 +29,7 @@ function runBootPreflight(): void {
 }
 let timer: NodeJS.Timeout | null = null;
 let lastRetentionAt = 0;
+let lastBillingAt = 0;
 
 function sweepInterval(): number {
   const configured = Number(process.env.ZELI_EXPIRY_INTERVAL_MS ?? "");
@@ -62,6 +64,7 @@ async function runSweep(): Promise<void> {
     });
     console.info("[zeli-expiry] sweep completed", counts);
     await runSecurityRetention();
+    await runBillingMaintenance();
   } catch (error) {
     // Log only the error class and Prisma error code: no identifiers, no
     // personal data, but enough for an operator to tell a schema problem
@@ -74,6 +77,22 @@ async function runSweep(): Promise<void> {
       typeof code === "string" ? code : "no-code"
     );
   }
+}
+
+/**
+ * Billing lifecycle, reminders and pending-payment reconciliation. Runs hourly
+ * (and on boot) so reminders never depend on an administrator opening a page.
+ * The reconciliation is bounded to ten references per run and only a verified
+ * provider answer can activate a subscription.
+ */
+async function runBillingMaintenance(): Promise<void> {
+  const now = Date.now();
+  if (now - lastBillingAt < BILLING_INTERVAL_MS) return;
+  lastBillingAt = now;
+  const { runBillingLifecycle, reconcilePendingPayments } = await import("./lib/billing/lifecycle");
+  const lifecycle = await runBillingLifecycle();
+  const reconciled = await reconcilePendingPayments();
+  console.info("[billing] lifecycle", lifecycle, "reconciled", reconciled);
 }
 
 /** Start the periodic maintenance sweep once per Node.js server instance. */

@@ -204,18 +204,44 @@ describe("Zeli grounding and isolation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("enforces the server-side daily request limit", async () => {
+  it("enforces the plan monthly Zeli allowance server-side", async () => {
     const { tenantA, adminA } = await seed();
-    const conversation = await prisma.zeliConversation.create({
-      data: { tenantId: tenantA.id, userId: adminA.id },
+    const plan = await prisma.zeliPlan.create({
+      data: {
+        code: `test-monthly-${Date.now()}`,
+        name: "Test monthly",
+        billingInterval: "month",
+        price: 99,
+        currency: "GHS",
+        usageAllowance: 2,
+        status: "active",
+        isPublic: true,
+      },
     });
-    await prisma.zeliUsage.create({
+    await prisma.zeliSubscription.create({
       data: {
         tenantId: tenantA.id,
-        userId: adminA.id,
-        day: new Date().toISOString().slice(0, 10),
-        requests: 40,
+        planId: plan.id,
+        status: "active",
+        provider: "paystack",
+        providerReference: `TEST-${Date.now()}`,
+        amount: 99,
+        currency: "GHS",
+        periodStart: new Date(),
+        periodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        paidAt: new Date(),
       },
+    });
+    await prisma.zeliUsagePeriod.create({
+      data: {
+        tenantId: tenantA.id,
+        period: new Date().toISOString().slice(0, 7),
+        requests: 2,
+        limit: 2,
+      },
+    });
+    const conversation = await prisma.zeliConversation.create({
+      data: { tenantId: tenantA.id, userId: adminA.id },
     });
 
     await expect(
@@ -225,5 +251,11 @@ describe("Zeli grounding and isolation", () => {
         question: "One more question",
       })
     ).rejects.toBeInstanceOf(ZeliUsageError);
+
+    // The allowance is tenant-wide and never exceeded by a concurrent request.
+    const row = await prisma.zeliUsagePeriod.findUnique({
+      where: { tenantId_period: { tenantId: tenantA.id, period: new Date().toISOString().slice(0, 7) } },
+    });
+    expect(row?.requests).toBe(2);
   });
 });

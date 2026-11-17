@@ -17,6 +17,7 @@ import {
 import { getZeliEntitlement } from "@/lib/zeli/entitlements";
 import { assertZeliAvailable } from "@/lib/zeli/availability";
 import { normalizeGhanaPhone } from "@/lib/utils";
+import { effectiveMonthlyPrice, consumeFoundingPeriod } from "@/lib/pricing/founding";
 
 /**
  * Zeli subscription lifecycle.
@@ -161,10 +162,14 @@ export function paymentProviderStatus(): {
 
 /** Start a checkout for a tenant administrator. Price comes from the database. */
 interface PreparedCheckout {
-  plan: { id: string; code: string; price: unknown; currency: string };
+  plan: { id: string; code: string; price: unknown; currency: string; billingInterval: string };
   email: string;
   reference: string;
   createdId: string;
+  /** Effective price for this period (founding or standard). */
+  amount: number;
+  foundingAllocationId: string | null;
+  standardAmount: number;
 }
 
 /**
@@ -204,7 +209,9 @@ async function preparePendingSubscription(
     where: { tenantId: ctx.tenantId, status: "active", periodEnd: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
-  if (activeSubscription) {
+  if (activeSubscription && activeSubscription.planId === plan.id) {
+    // Same plan: a second checkout would be a duplicate. A different plan is an
+    // intentional package change and is allowed to extend from the live period.
     throw new SubscriptionError("This business already has an active subscription.", "already_active");
   }
   const admin = await db.user.findUnique({
@@ -226,6 +233,12 @@ async function preparePendingSubscription(
     channel === "mobile_money" ? "ZELIM" : "ZELI"
   }-${ctx.tenantId.slice(0, 8)}-${randomBytes(8).toString("hex")}`;
   const pendingKey = `${ctx.tenantId}:${plan.id}`;
+  const effective = await effectiveMonthlyPrice({
+    tenantId: ctx.tenantId,
+    plan: { id: plan.id, code: plan.code, billingInterval: plan.billingInterval, price: plan.price, foundingPrice: plan.foundingPrice },
+  });
+  const amount = Number(effective.amount);
+  const standardAmount = Number(plan.price);
   const cutoff = new Date(Date.now() - PENDING_CHECKOUT_TTL_MS);
 
   let created;
@@ -252,8 +265,11 @@ async function preparePendingSubscription(
           status: "pending",
           provider: "paystack",
           providerReference: reference,
-          amount: plan.price,
+          amount,
           currency: plan.currency,
+          billingTerm: plan.billingInterval === "year" ? "annual" : "monthly",
+          foundingAllocationId: effective.allocationId,
+          standardAmount,
           periodStart: null,
           periodEnd: null,
           pendingKey,
@@ -270,7 +286,15 @@ async function preparePendingSubscription(
     throw error;
   }
 
-  return { plan, email, reference, createdId: created.id };
+  return {
+    plan,
+    email,
+    reference,
+    createdId: created.id,
+    amount,
+    foundingAllocationId: effective.allocationId,
+    standardAmount,
+  };
 }
 
 async function failPendingCheckout(id: string, reason: string): Promise<void> {
@@ -289,12 +313,12 @@ export async function createZeliCheckout(
   ctx: TenantContext,
   planCode: string
 ): Promise<{ authorizationUrl: string; reference: string }> {
-  const { plan, email, reference, createdId } = await preparePendingSubscription(ctx, planCode);
+  const { plan, email, reference, createdId, amount } = await preparePendingSubscription(ctx, planCode);
 
   try {
     const initialized = await initializeTransaction({
       email,
-      amountSubunit: amountSubunit(plan.price),
+      amountSubunit: amountSubunit(amount),
       currency: plan.currency,
       reference,
       callbackUrl: `${baseUrl()}/admin/zeli-analytics/checkout/callback?reference=${encodeURIComponent(reference)}`,
@@ -315,6 +339,95 @@ export async function createZeliCheckout(
     if (error instanceof SubscriptionError) throw error;
     throw new SubscriptionError("Payment checkout could not be started. Please try again.", "initialization_failed");
   }
+}
+
+/**
+ * Pay a subscription that was created by controlled provisioning.
+ *
+ * Provisioning stores the approved plan, term and effective amount on a
+ * `pending_payment` row. This function reuses that row (and its unique
+ * reference) instead of creating a second checkout, so a business can never
+ * end up with two live subscriptions for the same approval.
+ */
+export async function payProvisionedSubscription(
+  ctx: TenantContext,
+  subscriptionId: string,
+  input:
+    | { method: "hosted" }
+    | { method: "mobile_money"; phone: string; provider: MobileMoneyProvider }
+): Promise<{ reference: string; authorizationUrl?: string; status?: string; displayText?: string | null; message?: string | null }> {
+  if (ctx.role !== "admin") {
+    throw new SubscriptionError("Only a business administrator can pay for a subscription.", "forbidden");
+  }
+  if (!paystackReadyForCheckout()) {
+    throw new SubscriptionError("Subscription checkout is not available yet.", "provider_not_configured");
+  }
+  const subscription = await db.zeliSubscription.findFirst({
+    where: {
+      id: subscriptionId,
+      tenantId: ctx.tenantId,
+      status: { in: ["pending_payment", "pending"] },
+      paidAt: null,
+    },
+    include: { plan: true },
+  });
+  if (!subscription) {
+    throw new SubscriptionError(
+      "This payment request is no longer available. Open Billing to see the current amount.",
+      "not_payable"
+    );
+  }
+  const admin = await db.user.findUnique({
+    where: { id: ctx.userId },
+    select: { email: true },
+  });
+  const email = admin?.email || subscription.providerCustomerCode || "";
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw new SubscriptionError("A billing contact email is required.", "missing_email");
+  }
+  const amount = Number(subscription.amount);
+
+  if (input.method === "hosted") {
+    const initialized = await initializeTransaction({
+      email,
+      amountSubunit: amountSubunit(amount),
+      currency: subscription.currency,
+      reference: subscription.providerReference,
+      callbackUrl: `${baseUrl()}/admin/zeli-analytics/checkout/callback?reference=${encodeURIComponent(subscription.providerReference)}`,
+      metadata: { zeli_subscription_id: subscription.id, plan_code: subscription.plan.code },
+    });
+    if (initialized.reference !== subscription.providerReference) {
+      throw new SubscriptionError("Payment provider returned a different reference.", "reference_mismatch");
+    }
+    return { reference: subscription.providerReference, authorizationUrl: initialized.authorizationUrl };
+  }
+
+  const phone = normalizeMobileMoneyPhone(input.phone);
+  if (!phone) throw new SubscriptionError("Enter a valid Ghana mobile money number.", "invalid_phone");
+  if (String(subscription.currency).toUpperCase() !== "GHS") {
+    throw new SubscriptionError("Mobile money is only available for GHS packages.", "invalid_currency");
+  }
+  const charge = await chargeMobileMoney({
+    email,
+    amountSubunit: amountSubunit(amount),
+    currency: "GHS",
+    phone,
+    provider: input.provider,
+    reference: subscription.providerReference,
+    metadata: { zeli_subscription_id: subscription.id, plan_code: subscription.plan.code, channel: "mobile_money" },
+  });
+  if (charge.reference !== subscription.providerReference) {
+    throw new SubscriptionError("Payment provider returned a different reference.", "reference_mismatch");
+  }
+  if (charge.status === "failed") {
+    throw new SubscriptionError("The mobile money charge was declined. No payment was taken.", "charge_failed");
+  }
+  return {
+    reference: subscription.providerReference,
+    status: charge.status,
+    displayText: charge.displayText,
+    message: charge.message,
+  };
 }
 
 /* ------------------------------------------------------------------------- *
@@ -347,7 +460,7 @@ export async function startZeliMobileMoneyCharge(
   if (!(input.provider in MOBILE_MONEY_PROVIDERS)) {
     throw new SubscriptionError("Choose MTN, ATMoney/Airtel Money or Telecel.", "invalid_provider");
   }
-  const { plan, email, reference, createdId } = await preparePendingSubscription(
+  const { plan, email, reference, createdId, amount } = await preparePendingSubscription(
     ctx,
     planCode,
     "mobile_money"
@@ -363,7 +476,7 @@ export async function startZeliMobileMoneyCharge(
   try {
     const charge = await chargeMobileMoney({
       email,
-      amountSubunit: amountSubunit(plan.price),
+      amountSubunit: amountSubunit(amount),
       currency: "GHS",
       phone,
       provider: input.provider,
@@ -739,10 +852,20 @@ export async function fulfilPaidSubscription(input: {
           cancelledAt: null,
           failureReason: null,
           supersededByReference: null,
+          graceEndsAt: null,
+          reminderStage: null,
           providerCustomerCode:
             input.transaction.customerCode ?? fresh.providerCustomerCode,
         },
       });
+
+      // A verified monthly payment consumes exactly one founding period. The
+      // conditional update in consumeFoundingPeriod keeps a duplicate webhook
+      // from burning two periods, and the fourth renewal reverts to standard
+      // pricing because the allocation becomes exhausted.
+      if (fresh.foundingAllocationId && fresh.billingTerm !== "annual") {
+        await consumeFoundingPeriod(tx, fresh.foundingAllocationId);
+      }
 
       const keepManual =
         entitlement?.status === "active" &&
@@ -1053,6 +1176,21 @@ export async function handlePaystackWebhook(
   }
   const eventType = String(body.event ?? "");
   const data = body.data ?? {};
+
+  // Paystack's endpoint ping is a signed reachability check, not a payment.
+  // Acknowledge it, record a safe diagnostic row and change nothing else.
+  if (eventType === "ping") {
+    const pingId = canonicalEventId("ping", data, rawBody);
+    const claim = await claimPaymentEvent({
+      eventId: pingId,
+      eventType: "ping",
+      reference: null,
+      subscriptionId: null,
+      tenantId: null,
+    });
+    if (claim === "claimed") await finishEvent(pingId, "processed", "signed_ping");
+    return { ok: true, status: 200, decision: "ping" };
+  }
   const reference = String(data.reference ?? "");
   const subscription = reference
     ? await db.zeliSubscription.findUnique({ where: { providerReference: reference } })

@@ -23,6 +23,7 @@
 export const PUBLIC_MARKETING_ROUTES = [
   "/",
   "/features",
+  "/pricing",
   "/solutions",
   "/about",
   "/contact",

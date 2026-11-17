@@ -154,6 +154,7 @@ export const CONTACT_CONFIGURED = Boolean(CONTACT_EMAIL || CONTACT_PHONE);
 export const PUBLIC_ROUTES = [
   { path: "/", label: "Home" },
   { path: "/features", label: "Features" },
+  { path: "/pricing", label: "Pricing" },
   { path: "/solutions", label: "Who We Serve" },
   { path: "/about", label: "About" },
   { path: "/contact", label: "Contact" },
@@ -166,6 +167,8 @@ export const LEGAL_ROUTES = [
 
 /** Sign-in entry points. These are existing routes; do not rename them. */
 export const BUSINESS_LOGIN_PATH = "/login";
+/** Dedicated tenant administrator login. */
+export const ADMIN_LOGIN_PATH = "/admin/login";
 export const ALL_ACCESS_PATH = "/access";
 export const PLATFORM_LOGIN_PATH = "/platform/login";
 

@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getAdminSession, hashPassword } from "@/lib/auth";
+import { checkPackageLimit } from "@/lib/pricing/limits";
 import {
   requireTenantAdminMomo,
   requireTenantAdminSusu,
@@ -69,6 +70,11 @@ export async function createWorker(
       success: false,
       error: "Cannot assign worker to an inactive location",
     };
+  }
+
+  const limit = await checkPackageLimit(ctx.tenantId, "staff");
+  if (!limit.allowed) {
+    return { success: false, error: limit.message ?? "Package limit reached" };
   }
 
   const passwordHash = await hashPassword(validated.data.password);

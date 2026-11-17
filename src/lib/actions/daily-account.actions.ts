@@ -3,6 +3,10 @@
 import { db } from "@/lib/db";
 import { getAdminSession } from "@/lib/auth";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
+import {
+  listNotifications,
+  unreadNotificationCount,
+} from "@/lib/notifications/notifications";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
 import {
   requireTenantWorker,
@@ -913,6 +917,26 @@ export async function getWorkerDailyAccounts(workerId?: string) {
   });
 }
 
+async function getDashboardNotifications(tenantId: string) {
+  const [items, unread] = await Promise.all([
+    listNotifications({ tenantId, audience: "tenant", limit: 6, includeResolved: false }),
+    unreadNotificationCount({ tenantId, audience: "tenant" }),
+  ]);
+  return {
+    unread,
+    items: items.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      severity: row.severity,
+      title: row.title,
+      body: row.body,
+      href: row.href,
+      readAt: row.readAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+    })),
+  };
+}
+
 export async function getAdminDashboardStats() {
   const ctx = await requireTenantAdminMomo();
 
@@ -1040,6 +1064,7 @@ export async function getAdminDashboardStats() {
         (totalCommission + totalDebtsCollected - totalExpensesToday) * 100
       ) / 100,
     locationStatus,
+    notifications: await getDashboardNotifications(ctx.tenantId),
   };
 }
 

@@ -46,7 +46,7 @@ const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "FinancialApproval","PlatformApprovalRequest","SecurityAlert","SecurityEventRecord","StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
+    TRUNCATE TABLE "FoundingAllocation","TenantNotification","ZeliUsagePeriod","AccountEnquiry","FinancialApproval","PlatformApprovalRequest","SecurityAlert","SecurityEventRecord","StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",

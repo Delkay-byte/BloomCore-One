@@ -48,6 +48,7 @@ export async function cleanDatabase() {
   await prisma.zeliTeamTester.deleteMany();
   await prisma.zeliProviderUsage.deleteMany();
   await prisma.zeliPaymentEvent.deleteMany();
+  await prisma.foundingAllocation.deleteMany();
   await prisma.zeliSubscription.deleteMany();
   await prisma.zeliPlan.deleteMany();
   await prisma.zeliAiTenantAuthorization.deleteMany();
@@ -60,6 +61,9 @@ export async function cleanDatabase() {
   await prisma.zeliMessage.deleteMany();
   await prisma.zeliConversation.deleteMany();
   await prisma.zeliUsage.deleteMany();
+  await prisma.zeliUsagePeriod.deleteMany();
+  await prisma.tenantNotification.deleteMany();
+  await prisma.accountEnquiry.deleteMany();
   await prisma.financialApproval.deleteMany();
   await prisma.platformApprovalRequest.deleteMany();
   await prisma.securityAlert.deleteMany();
