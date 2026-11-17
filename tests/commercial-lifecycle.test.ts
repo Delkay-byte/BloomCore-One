@@ -10,6 +10,7 @@ import {
 import { runBillingLifecycle } from "@/lib/billing/lifecycle";
 import { consumeZeliQuota, zeliUsageSummary, ZeliAccessError } from "@/lib/zeli/usage";
 import { provisionBusiness } from "@/lib/platform/provisioning";
+import { checkPackageLimit } from "@/lib/pricing/limits";
 import { db } from "@/lib/db";
 
 async function plan(overrides: Partial<Parameters<typeof prisma.zeliPlan.create>[0]["data"]> = {}) {
@@ -324,5 +325,62 @@ describe("controlled provisioning", () => {
     });
     expect(result.ok).toBe(false);
     expect(await prisma.businessTenant.count()).toBe(before);
+  });
+});
+
+describe("package limits", () => {
+  async function tenantWithPlan(locationLimit: number, staffLimit: number, status = "active") {
+    const p = await plan({ locationLimit, staffLimit });
+    const t = await tenant();
+    await prisma.zeliSubscription.create({
+      data: {
+        tenantId: t.id,
+        planId: p.id,
+        status,
+        providerReference: `ZELI-${Math.random().toString(16).slice(2)}`,
+        amount: 169,
+        currency: "GHS",
+        periodStart: new Date(),
+        periodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        paidAt: status === "active" ? new Date() : null,
+      },
+    });
+    return t;
+  }
+
+  it("blocks a location beyond the package allowance", async () => {
+    const t = await tenantWithPlan(1, 3);
+    await prisma.location.create({
+      data: { tenantId: t.id, name: "Main", code: "MAIN", status: "active" },
+    });
+    const check = await checkPackageLimit(t.id, "locations");
+    expect(check.allowed).toBe(false);
+    expect(check.reason).toBe("limit_reached");
+    expect(check.message).toContain("1 active location");
+  });
+
+  it("blocks staff beyond the package allowance and honours inactive records", async () => {
+    const t = await tenantWithPlan(2, 1);
+    await admin(t.id, "worker-a@test.local").then((u) =>
+      prisma.user.update({ where: { id: u.id }, data: { role: "worker" } })
+    );
+    expect((await checkPackageLimit(t.id, "staff")).allowed).toBe(false);
+
+    await prisma.user.updateMany({ where: { tenantId: t.id }, data: { status: "inactive" } });
+    expect((await checkPackageLimit(t.id, "staff")).allowed).toBe(true);
+  });
+
+  it("refuses every create for a suspended business", async () => {
+    const t = await tenantWithPlan(3, 3, "suspended");
+    const check = await checkPackageLimit(t.id, "staff");
+    expect(check.allowed).toBe(false);
+    expect(check.reason).toBe("subscription_suspended");
+  });
+
+  it("never limits a grandfathered tenant without a subscription", async () => {
+    const t = await tenant();
+    const check = await checkPackageLimit(t.id, "locations");
+    expect(check.allowed).toBe(true);
+    expect(check.limit).toBeNull();
   });
 });

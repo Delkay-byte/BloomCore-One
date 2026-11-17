@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireTenantAdminMomo, assertTenantEntity } from "@/lib/tenant";
 import { locationSchema } from "@/lib/validations";
+import { checkPackageLimit } from "@/lib/pricing/limits";
 import { createAuditLog } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
@@ -49,6 +50,11 @@ export async function createLocation(
   });
   if (existing) {
     return { success: false, error: "A location with this code already exists" };
+  }
+
+  const limit = await checkPackageLimit(ctx.tenantId, "locations");
+  if (!limit.allowed) {
+    return { success: false, error: limit.message ?? "Package limit reached" };
   }
 
   const location = await db.location.create({
