@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Building2,
+  Inbox,
+  CreditCard,
   FileClock,
   LayoutDashboard,
   LifeBuoy,
@@ -23,6 +25,8 @@ const navItems = [
   { href: "/platform/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/platform/tenants", label: "Businesses", icon: Building2 },
   { href: "/platform/tenants/new", label: "Enroll Business", icon: UserPlus },
+  { href: "/platform/enquiries", label: "Account Enquiries", icon: Inbox },
+  { href: "/platform/billing", label: "Billing", icon: CreditCard },
   { href: "/platform/zeli", label: "Zeli", icon: Sparkles },
   { href: "/platform/audit", label: "Activity History", icon: FileClock },
   { href: "/platform/recovery", label: "Account Recovery", icon: LifeBuoy },

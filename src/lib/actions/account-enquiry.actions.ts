@@ -7,6 +7,8 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { verifyTurnstile } from "@/lib/security/turnstile";
 import { validateEnquiry, type EnquiryDraft } from "@/lib/pricing/enquiry";
+import { createNotification } from "@/lib/notifications/notifications";
+import { sendTransactionalEmail, appBaseUrl } from "@/lib/email/resend";
 
 /**
  * Public account enquiry.
@@ -66,6 +68,35 @@ export async function submitAccountEnquiry(
     },
   });
 
-  // Non-sensitive reference the visitor can quote on a call.
-  return { success: true, reference: enquiry.id.slice(-8).toUpperCase() };
+  const reference = enquiry.id.slice(-8).toUpperCase();
+
+  // Platform Super Admin is notified in-app immediately. An enquiry never
+  // creates an account, a tenant, a subscription or a charge.
+  await createNotification({
+    audience: "platform",
+    kind: "system",
+    severity: "attention",
+    title: `New account enquiry: ${enquiry.businessName}`,
+    body: `${enquiry.contactName} requested a MaaCash account. Reference ${reference}. Review the enquiry and provision only after confirming the business.`,
+    href: "/platform/enquiries",
+    dedupeKey: `enquiry:${enquiry.id}`,
+  }).catch(() => undefined);
+
+  const ownerEmail = process.env.PLATFORM_NOTIFICATION_EMAIL || process.env.CONTACT_EMAIL;
+  if (ownerEmail) {
+    await sendTransactionalEmail({
+      to: ownerEmail,
+      subject: `New MaaCash account enquiry (${reference})`,
+      text: `${enquiry.businessName} (${enquiry.contactName}) asked for a MaaCash account.
+Reference: ${reference}
+Plan interest: ${enquiry.interestedPlan ?? "not specified"}
+Review: ${appBaseUrl()}/platform/enquiries
+
+Submitting an enquiry does not create an account or charge money.`,
+      html: `<p><strong>${enquiry.businessName}</strong> (${enquiry.contactName}) asked for a MaaCash account.</p><p>Reference: <strong>${reference}</strong><br/>Plan interest: ${enquiry.interestedPlan ?? "not specified"}</p><p><a href="${appBaseUrl()}/platform/enquiries">Review the enquiry</a></p><p>An enquiry does not create an account or charge money.</p>`,
+      tag: "account-enquiry",
+    }).catch(() => undefined);
+  }
+
+  return { success: true, reference };
 }

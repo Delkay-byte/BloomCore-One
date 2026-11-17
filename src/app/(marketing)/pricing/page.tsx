@@ -42,6 +42,7 @@ async function loadPlans(): Promise<PublicPlan[]> {
       currency: row.currency,
       features: row.features ? (JSON.parse(row.features) as string[]) : [],
       usageAllowance: row.usageAllowance,
+      foundingPrice: row.foundingPrice == null ? null : Number(row.foundingPrice),
       locationLimit: row.locationLimit,
       staffLimit: row.staffLimit,
       supportLevel: row.supportLevel,
@@ -71,7 +72,13 @@ function PlanCard({ plan, annualPrice }: { plan: PublicPlan; annualPrice?: numbe
       </p>
       {saving !== null && (
         <p className="mt-1 text-xs font-medium text-emerald-700">
-          About {saving}% less than twelve monthly payments
+          About {saving}% less than twelve monthly payments · {formatGhs(Math.round(plan.price / 12))}/month equivalent
+        </p>
+      )}
+      {!annual && plan.foundingPrice != null && (
+        <p className="mt-2 rounded-md bg-gold-50 px-2 py-1.5 text-xs font-medium text-gold-800">
+          Founding price {formatGhs(plan.foundingPrice)}/month for the first 3 monthly
+          periods, then {formatGhs(plan.price)}/month.
         </p>
       )}
 
@@ -97,6 +104,16 @@ function PlanCard({ plan, annualPrice }: { plan: PublicPlan; annualPrice?: numbe
             <ShieldCheck size={14} aria-hidden className="text-brand-700" />
             <dt className="sr-only">Support</dt>
             <dd>{plan.supportLevel}</dd>
+          </div>
+        )}
+        {plan.usageAllowance != null && (
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={14} aria-hidden className="text-brand-700" />
+            <dt className="sr-only">Zeli AI</dt>
+            <dd>
+              Zeli AI included · {plan.usageAllowance.toLocaleString("en-GH")} requests per
+              month
+            </dd>
           </div>
         )}
       </dl>
@@ -192,6 +209,32 @@ export default async function PricingPage() {
             pricing. Eligibility is confirmed when your business is provisioned, and a
             discount is not reset or extended by changing package.
           </p>
+          {monthly.some((plan) => plan.foundingPrice != null) && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full max-w-xl text-left text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-4">Package</th>
+                    <th className="py-2 pr-4">Months 1–3</th>
+                    <th className="py-2">From month 4</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gold-200/70">
+                  {monthly
+                    .filter((plan) => plan.foundingPrice != null)
+                    .map((plan) => (
+                      <tr key={plan.code}>
+                        <td className="py-2 pr-4 font-medium text-brand-900">{plan.name}</td>
+                        <td className="py-2 pr-4 text-slate-800">
+                          {formatGhs(plan.foundingPrice!)}/month
+                        </td>
+                        <td className="py-2 text-slate-800">{formatGhs(plan.price)}/month</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </Section>
 

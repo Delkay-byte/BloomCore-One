@@ -87,6 +87,14 @@ export default function ZeliPage() {
   const [acceptanceMode, setAcceptanceMode] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analyticsAccess, setAnalyticsAccess] = useState(false);
+  const [usage, setUsage] = useState<{
+    used: number;
+    limit: number;
+    remaining: number;
+    periodLabel: string;
+    resetAt: string;
+    blocked: null | { code: string; message: string };
+  } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,6 +116,7 @@ export default function ZeliPage() {
       setStatus(bootstrap.data.status);
       setSuggestions(bootstrap.data.suggestions);
       setAnalyticsAccess(Boolean(bootstrap.data.analyticsAccess));
+      setUsage(bootstrap.data.usage ?? null);
       setEnvironment(bootstrap.data.environment ?? "production");
       setAcceptanceMode(Boolean(bootstrap.data.acceptanceMode));
     }
@@ -558,6 +567,29 @@ export default function ZeliPage() {
                 <p className="mt-2 text-sm text-slate-600">
                   Answers use your authorized records. Zeli cannot post or reverse money.
                 </p>
+                {usage && (
+                  <div className="mx-auto mt-4 max-w-sm rounded-lg bg-slate-50 px-3 py-2 text-left text-xs text-slate-600">
+                    {usage.blocked ? (
+                      <p className="text-amber-800">{usage.blocked.message}</p>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>
+                            Zeli usage in {usage.periodLabel}: <strong>{usage.used} of {usage.limit}</strong>
+                          </span>
+                          <span>{usage.remaining} left</span>
+                        </div>
+                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                          <div
+                            className="h-full rounded-full bg-brand-600"
+                            style={{ width: `${Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100))}%` }}
+                          />
+                        </div>
+                        <p className="mt-1">Resets {new Date(usage.resetAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}.</p>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="mt-5 grid gap-2 text-left">
                   {suggestions.map((suggestion) => (
                     <button

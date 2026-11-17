@@ -32,9 +32,8 @@ import {
   generateTeamConversation,
 } from "./providers/conversation-provider";
 import { getConversationPolicy } from "./providers/conversation-policy";
+import { consumeZeliQuota, ZeliAccessError } from "./usage";
 import { runToolConversation } from "./providers/tool-orchestrator";
-
-const DAILY_REQUEST_LIMIT = 40;
 
 export class ZeliUsageError extends Error {
   constructor(message: string) {
@@ -66,7 +65,11 @@ function dayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function consumeUsage(identity: ZeliIdentity): Promise<void> {
+/**
+ * Daily per-user activity record for analytics. Enforcement lives in the
+ * tenant-wide monthly quota (`consumeZeliQuota`); this table never blocks.
+ */
+async function recordDailyUsage(identity: ZeliIdentity): Promise<void> {
   const day = dayKey();
   const where = {
     tenantId: identity.tenantId,
@@ -79,16 +82,22 @@ async function consumeUsage(identity: ZeliIdentity): Promise<void> {
     });
     return;
   } catch {
-    // Existing row: increment only while below the limit.
+    // Existing row: fall through to the increment.
   }
-  const updated = await db.zeliUsage.updateMany({
-    where: { ...where, requests: { lt: DAILY_REQUEST_LIMIT } },
+  await db.zeliUsage.updateMany({
+    where,
     data: { requests: { increment: 1 } },
   });
-  if (updated.count === 0) {
-    throw new ZeliUsageError(
-      "You have reached today's Zeli request limit. The limit resets at 00:00 UTC."
-    );
+}
+
+/** Tenant-wide monthly allowance. Refuses unpaid or suspended subscriptions. */
+async function consumeTenantQuota(identity: ZeliIdentity): Promise<void> {
+  if (!identity.tenantId) return;
+  try {
+    await consumeZeliQuota(identity.tenantId);
+  } catch (error) {
+    if (error instanceof ZeliAccessError) throw new ZeliUsageError(error.message);
+    throw error;
   }
 }
 
@@ -151,7 +160,8 @@ export async function runZeliTurn(params: {
     params.conversationId,
     params.identity
   );
-  await consumeUsage(params.identity);
+  await consumeTenantQuota(params.identity);
+  await recordDailyUsage(params.identity);
 
   const previousMessages = await db.zeliMessage.findMany({
     where: { conversationId: conversation.id },

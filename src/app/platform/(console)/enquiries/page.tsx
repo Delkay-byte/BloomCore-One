@@ -29,6 +29,7 @@ export default async function PlatformEnquiriesPage() {
                 <th className="px-4 py-3">Interested in</th>
                 <th className="px-4 py-3">Received</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Provision</th>
               </tr>
             </thead>
             <tbody>
@@ -61,6 +62,18 @@ export default async function PlatformEnquiriesPage() {
                   </td>
                   <td className="px-4 py-3">
                     <EnquiryRowActions id={enquiry.id} status={enquiry.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {enquiry.status === "provisioned" || enquiry.status === "converted" ? (
+                      <span className="text-xs text-slate-500">Provisioned</span>
+                    ) : (
+                      <a
+                        className="text-xs font-medium text-brand-700 underline"
+                        href={`/platform/provision?enquiryId=${encodeURIComponent(enquiry.id)}`}
+                      >
+                        Provision
+                      </a>
+                    )}
                   </td>
                 </tr>
               ))}

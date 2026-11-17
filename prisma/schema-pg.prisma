@@ -642,6 +642,9 @@ model BusinessTenant {
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]
   zeliAnalyticsRefreshes       ZeliAnalyticsRefresh[]
   zeliSubscriptions            ZeliSubscription[]
+  foundingAllocation           FoundingAllocation?
+  notifications                TenantNotification[]
+  enquiries                    AccountEnquiry[]
   zeliPaymentEvents            ZeliPaymentEvent[]
   zeliAiAuthorizations         ZeliAiTenantAuthorization[]
   zeliEntitlementEvents        ZeliEntitlementEvent[]
@@ -1089,6 +1092,10 @@ model ZeliPlan {
   locationLimit    Int? // approved package: maximum business locations
   staffLimit       Int? // approved package: maximum staff accounts
   supportLevel     String? // approved package: support tier label
+  /// Approved founding monthly price. Null when the plan is not eligible.
+  foundingPrice    Decimal?
+  /// Zeli is included in every commercial package.
+  zeliIncluded     Boolean  @default(true)
   providerPlanCode String? // optional Paystack plan for recurring billing
   status           String   @default("draft") // draft | active | archived
   isPublic         Boolean  @default(false)
@@ -1098,7 +1105,8 @@ model ZeliPlan {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  subscriptions ZeliSubscription[]
+  subscriptions        ZeliSubscription[]
+  foundingAllocations  FoundingAllocation[]
 
   @@index([status])
   @@index([isPublic])
@@ -1124,6 +1132,17 @@ model ZeliSubscription {
   refundedAt               DateTime?
   paidAt                   DateTime?
   failureReason            String?
+  /// monthly | annual. Annual billing never combines with the founding offer.
+  billingTerm              String    @default("monthly")
+  /// Founding slot used by this payment, when any. Consumed exactly once per
+  /// paid period; the fourth renewal returns to the standard price.
+  foundingAllocationId     String?
+  /// Standard price that applies once a founding allocation is exhausted.
+  standardAmount           Decimal?
+  /// End of the five-calendar-day grace period after periodEnd.
+  graceEndsAt              DateTime?
+  /// Last reminder already delivered: 7 | 3 | 1 | 0 | grace.
+  reminderStage            String?
   /// Set only while status = "pending". The unique index makes two concurrent
   /// checkouts for the same tenant and plan impossible.
   pendingKey               String?   @unique
@@ -1420,14 +1439,92 @@ model AccountEnquiry {
   locationCount   Int?
   interestedPlan  String?
   message         String?
-  status          String   @default("new") // new | contacted | qualified | converted | rejected
+  status          String   @default("new") // new | contacted | qualified | provisioned | converted | rejected
   source          String?
   notes           String?
   reviewedById    String?
   reviewedAt      DateTime?
+  /// Set when Platform Super Admin provisions the business from this enquiry.
+  tenantId        String?
+  convertedAt     DateTime?
+  assignedPlanCode String?
+  billingTerm     String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   @@index([status, createdAt])
   @@index([createdAt])
+  @@index([tenantId])
+}
+
+/// One of the five approved founding-customer slots. Assignment is atomic
+/// (unique slot number) and audited by Platform Super Admin. A slot grants the
+/// founding monthly price for three consecutive paid monthly periods only.
+model FoundingAllocation {
+  id             String    @id @default(cuid())
+  tenantId       String    @unique
+  planId         String
+  /// 1..5. The unique index is the concurrency guard for the five-slot cap.
+  slot           Int       @unique
+  monthlyPrice   Decimal
+  standardPrice  Decimal
+  periodsGranted Int       @default(3)
+  periodsUsed    Int       @default(0)
+  status         String    @default("active") // active | exhausted | revoked
+  assignedById   String?
+  assignedAt     DateTime  @default(now())
+  revokedById    String?
+  revokedAt      DateTime?
+  revokeReason   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   ZeliPlan       @relation(fields: [planId], references: [id])
+
+  @@index([status])
+}
+
+/// Durable in-app notification. `kind` separates verified system events from
+/// AI-generated business insights; `dedupeKey` prevents repetitive entries.
+model TenantNotification {
+  id         String    @id @default(cuid())
+  tenantId   String?
+  /// tenant | platform
+  audience   String    @default("tenant")
+  /// system | insight
+  kind       String    @default("system")
+  /// critical | attention | info
+  severity   String    @default("info")
+  title      String
+  body       String
+  href       String?
+  dedupeKey  String    @unique
+  readAt     DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([audience, createdAt])
+  @@index([resolvedAt])
+}
+
+/// Tenant-wide Zeli request allowance for one calendar month. The conditional
+/// increment makes concurrent requests unable to exceed the plan allowance.
+model ZeliUsagePeriod {
+  id          String   @id @default(cuid())
+  tenantId    String
+  /// YYYY-MM (UTC). Quotas reset on the first day of each calendar month.
+  period      String
+  requests    Int      @default(0)
+  limit       Int
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, period])
+  @@index([period])
 }

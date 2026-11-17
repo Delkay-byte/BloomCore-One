@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { requirePlatformPage } from "@/lib/platform-auth";
 import { getPlatformOverview } from "@/lib/actions/platform.actions";
+import { getNotifications } from "@/lib/actions/notification.actions";
+import NotificationFeed from "@/components/notifications/NotificationFeed";
 import { formatDateTime } from "@/lib/utils";
 import { EmptyState, PageHeader } from "@/components/ui/DataDisplay";
 import { tenantStatusBadge } from "../../tenant-ui";
@@ -19,7 +21,10 @@ export const dynamic = "force-dynamic";
 
 export default async function PlatformDashboardPage() {
   await requirePlatformPage();
-  const data = await getPlatformOverview();
+  const [data, notifications] = await Promise.all([
+    getPlatformOverview(),
+    getNotifications("platform"),
+  ]);
 
   const moduleTotal = Math.max(1, data.modules.momoOnly + data.modules.susuOnly + data.modules.both);
 
@@ -36,6 +41,11 @@ export default async function PlatformDashboardPage() {
       />
 
       <SecurityAlertsCard />
+      <NotificationFeed
+        audience="platform"
+        items={notifications.items}
+        unread={notifications.unread}
+      />
 
       {/* Primary numbers — one hero figure, supporting figures compact */}
       <div className="card bg-white flex flex-col sm:flex-row sm:items-center gap-6">

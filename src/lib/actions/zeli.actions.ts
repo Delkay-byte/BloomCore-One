@@ -8,6 +8,7 @@ import {
   evaluateZeliAccess,
   getZeliEntitlement,
 } from "@/lib/zeli/entitlements";
+import { zeliUsageSummary } from "@/lib/zeli/usage";
 import {
   assertConversationOwner,
   runZeliTurn,
@@ -54,6 +55,7 @@ export async function getZeliBootstrap(): Promise<
     suggestions: string[];
     role: string;
     analyticsAccess: boolean;
+    usage: Awaited<ReturnType<typeof zeliUsageSummary>> | null;
     environment: "staging" | "production";
     acceptanceMode: boolean;
   }>
@@ -72,6 +74,7 @@ export async function getZeliBootstrap(): Promise<
     entitlement,
   }).allowed;
   const status = await getZeliProviderStatus(identity.tenantId);
+  const usage = identity.tenantId ? await zeliUsageSummary(identity.tenantId) : null;
   const environment =
     (process.env.APP_ENV || "").toUpperCase() === "STAGING" ? "staging" : "production";
   return {
@@ -83,6 +86,7 @@ export async function getZeliBootstrap(): Promise<
       }),
       role: identity.role,
       analyticsAccess,
+      usage,
       environment,
       acceptanceMode:
         environment === "staging" && status.conversation.mode === "external",

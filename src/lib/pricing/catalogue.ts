@@ -48,6 +48,7 @@ export interface PublicPlan {
   currency: string;
   features: string[];
   usageAllowance: number | null;
+  foundingPrice: number | null;
   locationLimit: number | null;
   staffLimit: number | null;
   supportLevel: string | null;

@@ -31,6 +31,7 @@ const plan = (overrides: Partial<PublicPlan> = {}): PublicPlan => ({
   currency: "GHS",
   features: ["MoMo operations", "Susu collections"],
   usageAllowance: null,
+  foundingPrice: null,
   locationLimit: 3,
   staffLimit: 10,
   supportLevel: "Standard support",
