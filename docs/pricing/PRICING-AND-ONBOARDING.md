@@ -31,7 +31,7 @@ source of truth for the operator who enters them.
   subscription or payment, and the confirmation says so.
 - Platform enquiry review at `/platform/enquiries` with status transitions
   (new, contacted, qualified, converted, rejected), notes and a platform audit entry.
-- Additive migration `20261116_pricing_catalogue_and_account_enquiries`: `ZeliPlan`
+- Additive migration `20261118_pricing_catalogue_and_account_enquiries`: `ZeliPlan`
   location/staff/support columns plus the `AccountEnquiry` table.
 
 ## Outstanding before the journey is live
