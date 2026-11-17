@@ -63,8 +63,16 @@ async function runSweep(): Promise<void> {
     console.info("[zeli-expiry] sweep completed", counts);
     await runSecurityRetention();
   } catch (error) {
+    // Log only the error class and Prisma error code: no identifiers, no
+    // personal data, but enough for an operator to tell a schema problem
+    // (P2021/P2022) from a transient connection failure.
     const name = error instanceof Error ? error.name : "UnknownError";
-    console.error("[zeli-expiry] sweep failed", name);
+    const code = (error as { code?: unknown }).code;
+    console.error(
+      "[zeli-expiry] sweep failed",
+      name,
+      typeof code === "string" ? code : "no-code"
+    );
   }
 }
 
