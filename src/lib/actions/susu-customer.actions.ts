@@ -96,7 +96,7 @@ export async function createCustomer(
   let customerId = "";
   let accountId = "";
 
-  for (let attempt = 0; attempt < 5 && !created; attempt++) {
+  for (let attempt = 0; attempt < 10 && !created; attempt++) {
     customerId = await nextCustomerId();
     accountId = await nextAccountId();
     try {
@@ -151,16 +151,34 @@ export async function createCustomer(
         });
 
         return { customer, susuAccount };
-      });
+      }, { timeout: 20000, maxWait: 10000 });
     } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { code?: string }).code
+          : undefined;
+      const message = error instanceof Error ? error.message : "";
+      // P2002: another creator won the same Account Number.
+      // P2034/P2028 and SQLite lock/busy messages: write conflict or
+      // transaction timeout under concurrent creation. Safe to retry because
+      // the whole customer/account/card-fee/cycle unit was rolled back.
       if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        (error as { code?: string }).code === "P2002"
+        code === "P2002" ||
+        code === "P2034" ||
+        code === "P2028" ||
+        code === "P1008" ||
+        /database is locked|SQLITE_BUSY|timed out|transaction already closed/i.test(
+          message
+        )
       ) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
         continue;
       }
+      console.error(
+        "[customer-create] failed after retryable classification",
+        code ?? "unknown",
+        message.slice(0, 120)
+      );
       return {
         success: false,
         error: "The customer account could not be created. Please try again.",

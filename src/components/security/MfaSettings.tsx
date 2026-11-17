@@ -35,11 +35,11 @@ export default function MfaSettings() {
     };
   }, []);
 
-  async function start() {
+  async function start(restart = false) {
     setBusy(true);
     setError("");
     setMessage("");
-    const result = await selfEnrollmentAction();
+    const result = await selfEnrollmentAction(restart);
     setBusy(false);
     if (!result.success) {
       setError(result.error ?? "Could not start enrolment.");
@@ -90,7 +90,7 @@ export default function MfaSettings() {
           </p>
         </div>
         {!enabled && !qr && loaded && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={start} disabled={busy}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => start()} disabled={busy}>
             {busy ? "Starting..." : "Set up MFA"}
           </button>
         )}
@@ -107,6 +107,14 @@ export default function MfaSettings() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr} alt="Authenticator enrolment QR code" width={200} height={200} />
           <p className="text-xs text-slate-500 mt-2 break-all">Manual key: {manualKey}</p>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm mt-2"
+            onClick={() => start(true)}
+            disabled={busy}
+          >
+            Generate a new secret
+          </button>
           <form action={confirm} className="mt-3 flex items-end gap-2">
             <div className="form-group flex-1">
               <label className="form-label" htmlFor="code">6-digit code</label>
@@ -146,6 +154,14 @@ export default function MfaSettings() {
             <label className="form-label" htmlFor="disable-code">Current code or recovery code</label>
             <input id="disable-code" name="code" required />
           </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="disable-reason">Reason (required)</label>
+            <input id="disable-reason" name="reason" minLength={10} maxLength={500} required />
+          </div>
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="confirm" required className="mt-1" />
+            <span>I understand that disabling MFA removes a sign-in protection from this account.</span>
+          </label>
           <button type="submit" className="btn btn-danger btn-sm" disabled={busy}>
             Disable MFA
           </button>

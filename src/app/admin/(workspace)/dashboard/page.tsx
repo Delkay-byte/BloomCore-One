@@ -18,6 +18,7 @@ import { getAdminDashboardStats } from "@/lib/actions/daily-account.actions";
 import { getSusuDashboardStats } from "@/lib/actions/susu-dashboard.actions";
 import { getGreeting } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import SecurityAlertsCard from "@/components/security/SecurityAlertsCard";
 import { PageHeader, StatCard } from "@/components/ui/DataDisplay";
 
 interface MoMoStats {
@@ -175,6 +176,8 @@ export default function AdminDashboardPage() {
           ))}
         </section>
       )}
+
+      <SecurityAlertsCard />
 
       {/* Module sections — gated by tenant entitlement; a disabled module is
           simply absent, never rendered as zeros. */}

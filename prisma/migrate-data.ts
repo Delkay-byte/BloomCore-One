@@ -11,8 +11,8 @@
  *   SOURCE_DATABASE_URL - SQLite connection string (default: file:./dev.db)
  *   DATABASE_URL - PostgreSQL connection string (required)
  */
+import { createPrismaClient } from "../src/lib/prisma-client";
 
-import { PrismaClient } from "@prisma/client";
 
 const SQLITE_URL = process.env.SOURCE_DATABASE_URL || "file:./dev.db";
 const POSTGRES_URL = process.env.DATABASE_URL;
@@ -23,14 +23,10 @@ if (!POSTGRES_URL) {
 }
 
 // Source: SQLite database
-const source = new PrismaClient({
-  datasources: { db: { url: SQLITE_URL } },
-});
+const source = createPrismaClient(SQLITE_URL);
 
 // Target: PostgreSQL database
-const target = new PrismaClient({
-  datasources: { db: { url: POSTGRES_URL } },
-});
+const target = createPrismaClient(POSTGRES_URL);
 
 interface MigrationStats {
   table: string;

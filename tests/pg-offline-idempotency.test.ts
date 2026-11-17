@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 import { assertDisposablePostgresTarget } from "./pg-safety";
 
 const pgTarget = assertDisposablePostgresTarget(process.env.PG_DATABASE_URL);
@@ -44,13 +44,11 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { normalizeContributionPayload } from "@/lib/offline/payload";
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: pgTarget.url } },
-});
+const prisma = createPrismaClient(pgTarget.url);
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
+    TRUNCATE TABLE "FinancialApproval","PlatformApprovalRequest","SecurityAlert","SecurityEventRecord","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",
@@ -172,6 +170,28 @@ async function reserveKey(input: {
 describe("offline sync on PostgreSQL", () => {
   beforeEach(async () => {
     await resetDatabase();
+  });
+
+  it("never allocates the same cycle day twice for different keys", async () => {
+    const { account } = await seed();
+    const device = await prisma.deviceEnrollment.findFirstOrThrow();
+    const keyA = `offline-a-${Date.now()}`;
+    const keyB = `offline-b-${Date.now()}`;
+
+    // Two devices/first attempts with different idempotency keys, same account.
+    const [a, b] = await Promise.all([
+      POST(requestFor({ idempotencyKey: keyA, payload: payload(account.id, 20), deviceId: device.deviceId })),
+      POST(requestFor({ idempotencyKey: keyB, payload: payload(account.id, 20), deviceId: device.deviceId })),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 200]);
+
+    const allocations = await prisma.contributionAllocation.findMany({
+      where: { tenantId: account.tenantId, contribution: { cycleId: { not: undefined } } },
+      orderBy: { cycleDay: "asc" },
+    });
+    const days = allocations.map((row) => row.cycleDay);
+    expect(new Set(days).size).toBe(days.length);
+    expect(days).toEqual([1, 2, 3, 4]);
   });
 
   it("posts a retried idempotency key exactly once", async () => {
@@ -559,5 +579,8 @@ describe("offline sync on PostgreSQL", () => {
     expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
     const body = await response.json();
     expect(body.retryAfterSeconds).toBeGreaterThan(0);
-  });
+    // Prisma 7's node-postgres adapter makes the 120 pre-fill round trips
+    // slower than the Rust engine did; the assertion is unchanged, only the
+    // harness budget is raised.
+  }, 30_000);
 });

@@ -12,8 +12,9 @@ import {
 } from "@/lib/security/mfa";
 import { getClientIp } from "@/lib/security/client-ip";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { sendTransactionalEmail } from "@/lib/email/resend";
 import { RATE_LIMITS } from "@/lib/security/config";
-import { logSecurityEvent } from "@/lib/security/log";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { createAuditLog } from "@/lib/audit";
 import { issueModuleSession } from "@/lib/session-issuance";
 import {
@@ -81,6 +82,70 @@ function dashboardFor(module: string): string {
   if (module === "momo") return "/worker/dashboard";
   if (module === "susu") return "/collector/dashboard";
   return "/customer/dashboard";
+}
+
+/** SEC-15: per-subject limit for every MFA management mutation. */
+async function mfaManagementLimited(
+  scope: string,
+  identifier: string
+): Promise<string | null> {
+  const result = await consumeRateLimit(scope, identifier, RATE_LIMITS.mfaSubject);
+  return result.allowed ? null : "Too many attempts. Please wait and try again.";
+}
+
+/**
+ * Residual F: a first MFA enrolment is only accepted once the account's
+ * recovery channel is already trusted. A user must have verified their e-mail
+ * address; a platform administrator is provisioned through the owner-run
+ * bootstrap (an administrator-issued invitation) and has no separate mailbox
+ * proof. The check runs at start AND at confirm, so an account whose address
+ * was un-verified in between cannot complete enrolment.
+ */
+async function enrollmentChannelVerified(
+  subjectType: string,
+  subjectId: string
+): Promise<boolean> {
+  if (subjectType === "user") {
+    const row = await db.user.findUnique({
+      where: { id: subjectId },
+      select: { emailVerified: true, status: true },
+    });
+    return Boolean(row && row.status === "active" && row.emailVerified);
+  }
+  if (subjectType === "platform") {
+    const row = await db.platformSuperAdmin.findUnique({
+      where: { id: subjectId },
+      select: { status: true },
+    });
+    return Boolean(row && row.status === "active");
+  }
+  if (subjectType === "customer") {
+    const row = await db.customer.findUnique({
+      where: { id: subjectId },
+      select: { status: true },
+    });
+    return Boolean(row && row.status === "active");
+  }
+  return false;
+}
+
+async function notifyMfaChange(email: string | null, action: string): Promise<void> {
+  if (!email) return;
+  const subject =
+    action === "disable"
+      ? "MaaCash: multi-factor authentication disabled"
+      : "MaaCash: multi-factor authentication changed";
+  const text =
+    action === "disable"
+      ? "Multi-factor authentication was disabled on your MaaCash account. If you did not do this, contact your administrator immediately."
+      : "The multi-factor authentication settings on your MaaCash account were changed. If you did not do this, contact your administrator immediately.";
+  await sendTransactionalEmail({
+    to: email,
+    subject,
+    text,
+    html: `<p>${text}</p>`,
+    tag: "security_notification",
+  }).catch(() => undefined);
 }
 
 async function mfaRateLimited(
@@ -202,6 +267,20 @@ export async function startMfaEnrollmentAction(
     return { success: false, error: "Enrolment session expired. Please sign in again." };
   }
 
+  const limited = await mfaManagementLimited(
+    "mfa:enroll",
+    `${challenge.subjectType}:${challenge.subjectId}`
+  );
+  if (limited) return { success: false, error: limited };
+
+  if (!(await enrollmentChannelVerified(challenge.subjectType, challenge.subjectId))) {
+    return {
+      success: false,
+      error:
+        "Verify your e-mail address before enrolling multi-factor authentication.",
+    };
+  }
+
   const enrollment = await beginMfaEnrollment({
     subjectType: challenge.subjectType,
     subjectId: challenge.subjectId,
@@ -224,6 +303,20 @@ export async function confirmMfaEnrollmentAction(
   );
   if (!challenge || challenge.mode !== "enroll") {
     return { success: false, error: "Enrolment session expired. Please sign in again." };
+  }
+
+  const limited = await mfaManagementLimited(
+    "mfa:confirm",
+    `${challenge.subjectType}:${challenge.subjectId}`
+  );
+  if (limited) return { success: false, error: limited };
+
+  if (!(await enrollmentChannelVerified(challenge.subjectType, challenge.subjectId))) {
+    return {
+      success: false,
+      error:
+        "Verify your e-mail address before enrolling multi-factor authentication.",
+    };
   }
 
   const code = String(formData.get("code") ?? "").trim();
@@ -257,6 +350,7 @@ export async function confirmMfaEnrollmentAction(
     return { success: false, error: "This enrolment was already completed. Please sign in again." };
   }
 
+  await notifyMfaChange(challenge.email, "enroll");
   await createAuditLog({
     userId: challenge.subjectId,
     action: "auth.mfa_enrolled",
@@ -337,7 +431,7 @@ export async function verifyMfaLoginAction(
     code,
   });
   if (!verification.ok) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "mfa.login_verify_failed",
       outcome: "failure",
       actorType: challenge.subjectType === "platform" ? "platform_admin" : "user",
@@ -387,7 +481,7 @@ export async function verifyMfaLoginAction(
 }
 
 /** Settings: start enrolment for the currently authenticated account. */
-export async function selfEnrollmentAction(): Promise<MfaActionResult> {
+export async function selfEnrollmentAction(restart = false): Promise<MfaActionResult> {
   const admin = await getAdminSession();
   if (admin) {
     const row = await db.user.findUnique({
@@ -410,6 +504,7 @@ export async function selfEnrollmentAction(): Promise<MfaActionResult> {
       subjectType: "user",
       subjectId: admin.userId,
       accountName: admin.email,
+      restart,
     });
     return {
       success: true,
@@ -430,10 +525,16 @@ export async function selfEnrollmentAction(): Promise<MfaActionResult> {
         error: "MFA is already enabled. Disable it first to enrol a new device.",
       };
     }
+    const reason = await mfaManagementLimited(
+      "mfa:enroll",
+      `platform:${platform.adminId}`
+    );
+    if (reason) return { success: false, error: reason };
     const enrollment = await beginMfaEnrollment({
       subjectType: "platform",
       subjectId: platform.adminId,
       accountName: platform.email,
+      restart,
     });
     return {
       success: true,
@@ -455,23 +556,32 @@ export async function selfConfirmAction(
 
   const admin = await getAdminSession();
   if (admin) {
+    const reason = await mfaManagementLimited(`mfa:confirm`, `user:${admin.userId}`);
+    if (reason) return { success: false, error: reason };
     const result = await confirmMfaEnrollment({
       subjectType: "user",
       subjectId: admin.userId,
       code,
     });
     if (!result) return { success: false, error: "That code is not valid." };
+    await notifyMfaChange(admin.email, "enroll");
     return { success: true, recoveryCodes: result.recoveryCodes };
   }
 
   const platform = await getPlatformAdminOrNull();
   if (platform) {
+    const reason = await mfaManagementLimited(
+      `mfa:confirm`,
+      `platform:${platform.adminId}`
+    );
+    if (reason) return { success: false, error: reason };
     const result = await confirmMfaEnrollment({
       subjectType: "platform",
       subjectId: platform.adminId,
       code,
     });
     if (!result) return { success: false, error: "That code is not valid." };
+    await notifyMfaChange(platform.email, "enroll");
     return { success: true, recoveryCodes: result.recoveryCodes };
   }
 
@@ -484,9 +594,20 @@ export async function selfDisableAction(
 ): Promise<MfaActionResult> {
   const password = String(formData.get("password") ?? "");
   const code = String(formData.get("code") ?? "").trim();
+  const reasonText = String(formData.get("reason") ?? "").trim();
+  const confirmed = String(formData.get("confirm") ?? "") === "on";
+
+  if (!confirmed) {
+    return { success: false, error: "Confirm that you want to disable MFA." };
+  }
+  if (reasonText.length < 10 || reasonText.length > 500) {
+    return { success: false, error: "Enter a reason of at least 10 characters." };
+  }
 
   const admin = await getAdminSession();
   if (admin) {
+    const limited = await mfaManagementLimited("mfa:disable", `user:${admin.userId}`);
+    if (limited) return { success: false, error: limited };
     const user = await db.user.findUnique({ where: { id: admin.userId } });
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return { success: false, error: "Password is incorrect." };
@@ -497,12 +618,25 @@ export async function selfDisableAction(
       code,
     });
     if (!disabled) return { success: false, error: "Verification code is invalid." };
+    await createAuditLog({
+      userId: admin.userId,
+      action: "auth.mfa_disabled",
+      entityType: "user",
+      entityId: admin.userId,
+      details: { reason: reasonText },
+    });
+    await notifyMfaChange(user.email, "disable");
     revalidatePath("/settings/mfa");
     return { success: true };
   }
 
   const platform = await getPlatformAdminOrNull();
   if (platform) {
+    const limited = await mfaManagementLimited(
+      "mfa:disable",
+      `platform:${platform.adminId}`
+    );
+    if (limited) return { success: false, error: limited };
     const adminRow = await db.platformSuperAdmin.findUnique({
       where: { id: platform.adminId },
     });
@@ -515,6 +649,14 @@ export async function selfDisableAction(
       code,
     });
     if (!disabled) return { success: false, error: "Verification code is invalid." };
+    await createAuditLog({
+      userId: platform.adminId,
+      action: "auth.mfa_disabled",
+      entityType: "platform_admin",
+      entityId: platform.adminId,
+      details: { reason: reasonText },
+    });
+    await notifyMfaChange(adminRow.email, "disable");
     return { success: true };
   }
 

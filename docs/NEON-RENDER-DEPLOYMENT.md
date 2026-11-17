@@ -196,7 +196,7 @@ Baseline procedure actually used:
    Neon already contained every historical migration's effects — the missing
    index is declared in the Prisma schema and was created by `db push`.
 3. The 9 migrations were recorded with `prisma migrate resolve --applied <name>`.
-4. `prisma migrate deploy` applied:
+4. `prisma migrate deploy` (via `prisma.pg.config.ts`) applied:
    - `20261029_multitenant_platform_foundation` — 3 platform tables, 19 nullable
      `tenantId` columns, 19 indexes, `Location` per-tenant unique, audit FK.
    - `20261031_tenant_ownership_integrity` — the 19 `tenantId` foreign keys, the

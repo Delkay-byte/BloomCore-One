@@ -99,6 +99,31 @@ export function mfaEncryptionKey(): Buffer {
   return key;
 }
 
+/**
+ * SEC-11 production preflight.
+ *
+ * Enabling Turnstile without both keys locks every login out with a generic
+ * "security verification failed" message. Fail the boot instead, so a bad
+ * deployment is visible immediately rather than silently stopping access.
+ * This is the inverse of a fail-open bypass: the app still refuses every login
+ * without a valid challenge; it simply refuses to start in that state.
+ */
+export function assertTurnstileConfigurationForProduction(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const config = turnstileConfig();
+  if (!config.enabled) return;
+  if (!config.siteKey || !config.secretKey) {
+    throw new Error(
+      "TURNSTILE_ENABLED=true requires NEXT_PUBLIC_TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY on the deployed service."
+    );
+  }
+  if (config.allowedHostnames.length === 0) {
+    throw new Error(
+      "TURNSTILE_ALLOWED_HOSTNAMES must list the exact public hostname that renders the widget."
+    );
+  }
+}
+
 export interface TurnstileConfig {
   enabled: boolean;
   siteKey: string | null;
@@ -108,10 +133,7 @@ export interface TurnstileConfig {
   timeoutMs: number;
 }
 
-const DEFAULT_TURNSTILE_HOSTNAMES = [
-  "maacash.bloomcoretech.com",
-  "maacash.onrender.com",
-];
+const DEFAULT_TURNSTILE_HOSTNAMES = ["maacash.bloomcoretech.com"];
 
 export function turnstileConfig(): TurnstileConfig {
   const enabled = envBoolean("TURNSTILE_ENABLED", false);

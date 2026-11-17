@@ -21,7 +21,7 @@ production service, plus the record of the authentication release of 2026-11-16.
    inheritance removed. Record size, SHA-256 and timestamp. Verify with
    `pg_restore --list`, then restore into a fresh disposable database and compare table,
    index, migration and row fingerprints.
-2. **Pending migrations.** `npx prisma migrate status --schema=prisma/schema-pg.prisma`.
+2. **Pending migrations.** `npx prisma migrate status --config prisma.pg.config.ts`.
    Stop unless the expected migration is the only pending one.
 3. **Block public traffic.** Render native Maintenance Mode is paid-only here, and
    suspension blocks deploys (`cannot deploy suspended service`) and cancels builds. Use
@@ -32,7 +32,7 @@ production service, plus the record of the authentication release of 2026-11-16.
    database and can otherwise authenticate with old code. Keep `maacash.onrender.com`
    disabled.
 5. **Migrate before deploying code.**
-   `npx prisma migrate deploy --schema=prisma/schema-pg.prisma`, then `migrate status`.
+   `npx prisma migrate deploy --config prisma.pg.config.ts`, then `migrate status`.
 6. **Verify the schema and data.** Columns, table, indexes, foreign key, migration row,
    backfill counts against the documented predicates, and unchanged password-hash,
    token-version, session, device, offline and financial fingerprints.
@@ -57,6 +57,42 @@ production service, plus the record of the authentication release of 2026-11-16.
 | Maintenance guard | #45 merged as `0b5f44834e15f013ffffc08562782a0abe43f618`; activated (`MAINTENANCE_MODE=true`) with every public path at 503 and health at 200, then released |
 | Origin alias | `maacash.onrender.com` returns 404 |
 | Legacy | `bik-prestige-legacy` suspended; returns 503 |
+
+## Pending release — SEC-01 to SEC-16 hardening (PR #48)
+
+Not deployed. This section records the release checks required for the hardening branch.
+
+1. Apply the additive migration
+   `20261116_security_stepup_recovery_email_remittance` with `prisma migrate deploy`.
+   Before applying it, confirm:
+   - No duplicate `(tenantId, idempotencyKey)` values exist in `CollectorRemittance`
+     (all existing rows are expected to have NULL keys).
+   - The count of legacy recovery-code hashes by subject type matches the post-migration
+     `MfaRecoveryCode` count. Only 64-hex hashes are copied.
+   - Unused legacy `EmailVerificationToken` rows are expected to be invalidated; users
+     receive a fresh verification link.
+2. Verify the schema: `StepUpGrant`, `MfaRecoveryCode`, the remittance unique index, the
+   email destination column and the MFA pending-timestamp columns.
+3. Confirm the production email preflight passes. The application now refuses to boot in
+   production when `RESEND_API_KEY`/sender identity is missing or delivery is disabled.
+   Verify `RESEND_API_KEY`, `EMAIL_FROM_SECURITY`, `SITE_URL` and `NEXTAUTH_URL` in the
+   Render dashboard without printing values.
+4. Smoke-test one step-up path with a synthetic staging account, not a customer:
+   password confirmation -> withdrawal/correction grant -> single use.
+5. Confirm Turnstile siteverify succeeds from the deployed origin (valid, expired and
+   replayed token cases) when Turnstile is enabled.
+6. Run the retained PostgreSQL concurrency suite against a disposable database.
+7. Do not merge or deploy until the owner approves the final PR head.
+
+### Owner actions still required
+
+- Prisma 7 major-upgrade decision (the remaining high production advisories are the Prisma
+  CLI/config chain).
+- Controlled staging dynamic tests for Turnstile, trusted-proxy behaviour and the compiled
+  server-action surface.
+- Gitleaks full-history scan and CodeQL/Semgrep/Trivy/ZAP execution where available.
+- Decide the policy and UI for financial maker-checker and second-person break-glass approval.
+
 
 ## Security position (record accurately)
 

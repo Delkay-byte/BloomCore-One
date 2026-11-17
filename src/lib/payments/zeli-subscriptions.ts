@@ -259,7 +259,7 @@ async function preparePendingSubscription(
           pendingKey,
         },
       });
-    });
+    }, { timeout: 20000, maxWait: 10000 });
   } catch (error) {
     if (isUniqueViolation(error)) {
       throw new SubscriptionError(

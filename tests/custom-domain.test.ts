@@ -240,9 +240,7 @@ describe("repository production configuration", () => {
     expect(yaml).toMatch(
       /key: NEXTAUTH_URL\r?\n\s+value: "https:\/\/maacash\.bloomcoretech\.com"/
     );
-    expect(yaml).toContain(
-      "maacash.bloomcoretech.com,maacash.onrender.com"
-    );
+    expect(yaml).toContain("maacash.bloomcoretech.com");
     expect(yaml).not.toContain("bloomcore-one.onrender.com");
   });
 

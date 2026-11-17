@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * ============================================================================
  * Platform Super Admin bootstrap — OPERATOR-RUN, IDEMPOTENT
@@ -28,12 +29,11 @@
  *   * Refuses to run when the platform already has an active Super Admin,
  *     unless --force is passed (account replacement / recovery).
  */
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import readline from "node:readline";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 function parseArgs(argv) {
   const args = { email: null, name: null, force: false };

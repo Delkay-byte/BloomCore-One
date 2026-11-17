@@ -1,14 +1,16 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { getAdminSession, hashPassword } from "@/lib/auth";
 import { requireTenantAdminMomo, requireTenantAdminSusu, assertTenantEntity } from "@/lib/tenant";
 import { createStaffSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { validateStatusTransition } from "@/lib/security/status";
-import { issueEmailVerification } from "@/lib/security/account-tokens";
+import { handleAccountEmailChanged, issueEmailVerification } from "@/lib/security/account-tokens";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
+import { claimStepUpGrant } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
 
 export interface ActionResponse {
   success: boolean;
@@ -206,6 +208,18 @@ export async function updateStaff(
     },
   });
 
+  if (target.email !== user.email) {
+    // SEC-14: invalidate old links, unverify the new address, send a fresh link.
+    await handleAccountEmailChanged(staffId);
+    await createAuditLog({
+      userId: ctx.userId,
+      action: "user.email_changed",
+      entityType: "user",
+      entityId: staffId,
+      details: { previousEmail: target.email, newEmail: user.email },
+    });
+  }
+
   await createAuditLog({
     userId: ctx.userId,
     action: "user.staff_updated",
@@ -231,9 +245,13 @@ export async function setStaffModuleCapability(
   staffId: string,
   module: "momo" | "susu",
   enabled: boolean,
-  locationId?: string
+  locationId?: string,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireStaffAdmin();
+  const capabilitySession = await getAdminSession();
+
+  const capabilityTarget = `${staffId}:${module}:${enabled ? "on" : "off"}`;
 
   if (enabled) {
     if (module === "momo" && !ctx.momoEnabled) {
@@ -274,20 +292,44 @@ export async function setStaffModuleCapability(
       return { success: true };
     }
 
-    await db.user.update({
-      where: { id: staffId },
-      data: {
-        momoEnabled: enabled,
-        ...(enabled ? { locationId } : {}),
-        tokenVersion: { increment: 1 },
-      },
+    const applied = await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(capabilitySession, ctx.userId),
+        purpose: "capability.change",
+        targetType: "module_capability",
+        targetId: capabilityTarget,
+      });
+      if (!grant.ok) return false;
+      await tx.user.update({
+        where: { id: staffId },
+        data: {
+          momoEnabled: enabled,
+          ...(enabled ? { locationId } : {}),
+          tokenVersion: { increment: 1 },
+        },
+      });
+      return true;
     });
+    if (!applied) return { success: false, error: "Reauthentication expired or does not match this operation. Confirm your password again." };
   } else {
     if (target.susuEnabled === enabled) {
       return { success: true };
     }
 
-    await db.$transaction(async (tx) => {
+    const applied = await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(capabilitySession, ctx.userId),
+        purpose: "capability.change",
+        targetType: "module_capability",
+        targetId: capabilityTarget,
+      });
+      if (!grant.ok) return false;
       await tx.user.update({
         where: { id: staffId },
         data: {
@@ -315,7 +357,14 @@ export async function setStaffModuleCapability(
           },
         });
       }
+      return true;
     });
+    if (!applied) {
+      return {
+        success: false,
+        error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+      };
+    }
   }
 
   await createAuditLog({
@@ -392,9 +441,12 @@ export async function toggleStaffStatus(
 
 export async function resetStaffPassword(
   staffId: string,
-  formData: FormData
+  formData: FormData,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireStaffAdmin();
+  const session = await getAdminSession();
+
 
   const target = await db.user.findFirst({
     where: { id: staffId, tenantId: ctx.tenantId },
@@ -412,14 +464,33 @@ export async function resetStaffPassword(
 
   const passwordHash = await hashPassword(newPassword);
 
-  await db.user.update({
-    where: { id: staffId },
-    data: {
-      passwordHash,
-      forcePasswordReset: true,
-      tokenVersion: { increment: 1 },
-    },
+  const steppedUp = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(session, ctx.userId),
+      purpose: "staff.password_reset",
+      targetType: "user",
+      targetId: staffId,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: staffId },
+      data: {
+        passwordHash,
+        forcePasswordReset: true,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!steppedUp) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,

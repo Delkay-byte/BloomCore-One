@@ -4,6 +4,7 @@ import { useState } from "react";
 import { verifyPasswordAction } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
 import type { ModuleName } from "@/lib/auth";
+import type { StepUpPurpose } from "@/lib/security/step-up";
 
 /**
  * Step-up reauthentication dialog.
@@ -24,15 +25,25 @@ export default function ReauthDialog({
   description = "For your security, enter your password before continuing.",
   actionLabel = "Confirm",
   module,
+  purpose,
+  targetType,
+  targetId,
+  context,
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirmed: () => void;
+  /** Receives the single-use step-up grant bound to this operation. */
+  onConfirmed: (stepUpToken: string) => void;
   title?: string;
   description?: string;
   actionLabel?: string;
   /** Session whose password must be confirmed. Admin screens pass "admin". */
   module?: ModuleName;
+  /** Purpose and target binding for the server-side step-up grant. */
+  purpose?: StepUpPurpose;
+  targetType?: string;
+  targetId?: string;
+  context?: Record<string, unknown>;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -50,11 +61,19 @@ export default function ReauthDialog({
       // Compare exactly what was typed: sign-in does not trim either.
       const result = await verifyPasswordAction(
         password,
-        module ? { module } : undefined
+        module
+          ? {
+              module,
+              ...(purpose
+                ? { purpose, targetType, targetId, context }
+                : {}),
+            }
+          : undefined
       );
       if (result.success) {
         setPassword("");
-        onConfirmed();
+        const data = result.data as { stepUpToken?: string } | undefined;
+        onConfirmed(data?.stepUpToken ?? "");
       } else {
         setError(result.error || "Incorrect password");
       }

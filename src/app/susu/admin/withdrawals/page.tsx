@@ -63,6 +63,7 @@ export default function SusuWithdrawalsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showReauth, setShowReauth] = useState(false);
   const [reverseTarget, setReverseTarget] = useState<WithdrawalRecord | null>(null);
+  const [showReverseReauth, setShowReverseReauth] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
   const [reverseBusy, setReverseBusy] = useState(false);
   const [reverseError, setReverseError] = useState("");
@@ -139,7 +140,16 @@ export default function SusuWithdrawalsPage() {
     setReverseError("");
   }
 
-  async function submitReverse() {
+  function submitReverse() {
+    if (!reverseTarget || reverseBusy) return;
+    if (reverseReason.trim().length < 10) {
+      setReverseError("Enter a reversal reason of at least 10 characters.");
+      return;
+    }
+    setShowReverseReauth(true);
+  }
+
+  async function performReverse(stepUpToken: string) {
     if (!reverseTarget || reverseBusy) return;
     if (reverseReason.trim().length < 10) {
       setReverseError("Enter a reversal reason of at least 10 characters.");
@@ -151,15 +161,21 @@ export default function SusuWithdrawalsPage() {
       const result = await reverseWithdrawal({
         withdrawalId: reverseTarget.id,
         reason: reverseReason.trim(),
+        stepUpToken,
       });
       if (!result.success) {
-        setReverseError(result.error || "The withdrawal could not be reversed.");
+        setReverseError(
+          result.requiresApproval
+            ? "Queued for a second administrator. The correction is posted only after a different administrator approves it in Susu → Approvals."
+            : result.error || "The withdrawal could not be reversed."
+        );
         return;
       }
       setSuccess("Withdrawal reversed. The original entry and the reversal are both in the audit trail.");
       toast.push("success", "Withdrawal reversed successfully.");
       setReverseTarget(null);
       setReverseReason("");
+      setShowReverseReauth(false);
       await loadWithdrawals();
     } catch {
       setReverseError("The withdrawal could not be reversed. Please try again.");
@@ -168,7 +184,7 @@ export default function SusuWithdrawalsPage() {
     }
   }
 
-  async function executeWithdrawal() {
+  async function executeWithdrawal(stepUpToken: string) {
     if (!selectedCustomer) return;
     const account = selectedCustomer.accounts[0];
     if (!account) return;
@@ -190,6 +206,7 @@ export default function SusuWithdrawalsPage() {
         requestedAmount: amountNum,
         notes: notes || undefined,
         idempotencyKey,
+        stepUpToken,
       });
 
       if (result.success) {
@@ -250,6 +267,15 @@ export default function SusuWithdrawalsPage() {
         description="For your security, enter your own administrator password before completing this withdrawal."
         actionLabel="Confirm Withdrawal"
         module="admin"
+        purpose="susu.withdrawal"
+        targetType="susuAccount"
+        targetId={selectedCustomer?.accounts[0]?.id}
+        context={{
+          amountMinor: Number.isFinite(parseFloat(withdrawAmount))
+            ? String(Math.round(parseFloat(withdrawAmount) * 100))
+            : "",
+          currency: "GHS",
+        }}
       />
 
       {/* Withdrawal Form */}
@@ -465,6 +491,18 @@ export default function SusuWithdrawalsPage() {
         onChange={setReverseReason}
         error={reverseError}
         multiline
+      />
+      <ReauthDialog
+        open={showReverseReauth}
+        onClose={() => setShowReverseReauth(false)}
+        onConfirmed={performReverse}
+        title="Confirm the reversal"
+        description="Enter your own administrator password to post this reversal."
+        actionLabel="Reverse withdrawal"
+        module="admin"
+        purpose="susu.withdrawal.reverse"
+        targetType="withdrawal"
+        targetId={reverseTarget?.id}
       />
     </div>
   );

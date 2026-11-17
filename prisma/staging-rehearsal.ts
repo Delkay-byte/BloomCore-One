@@ -5,17 +5,11 @@
  * Verifies: Susu financials, MoMo workflow, collector workflow,
  * concurrency safety, idempotency, audit trail, dashboard consistency.
  */
+import { createPrismaClient } from "../src/lib/prisma-client";
 
-import { PrismaClient } from "@prisma/client";
 import { randomBytes } from "crypto";
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.PG_DATABASE_URL || (() => { throw new Error('PG_DATABASE_URL environment variable is required'); })() as string,
-    },
-  },
-});
+const prisma = createPrismaClient(process.env.PG_DATABASE_URL || (() => { throw new Error('PG_DATABASE_URL environment variable is required'); })() as string);
 let passed = 0;
 let failed = 0;
 

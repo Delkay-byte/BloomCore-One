@@ -1,6 +1,9 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { getAdminSession } from "@/lib/auth";
+import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
 import {
   requireTenantWorker,
   requireTenantAdminMomo,
@@ -315,9 +318,12 @@ export async function saveDailyAccount(
 export async function correctDailyAccount(
   accountId: string,
   formData: FormData,
-  reasonInput: string
+  reasonInput: string,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminMomo();
+  const session = await getAdminSession();
+
 
   const reason = reasonInput?.trim() ?? "";
   if (reason.length < 10 || reason.length > 500) {
@@ -437,6 +443,18 @@ export async function correctDailyAccount(
 
   try {
     await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(session, ctx.userId),
+        purpose: "finance.daily_account.correct",
+        targetType: "dailyAccount",
+        targetId: accountId,
+        context: { version: account.revisionCount },
+      });
+      if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
       await tx.dailyAccountRevision.create({
         data: {
           tenantId: ctx.tenantId,
@@ -484,6 +502,9 @@ export async function correctDailyAccount(
       }
     });
   } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: error.message };
+    }
     if (
       (error instanceof Error && error.message === "CORRECTION_CONFLICT") ||
       (typeof error === "object" &&

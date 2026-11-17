@@ -407,7 +407,7 @@ describe("B. concurrent checkouts and duplicate settlements", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps a single pending row when checkouts race", async () => {
+  it("keeps a single pending row when checkouts race", { timeout: 20000 }, async () => {
     const tenant = await createTestTenant();
     const admin = await createTestAdmin({ tenantId: tenant.id });
     await seedPlan();

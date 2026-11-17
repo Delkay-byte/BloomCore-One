@@ -6,6 +6,7 @@
  * 
  * Usage: DATABASE_URL="postgresql://bik:..." npx tsx prisma/go-live-rehearsal.ts
  */
+import { createPrismaClient } from "../src/lib/prisma-client";
 
 import { PrismaClient } from '@prisma/client';
 
@@ -15,9 +16,7 @@ if (!PG_URL || !PG_URL.startsWith('postgresql')) {
   process.exit(1);
 }
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: PG_URL } },
-});
+const prisma = createPrismaClient(PG_URL);
 
 const results: { name: string; status: string; detail?: string }[] = [];
 let passed = 0;

@@ -19,7 +19,7 @@ import { verifyMfaCode } from "@/lib/security/mfa";
 import { base32Encode } from "@/lib/security/totp";
 import { sha256 } from "@/lib/security/crypto";
 import { getClientIp } from "@/lib/security/client-ip";
-import { logSecurityEvent } from "@/lib/security/log";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { headers } from "next/headers";
 import { randomBytes } from "crypto";
 
@@ -362,7 +362,7 @@ export async function issueAccountRecoveryCode(input: {
       ipAddress: ip,
     });
   }
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "recovery.code_issued",
     outcome: "success",
     actorType: actorLabel(actor) as "platform_admin" | "user",
@@ -491,7 +491,7 @@ export async function redeemRecoveryCode(input: {
     details: { requestId: request.id },
     ipAddress: ip ?? undefined,
   });
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "recovery.code_redeemed",
     outcome: "success",
     actorType: request.targetType === "customer" ? "customer" : "user",

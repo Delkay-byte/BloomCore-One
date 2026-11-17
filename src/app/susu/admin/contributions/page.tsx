@@ -13,6 +13,7 @@ import DraftIndicator from "@/components/DraftIndicator";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import SmartSearch from "@/components/SmartSearch";
 import { PromptDialog } from "@/components/ui/Modal";
+import ReauthDialog from "@/components/ReauthDialog";
 import { useToast } from "@/components/ui/Toast";
 
 interface Contribution {
@@ -79,6 +80,7 @@ export default function SusuContributionsPage() {
   const [recordedById, setRecordedById] = useState("");
   const [recordedByName, setRecordedByName] = useState("");
   const [reverseTarget, setReverseTarget] = useState<Contribution | null>(null);
+  const [showReverseReauth, setShowReverseReauth] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
   const [reverseBusy, setReverseBusy] = useState(false);
   const [reverseError, setReverseError] = useState("");
@@ -117,7 +119,16 @@ export default function SusuContributionsPage() {
     setReverseError("");
   }
 
-  async function submitReverse() {
+  function submitReverse() {
+    if (!reverseTarget || reverseBusy) return;
+    if (reverseReason.trim().length < 10) {
+      setReverseError("Enter a reversal reason of at least 10 characters.");
+      return;
+    }
+    setShowReverseReauth(true);
+  }
+
+  async function performReverse(stepUpToken: string) {
     if (!reverseTarget || reverseBusy) return;
     if (reverseReason.trim().length < 10) {
       setReverseError("Enter a reversal reason of at least 10 characters.");
@@ -129,15 +140,21 @@ export default function SusuContributionsPage() {
       const result = await reverseContribution({
         contributionId: reverseTarget.id,
         reason: reverseReason.trim(),
+        stepUpToken,
       });
       if (!result.success) {
-        setReverseError(result.error || "The contribution could not be reversed.");
+        setReverseError(
+          result.requiresApproval
+            ? "Queued for a second administrator. The correction is posted only after a different administrator approves it in Susu → Approvals."
+            : result.error || "The contribution could not be reversed."
+        );
         return;
       }
       setSuccess("Contribution reversed. The original entry and the reversal are both in the audit trail.");
       toast.push("success", "Contribution reversed successfully.");
       setReverseTarget(null);
       setReverseReason("");
+      setShowReverseReauth(false);
       await loadContributions();
     } catch {
       setReverseError("The contribution could not be reversed. Please try again.");
@@ -696,6 +713,18 @@ export default function SusuContributionsPage() {
         onChange={setReverseReason}
         error={reverseError}
         multiline
+      />
+      <ReauthDialog
+        open={showReverseReauth}
+        onClose={() => setShowReverseReauth(false)}
+        onConfirmed={performReverse}
+        title="Confirm the reversal"
+        description="Enter your own administrator password to post this reversal."
+        actionLabel="Reverse contribution"
+        module="admin"
+        purpose="susu.contribution.reverse"
+        targetType="contribution"
+        targetId={reverseTarget?.id}
       />
     </div>
   );

@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../src/lib/prisma-client";
 import bcrypt from "bcryptjs";
 import { BIK_TENANT_CODE } from "./seed";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   console.log("🌱 Seeding BIK Prestige Enterprise pilot database...\n");

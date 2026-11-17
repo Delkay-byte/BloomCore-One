@@ -19,6 +19,8 @@ export interface SecurityEvent {
   ip?: string | null;
   route?: string;
   reason?: string;
+  /** Sanitized, allow-listed diagnostic detail (never a token or secret). */
+  detail?: string;
   requestId?: string | null;
 }
 
@@ -49,6 +51,13 @@ function safeRequestId(value: string | null | undefined): string | null {
   return sha256(value).slice(0, 16);
 }
 
+/** Only short, lowercase diagnostic labels may reach a security log line. */
+function sanitizeDetail(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9,:\-]/g, "").slice(0, 120);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export function logSecurityEvent(event: SecurityEvent): void {
   const record: Record<string, unknown> = {
     ts: new Date().toISOString(),
@@ -61,6 +70,7 @@ export function logSecurityEvent(event: SecurityEvent): void {
     ip: safeIp(event.ip),
     route: event.route ?? null,
     reason: event.reason ?? null,
+    detail: sanitizeDetail(event.detail),
     requestId: safeRequestId(event.requestId),
   };
 

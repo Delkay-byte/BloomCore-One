@@ -61,7 +61,7 @@ describe("Zeli expiry scheduler wiring", () => {
       vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
 
       const { register } = await import("../src/instrumentation");
-      register();
+      await register();
 
       await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1));
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
@@ -72,7 +72,7 @@ describe("Zeli expiry scheduler wiring", () => {
       vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
 
       const { register } = await import("../src/instrumentation");
-      register();
+      await register();
       register();
 
       await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1));
@@ -85,7 +85,7 @@ describe("Zeli expiry scheduler wiring", () => {
       vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
 
       const { register } = await import("../src/instrumentation");
-      register();
+      await register();
       await Promise.resolve();
 
       expect(expire).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe("Zeli expiry scheduler wiring", () => {
       vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
 
       const { register } = await import("../src/instrumentation");
-      register();
+      await register();
       await Promise.resolve();
 
       expect(expire).not.toHaveBeenCalled();

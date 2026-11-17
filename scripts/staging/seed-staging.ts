@@ -10,12 +10,12 @@
  * Optional:
  *   STAGING_SEED_PASSWORD=<strong temporary password>
  */
+import { createPrismaClient } from "../../src/lib/prisma-client";
 import { randomBytes } from "crypto";
 import { writeFileSync } from "fs";
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 function guard() {
   const appEnv = (process.env.APP_ENV || "").toUpperCase();

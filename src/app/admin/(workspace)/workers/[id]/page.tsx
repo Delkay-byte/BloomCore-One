@@ -64,11 +64,11 @@ export default function WorkerDetailPage() {
     setShowReauth(true);
   }
 
-  async function executeResetPassword() {
+  async function executeResetPassword(stepUpToken: string) {
     if (!pendingResetData) return;
     setSubmitting(true); setError(""); setSuccess("");
     try {
-      const result = await resetWorkerPassword(params.id as string, pendingResetData);
+      const result = await resetWorkerPassword(params.id as string, pendingResetData, stepUpToken);
       if (result.success) { setSuccess("Temporary password created. The user must change this password after first login — existing sessions were signed out."); setResettingPassword(false); loadData(); }
       else setError(result.error || "Failed to reset password");
     } catch (err) { if (handleRedirect(err, setError, "An unexpected error occurred")) return; } finally { setSubmitting(false); setShowReauth(false); setPendingResetData(null); }
@@ -127,6 +127,9 @@ export default function WorkerDetailPage() {
         description="For your security, enter your own administrator password before resetting this user's password."
         actionLabel="Reset Password"
         module="admin"
+        purpose="worker.password_reset"
+        targetType="user"
+        targetId={params.id as string}
       />
 
       {resettingPassword && (

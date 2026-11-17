@@ -65,9 +65,9 @@ services:
       - key: TURNSTILE_SECRET_KEY
         sync: false
       - key: TURNSTILE_ENABLED
-        value: "false"
+        value: "true"
       - key: TURNSTILE_ALLOWED_HOSTNAMES
-        value: "maacash.bloomcoretech.com,maacash.onrender.com"
+        value: "maacash.bloomcoretech.com"
       - key: TRUSTED_PROXY_HEADERS
         value: "true"
       - key: NEXTAUTH_URL

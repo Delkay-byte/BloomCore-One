@@ -1,32 +1,23 @@
 import { NextResponse } from "next/server";
 
 /**
- * Public health endpoint. Also reports the exact deployed git commit so
- * deployment truth can be verified externally:
+ * Public liveness probe.
  *
- *   curl https://<host>/api/health
+ * Render uses this as the health check path, so it must stay honest and cheap:
+ * it returns 200 while the process can answer requests, and it never touches the
+ * database (a database blip must not restart the service).
  *
- * Platform-provided env vars (Render: RENDER_GIT_COMMIT, Vercel:
- * VERCEL_GIT_COMMIT_SHA, Heroku: SOURCE_VERSION) are injected at build time —
- * no secrets are exposed.
+ * SEC-10: the response carries no commit SHA, no environment name, no
+ * configuration and no diagnostics. Deployment identity is available from the
+ * Render deploy record and from server-side logs. A private, authenticated
+ * operator endpoint can expose detail; the public surface must not.
  */
-function deployedCommitSha(): string | null {
-  return (
-    process.env.RENDER_GIT_COMMIT ||
-    process.env.VERCEL_GIT_COMMIT_SHA ||
-    process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
-    process.env.GIT_COMMIT ||
-    process.env.SOURCE_VERSION ||
-    null
-  );
-}
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    app: "maacash",
-    env: process.env.APP_ENV || process.env.NODE_ENV || "unknown",
-    commit: deployedCommitSha(),
-  });
+  return NextResponse.json(
+    { status: "ok" },
+    { status: 200, headers: { "Cache-Control": "no-store" } }
+  );
 }

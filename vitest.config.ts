@@ -10,7 +10,7 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       JWT_SECRET: "test-secret-for-vitest",
-      DATABASE_URL: "file:../tests/test.db",
+      DATABASE_URL: "file:../tests/test.db?connection_limit=1&socket_timeout=30",
       NODE_ENV: "test",
       // Migration bridge for pre-existing cookie-seeded unit tests. Production
       // never sets this; new tests exercise the tab header directly.

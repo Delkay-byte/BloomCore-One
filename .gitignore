@@ -1,12 +1,23 @@
 node_modules
 
-# Environment variables — NEVER commit secrets
+# Environment variables — NEVER commit secrets.
+# Every dotenv variant is ignored; only templates may be tracked.
 .env
-.env.local
-.env.pilot
-.env.pilot.local
+.env.*
+*.env
 !.env.example
-!.env.pilot.example
+!.env.*.example
+
+# Provider and credential files
+.secrets/
+.secrets/**
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+.staging-credentials.json
 
 # Build output
 .next

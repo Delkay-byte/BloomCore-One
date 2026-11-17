@@ -908,3 +908,87 @@ The following scope areas were reviewed and no vulnerability was found beyond th
 ## 7. Release recommendation
 
 **BLOCK.** SEC-01 is a confirmed Critical authentication bypass, and SEC-02 is a confirmed High bypass of the release's central mandatory-upgrade control. SEC-03 (High, suspected) must be closed or proven non-reproducible before financial go-live. Re-assess after the fixes; do not treat this document as approval.
+
+---
+
+# Remediation status (added 2026-11-16)
+
+This section is additive. The original findings above are preserved unchanged as historical
+evidence, including the assessment subject commit `d4e153a`.
+
+Remediation branch: `security/comprehensive-hardening-sec-01-to-sec-16`, based on `main` at
+`d6d1577`. Reviewed against the live code, not against the release report.
+
+| ID | Original severity | Disposition | Evidence |
+| --- | --- | --- | --- |
+| SEC-01 | Critical | **FIXED** (verified in current code) | `issueModuleSession`/`buildSessionPayload` live in `src/lib/session-issuance.ts` with no `"use server"` directive; `tests/security-release-fixes.test.ts` asserts they are absent from the action module's exports |
+| SEC-02 | High | **FIXED** (verified in current code) | `isSessionCurrent`, `getTenantContext` and `requirePlatformAdmin` refuse a session whose account carries the upgrade flag (`src/lib/auth.ts`, `src/lib/tenant.ts`, `src/lib/platform-auth.ts`); regression tests in `tests/auth-email-password.test.ts` and `tests/security-release-fixes.test.ts` |
+| SEC-03 | High | **FIXED** (verified in current code) | Offline sync takes `lockAccountForUpdate(tx, accountId)` inside its transaction (`src/app/api/offline/sync-contribution/route.ts`); assertion in `tests/security-release-fixes.test.ts` |
+| SEC-04 | High | **UNRESOLVED** | No server-side single-use step-up grant exists; sensitive actions rely on the active session, and the dialog verifies a password only client-side. Needs a grant model with purpose and target binding, atomic consumption and per-action wiring |
+| SEC-05 | High | **FIXED (code), residual documented** | `src/lib/security/client-ip.ts`: `CF-Connecting-IP` is authoritative, `True-Client-IP` only with explicit `TRUST_TRUE_CLIENT_IP=true`, no XFF/X-Real fallback. `src/lib/security/same-origin.ts`: `X-Forwarded-Host` can no longer widen the allow-list. Tests: `tests/security-hardening-round2.test.ts`. Residual: edge trust is structural, not cryptographically proven from code |
+| SEC-06 | High | **PARTIALLY FIXED** | `src/lib/finance/remittance.ts` validates finite/positive/two-decimal/bounded amounts (NaN previously passed), excludes reversed contributions, and `recordRemittance` now runs inside a collector-scoped advisory lock with a finance rate limit. **Still open:** client idempotency key plus a unique constraint, so a double submit can still create two rows |
+| SEC-07 | High | **UNRESOLVED** | Recovery codes remain a JSON array on the subject row; consumption is not a dedicated conditional row mutation. Needs hashed recovery-code rows and atomic consumption with an additive migration |
+| SEC-08 | Medium | **PARTIALLY FIXED** | Session re-issuance derives `amr` server-side and workspace selection re-checks persisted state; a dedicated regression test for forged `amr` on every re-issuance path is still missing |
+| SEC-09 | High | **FIXED** | `src/lib/security/static-assets.ts` replaces `pathname.includes(".")` with a closed path/extension allow-list used by the middleware. Tests assert `/admin/staff/foo.bar` and `/admin/reports/2026.11.15` redirect while `/_next/static/*` and `/favicon.ico` still serve |
+| SEC-10 | Medium | **FIXED** | `/api/health` returns `{status:"ok"}` only; `/api/health/ready` returns `{status:"ready"}` or `503 {status:"not_ready"}` with the reason logged server-side. No commit, environment or latency exposed. Tests: `tests/security-hardening-round2.test.ts` |
+| SEC-11 | Medium | **CONFIGURED, acceptance pending** | Production runs `TURNSTILE_ENABLED=true` with site and secret keys present and hostname binding; server-side verification covered by `tests/security-hardening.test.ts`. `render.yaml` drift (`false`) is documentation-level. No production dynamic test performed |
+| SEC-12 | Medium | **FIXED** | `.gitignore` ignores `.env*`, `.secrets/`, key material and credential files while keeping `!.env.example` and `!.env.*.example`. Test proves `git check-ignore` matches `.env.production`, `.env.staging`, `.env.test` and rejects templates. Full history scan not performed in this pass |
+| SEC-13 | High (dependency) | **DOCUMENTED, not upgraded** | `npm audit`: 6 high, 0 critical. All three production-tree highs are the Prisma chain (`prisma`, `@prisma/config`, `deepmerge-ts`) and only clear with Prisma 7 (major). `brace-expansion`, `js-yaml` and `vite` are dev/build-time. Reachability: build and migration tooling, not the Next.js runtime bundle; the build runs from a pinned lockfile |
+| SEC-14 | Medium | **UNRESOLVED** | `EmailVerificationToken` has no destination-email snapshot, so a token issued before an email change can verify the new address. Needs an additive column plus invalidation on every email-change pathway |
+| SEC-15 | Medium | **PARTIALLY FIXED** | Login and MFA verification are rate limited per IP and per subject; self-service enrolment and disable paths are not uniformly limited, and pending enrolment secrets are regenerated on each call |
+| SEC-16 | Medium | **PARTIALLY FIXED** | Resend configuration and verified sender domains are present in production; failed delivery removes the undelivered token and the account stays pending and resendable. Missing: durable outbox and bounded retries, deployment preflight, operator alerting |
+
+## Residual risks A–I
+
+| Item | Status |
+| --- | --- |
+| A. Runtime reachability of SEC-01 | Not tested dynamically against a staging deployment in this pass; the static proof is strong but runtime confirmation remains outstanding |
+| B. Financial and MFA concurrency on PostgreSQL | SEC-03 lock verified; SEC-06/07/step-up concurrency cannot be demonstrated until those models exist. Note: `tests/pg-financial-corrections.test.ts > allows only one concurrent daily-account correction` has been failing on `main` since 2026-11-16 and needs its own investigation |
+| C. Security-event retention and alerting | Events persist in `AuditLog`/`PlatformAuditLog`; retention, immutability and operator alerting are not implemented |
+| D. Break-glass platform recovery | Step-up, reason capture and audit exist for recovery actions; second-person approval and notification fan-out are not implemented |
+| E. Financial dual control | Not implemented; single-administrator tenants rely on step-up and audit |
+| F. First MFA enrolment | Enrolment is bound to a login challenge with a consumed server-side proof; enrol/disable notification is not implemented |
+| G. Offline device protection | Existing AES-GCM/PBKDF2 protection and unlock gates unchanged; the tamper/replay/cross-tenant test expansion was not performed |
+| H. Service worker and tab proof | Fail-closed tab assertions unchanged; blocked-service-worker UX and replay tests were not re-run |
+| I. Dynamic testing | No ZAP/Semgrep/Trivy run in this pass, and no production scanning, per instruction |
+
+## Release position
+
+This branch is **not** ready to merge under the stated definition of done. SEC-04, SEC-07,
+SEC-14 and the SEC-06 idempotency half remain open, and several residual items are
+unaddressed. The branch improves the baseline (SEC-05 code, SEC-06 validation and
+integrity, SEC-09, SEC-10, SEC-12) without regressing existing behaviour.
+
+
+---
+
+# Second remediation pass (2026-11-16)
+
+This section is additive. The first remediation table above is retained as history.
+
+Branch: `security/comprehensive-hardening-sec-01-to-sec-16`, PR #48, based on `d6d1577`.
+
+The second pass closed the outstanding code findings:
+
+- **SEC-04:** added `StepUpGrant`, a hash-only, subject/session/purpose/target/context-bound,
+  five-minute, single-use grant consumed inside the protected transaction. Wired to withdrawals,
+  financial reversals/corrections, password resets, tenant-admin recovery and capability changes.
+- **SEC-06:** added tenant-scoped remittance idempotency with request hashing and duplicate
+  reconciliation on the unique conflict.
+- **SEC-07:** replaced the JSON recovery-code array with one hashed row per code and atomic
+  conditional consumption; legacy hashes are migrated, not invalidated.
+- **SEC-14:** bound verification tokens to the normalized destination and added email-change
+  invalidation/reissue.
+- **SEC-08:** workspace selection and platform password re-issue preserve the server-derived `amr`.
+- **SEC-15:** added per-subject MFA management limits, pending-enrolment idempotency, disable
+  reason/confirmation/audit/notification.
+- **SEC-16:** added a production email configuration preflight, retryable failure classification
+  and audited delivery failures.
+
+Verification completed in this pass: 930 SQLite tests, PostgreSQL migration rehearsal plus targeted concurrency tests (including new
+concurrency cases for SEC-03, SEC-04 and SEC-07), typecheck, lint, production build and a
+legacy-data migration rehearsal. See `docs/security/SECURITY-REMEDIATION-REGISTER.md`.
+
+Remaining work is external or policy-level: Prisma 7 major upgrade, a controlled staging run for
+Turnstile/proxy/action-surface behaviour, security-event retention/alerting, financial maker-checker
+and the dynamic/secret-history scanners listed in residual risk I. Production was not changed.

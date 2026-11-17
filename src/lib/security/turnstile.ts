@@ -35,6 +35,11 @@ export interface TurnstileVerificationResult {
     | "expired"
     | "replay"
     | "unavailable";
+  /**
+   * Sanitized Cloudflare error codes for protected server logs. Never rendered
+   * to the customer and never includes the token or the secret.
+   */
+  errorCodes?: string[];
 }
 
 interface SiteVerifyResponse {
@@ -47,6 +52,34 @@ interface SiteVerifyResponse {
 
 const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
 const TOKEN_LEDGER_TTL_MS = 20 * 60 * 1000;
+
+/** Cloudflare rejects unknown error-code shapes; keep only documented characters. */
+function sanitizeErrorCodes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((code): code is string => typeof code === "string")
+    .map((code) => code.toLowerCase().replace(/[^a-z0-9-]/g, ""))
+    .filter((code) => code.length > 0 && code.length <= 40)
+    .slice(0, 8);
+}
+
+/**
+ * Map Cloudflare's documented error codes onto the rejection category that is
+ * safe to persist in a protected security log.
+ */
+function reasonForErrorCodes(
+  codes: string[]
+): Exclude<TurnstileVerificationResult["reason"], undefined | "disabled"> {
+  if (codes.includes("invalid-input-secret") || codes.includes("missing-input-secret")) {
+    return "configuration";
+  }
+  if (codes.includes("internal-error")) return "unavailable";
+  if (codes.includes("timeout-or-duplicate")) return "replay";
+  if (codes.includes("missing-input-response") || codes.includes("invalid-input-response")) {
+    return "rejected";
+  }
+  return "rejected";
+}
 
 async function markTokenUsed(token: string, now: number): Promise<boolean> {
   const tokenHash = sha256(token);
@@ -95,47 +128,68 @@ export async function verifyTurnstile(
   body.set("secret", config.secretKey);
   body.set("response", token);
   if (input.ip) body.set("remoteip", input.ip);
+  // Cloudflare's documented idempotency support: a retried request with the
+  // same key returns the original verdict instead of "timeout-or-duplicate".
+  // The key is derived from the token, so it is stable across retries of the
+  // same challenge and different for a fresh challenge.
+  body.set("idempotency_key", `maacash-${sha256(token).slice(0, 48)}`);
 
-  let response: SiteVerifyResponse;
-  try {
-    const doFetch = input.fetchImpl ?? fetch;
-    const http = await doFetch(config.verifyUrl, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body,
-      signal: AbortSignal.timeout(config.timeoutMs),
-      cache: "no-store",
-    });
-    if (!http.ok) return { ok: false, reason: "unavailable" };
-    response = (await http.json()) as SiteVerifyResponse;
-  } catch {
-    // Network failure, timeout or invalid JSON: reject instead of bypassing.
-    return { ok: false, reason: "unavailable" };
+  const doFetch = input.fetchImpl ?? fetch;
+  const attempt = async (): Promise<
+    { response: SiteVerifyResponse } | { failure: "unavailable" }
+  > => {
+    try {
+      const http = await doFetch(config.verifyUrl, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+        signal: AbortSignal.timeout(config.timeoutMs),
+        cache: "no-store",
+      });
+      if (!http.ok) return { failure: "unavailable" };
+      return { response: (await http.json()) as SiteVerifyResponse };
+    } catch {
+      return { failure: "unavailable" };
+    }
+  };
+
+  // Exactly one safe retry, and only after a transport/HTTP failure. A
+  // definitive rejection is never retried; the customer must solve a fresh
+  // challenge instead.
+  let outcome = await attempt();
+  if ("failure" in outcome) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    outcome = await attempt();
   }
+  if ("failure" in outcome) return { ok: false, reason: "unavailable" };
 
-  if (response.success !== true) return { ok: false, reason: "rejected" };
+  const response = outcome.response;
+  if (response.success !== true) {
+    const codes = sanitizeErrorCodes(response["error-codes"]);
+    return { ok: false, reason: reasonForErrorCodes(codes), errorCodes: codes };
+  }
 
   const hostname = response.hostname?.toLowerCase();
   if (!hostname || !config.allowedHostnames.includes(hostname)) {
-    return { ok: false, reason: "hostname" };
+    return { ok: false, reason: "hostname", errorCodes: ["hostname-mismatch"] };
   }
 
   if (!response.action || response.action !== input.action) {
-    return { ok: false, reason: "action" };
+    return { ok: false, reason: "action", errorCodes: ["action-mismatch"] };
   }
 
   if (response.challenge_ts) {
     const issuedAt = Date.parse(response.challenge_ts);
     if (!Number.isFinite(issuedAt) || now - issuedAt > TOKEN_MAX_AGE_MS) {
-      return { ok: false, reason: "expired" };
+      return { ok: false, reason: "expired", errorCodes: ["challenge-too-old"] };
     }
   } else {
     // Cloudflare always returns this field; absence means an untrusted response.
-    return { ok: false, reason: "rejected" };
+    return { ok: false, reason: "rejected", errorCodes: ["missing-challenge-ts"] };
   }
 
   const firstUse = await markTokenUsed(token, now);
-  if (!firstUse) return { ok: false, reason: "replay" };
+  if (!firstUse) return { ok: false, reason: "replay", errorCodes: ["token-already-consumed"] };
 
   // Opportunistic cleanup of the single-use ledger.
   try {

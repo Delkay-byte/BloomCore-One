@@ -9,12 +9,12 @@
  * - Idempotency prevents duplicate records
  * - Balance calculations are correct
  */
+import { createPrismaClient } from "../src/lib/prisma-client";
 
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 let passed = 0;
 let failed = 0;

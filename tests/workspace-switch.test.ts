@@ -33,8 +33,8 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-import { resolveStaffAuth, switchWorkspace } from "@/lib/actions/auth.actions";
-import { verifyToken, type JwtPayload } from "@/lib/auth";
+import { resolveStaffAuth, selectWorkspace, switchWorkspace } from "@/lib/actions/auth.actions";
+import { createSelectionToken, verifyToken, type JwtPayload } from "@/lib/auth";
 import { tabSurfaceForPayload } from "@/lib/security/tab-proof";
 
 const JWT_SECRET = new TextEncoder().encode("test-secret-for-vitest");
@@ -192,5 +192,43 @@ describe("workspace switching", () => {
     const result = await switchWorkspace("susu");
     expect(result.success).toBe(false);
     expect(result.error).toContain("not authorized");
+  });
+});
+
+describe("workspace selection preserves authentication assurance (SEC-08)", () => {
+  async function seedSelection(userId: string, amr: "pwd" | "pwd+mfa") {
+    mockCookieStore.clear();
+    mockCookieStore.set(
+      "bik-workspace-select",
+      await createSelectionToken({
+        userId,
+        email: "switch@test.invalid",
+        fullName: "Switch Test",
+        modules: ["momo", "susu"],
+        amr,
+      })
+    );
+  }
+
+  it("carries pwd+mfa from the selection token into the module session", async () => {
+    const { user } = await seedUser({ momo: true, susu: true });
+    await seedSelection(user.id, "pwd+mfa");
+
+    const result = await selectWorkspace("momo");
+    expect(result.success).toBe(true);
+    const payload = await verifyToken<JwtPayload>(result.sessionToken!);
+    expect(payload?.userId).toBe(user.id);
+    expect(payload?.module).toBe("momo");
+    expect(payload?.amr).toBe("pwd+mfa");
+  });
+
+  it("never upgrades a password-only selection to pwd+mfa", async () => {
+    const { user } = await seedUser({ momo: true, susu: true });
+    await seedSelection(user.id, "pwd");
+
+    const result = await selectWorkspace("momo");
+    expect(result.success).toBe(true);
+    const payload = await verifyToken<JwtPayload>(result.sessionToken!);
+    expect(payload?.amr).toBe("pwd");
   });
 });

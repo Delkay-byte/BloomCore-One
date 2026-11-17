@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { getAdminSession, hashPassword } from "@/lib/auth";
 import {
   requireTenantAdminSusu,
   requireTenantCollector,
@@ -12,15 +12,37 @@ import { createAuditLog } from "@/lib/audit";
 import { issueEmailVerification } from "@/lib/security/account-tokens";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { validateStatusTransition } from "@/lib/security/status";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { lockAccountForUpdate } from "@/lib/db-lock";
+import {
+  expectedRemittanceAmount,
+  validateRemittanceAmount,
+} from "@/lib/finance/remittance";
+import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
+import { stepUpSessionBinding } from "@/lib/security/step-up";
+import {
+  consumeFinancialApproval,
+  decideDualControl,
+  recordSingleAdministratorException,
+} from "@/lib/security/dual-control";
+
+class RemittanceConflictError extends Error {
+  constructor() {
+    super("This idempotency key was already used with different remittance details.");
+    this.name = "RemittanceConflictError";
+  }
+}
 
 export interface ActionResponse {
   success: boolean;
   error?: string;
   data?: unknown;
+  /** Residual E: queued for approval by a different administrator. */
+  requiresApproval?: boolean;
+  approvalId?: string;
 }
 
 /** Next unused global customer identifier (see susu-customer.actions.ts). */
@@ -126,9 +148,12 @@ export async function createCollector(
  */
 export async function resetCollectorPassword(
   collectorId: string,
-  formData: FormData
+  formData: FormData,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const session = await getAdminSession();
+
 
   if (!(await assertTenantEntity("collector", collectorId, ctx))) {
     return { success: false, error: "Collector not found" };
@@ -150,14 +175,33 @@ export async function resetCollectorPassword(
 
   const passwordHash = await hashPassword(newPassword);
 
-  await db.user.update({
-    where: { id: collector.userId },
-    data: {
-      passwordHash,
-      forcePasswordReset: true,
-      tokenVersion: { increment: 1 },
-    },
+  const steppedUp = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(session, ctx.userId),
+      purpose: "collector.password_reset",
+      targetType: "collector",
+      targetId: collectorId,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: collector.userId },
+      data: {
+        passwordHash,
+        forcePasswordReset: true,
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!steppedUp) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -180,9 +224,12 @@ export async function resetCollectorPassword(
 export async function setMomoCapability(
   userId: string,
   enabled: boolean,
-  locationId?: string
+  locationId?: string,
+  stepUpToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const capabilitySession = await getAdminSession();
+
 
   if (enabled && !ctx.momoEnabled) {
     return {
@@ -226,14 +273,33 @@ export async function setMomoCapability(
     }
   }
 
-  await db.user.update({
-    where: { id: userId },
-    data: {
-      momoEnabled: enabled,
-      ...(enabled ? { locationId } : {}),
-      tokenVersion: { increment: 1 },
-    },
+  const applied = await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(capabilitySession, ctx.userId),
+      purpose: "capability.change",
+      targetType: "module_capability",
+      targetId: `${userId}:momo:${enabled ? "on" : "off"}`,
+    });
+    if (!grant.ok) return false;
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        momoEnabled: enabled,
+        ...(enabled ? { locationId } : {}),
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return true;
   });
+  if (!applied) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
@@ -385,12 +451,42 @@ export async function recordRemittance(params: {
   collectorId: string;
   remittedAmount: number;
   notes?: string;
+  /** SEC-06: client-generated key that makes retries return the original row. */
+  idempotencyKey?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
   const { collectorId, remittedAmount, notes } = params;
 
-  if (remittedAmount <= 0) {
-    return { success: false, error: "Remitted amount must be greater than 0" };
+  // SEC-06: reject anything that is not a finite, positive, two-decimal money
+  // value. `NaN <= 0` is false, so a bare sign check let NaN through.
+  const amount = validateRemittanceAmount(remittedAmount);
+  if (!amount.ok) {
+    return { success: false, error: amount.error };
+  }
+  const remitted = amount.value;
+
+  const rawKey = params.idempotencyKey;
+  if (rawKey !== undefined && !/^[A-Za-z0-9:_-]{8,120}$/.test(rawKey)) {
+    return { success: false, error: "Invalid idempotency key." };
+  }
+  const idempotencyKey = rawKey ? `REM-${rawKey}` : null;
+  const requestHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        collectorId,
+        amountMinor: String(Math.round(remitted * 100)),
+        notes: notes?.trim() ?? "",
+      })
+    )
+    .digest("hex");
+
+  const rate = await consumeRateLimit(
+    "finance:remittance_record",
+    `${ctx.tenantId}:${ctx.userId}`,
+    RATE_LIMITS.financeMutation
+  );
+  if (!rate.allowed) {
+    return { success: false, error: "Too many financial actions. Please wait and try again." };
   }
 
   if (!(await assertTenantEntity("collector", collectorId, ctx))) {
@@ -402,54 +498,105 @@ export async function recordRemittance(params: {
   });
   if (!collector) return { success: false, error: "Collector not found" };
 
-  const existingRemittances = await db.collectorRemittance.findMany({
-    where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
-    select: { createdAt: true },
-    orderBy: { createdAt: "desc" },
-    take: 1,
+  const remittance = await db.$transaction(async (tx) => {
+    // Serialize remittance recording for this collector so two concurrent
+    // submissions cannot both compute the same expected amount from the same
+    // anchor and insert twice.
+    await lockAccountForUpdate(tx, `collector-remittance:${collectorId}`);
+
+    if (idempotencyKey) {
+      const existing = await tx.collectorRemittance.findFirst({
+        where: { tenantId: ctx.tenantId, idempotencyKey },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) {
+          throw new RemittanceConflictError();
+        }
+        return existing;
+      }
+    }
+
+    const existingRemittances = await tx.collectorRemittance.findMany({
+      where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
+      select: { createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+
+    const lastRemittanceDate =
+      existingRemittances.length > 0
+        ? existingRemittances[0].createdAt
+        : new Date(0);
+
+    // Reversed contributions were never actually collected, so they must not
+    // inflate the expected cash handover.
+    const unremittedContributions = await tx.contribution.findMany({
+      where: {
+        collectorId,
+        tenantId: ctx.tenantId,
+        collectionDate: { gt: lastRemittanceDate },
+        reversedAt: null,
+      },
+    });
+
+    const expectedAmount = expectedRemittanceAmount(unremittedContributions);
+    const variance = expectedAmount - remitted;
+    const referenceId = `REM-${randomBytes(8).toString("hex")}`;
+
+    return tx.collectorRemittance.create({
+      data: {
+        tenantId: ctx.tenantId,
+        collectorId,
+        expectedAmount,
+        remittedAmount: remitted,
+        variance,
+        status: variance === 0 ? "reconciled" : "discrepancy",
+        recordedById: ctx.userId,
+        referenceId,
+        idempotencyKey,
+        requestHash,
+        notes,
+      },
+    });
+  }).catch(async (error) => {
+    if (error instanceof RemittanceConflictError) return null;
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002" &&
+      idempotencyKey
+    ) {
+      const existing = await db.collectorRemittance.findFirst({
+        where: { tenantId: ctx.tenantId, idempotencyKey },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new RemittanceConflictError();
+        return existing;
+      }
+    }
+    throw error;
   });
 
-  const lastRemittanceDate =
-    existingRemittances.length > 0
-      ? existingRemittances[0].createdAt
-      : new Date(0);
-
-  const unremittedContributions = await db.contribution.findMany({
-    where: {
-      collectorId,
-      tenantId: ctx.tenantId,
-      collectionDate: { gt: lastRemittanceDate },
-    },
-  });
-
-  const expectedAmount = unremittedContributions.reduce(
-    (sum, c) => sum + Number(c.amount),
-    0
-  );
-  const variance = expectedAmount - remittedAmount;
-
-  const referenceId = `REM-${randomBytes(8).toString("hex")}`;
-
-  const remittance = await db.collectorRemittance.create({
-    data: {
-      tenantId: ctx.tenantId,
-      collectorId,
-      expectedAmount,
-      remittedAmount,
-      variance,
-      status: variance === 0 ? "reconciled" : "discrepancy",
-      recordedById: ctx.userId,
-      referenceId,
-      notes,
-    },
-  });
+  if (!remittance) {
+    return {
+      success: false,
+      error:
+        "This idempotency key was already used with different remittance details.",
+    };
+  }
 
   await createAuditLog({
     userId: ctx.userId,
     action: "susu.remittance_recorded",
     entityType: "remittance",
     entityId: remittance.id,
-    details: { collectorId, expectedAmount, remittedAmount, variance },
+    details: {
+      collectorId,
+      expectedAmount: Number(remittance.expectedAmount),
+      remittedAmount: Number(remittance.remittedAmount),
+      variance: Number(remittance.variance),
+    },
   });
 
   revalidatePath("/susu/admin/remittances");
@@ -469,8 +616,12 @@ export async function recordRemittance(params: {
 export async function reverseRemittance(params: {
   remittanceId: string;
   reason: string;
+  stepUpToken?: string;
+  approvalId?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
+  const remittanceSession = await getAdminSession();
+
   const reason = params.reason?.trim() ?? "";
   if (reason.length < 10 || reason.length > 500) {
     return {
@@ -496,20 +647,90 @@ export async function reverseRemittance(params: {
     return { success: false, error: "This remittance has already been reversed." };
   }
 
-  const updated = await db.collectorRemittance.updateMany({
-    where: {
-      id: original.id,
+  const dual = await decideDualControl(
+    {
       tenantId: ctx.tenantId,
-      reversedAt: null,
+      action: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.remittedAmount) * 100),
+      reason,
+      requesterId: ctx.userId,
     },
-    data: {
-      status: "reversed",
-      reversedAt: new Date(),
-      reversedById: ctx.userId,
-      reversalReason: reason,
-    },
+    params.approvalId
+  );
+  if (dual.kind === "denied") return { success: false, error: dual.error };
+  if (dual.kind === "pending") {
+    return {
+      success: false,
+      requiresApproval: true,
+      approvalId: dual.approvalId,
+      error:
+        "This correction needs approval from a different administrator before it is posted.",
+    };
+  }
+
+  let updatedCount = 0;
+  await db.$transaction(async (tx) => {
+    const grant = await claimStepUpGrant(tx, {
+      token: params.stepUpToken,
+      subjectType: "user",
+      subjectId: ctx.userId,
+      sessionId: stepUpSessionBinding(remittanceSession, ctx.userId),
+      purpose: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+    });
+    if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
+    if (!dual.exceptionUsed) {
+      const consumed = await consumeFinancialApproval(tx, params.approvalId!, {
+        tenantId: ctx.tenantId,
+        action: "susu.remittance.reverse",
+        targetId: original.id,
+        requesterId: ctx.userId,
+      });
+      if (!consumed) throw new Error("APPROVAL_INVALID");
+    }
+    const updated = await tx.collectorRemittance.updateMany({
+      where: {
+        id: original.id,
+        tenantId: ctx.tenantId,
+        reversedAt: null,
+      },
+      data: {
+        status: "reversed",
+        reversedAt: new Date(),
+        reversedById: ctx.userId,
+        reversalReason: reason,
+      },
+    });
+    updatedCount = updated.count;
+  }).catch((error) => {
+    if (error instanceof StepUpDeniedError) {
+      updatedCount = -1;
+      return;
+    }
+    if (error instanceof Error && error.message === "APPROVAL_INVALID") {
+      updatedCount = -2;
+      return;
+    }
+    throw error;
   });
-  if (updated.count !== 1) {
+  if (updatedCount === -1) {
+    return {
+      success: false,
+      error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
+  if (updatedCount === -2) {
+    return {
+      success: false,
+      error:
+        "This approval expired or was already used. Ask a second administrator to approve it again.",
+    };
+  }
+  if (updatedCount !== 1) {
     return { success: false, error: "This remittance has already been reversed." };
   }
 
@@ -527,6 +748,18 @@ export async function reverseRemittance(params: {
       reason,
     },
   });
+
+  if (dual.exceptionUsed) {
+    await recordSingleAdministratorException({
+      tenantId: ctx.tenantId,
+      action: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.remittedAmount) * 100),
+      reason,
+      requesterId: ctx.userId,
+    });
+  }
 
   revalidatePath("/susu/admin/remittances");
   revalidatePath("/susu/admin/collectors");

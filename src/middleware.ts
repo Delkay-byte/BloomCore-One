@@ -18,6 +18,7 @@ import {
   MAINTENANCE_HTML,
   MAINTENANCE_MESSAGE,
 } from "@/lib/maintenance/guard";
+import { isStaticAssetPath } from "@/lib/security/static-assets";
 
 // Require JWT_SECRET — fail hard if missing
 const JWT_SECRET_RAW = process.env.JWT_SECRET;
@@ -356,8 +357,10 @@ export async function middleware(request: NextRequest) {
     return next();
   }
 
-  // Allow static assets and Next.js internals
-  if (pathname.startsWith("/_next") || pathname.includes(".")) {
+  // Allow genuine static assets and Next.js internals only. A path that merely
+  // contains a dot is NOT exempt: dotted staff ids, report dates and API paths
+  // keep their authentication.
+  if (isStaticAssetPath(pathname)) {
     return next();
   }
 

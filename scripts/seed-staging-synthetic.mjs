@@ -9,6 +9,7 @@
  *   RUN_SEED=1 npx tsx scripts/seed-staging-synthetic.mjs
  * or pass a Prisma client from a controlled runner.
  */
+import { createPrismaClient } from "./prisma-client.mjs";
 
 const TENANT_CODES = ["STG-A", "STG-B"];
 
@@ -361,7 +362,7 @@ export async function seedStagingSynthetic(prisma) {
 
 if (process.env.RUN_SEED === "1") {
   const { PrismaClient } = await import("@prisma/client");
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   try {
     const summary = await seedStagingSynthetic(prisma);
     console.log(JSON.stringify(summary, null, 2));

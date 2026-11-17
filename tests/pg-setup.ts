@@ -5,19 +5,13 @@
  * Validates that the application works correctly with PostgreSQL.
  */
 
-import { PrismaClient } from "@prisma/client";
 import { randomBytes } from "crypto";
+import { createPrismaClient } from "@/lib/prisma-client";
 import { assertDisposablePostgresTarget } from "./pg-safety";
 
 const target = assertDisposablePostgresTarget(process.env.PG_DATABASE_URL);
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: target.url,
-    },
-  },
-});
+const prisma = createPrismaClient(target.url);
 
 export { prisma };
 
@@ -41,6 +35,8 @@ export async function cleanDatabase() {
   await prisma.emailVerificationToken.deleteMany();
   await prisma.offlineTransaction.deleteMany();
   await prisma.deviceEnrollment.deleteMany();
+  await prisma.stepUpGrant.deleteMany();
+  await prisma.mfaRecoveryCode.deleteMany();
   await prisma.sessionRecord.deleteMany();
   await prisma.tabCredential.deleteMany();
   await prisma.tabProofNonce.deleteMany();
@@ -64,6 +60,10 @@ export async function cleanDatabase() {
   await prisma.zeliMessage.deleteMany();
   await prisma.zeliConversation.deleteMany();
   await prisma.zeliUsage.deleteMany();
+  await prisma.financialApproval.deleteMany();
+  await prisma.platformApprovalRequest.deleteMany();
+  await prisma.securityAlert.deleteMany();
+  await prisma.securityEventRecord.deleteMany();
   await prisma.platformAuditLog.deleteMany();
   await prisma.platformOidcSession.deleteMany();
   await prisma.platformOidcLink.deleteMany();

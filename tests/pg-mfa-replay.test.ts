@@ -31,10 +31,30 @@ async function user(email: string) {
     code: totpCode(started.secret),
   });
   if (!confirmed) throw new Error("enrolment failed");
-  return { row, secret: started.secret };
+  return { row, secret: started.secret, recoveryCode: confirmed.recoveryCodes[0] };
 }
 
 describe("PostgreSQL TOTP replay prevention", () => {
+  it("consumes one recovery code exactly once across concurrent attempts", async () => {
+    const { row, recoveryCode } = await user(`pg-mfa-recovery-${Date.now()}@test.local`);
+    const now = alignedNow();
+    const results = await Promise.all([
+      verifyMfaCode({ subjectType: "user", subjectId: row.id, code: recoveryCode, now }),
+      verifyMfaCode({ subjectType: "user", subjectId: row.id, code: recoveryCode, now }),
+      verifyMfaCode({ subjectType: "user", subjectId: row.id, code: recoveryCode, now }),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => result.ok)?.usedRecoveryCode).toBe(true);
+    const used = await prisma.mfaRecoveryCode.count({
+      where: { subjectType: "user", subjectId: row.id, usedAt: { not: null } },
+    });
+    expect(used).toBe(1);
+    // Replay is refused after the single success.
+    expect(
+      (await verifyMfaCode({ subjectType: "user", subjectId: row.id, code: recoveryCode, now: now + 1000 })).ok
+    ).toBe(false);
+  });
+
   beforeEach(async () => {
     await cleanDatabase();
   });

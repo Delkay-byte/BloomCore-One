@@ -27,6 +27,7 @@ import {
 } from "@/lib/session-issuance";
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { getTenantContext } from "@/lib/tenant";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import {
@@ -51,6 +52,14 @@ import {
 } from "@/lib/security/password-change-challenge";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
+import { mfaPolicy } from "@/lib/security/config";
+import {
+  createStepUpGrant,
+  STEP_UP_TTL_MS,
+  stepUpSessionBinding,
+  revokeSessionStepUpGrants,
+  type StepUpPurpose,
+} from "@/lib/security/step-up";
 
 /**
  * A valid bcrypt hash of a value nobody knows. Comparing against it for unknown
@@ -74,6 +83,7 @@ async function verifyPasswordConstantTime(
 export interface ActionResponse {
   success: boolean;
   error?: string;
+  data?: unknown;
   /** When true, the error relates to an admin attempting the shared login. */
   adminLogin?: boolean;
   /**
@@ -286,6 +296,9 @@ export async function login(
     email: user.email,
     fullName: user.fullName,
     modules,
+    // Password-only is the only path that reaches workspace selection; MFA
+    // completion issues a module session directly.
+    amr: "pwd",
   });
   await setSelectionSession(selectionToken);
   return {
@@ -337,7 +350,11 @@ export async function selectWorkspace(
     };
   }
 
-  const issued = await issueModuleSession(selection.userId, module);
+  const issued = await issueModuleSession(
+    selection.userId,
+    module,
+    selection.amr === "pwd+mfa"
+  );
 
   // The selection token is single-use. The shared legacy cookie is removed
   // only for migration; no new selection cookie is written.
@@ -465,6 +482,7 @@ export async function logout(): Promise<ActionResponse> {
   const active = await getAnyAuthUser();
   if (active) {
     await revokeSessionToken(active, "logout");
+    await revokeSessionStepUpGrants(active.jti);
     await createAuditLog({
       userId: active.userId,
       action: "auth.logout",
@@ -491,7 +509,14 @@ export async function logout(): Promise<ActionResponse> {
  */
 export async function verifyPasswordAction(
   password: string,
-  options?: { module?: ModuleName }
+  options?: {
+    module?: ModuleName;
+    /** SEC-04: purpose-bound single-use grant, created on success. */
+    purpose?: StepUpPurpose;
+    targetType?: string;
+    targetId?: string;
+    context?: Record<string, unknown>;
+  }
 ): Promise<ActionResponse> {
   if (typeof password !== "string" || password.length === 0) {
     return { success: false, error: "Password is required" };
@@ -580,8 +605,44 @@ export async function verifyPasswordAction(
     action: "auth.reauth_success",
     entityType: "user",
     entityId: context.user.userId,
-    details: { module: context.module },
+    details: {
+      module: context.module,
+      ...(options?.purpose ? { purpose: options.purpose } : {}),
+    },
   });
+
+  // SEC-04: create a purpose-bound, single-use grant. A browser boolean is
+  // never accepted; the grant is the only proof the protected action will
+  // recognise.
+  if (options?.purpose) {
+    if (dbUser.mfaEnabled || mfaPolicy() === "enforce") {
+      if (context.user.amr !== "pwd+mfa") {
+        return {
+          success: false,
+          error:
+            "Multi-factor authentication is required for this action. Sign in again and complete verification.",
+        };
+      }
+    }
+
+    const grant = await createStepUpGrant({
+      subjectType: "user",
+      subjectId: context.user.userId,
+      sessionId: stepUpSessionBinding(context.user, context.user.userId),
+      purpose: options.purpose,
+      targetType: options.targetType,
+      targetId: options.targetId,
+      context: options.context,
+    });
+    return {
+      success: true,
+      data: {
+        stepUpToken: grant.token,
+        expiresAt: grant.expiresAt.toISOString(),
+        expiresInMs: STEP_UP_TTL_MS,
+      },
+    };
+  }
 
   return { success: true };
 }
@@ -663,6 +724,7 @@ export async function changePassword(
   // Re-issue THIS module's session with the new tokenVersion. All previous
   // sessions (including any stolen cookie) are revoked server-side first.
   await revokeAllUserSessions("user", session.userId, "password_changed");
+  await revokeSessionStepUpGrants(session.jti);
   const refreshed = {
     ...(await buildSessionPayload(session.userId)),
     amr: session.amr,
@@ -677,6 +739,18 @@ export async function changePassword(
     action: wasForced ? "auth.first_login_password_changed" : "auth.password_changed",
     entityType: "user",
     entityId: session.userId,
+  });
+
+  // Residual C: a password change is a credential event. It is retained in the
+  // security log and alerts the account's administrators.
+  recordSecurityEvent({
+    event: "auth.password_changed",
+    outcome: "success",
+    actorType: "user",
+    actorId: session.userId,
+    tenantId: session.tenantId ?? null,
+    route: `auth.${context.module}_password_change`,
+    reason: wasForced ? "forced_upgrade" : "self_service",
   });
 
   return {
@@ -1422,6 +1496,16 @@ export async function customerChangePassword(
     action: wasForced ? "auth.first_customer_password_changed" : "auth.customer_password_changed",
     entityType: "customer",
     entityId: session.userId,
+  });
+
+  recordSecurityEvent({
+    event: "auth.password_changed",
+    outcome: "success",
+    actorType: "customer",
+    actorId: session.userId,
+    tenantId: session.tenantId ?? null,
+    route: "auth.customer_password_change",
+    reason: wasForced ? "forced_upgrade" : "self_service",
   });
 
   return { success: true, sessionToken: token, redirectTo: "/customer/dashboard" };

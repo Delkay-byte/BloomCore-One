@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * ============================================================================
  * BIK TENANT ADMINISTRATOR — OPERATOR-RUN, IDEMPOTENT
@@ -46,10 +47,9 @@
  *
  * DO NOT set TENANT_ADMIN_PASSWORD on Render. Local, one-shot use only.
  */
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const BCRYPT_COST = 12;
 const MIN_PASSWORD_LENGTH = 12;

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * ============================================================================
  * FIRST PLATFORM SUPER ADMIN — OPERATOR-RUN, ONE TIME
@@ -41,10 +42,9 @@
  * DO NOT set PLATFORM_SUPER_ADMIN_PASSWORD on Render. It is a local, one-shot
  * variable for this command only.
  */
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const BCRYPT_COST = 12; // must match hashPassword() in src/lib/auth.ts
 const MIN_PASSWORD_LENGTH = 12;

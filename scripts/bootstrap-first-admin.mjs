@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * BIK Prestige Enterprise — first administrator bootstrap (one-time)
  *
@@ -25,10 +26,9 @@
  *   - Safe to re-run: it refuses once an administrator exists.
  */
 
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 12;

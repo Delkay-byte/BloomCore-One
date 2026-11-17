@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal, { ConfirmDialog } from "@/components/ui/Modal";
+import PlatformReauthDialog from "@/components/PlatformReauthDialog";
 import {
   resetTenantAdminAccess,
   setTenantStatus,
@@ -300,14 +301,14 @@ function RecoveryPanel({
   const [oneTime, setOneTime] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [showStepUp, setShowStepUp] = useState(false);
 
-  async function reset() {
+  async function reset(stepUpToken: string) {
     if (!primaryAdmin) return;
-    setConfirming(false);
+    setShowStepUp(false);
     setLoading(true);
     setError("");
-    const result = await resetTenantAdminAccess(tenant.id, primaryAdmin.id);
+    const result = await resetTenantAdminAccess(tenant.id, primaryAdmin.id, stepUpToken);
     setLoading(false);
     if (result && !result.success) {
       setError(result.error || "Recovery failed");
@@ -329,16 +330,19 @@ function RecoveryPanel({
       {primaryAdmin ? (
         <>
           <p className="text-sm text-slate-700 mb-3">{primaryAdmin.email}</p>
-          <button onClick={() => setConfirming(true)} disabled={loading} className="btn btn-secondary btn-sm">
+          <button onClick={() => setShowStepUp(true)} disabled={loading} className="btn btn-secondary btn-sm">
             {loading ? "Issuing…" : "Issue one-time password"}
           </button>
-          <ConfirmDialog
-            open={confirming}
-            onClose={() => setConfirming(false)}
-            onConfirm={reset}
+          <PlatformReauthDialog
+            open={showStepUp}
+            onClose={() => setShowStepUp(false)}
+            onConfirmed={reset}
+            purpose="tenant.admin_access_reset"
+            targetType="tenant_admin"
+            targetId={`${tenant.id}:${primaryAdmin.id}`}
             title="Issue one-time password"
-            description={`A one-time temporary password will be issued for ${primaryAdmin.email}. Their current sessions are signed out and a password change is forced at next sign-in.`}
-            confirmLabel="Issue password"
+            description={`Confirm your own password to issue a one-time password for ${primaryAdmin.email}. Their sessions are signed out and a password change is forced at next sign-in.`}
+            actionLabel="Issue password"
           />
           {oneTime && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-4">

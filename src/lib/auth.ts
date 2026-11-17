@@ -127,6 +127,8 @@ export interface SelectionPayload {
   email: string;
   fullName: string;
   modules: ("momo" | "susu")[];
+  /** Authentication context established by the completed login. */
+  amr?: "pwd" | "pwd+mfa";
   jti?: string;
   tokenUse?: "workspace-selection";
 }
@@ -522,6 +524,10 @@ export async function getSelectionUser(): Promise<SelectionPayload | null> {
       email: payload.email,
       fullName: payload.fullName,
       modules: payload.modules,
+      // SEC-08: carry the authentication context through selection. Dropping it
+      // would silently downgrade a second-factor sign-in to password-only when
+      // the workspace session is issued.
+      amr: payload.amr,
     };
   }
 
@@ -536,6 +542,7 @@ export async function getSelectionUser(): Promise<SelectionPayload | null> {
       email: payload.email,
       fullName: payload.fullName,
       modules: payload.modules,
+      amr: payload.amr,
     };
   } catch {
     return null;
