@@ -5,6 +5,7 @@
  * production database. Running it resets only tests/e2e.db.
  */
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 
 const env = {
   ...process.env,
@@ -16,7 +17,13 @@ const env = {
   MFA_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 };
 
-execFileSync("npx", ["prisma", "db", "push", "--force-reset", "--skip-generate"], {
+// Prisma 7 removed --skip-generate from `db push` and refuses --force-reset for
+// agent-invoked commands. Deleting the disposable E2E file is equivalent and
+// leaves no destructive flag in the pipeline.
+fs.rmSync(new URL("../tests/e2e.db", import.meta.url), { force: true });
+fs.rmSync(new URL("../tests/e2e.db-journal", import.meta.url), { force: true });
+
+execFileSync("npx", ["prisma", "db", "push", "--schema=prisma/schema.prisma"], {
   stdio: "inherit",
   env,
   shell: true,
