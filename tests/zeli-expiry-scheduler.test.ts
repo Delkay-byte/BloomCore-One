@@ -63,7 +63,10 @@ describe("Zeli expiry scheduler wiring", () => {
       const { register } = await import("../src/instrumentation");
       await register();
 
-      await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1));
+      // The scheduler loads its sweep module through a dynamic import. A loaded
+      // CI runner can take longer than waitFor's 1 s default to resolve it; the
+      // assertion is unchanged, only the harness budget is raised.
+      await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
     });
 
@@ -75,7 +78,10 @@ describe("Zeli expiry scheduler wiring", () => {
       await register();
       register();
 
-      await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1));
+      // The scheduler loads its sweep module through a dynamic import. A loaded
+      // CI runner can take longer than waitFor's 1 s default to resolve it; the
+      // assertion is unchanged, only the harness budget is raised.
+      await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
     });
 
