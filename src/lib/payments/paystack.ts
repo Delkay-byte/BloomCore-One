@@ -366,7 +366,13 @@ export function verifyWebhookRequest(
   options: { secrets?: string[]; nowSeconds?: number } = {}
 ): PaystackWebhookVerification {
   const paystackSignature = headers.paystackSignature?.trim();
-  if (paystackSignature) {
+  // Paystack sends both headers today. The new header can only be verified
+  // when its keyed signing secret (whsec_…) is configured; without it the
+  // delivery is still authenticated by the legacy header, which is an HMAC of
+  // the same raw body keyed by the API secret key. There is no downgrade once a
+  // signing secret exists: an invalid new header is then rejected outright.
+  const canVerifyNewHeader = (options.secrets ?? paystackSigningSecrets()).length > 0;
+  if (paystackSignature && canVerifyNewHeader) {
     const ok = verifyPaystackSignatureHeader(rawBody, paystackSignature, options);
     return ok
       ? { ok: true, scheme: "signature-header" }
