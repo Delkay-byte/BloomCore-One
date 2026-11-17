@@ -59,6 +59,26 @@ describe("Paystack webhook ping", () => {
     expect(verifyWebhookRequest(raw, { paystackSignature: signed(raw, SECRET, oldTimestamp) }).ok).toBe(false);
   });
 
+  it("accepts the legacy signature when Paystack sends both headers and no signing secret is configured", async () => {
+    const raw = pingBody(991006);
+    const legacy = createHmac("sha512", SECRET).update(raw).digest("hex");
+    vi.stubEnv("PAYSTACK_WEBHOOK_SIGNING_SECRET", "");
+    vi.stubEnv("PAYSTACK_SECRET_KEY", SECRET);
+    const result = await handlePaystackWebhook(raw, legacy, signed(raw, "whsec_unrelated_key"));
+    expect(result).toEqual({ ok: true, status: 200, decision: "ping" });
+  });
+
+  it("refuses a downgrade once a signing secret is configured", async () => {
+    const raw = pingBody(991007);
+    const key = "whsec_configured_signing_key_value";
+    const legacy = createHmac("sha512", SECRET).update(raw).digest("hex");
+    vi.stubEnv("PAYSTACK_WEBHOOK_SIGNING_SECRET", key);
+    vi.stubEnv("PAYSTACK_SECRET_KEY", SECRET);
+    const result = await handlePaystackWebhook(raw, legacy, signed(raw, "whsec_wrong_key_value"));
+    expect(result.status).toBe(401);
+    expect(result.decision).toBe("invalid_signature");
+  });
+
   it("acknowledges a duplicate ping idempotently", async () => {
     const raw = pingBody(991005);
     const first = await handlePaystackWebhook(raw, null, signed(raw));
