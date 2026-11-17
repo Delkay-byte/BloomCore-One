@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handlePaystackWebhook } from "@/lib/payments/zeli-subscriptions";
+import { paystackSignatureHeaderConfigured } from "@/lib/payments/paystack";
 
 /**
  * POST /api/payments/paystack/webhook
@@ -17,11 +18,28 @@ export async function POST(request: NextRequest) {
   if (rawBody.length > 256 * 1024) {
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   }
+  const legacySignature = request.headers.get("x-paystack-signature");
+  const newSignature = request.headers.get("paystack-signature");
   const result = await handlePaystackWebhook(
     rawBody,
-    request.headers.get("x-paystack-signature"),
-    request.headers.get("paystack-signature")
+    legacySignature,
+    newSignature
   );
+  if (!result.ok) {
+    // Diagnostics only: header presence and the verification outcome. Signature
+    // values and secrets are never logged.
+    console.warn(
+      JSON.stringify({
+        kind: "paystack_webhook_rejected",
+        decision: result.decision,
+        status: result.status,
+        hasLegacySignature: Boolean(legacySignature),
+        hasPaystackSignature: Boolean(newSignature),
+        signingSecretConfigured: paystackSignatureHeaderConfigured(),
+        bytes: rawBody.length,
+      })
+    );
+  }
   return NextResponse.json(
     { received: result.ok, decision: result.decision },
     { status: result.status }
