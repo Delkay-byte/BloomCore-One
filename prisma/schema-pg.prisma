@@ -4,13 +4,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  // Neon: runtime queries use the POOLED hostname (DATABASE_URL).
-  // Schema administration (migrate / db push / introspect) uses the
-  // UNPOOLED direct hostname (DIRECT_URL). DIRECT_URL is only required by
-  // commands that change or inspect the schema, never by application runtime.
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  // Prisma 7: the connection URL lives in prisma.config.ts for CLI commands
+  // (DIRECT_URL, the unpooled Neon host) and in the driver adapter passed by
+  // src/lib/db.ts at runtime (DATABASE_URL, the pooled Neon host).
 }
 
 // =====================
@@ -1323,4 +1320,90 @@ model MfaRecoveryCode {
   @@unique([subjectType, subjectId, codeHash])
   @@index([subjectType, subjectId])
   @@index([createdAt])
+}
+
+// Residual C: persisted security events with a 365-day retention window.
+// Financial and business audit history lives in AuditLog / PlatformAuditLog and
+// is never touched by security-event retention or its cleanup job.
+model SecurityEventRecord {
+  id        String   @id @default(cuid())
+  event     String
+  outcome   String
+  severity  String   @default("info") // info | warning | critical
+  actorType String?
+  actorId   String?
+  tenantId  String?
+  ipHash    String?
+  route     String?
+  reason    String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([severity, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([event, createdAt])
+}
+
+// Residual C: durable in-app security alerts. Critical alerts also go out
+// through the existing Resend transactional-email path.
+model SecurityAlert {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  audience    String // platform | tenant_admin | subject
+  subjectType String?
+  subjectId   String?
+  severity    String // warning | critical
+  event       String
+  title       String
+  body        String
+  dedupeKey   String?   @unique
+  emailStatus String? // sent | failed | skipped
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([audience, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([severity, createdAt])
+}
+
+// Residual D: second-person approval for high-impact platform operations when
+// more than one authorized platform administrator exists.
+model PlatformApprovalRequest {
+  id          String    @id @default(cuid())
+  action      String
+  targetType  String
+  targetId    String
+  reason      String
+  requestedBy String
+  status      String    @default("pending") // pending | approved | rejected | expired
+  approvedBy  String?
+  decidedAt   DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+// Residual E: maker-checker control for sensitive financial operations.
+// `exceptionUsed` records the approved single-administrator exception.
+model FinancialApproval {
+  id            String    @id @default(cuid())
+  tenantId      String
+  action        String
+  targetType    String
+  targetId      String
+  amountMinor   Int?
+  reason        String
+  requestedBy   String
+  status        String    @default("pending") // pending | approved | rejected | consumed | expired
+  approvedBy    String?
+  exceptionUsed Boolean   @default(false)
+  decidedAt     DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, status, createdAt])
+  @@index([action, targetId])
 }

@@ -5,11 +5,11 @@
  * Tests use a dedicated SQLite test database to avoid affecting dev data.
  */
 
-import { PrismaClient } from "@prisma/client";
 import { randomBytes } from "crypto";
+import { createPrismaClient } from "@/lib/prisma-client";
 
 // Use the test database from environment variable
-export const prisma = new PrismaClient();
+export const prisma = createPrismaClient();
 
 /**
  * Clean all tables in the correct order to respect foreign key constraints.
@@ -57,6 +57,10 @@ export async function cleanDatabase() {
     prisma.location.deleteMany(),
     prisma.businessTenant.deleteMany(),
     prisma.platformAuditLog.deleteMany(),
+    prisma.platformApprovalRequest.deleteMany(),
+    prisma.financialApproval.deleteMany(),
+    prisma.securityAlert.deleteMany(),
+    prisma.securityEventRecord.deleteMany(),
     prisma.platformOidcSession.deleteMany(),
     prisma.platformOidcLink.deleteMany(),
     prisma.platformSuperAdmin.deleteMany(),

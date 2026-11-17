@@ -10,7 +10,7 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { verifyTurnstile } from "@/lib/security/turnstile";
 import { humanizeSeconds } from "@/lib/security/auth-guard";
-import { logSecurityEvent } from "@/lib/security/log";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { validatePasswordPolicy } from "@/lib/platform-auth";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import { sendTransactionalEmail } from "@/lib/email/resend";
@@ -95,12 +95,13 @@ export async function requestPasswordReset(
     ip,
   });
   if (!turnstile.ok) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "password_reset.turnstile_failed",
       outcome: "blocked",
       route: "password_reset",
       ip,
       reason: turnstile.reason,
+      detail: turnstile.errorCodes?.join(","),
     });
     return {
       success: false,
@@ -278,7 +279,7 @@ export async function completePasswordReset(params: {
     ipAddress: ip ?? undefined,
   });
 
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "auth.password_reset_completed",
     outcome: "success",
     actorType: "user",

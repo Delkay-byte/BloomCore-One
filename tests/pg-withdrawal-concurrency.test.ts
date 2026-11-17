@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 
 const { mockCookieStore } = vi.hoisted(() => ({
   mockCookieStore: new Map<string, string>(),
@@ -40,13 +40,13 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
 import { hashStepUpToken, stepUpContextHash } from "@/lib/security/step-up";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 let grantSeq = 0;
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE TABLE "StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
+    TRUNCATE TABLE "FinancialApproval","PlatformApprovalRequest","SecurityAlert","SecurityEventRecord","StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",

@@ -7,6 +7,7 @@ import { getClientIp } from "@/lib/security/client-ip";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { verifyTurnstile } from "@/lib/security/turnstile";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { humanizeSeconds } from "@/lib/security/auth-guard";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
@@ -82,6 +83,14 @@ export async function requestVerificationEmail(
     ip,
   });
   if (!turnstile.ok) {
+    recordSecurityEvent({
+      event: "email_verification.turnstile_failed",
+      outcome: "blocked",
+      route: "email_verification",
+      ip,
+      reason: turnstile.reason,
+      detail: turnstile.errorCodes?.join(","),
+    });
     return {
       success: false,
       error:

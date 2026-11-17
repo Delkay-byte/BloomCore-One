@@ -13,6 +13,7 @@ import { getPlatformOverview } from "@/lib/actions/platform.actions";
 import { formatDateTime } from "@/lib/utils";
 import { EmptyState, PageHeader } from "@/components/ui/DataDisplay";
 import { tenantStatusBadge } from "../../tenant-ui";
+import SecurityAlertsCard from "@/components/security/SecurityAlertsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,8 @@ export default async function PlatformDashboardPage() {
           </Link>
         }
       />
+
+      <SecurityAlertsCard />
 
       {/* Primary numbers — one hero figure, supporting figures compact */}
       <div className="card bg-white flex flex-col sm:flex-row sm:items-center gap-6">

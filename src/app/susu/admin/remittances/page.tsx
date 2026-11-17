@@ -159,7 +159,11 @@ export default function SusuRemittancesPage() {
         stepUpToken,
       });
       if (!result.success) {
-        setReverseError(result.error || "The remittance could not be reversed.");
+        setReverseError(
+          result.requiresApproval
+            ? "Queued for a second administrator. The correction is posted only after a different administrator approves it in Susu → Approvals."
+            : result.error || "The remittance could not be reversed."
+        );
         return;
       }
       setSuccess("Remittance reversed. The original record remains in history.");

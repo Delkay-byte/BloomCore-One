@@ -1,11 +1,11 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * Read-only schema introspection: which tables exist, and which carry tenantId.
  * Used to verify the multi-tenant foundation landed in the local database.
  * Never writes. Never prints connection strings or row data.
  */
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 (async () => {
   const isPg = (process.env.DATABASE_URL || "").startsWith("postgres");

@@ -37,7 +37,7 @@ the second remediation pass.
 | SEC-10 | Low | **Closed** | Public health responses remain minimal. | `tests/security-hardening-round2.test.ts` |
 | SEC-11 | Low | **Verified in code and tests; dynamic staging pending** | Siteverify validates success, action, hostname, challenge age and replay; fails closed on timeout/config errors. Unit coverage includes valid, invalid, expired, replay, wrong hostname, missing token, timeout and missing config. No controlled Cloudflare staging run was possible from this environment. | `tests/security-hardening.test.ts`, `tests/turnstile-action-mapping.test.ts` |
 | SEC-12 | Low | **Closed** | Broad `.env*` and secret-file ignores remain. | `tests/security-hardening-round2.test.ts`, `.gitignore` |
-| SEC-13 | High (dependency) | **Partially closed; Prisma major documented** | `npm audit`: 6 high, 0 critical. Production tree: `prisma`, `@prisma/config`, `deepmerge-ts`, all build/CLI reachability only, fixed only by Prisma 7.10.1 (semver-major). `npm audit fix` failed with an npm internal `edgesOut` error; no force upgrade was applied. The Prisma 7 migration requires adapter/generator changes that were not proven safe in this pass. | `npm audit --json`; no runtime path from Next.js request handling |
+| SEC-13 | High (dependency) | **Closed** | Upgraded to Prisma 7.10.1 with `@prisma/adapter-pg` / `@prisma/adapter-better-sqlite3` and `prisma.config.ts` / `prisma.pg.config.ts`. `npm audit`: **0 high, 0 critical** (`--omit=dev` also 0). Residual advisories are 10 moderate, all in dev-only tooling (eslint/vitest/minimatch); no `npm audit fix --force` was used. | `npm audit`, `npx tsc --noEmit`, 87 Vitest files / 944 tests, 10 PostgreSQL files / 44 tests, production `next build`, built-server boot with Prisma 7 adapters |
 | SEC-14 | Low | **Closed** | `EmailVerificationToken.destinationEmailHash` binds the token to the normalized destination. Consumption refuses a mismatch or a legacy token with no snapshot. Every staff/worker email change invalidates outstanding links, unverifies the address, reissues and audits. | `tests/security-sec04-06-14.test.ts`; migration invalidated all unused legacy tokens |
 | SEC-15 | Low | **Closed (code)** | Durable per-subject limits on enroll/confirm/disable (tenant and platform). Pending enrollment secret is reused for 15 minutes; the settings screen exposes an explicit "Generate a new secret" restart action. Disable requires password, current code, reason, explicit confirmation, audit and email notification. | `tests/security-sec04-06-14.test.ts` |
 | SEC-16 | Informational | **Partially closed** | Production preflight fails boot when delivery is disabled or sender/API key is missing; it is scoped to the Render production service so CI/E2E runs are not affected. Delivery failures are audited with retryable classification; accounts stay pending and resendable; the token is removed so an undelivered link cannot block resend. No durable cross-process outbox or consolidated operator page was added. | `tests/security-sec04-06-14.test.ts`, instrumentation preflight |
@@ -66,13 +66,29 @@ Rehearsal results:
 |---|---|
 | A. SEC-01 runtime reachability | Static proof remains strong; no isolated staging deployment was created in this environment. Dynamic action-surface inspection remains an owner/staging action. |
 | B. PostgreSQL concurrency | Closed for offline contribution allocation, MFA recovery-code consumption, step-up grant consumption, daily-account correction and remittance reversal. The reported `pg-financial-corrections` failure was reproduced and fixed: the PG config did not point the application client at `PG_DATABASE_URL`. All four PostgreSQL files now pass. |
-| C. Security-event retention/alerting | Not implemented. Existing `AuditLog`/`PlatformAuditLog` remain append-only through application code, but storage-level immutability, retention policy and alert routing are deployment work. |
-| D. Break-glass administrator | Existing fresh MFA proof, reason, audit and rate limits remain. Second-person approval and notification fan-out are not implemented. |
-| E. Financial dual control | Not implemented. Single-administrator tenants still need to operate. Step-up, reason capture and audit now apply to corrections/reversals; maker-checker requires a policy and UI project. |
-| F. First MFA enrollment | Enrollment is challenge-bound, rate-limited, pending-secret idempotent for 15 minutes, audited, and now notifies the account owner on completion and on disable. First-enrolment verified-channel confirmation is still not required. |
+| C. Security-event retention/alerting | **Closed in code.** Durable `SecurityEventRecord` + `SecurityAlert` tables, a 365-day pruning job that never touches `AuditLog`/`PlatformAuditLog`, and a platform/admin alert queue for critical events (`tests/security-retention-dual-control.test.ts`; migration `20261117_security_retention_alerting_dual_control`). Storage-level immutability of Neon backups remains an infrastructure control. |
+| D. Break-glass administrator | **Closed in code.** Platform MFA reset is step-up + reason bound, requires a second platform administrator where one exists, and otherwise records an audited single-administrator exception plus a critical alert (`tests/security-retention-dual-control.test.ts`). Owner action: keep at least two platform super-admins enrolled. |
+| E. Financial dual control | **Closed in code.** Withdrawals at or above `WITHDRAWAL_DUAL_APPROVAL_THRESHOLD_MINOR` and every reversal require a different administrator's approval, consumed atomically exactly once; a single-administrator tenant can post only through an audited exception. Approvals queue at `/susu/admin/approvals`; PostgreSQL concurrency proof in `tests/pg-dual-control.test.ts`. |
+| F. First MFA enrollment | **Closed.** Enrollment now requires a verified channel (user `emailVerified`, active platform account), is challenge-bound and rate-limited per subject, reuses a pending secret for 15 minutes, and notifies the owner on completion and disable (`tests/security-retention-dual-control.test.ts`). |
 | G. Offline device protection | Existing AES-GCM/PBKDF2 and lock behavior unchanged. The expanded tamper/cross-tenant test matrix was not added in this pass. |
 | H. Service-worker dependency | Fail-closed tab proof unchanged; blocked-worker UX and replay tests were not re-run. |
-| I. Dynamic testing | No ZAP/Semgrep/CodeQL/Trivy/Gitleaks run was possible in this environment. `npm audit`, full unit/integration, PostgreSQL concurrency and production build were run. Dynamic staging and secret-history scanning remain owner actions. |
+| I. Dynamic testing | No ZAP/Semgrep/CodeQL/Trivy/Gitleaks run was possible in this environment. `npm audit` (0 high/critical), full unit/integration (87 files / 944 tests), PostgreSQL concurrency (10 files / 44 tests), production build and built-server boot were run. Dynamic staging and secret-history scanning remain owner actions. |
+
+## Prisma 7 migration (SEC-13)
+
+Prisma 7 removed the `datasource.url` property from schema files, so the datasource URL now
+lives in configuration and the runtime uses driver adapters.
+
+| Piece | Change |
+|---|---|
+| `prisma/schema.prisma` (SQLite), `prisma/schema-pg.prisma` (PostgreSQL) | `url`/`directUrl` removed; models unchanged |
+| `prisma.config.ts` | SQLite CLI default: `PRISMA_CLI_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` → `file:./dev.db` |
+| `prisma.pg.config.ts` | PostgreSQL schema + unpooled `DIRECT_URL` for `migrate deploy/status/diff` |
+| `src/lib/prisma-client.ts` | `PrismaPg` for `postgresql://`, `PrismaBetterSqlite3` for `file:`; one factory for app and scripts |
+| `src/lib/db.ts` | Singleton built through the factory (no more `new PrismaClient()`) |
+| `next.config.ts` | Server-only external packages + edge-only ignore for the Node maintenance module, so native drivers never enter the edge bundle |
+
+Rehearsal evidence: all 32 migrations applied to a disposable PostgreSQL 16 container, `migrate diff` reported "No difference detected", and the PostgreSQL suite passed.
 
 ## Recurring controls
 
@@ -99,5 +115,5 @@ privilege-escalation or tenant-isolation bypass. Its actionable findings and dis
 | Turnstile allow-list still contained the direct Render host | Removed from the default and the blueprint; edge reachability still needs the staging check |
 | Grant context for daily corrections/capability changes is coarse | Accepted residual: still subject/session/purpose/target bound and five-minute single-use |
 | SEC-11 blueprint still disables Turnstile | Owner decision: enabling with missing keys fails closed and locks logins; configure keys, then enable |
-| Maker-checker, retention/alerting, full-history dynamic scans | Open owner/staging work; not claimed as complete |
+| Full-history dynamic scans (ZAP/Semgrep/CodeQL/Trivy/Gitleaks) | Open owner/staging work; not claimed as complete |
 

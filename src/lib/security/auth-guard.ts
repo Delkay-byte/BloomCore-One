@@ -9,7 +9,7 @@ import {
   throttleKeys,
 } from "./login-throttle";
 import { verifyTurnstile } from "./turnstile";
-import { logSecurityEvent } from "./log";
+import { recordSecurityEvent } from "./events";
 
 /**
  * Shared pre-credential guard used by every authentication entry point.
@@ -70,7 +70,7 @@ export async function guardLogin(
       now
     );
     if (!ipLimit.allowed) {
-      logSecurityEvent({
+      recordSecurityEvent({
         event: "auth.rate_limited",
         outcome: "blocked",
         route: options.action,
@@ -92,7 +92,7 @@ export async function guardLogin(
   const states = await Promise.all(keys.map((key) => readThrottle(key, now)));
   const blocked = states.find((state) => state.blocked);
   if (blocked) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "auth.cooldown",
       outcome: "blocked",
       route: options.action,
@@ -116,12 +116,13 @@ export async function guardLogin(
     now,
   });
   if (!turnstile.ok) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "turnstile.verification_failed",
       outcome: "blocked",
       route: options.action,
       ip: client.ip,
       reason: turnstile.reason,
+      detail: turnstile.errorCodes?.join(","),
     });
     return {
       ok: false,
@@ -142,7 +143,7 @@ export async function recordLoginFailure(
 ): Promise<{ blocked: boolean; retryAfterSeconds: number }> {
   const keys = throttleKeys(identifier.trim().toLowerCase(), ip);
   const state = await registerFailure(keys, now);
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "auth.login_failed",
     outcome: "failure",
     route,
@@ -162,7 +163,7 @@ export async function recordLoginSuccess(
   route: string
 ): Promise<void> {
   await clearThrottle(throttleKeys(identifier.trim().toLowerCase(), ip));
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "auth.login_success",
     outcome: "success",
     route,

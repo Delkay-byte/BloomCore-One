@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /* eslint-disable @typescript-eslint/no-require-imports -- CommonJS node script run directly */
 /**
  * Safety-net script: ensures critical columns exist in the production database.
@@ -8,9 +9,9 @@
  * On PostgreSQL (production): uses IF NOT EXISTS.
  * On SQLite (local dev): uses try/catch for duplicate column errors.
  */
-const { PrismaClient } = require("@prisma/client");
 
-const prisma = new PrismaClient();
+
+const prisma = createPrismaClient();
 
 const PATCHES = [
   {

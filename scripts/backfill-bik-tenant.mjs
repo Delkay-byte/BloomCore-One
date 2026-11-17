@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrismaClient } from "./prisma-client.mjs";
 /**
  * ============================================================================
  * BIK TENANT BACKFILL — multi-tenant platform foundation (Phase 1)
@@ -35,9 +36,8 @@
  * This is an operator-controlled production step. Do NOT wire it into build
  * or startup commands.
  */
-import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const DRY_RUN = process.argv.includes("--dry-run");
 

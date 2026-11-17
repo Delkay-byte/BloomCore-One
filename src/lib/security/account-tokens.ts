@@ -8,6 +8,7 @@
 
 import { createHash, randomBytes } from "crypto";
 import { db } from "@/lib/db";
+import { recordSecurityEvent } from "./events";
 import { sendTransactionalEmail } from "@/lib/email/resend";
 import { verificationEmail } from "@/lib/email/templates";
 
@@ -140,6 +141,10 @@ export async function issueEmailVerification(
  * invalidated, the new address starts unverified, and a fresh message is sent.
  */
 export async function handleAccountEmailChanged(userId: string): Promise<void> {
+  const account = await db.user.findUnique({
+    where: { id: userId },
+    select: { email: true, tenantId: true },
+  });
   await db.$transaction(async (tx) => {
     await tx.emailVerificationToken.updateMany({
       where: { userId, usedAt: null },
@@ -151,6 +156,18 @@ export async function handleAccountEmailChanged(userId: string): Promise<void> {
     });
   });
   await issueEmailVerification(userId, { force: true }).catch(() => undefined);
+
+  // Residual C: an email change is a credential-adjacent event and alerts the
+  // responsible administrators (in-app plus email). No address is logged.
+  recordSecurityEvent({
+    event: "auth.email_changed",
+    outcome: "success",
+    actorType: "user",
+    actorId: userId,
+    tenantId: account?.tenantId ?? null,
+    route: "account.email_change",
+    reason: "address_reverification_required",
+  });
 }
 
 export type ConsumeVerificationResult =

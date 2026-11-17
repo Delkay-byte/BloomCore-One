@@ -27,6 +27,7 @@ import {
 } from "@/lib/session-issuance";
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { getTenantContext } from "@/lib/tenant";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import {
@@ -622,7 +623,8 @@ export async function verifyPasswordAction(
             "Multi-factor authentication is required for this action. Sign in again and complete verification.",
         };
       }
-    }
+    }
+
     const grant = await createStepUpGrant({
       subjectType: "user",
       subjectId: context.user.userId,
@@ -737,6 +739,18 @@ export async function changePassword(
     action: wasForced ? "auth.first_login_password_changed" : "auth.password_changed",
     entityType: "user",
     entityId: session.userId,
+  });
+
+  // Residual C: a password change is a credential event. It is retained in the
+  // security log and alerts the account's administrators.
+  recordSecurityEvent({
+    event: "auth.password_changed",
+    outcome: "success",
+    actorType: "user",
+    actorId: session.userId,
+    tenantId: session.tenantId ?? null,
+    route: `auth.${context.module}_password_change`,
+    reason: wasForced ? "forced_upgrade" : "self_service",
   });
 
   return {
@@ -1482,6 +1496,16 @@ export async function customerChangePassword(
     action: wasForced ? "auth.first_customer_password_changed" : "auth.customer_password_changed",
     entityType: "customer",
     entityId: session.userId,
+  });
+
+  recordSecurityEvent({
+    event: "auth.password_changed",
+    outcome: "success",
+    actorType: "customer",
+    actorId: session.userId,
+    tenantId: session.tenantId ?? null,
+    route: "auth.customer_password_change",
+    reason: wasForced ? "forced_upgrade" : "self_service",
   });
 
   return { success: true, sessionToken: token, redirectTo: "/customer/dashboard" };

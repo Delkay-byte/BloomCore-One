@@ -2,11 +2,9 @@
  * Pre-migration SQLite snapshot — records row counts for all important tables.
  * Run against SQLite before switching to PostgreSQL.
  */
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../src/lib/prisma-client";
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: "file:./prisma/dev.db" } },
-});
+const prisma = createPrismaClient("file:./prisma/dev.db");
 
 async function main() {
   console.log("📊 PRE-MIGRATION SNAPSHOT — SQLite Row Counts\n");

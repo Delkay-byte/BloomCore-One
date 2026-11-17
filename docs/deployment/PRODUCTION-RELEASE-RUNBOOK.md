@@ -21,7 +21,7 @@ production service, plus the record of the authentication release of 2026-11-16.
    inheritance removed. Record size, SHA-256 and timestamp. Verify with
    `pg_restore --list`, then restore into a fresh disposable database and compare table,
    index, migration and row fingerprints.
-2. **Pending migrations.** `npx prisma migrate status --schema=prisma/schema-pg.prisma`.
+2. **Pending migrations.** `npx prisma migrate status --config prisma.pg.config.ts`.
    Stop unless the expected migration is the only pending one.
 3. **Block public traffic.** Render native Maintenance Mode is paid-only here, and
    suspension blocks deploys (`cannot deploy suspended service`) and cancels builds. Use
@@ -32,7 +32,7 @@ production service, plus the record of the authentication release of 2026-11-16.
    database and can otherwise authenticate with old code. Keep `maacash.onrender.com`
    disabled.
 5. **Migrate before deploying code.**
-   `npx prisma migrate deploy --schema=prisma/schema-pg.prisma`, then `migrate status`.
+   `npx prisma migrate deploy --config prisma.pg.config.ts`, then `migrate status`.
 6. **Verify the schema and data.** Columns, table, indexes, foreign key, migration row,
    backfill counts against the documented predicates, and unchanged password-hash,
    token-version, session, device, offline and financial fingerprints.

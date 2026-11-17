@@ -290,6 +290,78 @@ describe("Cloudflare Turnstile verification", () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("configuration");
   });
+
+  it("retries one transport failure with the same idempotency key", async () => {
+    configured();
+    const seen: Array<string | null> = [];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = init.body as URLSearchParams;
+        seen.push(body.get("idempotency_key"));
+        call += 1;
+        if (call === 1) throw new Error("temporary network failure");
+        return new Response(JSON.stringify(response()), { status: 200 });
+      })
+    );
+    const result = await verifyTurnstile({
+      token: "retry-token",
+      action: "login",
+      now: BASE,
+    });
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBeTruthy();
+    expect(seen[0]).toBe(seen[1]);
+  });
+
+  it("does not retry a definitive rejection and keeps the Cloudflare code", async () => {
+    configured();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ success: false, "error-codes": ["invalid-input-response"] }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await verifyTurnstile({
+      token: "rejected-token",
+      action: "login",
+      now: BASE,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("rejected");
+    expect(result.errorCodes).toEqual(["invalid-input-response"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies invalid secret, duplicate token and internal error", async () => {
+    configured();
+    const cases: Array<[string, string]> = [
+      ["invalid-input-secret", "configuration"],
+      ["timeout-or-duplicate", "replay"],
+      ["internal-error", "unavailable"],
+    ];
+    for (const [code, expected] of cases) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify({ success: false, "error-codes": [code] }), {
+            status: 200,
+          })
+        )
+      );
+      const result = await verifyTurnstile({
+        token: `token-${code}`,
+        action: "login",
+        now: BASE,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe(expected);
+      expect(result.errorCodes).toEqual([code]);
+    }
+  });
 });
 
 describe("TOTP and recovery codes", () => {

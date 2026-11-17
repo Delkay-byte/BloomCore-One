@@ -89,14 +89,16 @@ run("prisma migrate deploy", NPX, [
   "prisma",
   "migrate",
   "deploy",
-  "--schema=prisma/schema-pg.prisma",
+  "--config",
+  "prisma.pg.config.ts",
 ]);
 
 run("prisma migrate status", NPX, [
   "prisma",
   "migrate",
   "status",
-  "--schema=prisma/schema-pg.prisma",
+  "--config",
+  "prisma.pg.config.ts",
 ]);
 
 run("npm run build", NPM, ["run", "build"]);

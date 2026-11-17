@@ -11,11 +11,19 @@ import { RATE_LIMITS } from "@/lib/security/config";
 import { getAdminSession } from "@/lib/auth";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
+import {
+  consumeFinancialApproval,
+  decideDualControl,
+  recordSingleAdministratorException,
+} from "@/lib/security/dual-control";
 
 export interface ReversalResponse {
   success: boolean;
   error?: string;
   reversalId?: string;
+  /** Residual E: the operation is queued for a second administrator. */
+  requiresApproval?: boolean;
+  approvalId?: string;
 }
 
 function reference(prefix: string): string {
@@ -34,6 +42,7 @@ export async function reverseWithdrawal(input: {
   withdrawalId: string;
   reason: string;
   stepUpToken?: string;
+  approvalId?: string;
 }): Promise<ReversalResponse> {
   const ctx = await requireTenantAdminSusu();
   const session = await getAdminSession();
@@ -66,6 +75,31 @@ export async function reverseWithdrawal(input: {
     return { success: false, error: "This withdrawal has already been reversed." };
   }
 
+  // Residual E: maker-checker before any write. A second active administrator
+  // must approve; a sole administrator uses the audited exception path.
+  const dual = await decideDualControl(
+    {
+      tenantId: ctx.tenantId,
+      action: "susu.withdrawal.reverse",
+      targetType: "withdrawal",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.netAmount) * 100),
+      reason,
+      requesterId: ctx.userId,
+    },
+    input.approvalId
+  );
+  if (dual.kind === "denied") return { success: false, error: dual.error };
+  if (dual.kind === "pending") {
+    return {
+      success: false,
+      requiresApproval: true,
+      approvalId: dual.approvalId,
+      error:
+        "This correction needs approval from a different administrator before it is posted.",
+    };
+  }
+
   try {
     const result = await db.$transaction(async (tx) => {
       const grant = await claimStepUpGrant(tx, {
@@ -80,6 +114,16 @@ export async function reverseWithdrawal(input: {
       if (!grant.ok) throw new StepUpDeniedError(grant.error);
 
       await lockAccountForUpdate(tx, original.accountId);
+
+      if (!dual.exceptionUsed) {
+        const consumed = await consumeFinancialApproval(tx, input.approvalId!, {
+          tenantId: ctx.tenantId,
+          action: "susu.withdrawal.reverse",
+          targetId: original.id,
+          requesterId: ctx.userId,
+        });
+        if (!consumed) throw new Error("APPROVAL_INVALID");
+      }
 
       const already = await tx.withdrawal.findFirst({
         where: { reversalOfId: original.id },
@@ -160,6 +204,18 @@ export async function reverseWithdrawal(input: {
       },
     });
 
+    if (dual.exceptionUsed) {
+      await recordSingleAdministratorException({
+        tenantId: ctx.tenantId,
+        action: "susu.withdrawal.reverse",
+        targetType: "withdrawal",
+        targetId: original.id,
+        amountMinor: Math.round(Number(original.netAmount) * 100),
+        reason,
+        requesterId: ctx.userId,
+      });
+    }
+
     revalidatePath("/susu/admin/withdrawals");
     revalidatePath("/susu/admin/history");
     revalidatePath("/susu/admin");
@@ -167,6 +223,13 @@ export async function reverseWithdrawal(input: {
   } catch (error) {
     if (error instanceof StepUpDeniedError) {
       return { success: false, error: error.message };
+    }
+    if (error instanceof Error && error.message === "APPROVAL_INVALID") {
+      return {
+        success: false,
+        error:
+          "This approval expired or was already used. Ask a second administrator to approve it again.",
+      };
     }
     if (error instanceof Error && error.message === "ALREADY_REVERSED") {
       return { success: false, error: "This withdrawal has already been reversed." };
@@ -192,6 +255,7 @@ export async function reverseContribution(input: {
   contributionId: string;
   reason: string;
   stepUpToken?: string;
+  approvalId?: string;
 }): Promise<ReversalResponse> {
   const ctx = await requireTenantAdminSusu();
   const session = await getAdminSession();
@@ -221,6 +285,29 @@ export async function reverseContribution(input: {
     return { success: false, error: "This contribution has already been reversed." };
   }
 
+  const dual = await decideDualControl(
+    {
+      tenantId: ctx.tenantId,
+      action: "susu.contribution.reverse",
+      targetType: "contribution",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.amount) * 100),
+      reason,
+      requesterId: ctx.userId,
+    },
+    input.approvalId
+  );
+  if (dual.kind === "denied") return { success: false, error: dual.error };
+  if (dual.kind === "pending") {
+    return {
+      success: false,
+      requiresApproval: true,
+      approvalId: dual.approvalId,
+      error:
+        "This correction needs approval from a different administrator before it is posted.",
+    };
+  }
+
   try {
     const reversal = await db.$transaction(async (tx) => {
       const grant = await claimStepUpGrant(tx, {
@@ -235,6 +322,16 @@ export async function reverseContribution(input: {
       if (!grant.ok) throw new StepUpDeniedError(grant.error);
 
       await lockAccountForUpdate(tx, original.accountId);
+
+      if (!dual.exceptionUsed) {
+        const consumed = await consumeFinancialApproval(tx, input.approvalId!, {
+          tenantId: ctx.tenantId,
+          action: "susu.contribution.reverse",
+          targetId: original.id,
+          requesterId: ctx.userId,
+        });
+        if (!consumed) throw new Error("APPROVAL_INVALID");
+      }
 
       const already = await tx.contribution.findFirst({
         where: { reversalOfId: original.id },
@@ -279,6 +376,18 @@ export async function reverseContribution(input: {
         referenceId: reversal.referenceId,
       },
     });
+
+    if (dual.exceptionUsed) {
+      await recordSingleAdministratorException({
+        tenantId: ctx.tenantId,
+        action: "susu.contribution.reverse",
+        targetType: "contribution",
+        targetId: original.id,
+        amountMinor: Math.round(Number(original.amount) * 100),
+        reason,
+        requesterId: ctx.userId,
+      });
+    }
 
     revalidatePath("/susu/admin/contributions");
     revalidatePath("/susu/admin/history");

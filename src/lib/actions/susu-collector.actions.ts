@@ -23,6 +23,11 @@ import {
 } from "@/lib/finance/remittance";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
+import {
+  consumeFinancialApproval,
+  decideDualControl,
+  recordSingleAdministratorException,
+} from "@/lib/security/dual-control";
 
 class RemittanceConflictError extends Error {
   constructor() {
@@ -35,6 +40,9 @@ export interface ActionResponse {
   success: boolean;
   error?: string;
   data?: unknown;
+  /** Residual E: queued for approval by a different administrator. */
+  requiresApproval?: boolean;
+  approvalId?: string;
 }
 
 /** Next unused global customer identifier (see susu-customer.actions.ts). */
@@ -609,6 +617,7 @@ export async function reverseRemittance(params: {
   remittanceId: string;
   reason: string;
   stepUpToken?: string;
+  approvalId?: string;
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
   const remittanceSession = await getAdminSession();
@@ -638,6 +647,29 @@ export async function reverseRemittance(params: {
     return { success: false, error: "This remittance has already been reversed." };
   }
 
+  const dual = await decideDualControl(
+    {
+      tenantId: ctx.tenantId,
+      action: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.remittedAmount) * 100),
+      reason,
+      requesterId: ctx.userId,
+    },
+    params.approvalId
+  );
+  if (dual.kind === "denied") return { success: false, error: dual.error };
+  if (dual.kind === "pending") {
+    return {
+      success: false,
+      requiresApproval: true,
+      approvalId: dual.approvalId,
+      error:
+        "This correction needs approval from a different administrator before it is posted.",
+    };
+  }
+
   let updatedCount = 0;
   await db.$transaction(async (tx) => {
     const grant = await claimStepUpGrant(tx, {
@@ -650,6 +682,16 @@ export async function reverseRemittance(params: {
       targetId: original.id,
     });
     if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
+    if (!dual.exceptionUsed) {
+      const consumed = await consumeFinancialApproval(tx, params.approvalId!, {
+        tenantId: ctx.tenantId,
+        action: "susu.remittance.reverse",
+        targetId: original.id,
+        requesterId: ctx.userId,
+      });
+      if (!consumed) throw new Error("APPROVAL_INVALID");
+    }
     const updated = await tx.collectorRemittance.updateMany({
       where: {
         id: original.id,
@@ -669,12 +711,23 @@ export async function reverseRemittance(params: {
       updatedCount = -1;
       return;
     }
+    if (error instanceof Error && error.message === "APPROVAL_INVALID") {
+      updatedCount = -2;
+      return;
+    }
     throw error;
   });
   if (updatedCount === -1) {
     return {
       success: false,
       error: "Reauthentication expired or does not match this operation. Confirm your password again.",
+    };
+  }
+  if (updatedCount === -2) {
+    return {
+      success: false,
+      error:
+        "This approval expired or was already used. Ask a second administrator to approve it again.",
     };
   }
   if (updatedCount !== 1) {
@@ -695,6 +748,18 @@ export async function reverseRemittance(params: {
       reason,
     },
   });
+
+  if (dual.exceptionUsed) {
+    await recordSingleAdministratorException({
+      tenantId: ctx.tenantId,
+      action: "susu.remittance.reverse",
+      targetType: "remittance",
+      targetId: original.id,
+      amountMinor: Math.round(Number(original.remittedAmount) * 100),
+      reason,
+      requesterId: ctx.userId,
+    });
+  }
 
   revalidatePath("/susu/admin/remittances");
   revalidatePath("/susu/admin/collectors");

@@ -164,7 +164,11 @@ export default function SusuWithdrawalsPage() {
         stepUpToken,
       });
       if (!result.success) {
-        setReverseError(result.error || "The withdrawal could not be reversed.");
+        setReverseError(
+          result.requiresApproval
+            ? "Queued for a second administrator. The correction is posted only after a different administrator approves it in Susu → Approvals."
+            : result.error || "The withdrawal could not be reversed."
+        );
         return;
       }
       setSuccess("Withdrawal reversed. The original entry and the reversal are both in the audit trail.");

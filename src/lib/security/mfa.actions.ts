@@ -14,7 +14,7 @@ import { getClientIp } from "@/lib/security/client-ip";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { sendTransactionalEmail } from "@/lib/email/resend";
 import { RATE_LIMITS } from "@/lib/security/config";
-import { logSecurityEvent } from "@/lib/security/log";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { createAuditLog } from "@/lib/audit";
 import { issueModuleSession } from "@/lib/session-issuance";
 import {
@@ -91,6 +91,42 @@ async function mfaManagementLimited(
 ): Promise<string | null> {
   const result = await consumeRateLimit(scope, identifier, RATE_LIMITS.mfaSubject);
   return result.allowed ? null : "Too many attempts. Please wait and try again.";
+}
+
+/**
+ * Residual F: a first MFA enrolment is only accepted once the account's
+ * recovery channel is already trusted. A user must have verified their e-mail
+ * address; a platform administrator is provisioned through the owner-run
+ * bootstrap (an administrator-issued invitation) and has no separate mailbox
+ * proof. The check runs at start AND at confirm, so an account whose address
+ * was un-verified in between cannot complete enrolment.
+ */
+async function enrollmentChannelVerified(
+  subjectType: string,
+  subjectId: string
+): Promise<boolean> {
+  if (subjectType === "user") {
+    const row = await db.user.findUnique({
+      where: { id: subjectId },
+      select: { emailVerified: true, status: true },
+    });
+    return Boolean(row && row.status === "active" && row.emailVerified);
+  }
+  if (subjectType === "platform") {
+    const row = await db.platformSuperAdmin.findUnique({
+      where: { id: subjectId },
+      select: { status: true },
+    });
+    return Boolean(row && row.status === "active");
+  }
+  if (subjectType === "customer") {
+    const row = await db.customer.findUnique({
+      where: { id: subjectId },
+      select: { status: true },
+    });
+    return Boolean(row && row.status === "active");
+  }
+  return false;
 }
 
 async function notifyMfaChange(email: string | null, action: string): Promise<void> {
@@ -231,6 +267,20 @@ export async function startMfaEnrollmentAction(
     return { success: false, error: "Enrolment session expired. Please sign in again." };
   }
 
+  const limited = await mfaManagementLimited(
+    "mfa:enroll",
+    `${challenge.subjectType}:${challenge.subjectId}`
+  );
+  if (limited) return { success: false, error: limited };
+
+  if (!(await enrollmentChannelVerified(challenge.subjectType, challenge.subjectId))) {
+    return {
+      success: false,
+      error:
+        "Verify your e-mail address before enrolling multi-factor authentication.",
+    };
+  }
+
   const enrollment = await beginMfaEnrollment({
     subjectType: challenge.subjectType,
     subjectId: challenge.subjectId,
@@ -253,6 +303,20 @@ export async function confirmMfaEnrollmentAction(
   );
   if (!challenge || challenge.mode !== "enroll") {
     return { success: false, error: "Enrolment session expired. Please sign in again." };
+  }
+
+  const limited = await mfaManagementLimited(
+    "mfa:confirm",
+    `${challenge.subjectType}:${challenge.subjectId}`
+  );
+  if (limited) return { success: false, error: limited };
+
+  if (!(await enrollmentChannelVerified(challenge.subjectType, challenge.subjectId))) {
+    return {
+      success: false,
+      error:
+        "Verify your e-mail address before enrolling multi-factor authentication.",
+    };
   }
 
   const code = String(formData.get("code") ?? "").trim();
@@ -367,7 +431,7 @@ export async function verifyMfaLoginAction(
     code,
   });
   if (!verification.ok) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "mfa.login_verify_failed",
       outcome: "failure",
       actorType: challenge.subjectType === "platform" ? "platform_admin" : "user",

@@ -3,10 +3,10 @@
  * one not, plus a platform operator. Credentials are test-only and are never
  * used outside tests/e2e.db.
  */
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../src/lib/prisma-client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   const passwordHash = await bcrypt.hash("E2ePass123!", 10);

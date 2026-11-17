@@ -1,7 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../src/lib/prisma-client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 // Well-known tenant code for the pre-existing BIK Prestige Enterprise tenant.
 // Deliberately deterministic so the seed and the production backfill script

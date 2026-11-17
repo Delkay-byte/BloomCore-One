@@ -29,7 +29,7 @@ import {
   cooldownMessage,
   GENERIC_LOGIN_ERROR,
 } from "@/lib/security/auth-guard";
-import { logSecurityEvent } from "@/lib/security/log";
+import { recordSecurityEvent } from "@/lib/security/events";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { beginMfaStepIfRequired } from "@/lib/security/mfa-login";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
@@ -403,7 +403,7 @@ async function platformSensitiveAllowed(
     RATE_LIMITS.adminSensitive
   );
   if (!result.allowed) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "platform.sensitive_rate_limited",
       outcome: "blocked",
       actorType: "platform_admin",

@@ -9,7 +9,7 @@ import {
   verifyTotp,
   verifyTotpStep,
 } from "./totp";
-import { logSecurityEvent } from "./log";
+import { recordSecurityEvent } from "./events";
 
 /**
  * TOTP multi-factor authentication for platform operators and tenant
@@ -273,7 +273,7 @@ export async function confirmMfaEnrollment(params: {
   const secret = decryptSecret(row.mfaSecret);
   if (!secret) return null;
   if (!verifyTotp(secret, params.code)) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "mfa.enrollment_failed",
       outcome: "failure",
       actorType:
@@ -296,7 +296,7 @@ export async function confirmMfaEnrollment(params: {
     mfaPendingSecretAt: null,
   });
 
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "mfa.enrolled",
     outcome: "success",
     actorType: actorTypeFor(params.subjectType),
@@ -360,7 +360,7 @@ export async function verifyMfaCode(params: {
   if (step !== null) {
     const claimed = await claimTotpStep(params.subjectType, params.subjectId, step, now);
     if (!claimed) {
-      logSecurityEvent({
+      recordSecurityEvent({
         event: "mfa.totp_replay_rejected",
         outcome: "blocked",
         actorType: actorTypeFor(params.subjectType),
@@ -384,7 +384,7 @@ export async function verifyMfaCode(params: {
     now
   );
   if (!consumed) {
-    logSecurityEvent({
+    recordSecurityEvent({
       event: "mfa.verify_failed",
       outcome: "failure",
       actorType:
@@ -402,7 +402,7 @@ export async function verifyMfaCode(params: {
   await updateSubject(params.subjectType, params.subjectId, {
     mfaLastUsedAt: new Date(now),
   });
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "mfa.recovery_code_used",
     outcome: "success",
     actorType: actorTypeFor(params.subjectType),
@@ -445,7 +445,7 @@ export async function disableMfa(params: {
       await tx.user.update({ where: { id: params.subjectId }, data: cleared });
     }
   });
-  logSecurityEvent({
+  recordSecurityEvent({
     event: "mfa.disabled",
     outcome: "success",
     actorType: actorTypeFor(params.subjectType),
