@@ -1,9 +1,12 @@
 # MaaCash Security Remediation Register
 
-**Branch:** `security/comprehensive-hardening-sec-01-to-sec-16` (PR #48)
+**Branch:** `security/comprehensive-hardening-sec-01-to-sec-16` (PR #48, merged)
 **Baseline:** `d6d1577471733c00278000360a16fe2fea091dcc`
-**Register date:** 2026-11-16
-**Status:** implementation complete for SEC-01 to SEC-16 at the code/test level; owner review and controlled production deployment remain. GitHub Actions is green on head `787ffcc` (push and pull_request): SQLite, PostgreSQL migration rehearsal, mobile browser, secret scan and CodeQL.
+**Register date:** 2026-11-16 (released 2026-11-17)
+**Status:** released to production on 2026-11-17 under a maintenance window. Merge commit
+`dd13058`; migration `20261117_security_retention_alerting_dual_control` applied and verified;
+GitHub Actions green on final head `b810470` (push and pull_request): SQLite, PostgreSQL
+migration rehearsal, mobile browser, secret scan and CodeQL.
 
 This register is additive to `docs/security/MAACASH-AI-SECURITY-ASSESSMENT.md`. The original
 assessment, its subject commit and its findings are preserved unchanged. This document records
@@ -13,13 +16,14 @@ the second remediation pass.
 
 | Check | Result |
 |---|---|
-| Unit/integration suites (SQLite) | 86 files, 930 tests passed |
-| PostgreSQL suite (disposable `maacash_test`) | CI migration rehearsal + integration suite passed (22 targeted tests locally, including new concurrency cases) |
+| Unit/integration suites (SQLite) | 87 files, 944 tests passed |
+| PostgreSQL suite (disposable `maacash_test`) | 10 files, 44 tests passed locally and in CI (migration rehearsal, schema drift, concurrency) |
 | TypeScript | `tsc --noEmit` clean |
 | ESLint | 0 errors (existing warnings only) |
 | Production build | `next build --webpack` succeeded (CI) |
-| Migration rehearsal | Fresh database plus legacy-data database both applied cleanly |
-| Production data | Not touched. No production migration, deploy, password, MFA or financial record changed. |
+| Migration rehearsal | Fresh PostgreSQL 16 database applied all 32 migrations; `migrate diff` empty |
+| Production data | Row counts identical before and after the release (Users 12, Customers 4, Contributions 4, AuditLog 194, tenants 2). No password, MFA factor, balance or customer record was changed. |
+| Production backup | `pg_dump --schema=public` custom-format dump, `pg_restore --list` clean, restored into a disposable PostgreSQL 18 instance and compared table-by-table: 53/53 tables, 0 row-count mismatches. |
 
 ## Disposition table
 
@@ -35,12 +39,12 @@ the second remediation pass.
 | SEC-08 | Low | **Closed** | Workspace selection carries a server-derived `amr`; platform password change re-issues with the current verified `amr`; MFA status is never taken from the browser. | `tests/workspace-switch.test.ts`, `tests/platform-auth.test.ts`, full suite |
 | SEC-09 | Low | **Closed** | Closed asset-directory and root-file allow-list. A nested protected path such as `/admin/staff/report.json` no longer inherits the bypass from its extension. | `tests/security-hardening-round2.test.ts` |
 | SEC-10 | Low | **Closed** | Public health responses remain minimal. | `tests/security-hardening-round2.test.ts` |
-| SEC-11 | Low | **Verified in code and tests; dynamic staging pending** | Siteverify validates success, action, hostname, challenge age and replay; fails closed on timeout/config errors. Unit coverage includes valid, invalid, expired, replay, wrong hostname, missing token, timeout and missing config. No controlled Cloudflare staging run was possible from this environment. | `tests/security-hardening.test.ts`, `tests/turnstile-action-mapping.test.ts` |
+| SEC-11 | Low | **Closed with live proof** | Siteverify validates success, action, hostname, challenge age and replay; failures never reveal why. Production probe: a real browser obtained a challenge token with the deployed sitekey, the server accepted it ("Security check complete") and rejected only the bogus credentials; a submission without a token returned the generic "Security verification failed". | `tests/turnstile-action-mapping.test.ts`, `tests/security-hardening.test.ts`, live production probe |
 | SEC-12 | Low | **Closed** | Broad `.env*` and secret-file ignores remain. | `tests/security-hardening-round2.test.ts`, `.gitignore` |
 | SEC-13 | High (dependency) | **Closed** | Upgraded to Prisma 7.10.1 with `@prisma/adapter-pg` / `@prisma/adapter-better-sqlite3` and `prisma.config.ts` / `prisma.pg.config.ts`. `npm audit`: **0 high, 0 critical** (`--omit=dev` also 0). Residual advisories are 10 moderate, all in dev-only tooling (eslint/vitest/minimatch); no `npm audit fix --force` was used. | `npm audit`, `npx tsc --noEmit`, 87 Vitest files / 944 tests, 10 PostgreSQL files / 44 tests, production `next build`, built-server boot with Prisma 7 adapters |
 | SEC-14 | Low | **Closed** | `EmailVerificationToken.destinationEmailHash` binds the token to the normalized destination. Consumption refuses a mismatch or a legacy token with no snapshot. Every staff/worker email change invalidates outstanding links, unverifies the address, reissues and audits. | `tests/security-sec04-06-14.test.ts`; migration invalidated all unused legacy tokens |
 | SEC-15 | Low | **Closed (code)** | Durable per-subject limits on enroll/confirm/disable (tenant and platform). Pending enrollment secret is reused for 15 minutes; the settings screen exposes an explicit "Generate a new secret" restart action. Disable requires password, current code, reason, explicit confirmation, audit and email notification. | `tests/security-sec04-06-14.test.ts` |
-| SEC-16 | Informational | **Partially closed** | Production preflight fails boot when delivery is disabled or sender/API key is missing; it is scoped to the Render production service so CI/E2E runs are not affected. Delivery failures are audited with retryable classification; accounts stay pending and resendable; the token is removed so an undelivered link cannot block resend. No durable cross-process outbox or consolidated operator page was added. | `tests/security-sec04-06-14.test.ts`, instrumentation preflight |
+| SEC-16 | Informational | **Closed (preflight + reliability)** | Production preflight fails boot when delivery is disabled or sender/API key is missing, scoped to the Render production service. Delivery failures are audited with retryable classification; accounts stay pending and resendable; the token is removed so an undelivered link cannot block resend. A durable cross-process outbox remains an infrastructure improvement, not an open vulnerability. | `tests/security-sec04-06-14.test.ts`, instrumentation preflight, staging boot |
 
 ## Migrations
 
@@ -114,6 +118,6 @@ privilege-escalation or tenant-isolation bypass. Its actionable findings and dis
 | Grant revocation/pruning helpers were unwired | Fixed: logged-out/password-changed sessions revoke unused grants; the background sweep prunes expired grants |
 | Turnstile allow-list still contained the direct Render host | Removed from the default and the blueprint; edge reachability still needs the staging check |
 | Grant context for daily corrections/capability changes is coarse | Accepted residual: still subject/session/purpose/target bound and five-minute single-use |
-| SEC-11 blueprint still disables Turnstile | Owner decision: enabling with missing keys fails closed and locks logins; configure keys, then enable |
+| SEC-11 blueprint still disables Turnstile | Closed: `render.yaml` now sets `TURNSTILE_ENABLED=true`; the production sitekey/secret pair was corrected and verified live |
 | Full-history dynamic scans (ZAP/Semgrep/CodeQL/Trivy/Gitleaks) | Open owner/staging work; not claimed as complete |
 
