@@ -33,4 +33,13 @@ export const db: PrismaClient = new Proxy({} as PrismaClient, {
   has(_target, property) {
     return Reflect.has(client(), property);
   },
+  defineProperty(_target, property, descriptor) {
+    return Reflect.defineProperty(client(), property, descriptor);
+  },
+  getOwnPropertyDescriptor(_target, property) {
+    return Reflect.getOwnPropertyDescriptor(client(), property);
+  },
+  ownKeys() {
+    return Reflect.ownKeys(client());
+  },
 });
