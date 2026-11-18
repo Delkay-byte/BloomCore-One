@@ -452,11 +452,15 @@ export async function middleware(request: NextRequest) {
     if (legacy && claimsMatchModule(legacy, pathModule)) claims = legacy;
   }
 
+  // Administrators sign in at the dedicated administrator login. Sending them
+  // to the shared staff login would reject them there by design.
+  const signInPath = pathModule === "admin" ? "/admin/login" : "/login";
+
   if (!claims || !claimsMatchModule(claims, pathModule)) {
-    return redirectTo("/login");
+    return redirectTo(signInPath);
   }
   if (missingMfa(claims)) {
-    return redirectTo("/login?reason=mfa_required");
+    return redirectTo(`${signInPath}?reason=mfa_required`);
   }
 
   // First-login mandatory password change: only the standalone screen (and

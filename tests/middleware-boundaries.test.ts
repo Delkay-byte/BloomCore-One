@@ -84,6 +84,40 @@ describe("Anonymous access to protected pages", () => {
   });
 });
 
+describe("Sign-in destinations for denied requests", () => {
+  it("sends a denied administrator to the administrator login, not the staff login", async () => {
+    for (const page of ["/admin/dashboard", "/admin/workers", "/susu/admin/momo"]) {
+      const res = await middleware(request(page));
+      expect(res.status).toBe(307);
+      expect(location(res)).toBe("http://localhost:3000/admin/login");
+    }
+  });
+
+  it("keeps staff and customer logins unchanged", async () => {
+    expect(location(await middleware(request("/worker/dashboard")))).toContain("/login");
+    expect(location(await middleware(request("/collector/dashboard")))).toContain("/login");
+    expect(location(await middleware(request("/customer/dashboard")))).toContain("/login?role=customer");
+  });
+
+  it("sends an administrator with a mismatched cookie to the administrator login", async () => {
+    const workerToken = await createToken({
+      userId: "worker-1",
+      email: "worker@example.com",
+      role: "worker",
+      modules: ["momo"],
+      module: "momo",
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      lastActivityAt: Math.floor(Date.now() / 1000),
+    } as never);
+    const res = await middleware(
+      request("/admin/dashboard", { "bik-admin-session": workerToken })
+    );
+    expect(res.status).toBe(307);
+    expect(location(res)).toBe("http://localhost:3000/admin/login");
+  });
+});
+
 describe("Forged cookies", () => {
   it("rejects a tampered tenant cookie on a tenant route", async () => {
     const res = await middleware(
