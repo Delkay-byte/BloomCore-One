@@ -76,8 +76,19 @@ function entitledModules(tenant: {
   return out;
 }
 
-/** Tenant statuses that permit tenant operations. */
-const OPERABLE_STATUSES = new Set(["ACTIVE"]);
+/**
+ * Tenant statuses that may open the workspace at all.
+ *
+ * A newly provisioned business is created in PENDING_PAYMENT, so it must be able
+ * to resolve a context for its owner to reach billing. This does NOT grant money
+ * operations: paid actions are blocked by enforcePaidOperations() and package
+ * limits by checkPackageLimit(), which read the subscription state rather than
+ * the tenant status. Suspension still blocks every tenant operation.
+ */
+const OPERABLE_STATUSES = new Set(["ACTIVE", "PENDING_PAYMENT"]);
+
+/** Customer portal statuses: a suspended business's portal stays closed. */
+const CUSTOMER_OPERABLE_STATUSES = new Set(["ACTIVE"]);
 
 /**
  * Resolve the tenant context for a staff module session.
@@ -212,7 +223,7 @@ async function resolveCustomerTenant(tenantId: string, customerId: string): Prom
       susuEnabled: true,
     },
   });
-  if (!tenant || !OPERABLE_STATUSES.has(tenant.status)) return null;
+  if (!tenant || !CUSTOMER_OPERABLE_STATUSES.has(tenant.status)) return null;
   // The customer portal is a Susu feature.
   if (!tenant.susuEnabled) return null;
 
@@ -249,8 +260,15 @@ export async function requireTenantContext(
   if (!ctx) {
     // Never clear another tab's session. The server-side record for this tab
     // is either absent, expired or revoked; the login page will establish a
-    // fresh one without touching other tabs.
-    redirect("/login?reason=tenant_unavailable");
+    // fresh one without touching other tabs. Administrators must return to
+    // the private administrator login, never the shared staff login.
+    const loginPath =
+      module === "admin"
+        ? "/admin/login"
+        : module === "customer"
+          ? "/login?role=customer"
+          : "/login";
+    redirect(`${loginPath}${loginPath.includes("?") ? "&" : "?"}reason=tenant_unavailable`);
   }
   return ctx;
 }

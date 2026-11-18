@@ -124,6 +124,55 @@ describe("email verification", () => {
     expect(result.signInPath).toBe("/admin/login");
   });
 
+  it("sends a newly provisioned owner to billing instead of the dashboard", async () => {
+    const tenant = await prisma.businessTenant.create({
+      data: {
+        code: "BT-PENDING1",
+        name: "Pending Business",
+        momoEnabled: true,
+        susuEnabled: true,
+        status: "PENDING_PAYMENT",
+        onboardingStatus: "COMPLETED",
+      },
+    });
+    const plan = await prisma.zeliPlan.create({
+      data: {
+        code: "starter-pending",
+        name: "Starter",
+        billingInterval: "month",
+        price: 99,
+        status: "active",
+        isPublic: true,
+      },
+    });
+    const admin = await makeUser({
+      email: "pending.owner@example.com",
+      role: "admin",
+      tenantId: tenant.id,
+    });
+    await prisma.zeliSubscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: "pending_payment",
+        provider: "paystack",
+        providerReference: "PENDING-LOGIN-1",
+        amount: 99,
+        currency: "GHS",
+        billingTerm: "monthly",
+        standardAmount: 99,
+      },
+    });
+
+    const form = new FormData();
+    form.set("email", admin.email);
+    form.set("password", OLD_PASSWORD);
+    const login = await adminLogin(form);
+    expect(login?.success).toBe(true);
+    expect(login?.sessionToken).toBeTruthy();
+    expect(login?.redirectTo).toBe("/admin/billing?payment=required");
+  });
+
   it("returns an administrator to the private administrator login after the upgrade", async () => {
     const admin = await makeUser({ email: "admin@example.com", role: "admin", forcePasswordReset: true });
     const form = new FormData();

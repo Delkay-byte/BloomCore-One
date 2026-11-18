@@ -1289,12 +1289,38 @@ export async function adminLogin(
   });
   await auditWorkspace("admin", user.id);
 
+  // A newly provisioned business opens in pending payment. Its owner must be
+  // able to reach billing immediately, and must not be dropped into a workspace
+  // that cannot yet perform paid operations.
+  let redirectTo = payload.forcePasswordReset
+    ? "/admin/first-login"
+    : "/admin/dashboard";
+  if (!payload.forcePasswordReset && user.tenantId) {
+    const [active, awaitingPayment] = await Promise.all([
+      db.zeliSubscription.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          status: { in: ["active", "grace_period"] },
+        },
+        select: { id: true },
+      }),
+      db.zeliSubscription.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          status: { in: ["pending_payment", "pending"] },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!active && awaitingPayment) {
+      redirectTo = "/admin/billing?payment=required";
+    }
+  }
+
   return {
     success: true,
     sessionToken: token,
-    redirectTo: payload.forcePasswordReset
-      ? "/admin/first-login"
-      : "/admin/dashboard",
+    redirectTo,
   };
 }
 
