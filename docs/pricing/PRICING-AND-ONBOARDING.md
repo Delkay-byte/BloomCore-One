@@ -96,6 +96,34 @@ debits. The MaaCash webhook endpoint is
 `https://maacash.bloomcoretech.com/api/payments/paystack/webhook`; the SchemeKnit webhook is
 untouched and must not be replaced.
 
+## Local live-payment test (developer machine only)
+
+A live `sk_live_` key on a developer machine would move real money, so it is
+refused unless the owner opts in deliberately. `src/lib/payments/local-live-test.ts`
+is the single decision point, and it is evaluated again immediately before a
+provider charge is created.
+
+| Condition | Variable / evidence |
+|---|---|
+| Explicit opt-in | `PAYSTACK_LOCAL_LIVE_TEST=true` |
+| Development process | `NODE_ENV=development` (`next dev`, not `next start`) |
+| Hosted deployment refused | `RENDER`, `VERCEL`, `FLY_APP_NAME`, `RAILWAY_ENVIRONMENT`, `DYNO` |
+| Loopback origin | request origin or `SITE_URL` is `localhost` / `127.0.0.1` / `[::1]` |
+| Isolated database | `DATABASE_URL` is a `file:` SQLite path or PostgreSQL on loopback |
+| Live key | key prefix `sk_live_` (the only mode authority) |
+| Payments enabled, GHS | `PAYSTACK_ENABLED=true`, `PAYSTACK_CURRENCY=GHS` |
+| Designated synthetic tenant | `PAYSTACK_LOCAL_TEST_TENANT` matches the tenant id or code |
+
+A refusal happens before any provider call and before a payable row is stored.
+The flag never bypasses authentication, MFA, billing-role checks, subscription
+rules or payment verification, and it must never be set in Render.
+
+`scripts/live-test-tenant.mjs` creates the one synthetic tenant
+(`LOCAL-LIVE-01`, owner `livetest@demo.local`) in the local SQLite database. A
+live charge from localhost still delivers its webhook to the registered
+production endpoint; the production handler acknowledges an unknown reference
+with HTTP 200, records a sanitized ledger row and changes nothing.
+
 ## Safety rules honoured here
 
 No public self-registration route, no automatic tenant creation, no live charge in tests, no

@@ -1,4 +1,10 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import {
+  evaluateLocalLiveTest,
+  hostedDeployment,
+  localLiveTestEnvironment,
+  requiresLocalLiveGuard,
+} from "@/lib/payments/local-live-test";
 
 /**
  * Paystack payment adapter.
@@ -41,18 +47,68 @@ export function paystackKeyMode(): "live" | "test" | "unknown" {
 
 /**
  * Checkout is only offered when the environment can legally take the payment.
- * Production must use a live key: a test key in production would either fail
- * or take a real order without settling money, so checkout stays closed with
- * an honest message until the owner configures the live key.
+ *
+ *   * A test key is safe anywhere and is used for local previews.
+ *   * A live key in production is normal commerce.
+ *   * A live key anywhere else moves real money from a developer machine, so it
+ *     requires the explicit `PAYSTACK_LOCAL_LIVE_TEST=true` opt-in plus a
+ *     development process. The per-request guard (origin, database, tenant)
+ *     is enforced again when a charge is actually started.
+ *   * An unrecognised prefix is never offered: we do not guess about money.
  */
 export function paystackReadyForCheckout(): boolean {
   if (!paystackConfigured()) return false;
-  if (process.env.NODE_ENV !== "production") return true;
-  if (paystackKeyMode() === "live") return true;
-  // A production bundle (next start) still allows an explicit local preview of
-  // the checkout with test keys. Test keys cannot move real money, and the
-  // default remains closed.
-  return process.env.PAYSTACK_MODE === "test" && paystackKeyMode() === "test";
+  const mode = paystackKeyMode();
+  if (mode === "test") {
+    // A production bundle still allows an explicit test-key preview. Test keys
+    // cannot move real money, and the default remains closed.
+    return process.env.NODE_ENV !== "production" || process.env.PAYSTACK_MODE === "test";
+  }
+  if (mode !== "live") return false;
+  if (!requiresLocalLiveGuard(process.env.SITE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? null)) {
+    // Hosted production, or a production build served on a real origin: the
+    // live key works exactly as it always has.
+    return true;
+  }
+  return isLocalLiveProcess();
+}
+
+/** The owner's opt-in, as read by the checkout gate (no request context). */
+function isLocalLiveProcess(): boolean {
+  return (
+    (process.env.PAYSTACK_LOCAL_LIVE_TEST ?? "").trim().toLowerCase() === "true" &&
+    process.env.NODE_ENV === "development"
+  );
+}
+
+/**
+ * Full per-request guard for a genuine live charge.
+ *
+ * Called immediately before a provider charge is created. Throws a
+ * `PaystackError` with a sanitized code when the environment is not the
+ * explicitly designated local test setup.
+ */
+export function assertLiveChargePermitted(input: {
+  origin: string | null;
+  tenantId: string;
+  tenantCode: string | null;
+}): void {
+  if (paystackKeyMode() !== "live") return;
+  if (!requiresLocalLiveGuard(input.origin)) return;
+  const decision = evaluateLocalLiveTest(
+    localLiveTestEnvironment({
+      keyMode: paystackKeyMode(),
+      origin: input.origin,
+      tenantId: input.tenantId,
+      tenantCode: input.tenantCode,
+    })
+  );
+  if (!decision.allowed) {
+    throw new PaystackError(
+      "Live payments are only enabled for the designated local test tenant.",
+      `live_test_blocked:${decision.reasons.join(",")}`
+    );
+  }
 }
 
 function secretKey(): string {

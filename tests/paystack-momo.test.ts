@@ -303,6 +303,37 @@ describe("mobile money charge initiation", () => {
   });
 });
 
+describe("local live-payment guard", () => {
+  it("refuses a live key outside an explicitly designated local test setup", async () => {
+    await seedPlan();
+    const ctx = await contextFor();
+    const calls = mockPaystack({ charge: { status: "pay_offline" } });
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "sk_live_local_guard_example");
+    vi.stubEnv("SITE_URL", "http://localhost:3100");
+    vi.stubEnv("DATABASE_URL", "file:./tests-local.db");
+    vi.stubEnv("PAYSTACK_LOCAL_LIVE_TEST", "true");
+    vi.stubEnv("PAYSTACK_ENABLED", "true");
+    vi.stubEnv("PAYSTACK_CURRENCY", "GHS");
+    // A development process is required for the local live mode to be usable
+    // at all, so the deeper guard is what refuses this attempt: the tenant is
+    // not the designated one.
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("PAYSTACK_LOCAL_TEST_TENANT", "SOMEONE-ELSE");
+
+    await expect(
+      startZeliMobileMoneyCharge(ctx, "zeli-monthly", {
+        phone: "0551234987",
+        provider: "mtn",
+      })
+    ).rejects.toThrow(/not enabled for this workspace/i);
+
+    // The guard runs before the provider is contacted and before a payable
+    // intent is stored, so nothing can be charged by a later retry.
+    expect(calls).toHaveLength(0);
+    expect(await prisma.zeliSubscription.count()).toBe(0);
+  });
+});
+
 describe("mobile money settlement", () => {
   it("keeps a charge pending until the provider confirms success", async () => {
     await seedPlan();
@@ -454,5 +485,48 @@ describe("webhook handling for mobile money", () => {
     const result = await handlePaystackWebhook(raw, legacySignature(raw));
     expect(result.status).toBe(200);
     expect(result.decision).toBe("ignored");
+  });
+
+  /**
+   * A live charge started from a developer machine delivers its webhook to the
+   * registered production endpoint, which has no subscription for that
+   * reference. That event must be acknowledged and discarded: no tenant, no
+   * entitlement, no financial record, no retry loop.
+   */
+  it("safely discards a local live-test reference delivered to production", async () => {
+    await seedPlan();
+    await contextFor();
+    const before = {
+      tenants: await prisma.businessTenant.count(),
+      subscriptions: await prisma.zeliSubscription.count(),
+      entitlements: await prisma.zeliEntitlement.count(),
+      events: await prisma.zeliPaymentEvent.count(),
+    };
+    const reference = "ZELIM-locallive-7f3a91c2";
+    const raw = JSON.stringify({
+      event: "charge.success",
+      data: {
+        id: 55601,
+        reference,
+        amount: 9900,
+        currency: "GHS",
+        status: "success",
+        metadata: JSON.stringify({ plan_code: "starter", channel: "mobile_money" }),
+      },
+    });
+
+    const result = await handlePaystackWebhook(raw, null, signatureHeader(raw));
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+    expect(result.decision).toBe("ignored");
+
+    expect(await prisma.businessTenant.count()).toBe(before.tenants);
+    expect(await prisma.zeliSubscription.count()).toBe(before.subscriptions);
+    expect(await prisma.zeliEntitlement.count()).toBe(before.entitlements);
+    const event = await prisma.zeliPaymentEvent.findFirst({ where: { reference } });
+    expect(event?.decision).toBe("ignored");
+    expect(event?.reason).toBe("unknown_reference");
+    expect(event?.tenantId).toBeNull();
+    expect(event?.subscriptionId).toBeNull();
   });
 });

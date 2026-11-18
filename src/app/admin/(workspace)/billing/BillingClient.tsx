@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +29,13 @@ const PROVIDERS = [
 
 type Provider = (typeof PROVIDERS)[number]["value"];
 type Plan = BillingOverview["availablePlans"][number];
+
+/** Never show a full wallet number back to the customer: keep a verifiable tail. */
+function maskPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 6) return null;
+  return `${digits.slice(0, 3)} ${"•".repeat(Math.max(0, digits.length - 5))}${digits.slice(-2)}`;
+}
 
 function money(value: number | null, currency = "GHS") {
   if (value == null) return "—";
@@ -158,6 +165,46 @@ export default function BillingClient({
       setBusy(false);
     }
   }
+
+  // Bounded verification after a mobile money prompt. Paystack allows the
+  // customer up to 180 seconds to authorise, so the page checks a few times
+  // with a growing delay instead of hammering the provider. The owner can also
+  // check manually at any time.
+  useEffect(() => {
+    if (!reference) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const delays = [10, 20, 30, 30, 30, 30, 30];
+    let attempt = 0;
+
+    const schedule = () => {
+      if (cancelled || attempt >= delays.length) return;
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        const result = await checkBillingPaymentAction(reference).catch(() => null);
+        if (cancelled) return;
+        if (result?.status === "success") {
+          setNotice(result.message);
+          setReference(null);
+          router.refresh();
+          return;
+        }
+        if (result?.status === "failed") {
+          setError("That payment was not completed. No money was taken.");
+          setReference(null);
+          return;
+        }
+        if (result?.message) setNotice(result.message);
+        attempt += 1;
+        schedule();
+      }, delays[attempt] * 1000);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [reference, router]);
 
   async function pay(method: "hosted" | "mobile_money") {
     if (!pendingSubscriptionId) {
@@ -525,10 +572,30 @@ export default function BillingClient({
       {showPay && !manageable && (
         <section className="card bg-white p-5">
           <h2 className="text-base font-semibold text-slate-900">Pay for {selectedPlan?.name ?? overview.plan?.name}</h2>
+          <p className="mt-1 text-sm text-slate-700">
+            Amount due: <strong>{money(amountDue)}</strong>
+            {overview.billingTerm === "annual" ? " for one year" : " for one month"}
+            {overview.payableReference && (
+              <>
+                {" · "}Reference <span className="font-mono text-xs">{overview.payableReference}</span>
+              </>
+            )}
+          </p>
           <p className="mt-1 text-sm text-slate-600">
             Pay with Ghana mobile money or a card. Access is activated only after MaaCash verifies the
             payment with the provider — never from a screenshot or a browser message.
           </p>
+
+          {overview.providerReady && overview.providerMode === "live" && overview.localLiveTest && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">Live payment — real money</p>
+              <p className="mt-1">
+                This workspace holds a live Paystack key in a local test process. You will be charged
+                the amount shown below in Ghana cedis on your mobile money wallet. MaaCash activates
+                access only after the provider confirms the payment.
+              </p>
+            </div>
+          )}
 
           {overview.providerReady && overview.providerMode === "test" && (
             <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
@@ -572,6 +639,13 @@ export default function BillingClient({
                     onChange={(event) => setPhone(event.target.value)}
                   />
                 </label>
+                <p className="text-xs text-slate-600">
+                  {maskPhone(phone)
+                    ? `You are about to authorise ${money(amountDue)} on ${
+                        PROVIDERS.find((option) => option.value === provider)?.label
+                      } for ${maskPhone(phone)}.`
+                    : "Enter the mobile money number that will receive the payment prompt."}
+                </p>
                 <button
                   type="button"
                   className="btn btn-primary w-full"

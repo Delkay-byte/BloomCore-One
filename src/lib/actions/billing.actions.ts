@@ -80,6 +80,10 @@ export interface BillingOverview {
   zeli: Awaited<ReturnType<typeof zeliUsageSummary>>;
   history: BillingHistoryRow[];
   providerReady: boolean;
+  /** A live key is being used from a local, explicitly opted-in process. */
+  localLiveTest: boolean;
+  /** Reference of the pending payment the owner is about to authorise. */
+  payableReference: string | null;
   /** Which key the server is using, so the UI can label test mode honestly. */
   providerMode: "live" | "test" | "unknown";
   providerConfigured: boolean;
@@ -219,6 +223,11 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     // payment: a configured key, and a live key once in production.
     providerReady: paystackReadyForCheckout(),
     providerMode: paystackKeyMode(),
+    localLiveTest:
+      paystackKeyMode() === "live" &&
+      process.env.PAYSTACK_LOCAL_LIVE_TEST === "true" &&
+      process.env.NODE_ENV === "development",
+    payableReference: payable?.providerReference ?? null,
     providerConfigured: paystackConfigured(),
     availablePlans: plans.map((row) => ({
       ...row,

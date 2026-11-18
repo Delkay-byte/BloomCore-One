@@ -2,6 +2,7 @@ import { randomBytes, createHash } from "crypto";
 import { db } from "@/lib/db";
 import type { TenantContext } from "@/lib/tenant";
 import {
+  assertLiveChargePermitted,
   chargeMobileMoney,
   initializeTransaction,
   paystackReadyForCheckout,
@@ -18,6 +19,7 @@ import { getZeliEntitlement } from "@/lib/zeli/entitlements";
 import { assertZeliAvailable } from "@/lib/zeli/availability";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { effectiveMonthlyPrice, consumeFoundingPeriod } from "@/lib/pricing/founding";
+import { logSecurityEvent } from "@/lib/security/log";
 
 /**
  * Zeli subscription lifecycle.
@@ -101,6 +103,63 @@ function baseUrl(): string {
     return url.origin;
   } catch {
     throw new SubscriptionError("Application URL is not valid.", "missing_app_url");
+  }
+}
+
+/**
+ * Origin of the request currently being served, for the local live-payment
+ * guard. Returns null outside a request (tests, background jobs), where the
+ * configured SITE_URL is used instead.
+ */
+async function requestOrigin(): Promise<string | null> {
+  try {
+    const { headers } = await import("next/headers");
+    const headerBag = await headers();
+    const origin = headerBag.get("origin");
+    if (origin) return origin;
+    const host = headerBag.get("x-forwarded-host") ?? headerBag.get("host");
+    if (!host) return null;
+    const proto =
+      headerBag.get("x-forwarded-proto") ??
+      (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) ? "http" : "https");
+    return `${proto}://${host}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuse a genuine live charge unless this process is the designated local
+ * test setup. A test key is unaffected, and a hosted deployment keeps its
+ * normal behaviour. No secret is ever logged: only sanitized reason codes.
+ */
+async function assertLiveChargeEnvironment(input: {
+  userId: string;
+  tenantId: string;
+  tenantCode: string | null;
+}): Promise<void> {
+  try {
+    assertLiveChargePermitted({
+      origin: await requestOrigin(),
+      tenantId: input.tenantId,
+      tenantCode: input.tenantCode,
+    });
+  } catch (error) {
+    if (error instanceof PaystackError) {
+      logSecurityEvent({
+        event: "payment.live_test_blocked",
+        outcome: "blocked",
+        actorType: "user",
+        actorId: input.userId,
+        tenantId: input.tenantId,
+        reason: error.code.slice(0, 120),
+      });
+      throw new SubscriptionError(
+        "Live payments are not enabled for this workspace in this environment.",
+        "live_test_blocked"
+      );
+    }
+    throw error;
   }
 }
 
@@ -226,6 +285,15 @@ async function preparePendingSubscription(
   if (!email) {
     throw new SubscriptionError("A billing contact email is required.", "missing_email");
   }
+
+  // A live key may only be used here when this is the designated local test
+  // setup. Checked before any pending row is created, so a blocked attempt
+  // leaves no payable intent behind.
+  await assertLiveChargeEnvironment({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    tenantCode: tenant?.code ?? null,
+  });
 
   // Reference prefix records the flow, so the webhook can require provider
   // verification for direct mobile money charges. References are ours.
@@ -385,6 +453,15 @@ export async function payProvisionedSubscription(
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new SubscriptionError("A billing contact email is required.", "missing_email");
   }
+  const tenant = await db.businessTenant.findUnique({
+    where: { id: ctx.tenantId },
+    select: { code: true },
+  });
+  await assertLiveChargeEnvironment({
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    tenantCode: tenant?.code ?? null,
+  });
   const amount = Number(subscription.amount);
 
   if (input.method === "hosted") {
