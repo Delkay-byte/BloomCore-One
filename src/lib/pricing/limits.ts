@@ -14,14 +14,31 @@ export interface PackageLimitResult {
   limit: number | null;
   current: number;
   used: number;
-  reason?: "limit_reached" | "subscription_suspended";
+  reason?: "limit_reached" | "subscription_suspended" | "payment_required";
   message?: string;
 }
 
 export async function packageLimitFor(
   tenantId: string,
   kind: PackageLimitKind
-): Promise<{ limit: number | null; current: number; suspended: boolean }> {
+): Promise<{
+  limit: number | null;
+  current: number;
+  suspended: boolean;
+  pendingPayment?: boolean;
+}> {
+  const awaitingPayment = await db.zeliSubscription.findFirst({
+    where: { tenantId, status: { in: ["pending_payment", "pending"] } },
+    select: { id: true },
+  });
+  if (awaitingPayment) {
+    const current =
+      kind === "locations"
+        ? await db.location.count({ where: { tenantId, status: "active" } })
+        : await db.user.count({ where: { tenantId, role: "worker", status: "active" } });
+    return { limit: null, current, suspended: false, pendingPayment: true };
+  }
+
   const subscription = await db.zeliSubscription.findFirst({
     where: { tenantId, status: { in: ["active", "grace_period", "suspended"] } },
     orderBy: { createdAt: "desc" },
@@ -52,9 +69,19 @@ export async function checkPackageLimit(
   tenantId: string,
   kind: PackageLimitKind
 ): Promise<PackageLimitResult> {
-  const { limit, current, suspended } = await packageLimitFor(tenantId, kind);
+  const { limit, current, suspended, pendingPayment } = await packageLimitFor(tenantId, kind);
   const noun = kind === "locations" ? "location" : "staff account";
 
+  if (pendingPayment) {
+    return {
+      allowed: false,
+      limit,
+      current,
+      used: current,
+      reason: "payment_required",
+      message: "Complete your first payment in Subscription & Billing to start operations.",
+    };
+  }
   if (suspended) {
     return {
       allowed: false,

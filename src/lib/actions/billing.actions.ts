@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { requireTenantAdmin } from "@/lib/tenant";
 import {
@@ -79,10 +80,23 @@ export interface BillingOverview {
     name: string;
     billingInterval: string;
     price: number;
+    foundingPrice: number | null;
     locationLimit: number | null;
     staffLimit: number | null;
     usageAllowance: number | null;
+    supportLevel: string | null;
   }[];
+  /** True only while a founding allocation still has discounted periods left. */
+  foundingEligible: boolean;
+  /** Current subscription id, for scheduling a package change. */
+  subscriptionId: string | null;
+  scheduled: {
+    planCode: string;
+    planName: string;
+    billingTerm: string;
+    price: number;
+    at: string;
+  } | null;
 }
 
 export async function getBillingOverview(): Promise<BillingOverview> {
@@ -96,7 +110,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     }),
     db.foundingAllocation.findUnique({ where: { tenantId: ctx.tenantId }, include: { plan: true } }),
     db.location.count({ where: { tenantId: ctx.tenantId } }),
-    db.user.count({ where: { tenantId: ctx.tenantId, status: "active" } }),
+    db.user.count({ where: { tenantId: ctx.tenantId, role: "worker", status: "active" } }),
     zeliUsageSummary(ctx.tenantId),
     db.zeliPlan.findMany({
       where: { status: "active" },
@@ -106,9 +120,11 @@ export async function getBillingOverview(): Promise<BillingOverview> {
         name: true,
         billingInterval: true,
         price: true,
+        foundingPrice: true,
         locationLimit: true,
         staffLimit: true,
         usageAllowance: true,
+        supportLevel: true,
       },
     }),
   ]);
@@ -150,6 +166,9 @@ export async function getBillingOverview(): Promise<BillingOverview> {
   }
 
   const payable = current && ["pending_payment", "pending"].includes(current.status) ? current : null;
+  const scheduledPlan = current?.scheduledPlanCode
+    ? plans.find((row) => row.code === current.scheduledPlanCode)
+    : undefined;
 
   return {
     tenantName: ctx.tenantName,
@@ -189,7 +208,25 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     entitlements: { locations, staff },
     zeli,
     providerReady: process.env.PAYSTACK_MODE === "live" || process.env.PAYSTACK_ENABLED === "true",
-    availablePlans: plans.map((row) => ({ ...row, price: Number(row.price) })),
+    availablePlans: plans.map((row) => ({
+      ...row,
+      price: Number(row.price),
+      foundingPrice: row.foundingPrice == null ? null : Number(row.foundingPrice),
+    })),
+    foundingEligible: Boolean(
+      founding && founding.status === "active" && foundingRemaining(founding) > 0
+    ),
+    subscriptionId: current?.id ?? null,
+    scheduled:
+      scheduledPlan && current?.scheduledBillingTerm
+        ? {
+            planCode: scheduledPlan.code,
+            planName: scheduledPlan.name,
+            billingTerm: current.scheduledBillingTerm,
+            price: Number(scheduledPlan.price),
+            at: (current.scheduledAt ?? current.createdAt).toISOString(),
+          }
+        : null,
     history: subscriptions.map((row) => ({
       id: row.id,
       reference: row.providerReference,
@@ -254,4 +291,178 @@ export async function checkBillingPaymentAction(reference: string): Promise<{
   } catch {
     return { status: "pending", message: "We could not check the payment yet. Please try again." };
   }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Package selection and package changes
+ * ------------------------------------------------------------------------- */
+
+export interface PlanChangeResult {
+  ok: boolean;
+  error?: string;
+  /** Set when the persisted usage does not fit the target package. */
+  conflict?: {
+    planName: string;
+    locations: number;
+    locationLimit: number | null;
+    staff: number;
+    staffLimit: number | null;
+  };
+  scheduled?: { planName: string; price: number; billingTerm: string };
+  /** Pending subscription created or replaced by the selection. */
+  subscriptionId?: string;
+  amount?: number;
+}
+
+async function loadPublicPlan(planCode: string) {
+  const plan = await db.zeliPlan.findUnique({ where: { code: planCode } });
+  if (!plan || plan.status !== "active" || !plan.isPublic) {
+    throw new SubscriptionError("This package is not available.", "plan_unavailable");
+  }
+  return plan;
+}
+
+/**
+ * Select or change the package of an unpaid subscription.
+ *
+ * Obsolete pending intents are expired first so a previously selected package
+ * can never be charged after the owner has changed their mind. A new pending
+ * row is created with a new reference; nothing is charged here.
+ */
+export async function selectPackageAction(input: { planCode: string }): Promise<PlanChangeResult> {
+  const ctx = await requireTenantAdmin();
+  try {
+    const plan = await loadPublicPlan(input.planCode);
+    const effective = await effectiveMonthlyPrice({
+      tenantId: ctx.tenantId,
+      plan: {
+        id: plan.id,
+        code: plan.code,
+        billingInterval: plan.billingInterval,
+        price: plan.price,
+        foundingPrice: plan.foundingPrice,
+      },
+    });
+    const amount = Number(effective.amount);
+    const standardAmount = Number(plan.price);
+    const billingTerm = plan.billingInterval === "year" ? "annual" : "monthly";
+    const reference = `ZELI-${ctx.tenantId.slice(0, 8)}-${randomBytes(8).toString("hex")}`;
+
+    const createdId = await db.$transaction(async (tx) => {
+      const previous = await tx.zeliSubscription.findMany({
+        where: { tenantId: ctx.tenantId, status: { in: ["pending", "pending_payment"] } },
+        select: { id: true, status: true },
+      });
+      const wasProvisioned = previous.some((row) => row.status === "pending_payment");
+      await tx.zeliSubscription.updateMany({
+        where: { id: { in: previous.map((row) => row.id) } },
+        data: {
+          status: "expired",
+          pendingKey: null,
+          failureReason: "Package changed before payment",
+        },
+      });
+      const created = await tx.zeliSubscription.create({
+        data: {
+          tenantId: ctx.tenantId,
+          planId: plan.id,
+          status: wasProvisioned || previous.length === 0 ? "pending_payment" : "pending",
+          provider: "paystack",
+          providerReference: reference,
+          amount,
+          currency: plan.currency,
+          billingTerm,
+          foundingAllocationId: effective.allocationId,
+          standardAmount,
+          periodStart: null,
+          periodEnd: null,
+          pendingKey: `${ctx.tenantId}:${plan.id}`,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    });
+    revalidatePath("/admin/billing");
+    return { ok: true, subscriptionId: createdId, amount };
+  } catch (error) {
+    if (error instanceof SubscriptionError) return { ok: false, error: error.message };
+    return { ok: false, error: "The package could not be selected. Please try again." };
+  }
+}
+
+/**
+ * Schedule a package change for an already-active subscription.
+ *
+ * The paid period is never repriced or prorated. The persisted usage is checked
+ * against the target package first, and a conflict is reported with the numbers
+ * instead of silently disabling or deleting locations or staff.
+ */
+export async function schedulePlanChangeAction(input: { planCode: string }): Promise<PlanChangeResult> {
+  const ctx = await requireTenantAdmin();
+  try {
+    const plan = await loadPublicPlan(input.planCode);
+    const subscription = await db.zeliSubscription.findFirst({
+      where: { tenantId: ctx.tenantId, status: { in: ["active", "grace_period"] } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!subscription) {
+      return { ok: false, error: "There is no active subscription to change." };
+    }
+    const [locations, staff] = await Promise.all([
+      db.location.count({ where: { tenantId: ctx.tenantId, status: "active" } }),
+      db.user.count({ where: { tenantId: ctx.tenantId, role: "worker", status: "active" } }),
+    ]);
+    const exceedsLocations = plan.locationLimit !== null && locations > plan.locationLimit;
+    const exceedsStaff = plan.staffLimit !== null && staff > plan.staffLimit;
+    if (exceedsLocations || exceedsStaff) {
+      return {
+        ok: false,
+        error:
+          `This business already has ${locations} active location${locations === 1 ? "" : "s"} and ` +
+          `${staff} active staff account${staff === 1 ? "" : "s"}. ` +
+          `${plan.name} allows ${plan.locationLimit ?? "unlimited"} location${plan.locationLimit === 1 ? "" : "s"} and ` +
+          `${plan.staffLimit ?? "unlimited"} staff. Nothing was deleted or disabled. ` +
+          `Choose a package that fits, or reduce usage before scheduling the change.`,
+        conflict: {
+          planName: plan.name,
+          locations,
+          locationLimit: plan.locationLimit,
+          staff,
+          staffLimit: plan.staffLimit,
+        },
+      };
+    }
+    const billingTerm = plan.billingInterval === "year" ? "annual" : "monthly";
+    await db.zeliSubscription.update({
+      where: { id: subscription.id },
+      data: {
+        scheduledPlanCode: plan.code,
+        scheduledBillingTerm: billingTerm,
+        scheduledAt: new Date(),
+      },
+    });
+    revalidatePath("/admin/billing");
+    return {
+      ok: true,
+      scheduled: { planName: plan.name, price: Number(plan.price), billingTerm },
+    };
+  } catch (error) {
+    if (error instanceof SubscriptionError) return { ok: false, error: error.message };
+    return { ok: false, error: "The package change could not be scheduled." };
+  }
+}
+
+export async function cancelScheduledPlanChangeAction(): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireTenantAdmin();
+  const subscription = await db.zeliSubscription.findFirst({
+    where: { tenantId: ctx.tenantId, scheduledPlanCode: { not: null } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!subscription) return { ok: true };
+  await db.zeliSubscription.update({
+    where: { id: subscription.id },
+    data: { scheduledPlanCode: null, scheduledBillingTerm: null, scheduledAt: null },
+  });
+  revalidatePath("/admin/billing");
+  return { ok: true };
 }

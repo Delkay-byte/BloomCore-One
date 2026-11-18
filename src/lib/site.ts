@@ -160,9 +160,15 @@ export const PUBLIC_ROUTES = [
   { path: "/contact", label: "Contact" },
 ] as const;
 
+/**
+ * Public legal navigation.
+ *
+ * `/terms` is intentionally not listed: MaaCash service terms are agreed in
+ * writing with each business at onboarding, and an unreviewed draft must not be
+ * published as the agreement. The route remains reachable as a short notice.
+ */
 export const LEGAL_ROUTES = [
-  { path: "/privacy", label: "Privacy Policy" },
-  { path: "/terms", label: "Terms of Service" },
+  { path: "/privacy", label: "Privacy Notice" },
 ] as const;
 
 /** Sign-in entry points. These are existing routes; do not rename them. */

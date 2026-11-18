@@ -639,6 +639,7 @@ model BusinessTenant {
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
   zeliEntitlements             ZeliEntitlement[]
+  zeliAccess                   ZeliTenantAccess?
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]
   zeliAnalyticsRefreshes       ZeliAnalyticsRefresh[]
   zeliSubscriptions            ZeliSubscription[]
@@ -951,6 +952,19 @@ model ZeliUsage {
 /// billing architecture. Platform administrators manage it with an audited,
 /// reason-bearing workflow; tenant administrators can read access but cannot
 /// grant it to themselves.
+/// Per-business Zeli switch controlled by Platform Super Admin. The absence of
+/// a row means Zeli is enabled for the business while the global switch is on.
+model ZeliTenantAccess {
+  tenantId    String   @id
+  enabled     Boolean  @default(true)
+  reason      String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
 model ZeliEntitlement {
   id            String    @id @default(cuid())
   tenantId      String
@@ -1143,6 +1157,11 @@ model ZeliSubscription {
   graceEndsAt              DateTime?
   /// Last reminder already delivered: 7 | 3 | 1 | 0 | grace.
   reminderStage            String?
+  /// Package change requested by the owner. Applied by the next renewal
+  /// payment; the already-paid period is never changed or prorated.
+  scheduledPlanCode        String?
+  scheduledBillingTerm     String?
+  scheduledAt              DateTime?
   /// Set only while status = "pending". The unique index makes two concurrent
   /// checkouts for the same tenant and plan impossible.
   pendingKey               String?   @unique

@@ -6,6 +6,8 @@ import { getClientIp } from "@/lib/security/client-ip";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { verifyTurnstile } from "@/lib/security/turnstile";
+import { ACCOUNT_ENQUIRY_ACTION } from "@/lib/security/turnstile-actions";
+import { logSecurityEvent } from "@/lib/security/log";
 import { validateEnquiry, type EnquiryDraft } from "@/lib/pricing/enquiry";
 import { createNotification } from "@/lib/notifications/notifications";
 import { sendTransactionalEmail, appBaseUrl } from "@/lib/email/resend";
@@ -49,14 +51,45 @@ export async function submitAccountEnquiry(
 
   const turnstile = await verifyTurnstile({
     token: input?.turnstileToken ?? null,
-    action: "account_enquiry",
+    action: ACCOUNT_ENQUIRY_ACTION,
     ip,
   });
   if (!turnstile.ok) {
+    // Sanitized diagnostics only: category and Cloudflare error codes. The
+    // token, the secret and the visitor's details are never logged.
+    logSecurityEvent({
+      event: "enquiry.turnstile_rejected",
+      outcome: "blocked",
+      actorType: "anonymous",
+      reason: turnstile.reason ?? "rejected",
+      detail: turnstile.errorCodes?.join(",") ?? undefined,
+    });
+    const retryHint =
+      turnstile.reason === "replay" || turnstile.reason === "expired"
+        ? "Please complete the security check again and resend."
+        : "Please complete the check and try again.";
     return {
       success: false,
-      error:
-        "We could not verify this submission. Please complete the check and try again.",
+      error: `We could not verify this submission. ${retryHint}`,
+    };
+  }
+
+  // A second click (or a resend after a slow response) must not create a second
+  // lead. The token is already single use, so this guard covers the case where
+  // the visitor solved a fresh challenge and submitted the same details again.
+  const recentDuplicate = await db.accountEnquiry.findFirst({
+    where: {
+      businessName: validated.value.businessName,
+      phone: validated.value.phone,
+      createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (recentDuplicate) {
+    return {
+      success: true,
+      reference: recentDuplicate.id.slice(-8).toUpperCase(),
     };
   }
 

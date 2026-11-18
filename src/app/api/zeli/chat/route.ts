@@ -3,10 +3,12 @@ import { getTenantContext } from "@/lib/tenant";
 import { runZeliTurn, ZeliUsageError } from "@/lib/zeli/service";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 import type { ZeliIdentity } from "@/lib/zeli/types";
-import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
-import { getEffectiveProviderPolicy } from "@/lib/zeli/provider-control";
-import { providerPolicyHeaders } from "@/lib/zeli/provider-status";
-import { getConversationStatus } from "@/lib/zeli/providers/conversation-provider";
+import {
+  getZeliAvailability,
+  getTenantZeliAccess,
+  zeliUnavailableResponse,
+  TENANT_DISABLED_MESSAGE,
+} from "@/lib/zeli/availability";
 
 async function identity(): Promise<ZeliIdentity | null> {
   for (const moduleName of ["admin", "momo", "susu", "customer"] as const) {
@@ -36,13 +38,15 @@ export async function POST(request: NextRequest) {
   const who = await identity();
   if (!who) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  // Informational only. The local assistant stays available regardless: this
-  // header describes whether external AI may be called, not whether Zeli works.
-  // It is never used to authorize anything; the provider path re-checks policy.
-  const externalAiHeaders = providerPolicyHeaders(
-    await getEffectiveProviderPolicy(who.tenantId, who.userId)
-  );
-  const conversationStatus = await getConversationStatus(who.tenantId, who.userId);
+  // Per-business switch. The run itself re-checks it, so disabling Zeli takes
+  // effect even if a browser keeps a page open.
+  const tenantAccess = await getTenantZeliAccess(who.tenantId);
+  if (!tenantAccess.enabled) {
+    return NextResponse.json(
+      { error: TENANT_DISABLED_MESSAGE, code: "zeli_tenant_disabled" },
+      { status: 403, headers: { "cache-control": "no-store" } }
+    );
+  }
 
   let body: { conversationId?: string; message?: string };
   try {
@@ -81,25 +85,14 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  // The response carries the answer only. Provider, model and policy details
+  // stay server-side so no customer-visible payload names the AI backend.
   return new Response(stream, {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
-      "x-zeli-provider": result.provider,
-      "x-zeli-provider-available": String(result.providerAvailable),
-      "x-zeli-provider-kind": result.externalAi
-        ? "external-conversational"
-        : "internal-deterministic",
-      "x-zeli-conversation-mode": result.conversationMode,
-      "x-zeli-conversation-provider": result.externalAi
-        ? result.provider
-        : "internal",
       "x-zeli-intent": result.intent,
       "x-zeli-context-used": String(result.contextUsed),
-      ...externalAiHeaders,
-      ...(conversationStatus.mode === "external"
-        ? {}
-        : { "x-zeli-conversation-status": "local-only" }),
     },
   });
 }

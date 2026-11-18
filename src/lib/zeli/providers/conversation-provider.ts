@@ -321,7 +321,9 @@ export async function getConversationStatus(
     message: policy.reason,
     approvalRequired: policy.approvalRequired,
     credentialConfigured: policy.credentialConfigured,
-    teamTesting: policy.teamTesting,
+    // Only true when team testing is actually in force for this request. The
+    // global mode alone must never tell a normal business it is in Team Testing.
+    teamTesting: policy.state === "team_testing",
     teamTesterActive: policy.teamTesterActive,
     teamDisclosureAccepted: policy.teamDisclosureAccepted,
     teamDisclosureVersion: policy.teamDisclosureVersion,

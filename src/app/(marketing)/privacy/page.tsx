@@ -1,63 +1,89 @@
 import Link from "next/link";
-import { DraftNotice, PageHero, Section, SectionHeading } from "@/components/marketing/Sections";
-import { BUSINESS_LOGIN_PATH, COMPANY_NAME, PRODUCT_NAME } from "@/lib/site";
+import { PageHero, Section, SectionHeading } from "@/components/marketing/Sections";
+import {
+  BUSINESS_LOGIN_PATH,
+  COMPANY_NAME,
+  CONTACT_EMAIL,
+  PRODUCT_NAME,
+} from "@/lib/site";
 import { pageMetadata } from "@/lib/metadata";
 
 export const metadata = pageMetadata({
   path: "/privacy",
   title: "Privacy",
-  description: `How ${PRODUCT_NAME} handles account, business and operational data, written from what the deployed application actually processes.`,
+  description: `What ${PRODUCT_NAME} collects, why it is collected, and how business and enquiry information is handled.`,
 });
 
+/**
+ * Public privacy notice.
+ *
+ * It describes how the deployed system actually behaves: no analytics, no
+ * advertising, no data sale. The privacy contact is the configured public
+ * contact address, and the page says what to do when it is not configured
+ * rather than inventing an address.
+ */
 export default function PrivacyPage() {
   return (
     <>
       <PageHero
         eyebrow="Privacy"
-        title="Privacy information"
-        lead={`This page explains what ${PRODUCT_NAME} collects and stores, written from how the deployed application actually works rather than from a template.`}
+        title="Privacy notice"
+        lead={`What ${PRODUCT_NAME} collects, why, and who can see it.`}
       />
 
       <Section tone="white">
         <div className="max-w-3xl space-y-8">
-          <DraftNotice>
-            This is a factual description of the deployed system, prepared for
-            review. It has not been reviewed by a lawyer and is not a legal
-            agreement. It must be reviewed before commercial launch, and it does
-            not yet name a data-protection contact because no verified public
-            contact channel has been supplied.
-          </DraftNotice>
-
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">Who is responsible</h2>
             <p>
-              {COMPANY_NAME}, a business based in Ghana, operates {PRODUCT_NAME}.
-              Each business that uses the platform is responsible for the
-              accuracy of the records its own staff enter, and for telling its
-              own customers how their information is used.
+              {COMPANY_NAME} operates {PRODUCT_NAME}. Each business that uses the
+              platform is responsible for the records its own staff enter, and for
+              telling its own customers how their information is used.
             </p>
           </div>
 
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">
-              What the platform stores
+              Information collected when you request an account
             </h2>
             <p>
-              When a business is enrolled, and as its staff work, the platform
-              stores:
+              The account enquiry form on the pricing page asks for your business
+              name, the name of the person we should contact, a Ghana phone
+              number, an optional email address, an optional number of locations,
+              an optional package preference, and anything you choose to write in
+              the message box.
             </p>
+            <p>
+              It is used for one purpose: to review your request and contact you
+              about setting up your business on {PRODUCT_NAME}. Submitting the
+              form does not create an account, a login or a subscription, and it
+              does not take a payment. Enquiries are visible only to the platform
+              operators who review them, and are kept while we follow up on the
+              request. They are not used for advertising and are not sold.
+            </p>
+            <p>
+              The form is protected by Cloudflare Turnstile, which checks that the
+              submission comes from a person rather than an automated script. The
+              challenge is answered by Cloudflare in your browser.
+            </p>
+          </div>
+
+          <div className="space-y-3 text-base leading-relaxed text-ink">
+            <h2 className="text-xl font-semibold text-ink-deep">
+              What the platform stores for a business
+            </h2>
             <ul className="space-y-2">
               <li>
-                <strong className="font-semibold text-ink-deep">Account details</strong> — name,
-                email address, telephone number where supplied, role, status, and a
-                one-way password hash. Passwords themselves are never stored.
+                <strong className="font-semibold text-ink-deep">Account details</strong> —
+                name, email address, telephone number where supplied, role, status,
+                and a one-way password hash. Passwords themselves are never stored.
               </li>
               <li>
                 <strong className="font-semibold text-ink-deep">Business records</strong> —
                 locations, staff assignments, customers, Susu accounts and cycles,
                 contributions and their allocations, withdrawals, collector
-                assignments and remittances, MoMo daily accounts, commission,
-                expenses and reconciliation entries.
+                assignments and remittances, mobile money daily accounts,
+                commission, expenses and reconciliation entries.
               </li>
               <li>
                 <strong className="font-semibold text-ink-deep">Device records</strong> —
@@ -74,9 +100,15 @@ export default function PrivacyPage() {
                 <strong className="font-semibold text-ink-deep">Sessions</strong> — a
                 signed session token held in your browser to keep you signed in.
               </li>
+              <li>
+                <strong className="font-semibold text-ink-deep">Zeli usage</strong> —
+                how many Zeli requests a business has used in the current month.
+                Zeli answers from the business&rsquo;s own authorized records and
+                cannot post, reverse or delete money.
+              </li>
             </ul>
             <p>
-              Records entered for one business are only visible to that business
+              Records entered for one business are visible only to that business
               and to the platform operators who administer the platform.
             </p>
           </div>
@@ -84,12 +116,11 @@ export default function PrivacyPage() {
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">Cookies and sessions</h2>
             <p>
-              The platform uses its own session cookies, which are limited to the
-              site and are not readable by other sites. There is no advertising
-              or analytics cookie. Different roles — business administrator,
-              worker, collector, customer, and the separate platform
-              administrator — use separate session cookies, and one cannot be
-              used in place of another.
+              The platform uses its own session cookies, limited to the site and
+              not readable by other sites. There is no advertising or analytics
+              cookie. Different roles — business administrator, worker, collector,
+              customer, and the separate platform administrator — use separate
+              session cookies, and one cannot be used in place of another.
             </p>
             <p>
               Sessions end automatically after inactivity and at fixed limits set
@@ -103,7 +134,7 @@ export default function PrivacyPage() {
             </h2>
             <p>
               Where a business enables offline capture, records entered on an
-              enrolled device are held in that device&apos;s browser storage until
+              enrolled device are held in that device&rsquo;s browser storage until
               they are sent to the platform. Removing the application data from
               the device removes those unsent records, which is why staff are
               asked to sync before uninstalling or clearing browser data.
@@ -115,12 +146,13 @@ export default function PrivacyPage() {
               Services used to run the platform
             </h2>
             <p>
-              The application is hosted by a cloud hosting provider, and its
-              database is hosted by a managed PostgreSQL provider. Those providers
-              process data on our behalf to run the service. The public site and
-              the application also load the Noto Sans typeface from Google Fonts,
-              which means your browser contacts Google&apos;s font service to
-              fetch it.
+              The application is hosted by a cloud hosting provider, its database
+              is hosted by a managed PostgreSQL provider, account and security
+              emails are sent through an email delivery provider, and payments are
+              processed by Paystack. Those providers process data on our behalf to
+              run the service. The public site loads the Noto Sans typeface from
+              Google Fonts, which means your browser contacts Google&rsquo;s font
+              service to fetch it.
             </p>
             <p>
               We do not sell business or customer data, and we do not use it for
@@ -131,10 +163,10 @@ export default function PrivacyPage() {
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">This website</h2>
             <p>
-              The public pages of this site do not contain analytics, tracking
-              pixels or advertising code, and they do not set session cookies. The
-              contact page does not submit anything: if an email link is used, your
-              own mail application opens and nothing is stored by this site.
+              The public pages do not contain analytics, tracking pixels or
+              advertising code, and they do not set session cookies. The only
+              form that stores anything is the account enquiry form described
+              above.
             </p>
           </div>
 
@@ -143,25 +175,40 @@ export default function PrivacyPage() {
               Retention and your requests
             </h2>
             <p>
-              A fixed retention period is not published here, because the
-              business that owns the records decides how long it needs them and
-              legal requirements differ. Retention practice is being finalised and
-              this page will be updated before commercial launch.
+              The business that owns operational records decides how long it needs
+              them, because retention requirements differ between businesses.
+              Platform records such as security events and audit entries are kept
+              for the period configured for the deployment.
             </p>
             <p>
               Requests to access, correct or remove information should be made to
-              the business whose records they are, or to {COMPANY_NAME}. A
-              dedicated privacy contact is not yet published; it will be added here
-              when the owner supplies one.
+              the business whose records they are, or to {COMPANY_NAME}.
+              {CONTACT_EMAIL ? (
+                <>
+                  {" "}Privacy questions can be sent to{" "}
+                  <a
+                    href={`mailto:${CONTACT_EMAIL}`}
+                    className="font-medium text-brand-700 hover:text-brand-800"
+                  >
+                    {CONTACT_EMAIL}
+                  </a>
+                  .
+                </>
+              ) : (
+                <>
+                  {" "}A public privacy address is not published yet; existing
+                  businesses can reach the platform operator through their
+                  administrator.
+                </>
+              )}
             </p>
           </div>
 
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">Changes</h2>
             <p>
-              When this page changes, the updated version is published here. It
-              is marked as a draft until the owner and their legal adviser have
-              reviewed it.
+              When this notice changes, the updated version is published on this
+              page.
             </p>
           </div>
 
@@ -170,7 +217,7 @@ export default function PrivacyPage() {
             <p>
               See the{" "}
               <Link href="/terms" className="font-medium text-brand-700 hover:text-brand-800">
-                Terms of Service
+                service terms notice
               </Link>{" "}
               and the{" "}
               <Link href={BUSINESS_LOGIN_PATH} className="font-medium text-brand-700 hover:text-brand-800">
@@ -184,9 +231,9 @@ export default function PrivacyPage() {
 
       <Section tone="ivory">
         <SectionHeading
-          eyebrow="Note"
-          title="This page describes the product, not a legal guarantee"
-          lead="It states what the deployed software does. It does not claim a certification, a regulatory approval or a security guarantee."
+          eyebrow="Scope"
+          title="What this page is"
+          lead="A plain description of how the deployed product handles information. It is not a certification, a regulatory approval or a security guarantee."
         />
       </Section>
     </>

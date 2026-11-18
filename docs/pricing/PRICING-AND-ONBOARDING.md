@@ -1,7 +1,7 @@
 # Pricing and business onboarding
 
-Commercial model approved by the owner. This document records what is implemented, what the
-catalogue must contain, and what remains before the full journey is live.
+Commercial model approved by the owner. This document records the approved catalogue, the
+controlled provisioning journey, and what the shipped release enforces.
 
 ## Approved commercial terms
 
@@ -34,26 +34,58 @@ source of truth for the operator who enters them.
 - Additive migration `20261118_pricing_catalogue_and_account_enquiries`: `ZeliPlan`
   location/staff/support columns plus the `AccountEnquiry` table.
 
-## Outstanding before the journey is live
+## Controlled provisioning journey
 
-1. **Catalogue entry.** A Platform Super Admin must publish the six plans (three monthly, three
-   annual) with the approved prices and limits, because the page renders the catalogue.
-2. **Founding slot accounting.** Capacity (five businesses), atomic assignment, remaining-period
-   display and the automatic switch to standard pricing at the fourth renewal are not
-   implemented. The page states the terms but does not claim availability.
-3. **Tenant owner billing screen.** Current plan, renewal date, limits, payment history and
-   receipts are not yet surfaced in the tenant dashboard; PR #47's checkout action exists.
-4. **`pending_payment` state.** Newly provisioned tenants are not yet placed in a restricted
-   billing-only state before their first successful payment.
-5. **Provisioning workflow.** Platform tenant creation does not yet capture package, billing term
-   or founding eligibility in one guided flow.
-6. **Platform billing dashboard.** MRR, collected cash, renewals, grace and suspension views are
-   not implemented.
-7. **Reminders.** Seven/three/one-day, expiry, grace and reactivation notices are not implemented.
-8. **Reconciliation scheduler.** Owner-facing "Check Payment Status" exists from PR #47; a
-   bounded scheduled reconciliation for outstanding pending charges is not implemented.
-9. **Existing-tenant mapping.** No tenants have been assigned subscription records
-   automatically. A report and a controlled assignment interface remain to be built.
+MaaCash never creates an account from a public form. The path from interest to a paid workspace is:
+
+| Step | Who acts | What happens | What is refused |
+| --- | --- | --- | --- |
+| 1. Enquiry | Prospective business | `/pricing` enquiry form (business name, contact, optional locations/plan/notes). Rate-limited; Turnstile is verified server-side and fails closed. A reference number is returned and the platform is notified (in-app notification plus transactional email to the platform contact). | No tenant, user, subscription or payment row is created. |
+| 2. Review | Platform Super Admin | `/platform/enquiries` shows the enquiry; status moves new → contacted → qualified (or rejected), with notes and a platform audit entry. | Enquiries cannot self-convert. |
+| 3. Provision | Platform Super Admin | `/platform/provision` creates the tenant and the first administrator invitation from an approved enquiry, recording the assigned plan and billing term on the enquiry. | No public sign-up route; no automatic free trial; no paid Zeli for a tenant without a verified payment. |
+| 4. Invitation | Invited administrator | Receives the provisioning email, sets a password through the standard first-login flow (email verification and MFA policy apply as configured). | The platform never sets or displays a password. |
+| 5. Package selection | Business owner | `/admin/billing` shows the three monthly and three annual packages from the catalogue, the founding price when the business holds a founding slot, current usage, and a usage-conflict warning if a smaller package does not fit the records already created. | Prices are read from `ZeliPlan`; nothing is hardcoded in the page. |
+| 6. Payment | Business owner | Card or Ghana MoMo through the hosted Paystack checkout. A pending `ZeliSubscription` (`pending_payment`) is created first; only the server-verified Paystack event activates it. | Frontend success screens, redirects or screenshots never activate a subscription. No recurring MoMo debit is created. |
+| 7. Activation | Server | `charge.success` (or verified reconciliation) marks the subscription active, records the paid period, assigns/extents the founding allocation and unlocks paid operations and Zeli within the package allowance. | Unverified or replayed events are ignored. |
+| 8. Lifecycle | Server (`runBillingLifecycle`) | Reminder stages, grace period, then suspension; a verified payment reactivates. Package changes are scheduled for the next renewal with no proration. | Suspension never deletes records and never blocks a verified payment. |
+
+While a tenant is in `pending_payment`, paid operations are blocked and redirected to
+`/admin/billing?payment=required`; existing records stay intact. A tenant with no subscription
+record at all is grandfathered (no enforced catalogue limits) so that introducing the catalogue
+never locks an existing business out. `suspended` blocks new paid operations until payment is
+verified.
+
+## Implemented in the commercial release
+
+- Public catalogue `/pricing` from `ZeliPlan`; six plans seeded by migration; founding prices and
+  the five-slot allocation.
+- Founding allocation model (`FoundingAllocation`, unique slot and tenant), assignment audit,
+  discounted periods counted per renewal, automatic return to standard price on the fourth
+  renewal, monthly billing only.
+- Account enquiries with reference number, platform notification, transactional email, review
+  statuses, notes, and conversion into provisioning.
+- Platform provisioning that records plan code and billing term; `/platform/billing` for
+  subscriptions, payments, plan catalogue and outstanding reconciliation.
+- Business-owner `/admin/billing`: summary, current package, usage against limits, package cards
+  with monthly/annual toggle and annual saving, founding terms, payment history and receipts.
+- Package changes scheduled for the next renewal only (no proration, no deletion) with a
+  server-detected usage conflict when the target package is smaller than current usage.
+- Server-side package limits (`checkPackageLimit`) on location and worker creation, with
+  grandfathering, pending-payment and suspended handling.
+- Subscription lifecycle (`pending_payment` → `active` → `grace_period` → `suspended` → `active`)
+  with reminder stages, scheduled reconciliation and verified activation only.
+- Zeli eligibility: an active or grace-period tenant with an active entitlement and an enabled
+  toggle may use Zeli within the tenant's monthly allowance (250/600/1,500). Pending-payment and
+  suspended tenants receive a clear message and no paid Zeli. A tenant-level switch and a global
+  switch are enforced server-side and audited, and neither deletes conversation history.
+- Zeli branding only on customer-facing surfaces; no provider, model or "team testing" wording.
+
+## Owner checks before a real payment
+
+1. Confirm the six catalogue rows in the platform catalogue match the approved prices.
+2. Confirm the Paystack endpoint is the MaaCash production endpoint and its signing secret is set.
+3. Use the hosted checkout once for a small real payment to confirm activation and the receipt.
+4. Confirm the platform notification address receives enquiry emails.
 
 ## Payments
 

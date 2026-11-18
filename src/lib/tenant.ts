@@ -255,6 +255,40 @@ export async function requireTenantContext(
   return ctx;
 }
 
+/**
+ * Paid-operations gate.
+ *
+ * A business that has been provisioned but has never completed a verified first
+ * payment can open its account, choose a package and pay, but cannot start
+ * money operations. A business with an active or grace subscription is never
+ * blocked here — including while a renewal checkout is in progress — and a
+ * legacy tenant with no subscription rows at all is grandfathered.
+ */
+export async function enforcePaidOperations(
+  tenantId: string,
+  target = "/admin/billing?payment=required"
+): Promise<void> {
+  const active = await db.zeliSubscription.findFirst({
+    where: {
+      tenantId,
+      status: { in: ["active", "grace_period"] },
+      OR: [{ periodEnd: null }, { periodEnd: { gt: new Date() } }],
+    },
+    select: { id: true },
+  });
+  if (active) return;
+
+  // A business that has not paid yet, or whose grace period has ended, can
+  // still open billing to settle the balance, but cannot run paid operations.
+  const blockedState = await db.zeliSubscription.findFirst({
+    where: { tenantId, status: { in: ["pending_payment", "pending", "suspended"] } },
+    select: { id: true },
+  });
+  if (blockedState) {
+    redirect(target);
+  }
+}
+
 /** Require a tenant ADMINISTRATOR context (the business's own admin). */
 export async function requireTenantAdmin(): Promise<TenantContext> {
   const ctx = await requireTenantContext("admin");
@@ -266,6 +300,7 @@ export async function requireTenantAdmin(): Promise<TenantContext> {
 export async function requireTenantAdminMomo(): Promise<TenantContext> {
   const ctx = await requireTenantContext("admin", "momo");
   if (ctx.role !== "admin") redirect("/unauthorized");
+  await enforcePaidOperations(ctx.tenantId);
   return ctx;
 }
 
@@ -273,6 +308,7 @@ export async function requireTenantAdminMomo(): Promise<TenantContext> {
 export async function requireTenantAdminSusu(): Promise<TenantContext> {
   const ctx = await requireTenantContext("admin", "susu");
   if (ctx.role !== "admin") redirect("/unauthorized");
+  await enforcePaidOperations(ctx.tenantId);
   return ctx;
 }
 
@@ -280,6 +316,7 @@ export async function requireTenantAdminSusu(): Promise<TenantContext> {
 export async function requireTenantWorker(): Promise<TenantContext> {
   const ctx = await requireTenantContext("momo", "momo");
   if (!ctx.modules.includes("momo")) redirect("/unauthorized");
+  await enforcePaidOperations(ctx.tenantId, "/unauthorized?reason=payment_required");
   return ctx;
 }
 
@@ -287,6 +324,7 @@ export async function requireTenantWorker(): Promise<TenantContext> {
 export async function requireTenantCollector(): Promise<TenantContext> {
   const ctx = await requireTenantContext("susu", "susu");
   if (!ctx.modules.includes("susu")) redirect("/unauthorized");
+  await enforcePaidOperations(ctx.tenantId, "/unauthorized?reason=payment_required");
   return ctx;
 }
 

@@ -4,10 +4,19 @@ import { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { submitAccountEnquiry } from "@/lib/actions/account-enquiry.actions";
 import { ENQUIRY_PACKAGES } from "@/lib/pricing/catalogue";
+import TurnstileWidget from "@/components/security/TurnstileWidget";
+import { ACCOUNT_ENQUIRY_ACTION } from "@/lib/security/turnstile-actions";
 
 /**
- * Public account enquiry form. It never creates a tenant, a login or a
- * subscription, and the confirmation says exactly that.
+ * Public account enquiry form.
+ *
+ * The Turnstile widget is part of the form. Its token lands in the form data as
+ * `turnstileToken` and the server verifies it with Cloudflare before anything is
+ * stored. A token is single use, so every failed submission requests a fresh
+ * challenge instead of replaying the previous one.
+ *
+ * The form never creates a tenant, a login or a subscription, and the
+ * confirmation says exactly that.
  */
 export default function PricingEnquiryForm({
   defaultPlan,
@@ -17,12 +26,22 @@ export default function PricingEnquiryForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reference, setReference] = useState<string | null>(null);
+  const [resetSignal, setResetSignal] = useState(0);
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setBusy(true);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const token = String(form.get("turnstileToken") ?? "").trim();
     setError("");
+
+    if (siteKey && !token) {
+      setError("Complete the security check above, then send the enquiry.");
+      return;
+    }
+
+    setBusy(true);
     try {
       const result = await submitAccountEnquiry({
         businessName: String(form.get("businessName") ?? ""),
@@ -32,15 +51,18 @@ export default function PricingEnquiryForm({
         locationCount: String(form.get("locationCount") ?? ""),
         interestedPlan: String(form.get("interestedPlan") ?? ""),
         message: String(form.get("message") ?? ""),
-        turnstileToken: String(form.get("cf-turnstile-response") ?? "") || null,
+        turnstileToken: token || null,
       });
       if (!result.success) {
         setError(result.error ?? "The enquiry could not be sent.");
+        // A submitted token is spent: ask Cloudflare for a new challenge.
+        setResetSignal((value) => value + 1);
         return;
       }
       setReference(result.reference ?? "SENT");
     } catch {
       setError("The enquiry could not be sent. Please try again.");
+      setResetSignal((value) => value + 1);
     } finally {
       setBusy(false);
     }
@@ -139,6 +161,10 @@ export default function PricingEnquiryForm({
           placeholder="MoMo operations, Susu collections, number of staff, anything else we should know."
         />
       </label>
+
+      <div className="sm:col-span-2">
+        <TurnstileWidget action={ACCOUNT_ENQUIRY_ACTION} resetSignal={resetSignal} />
+      </div>
 
       {error && (
         <p className="sm:col-span-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">

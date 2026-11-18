@@ -44,6 +44,7 @@ export async function cleanDatabase() {
     prisma.foundingAllocation.deleteMany(),
     prisma.zeliSubscription.deleteMany(),
     prisma.zeliPlan.deleteMany(),
+    prisma.zeliTenantAccess.deleteMany(),
     prisma.zeliAiTenantAuthorization.deleteMany(),
     prisma.zeliProviderControl.deleteMany(),
     prisma.zeliProviderGatewayEvent.deleteMany(),
