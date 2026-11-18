@@ -24,6 +24,9 @@ export default function VerifyEmailClient({
   const [email, setEmail] = useState(params.email?.trim() ?? "");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  // Administrators must land on the private administrator login, not the
+  // shared staff/customer login.
+  const [signInPath, setSignInPath] = useState("/login");
 
   useEffect(() => {
     if (!token) return;
@@ -33,6 +36,7 @@ export default function VerifyEmailClient({
         const result = await confirmEmailVerification(token);
         if (cancelled) return;
         if (result.success) {
+          setSignInPath(result.signInPath === "/admin/login" ? "/admin/login" : "/login");
           setState("verified");
         } else {
           setState("failed");
@@ -97,7 +101,7 @@ export default function VerifyEmailClient({
                 Your address is confirmed. You can now sign in with your MaaCash
                 password.
               </p>
-              <Link href="/login" className="btn btn-primary mt-5 w-full text-center">
+              <Link href={signInPath} className="btn btn-primary mt-5 w-full text-center">
                 Continue to sign in
               </Link>
             </div>
@@ -159,7 +163,7 @@ export default function VerifyEmailClient({
           )}
 
           <p className="mt-5 text-center">
-            <Link href="/login" className="text-sm text-brand-700 hover:text-brand-800">
+            <Link href={signInPath} className="text-sm text-brand-700 hover:text-brand-800">
               Back to sign in
             </Link>
           </p>

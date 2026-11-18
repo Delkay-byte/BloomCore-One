@@ -20,6 +20,11 @@ export interface VerificationResponse {
   error?: string;
   /** Verified state for the success screen; never includes the account email. */
   verified?: boolean;
+  /**
+   * Workspace the verified account signs in to. Administrators use the private
+   * administrator login; staff, collectors and customers use the shared login.
+   */
+  signInPath?: string;
 }
 
 async function currentIp(): Promise<string | null> {
@@ -152,5 +157,13 @@ export async function confirmEmailVerification(
     entityType: "user",
     entityId: result.userId,
   });
-  return { success: true, verified: true };
+  const account = await db.user.findUnique({
+    where: { id: result.userId },
+    select: { role: true },
+  });
+  return {
+    success: true,
+    verified: true,
+    signInPath: account?.role === "admin" ? "/admin/login" : "/login",
+  };
 }

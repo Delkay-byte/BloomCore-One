@@ -103,6 +103,8 @@ describe("email verification", () => {
 
     const first = await confirmEmailVerification(token);
     expect(first.success).toBe(true);
+    // Staff and customers continue to the shared login.
+    expect(first.signInPath).toBe("/login");
     const verified = await prisma.user.findUnique({ where: { id: user.id } });
     expect(verified?.emailVerified).toBe(true);
     expect(verified?.emailVerifiedAt).toBeTruthy();
@@ -111,6 +113,15 @@ describe("email verification", () => {
     // Idempotent for the same, now-verified account; it cannot verify another.
     expect(reused.success).toBe(true);
     expect(reused.verified).toBe(true);
+  });
+
+  it("sends a verified administrator to the private administrator login", async () => {
+    const admin = await makeUser({ email: "owner@example.com", role: "admin", emailVerified: false });
+    await issueEmailVerification(admin.id);
+    const token = extractToken(getEmailOutbox()[0].text, "/verify-email");
+    const result = await confirmEmailVerification(token);
+    expect(result.success).toBe(true);
+    expect(result.signInPath).toBe("/admin/login");
   });
 
   it("rejects expired and invalid tokens", async () => {
