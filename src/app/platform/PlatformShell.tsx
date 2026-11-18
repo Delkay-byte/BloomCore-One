@@ -25,7 +25,7 @@ const navItems = [
   { href: "/platform/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/platform/tenants", label: "Businesses", icon: Building2 },
   { href: "/platform/tenants/new", label: "Enroll Business", icon: UserPlus },
-  { href: "/platform/enquiries", label: "Account Enquiries", icon: Inbox },
+  { href: "/platform/enquiries", label: "Demo & Enquiries", icon: Inbox },
   { href: "/platform/billing", label: "Billing", icon: CreditCard },
   { href: "/platform/zeli", label: "Zeli", icon: Sparkles },
   { href: "/platform/audit", label: "Activity History", icon: FileClock },

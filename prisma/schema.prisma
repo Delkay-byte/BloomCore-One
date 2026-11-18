@@ -1459,6 +1459,10 @@ model AccountEnquiry {
   interestedPlan  String?
   message         String?
   status          String   @default("new") // new | contacted | qualified | provisioned | converted | rejected
+  /// DEMO_REQUEST (demonstration form) or ACCOUNT_REQUEST (pricing page).
+  enquiryType     String   @default("ACCOUNT_REQUEST")
+  /// What the business wants to manage: momo | susu | both.
+  modules         String?
   source          String?
   notes           String?
   reviewedById    String?
@@ -1474,6 +1478,7 @@ model AccountEnquiry {
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+  @@index([enquiryType, createdAt])
   @@index([createdAt])
   @@index([tenantId])
 }

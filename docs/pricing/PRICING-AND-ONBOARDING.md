@@ -40,7 +40,7 @@ MaaCash never creates an account from a public form. The path from interest to a
 
 | Step | Who acts | What happens | What is refused |
 | --- | --- | --- | --- |
-| 1. Enquiry | Prospective business | `/pricing` enquiry form (business name, contact, optional locations/plan/notes). Rate-limited; Turnstile is verified server-side and fails closed. A reference number is returned and the platform is notified (in-app notification plus transactional email to the platform contact). | No tenant, user, subscription or payment row is created. |
+| 1. Enquiry | Prospective business | `/contact` demonstration request or `/pricing` account enquiry (business name, contact, phone, locations, package interest, operations to manage). Rate-limited; Turnstile is verified server-side and fails closed. A reference number is returned and the platform is notified (in-app notification plus transactional email to the platform contact). | No tenant, user, subscription or payment row is created. |
 | 2. Review | Platform Super Admin | `/platform/enquiries` shows the enquiry; status moves new → contacted → qualified (or rejected), with notes and a platform audit entry. | Enquiries cannot self-convert. |
 | 3. Provision | Platform Super Admin | `/platform/provision` creates the tenant and the first administrator invitation from an approved enquiry, recording the assigned plan and billing term on the enquiry. | No public sign-up route; no automatic free trial; no paid Zeli for a tenant without a verified payment. |
 | 4. Invitation | Invited administrator | Receives the provisioning email, sets a password through the standard first-login flow (email verification and MFA policy apply as configured). | The platform never sets or displays a password. |
@@ -62,8 +62,9 @@ verified.
 - Founding allocation model (`FoundingAllocation`, unique slot and tenant), assignment audit,
   discounted periods counted per renewal, automatic return to standard price on the fourth
   renewal, monthly billing only.
-- Account enquiries with reference number, platform notification, transactional email, review
-  statuses, notes, and conversion into provisioning.
+- Demonstration requests and account enquiries in one `AccountEnquiry` pipeline
+  (`enquiryType`: `DEMO_REQUEST` / `ACCOUNT_REQUEST`), with reference number, platform
+  notification, transactional email, review statuses, notes, and conversion into provisioning.
 - Platform provisioning that records plan code and billing term; `/platform/billing` for
   subscriptions, payments, plan catalogue and outstanding reconciliation.
 - Business-owner `/admin/billing`: summary, current package, usage against limits, package cards

@@ -33,6 +33,8 @@ export async function listAccountEnquiries(): Promise<EnquiryRow[]> {
     interestedPlan: row.interestedPlan,
     message: row.message,
     status: row.status,
+    enquiryType: row.enquiryType,
+    modules: row.modules,
     createdAt: row.createdAt.toISOString(),
   }));
 }

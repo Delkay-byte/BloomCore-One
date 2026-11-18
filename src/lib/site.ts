@@ -22,11 +22,10 @@
  *   retire.
  *
  * CONTACT_EMAIL / CONTACT_PHONE
- *   The public enquiry channel. No verified BloomCore Technologies business
- *   email or telephone number exists in this repository, so both are unset by
- *   default. While they are unset the /contact page states plainly that the
- *   enquiry channel is not published yet and lists exactly what the owner must
- *   supply — it never pretends an enquiry was sent.
+ *   Optional supplementary contact details. The public enquiry channel is the
+ *   Request a Demonstration form on /contact, which submits to the AccountEnquiry
+ *   pipeline and Platform Super Admin review; it works whether or not these are
+ *   set. Only ever publish values the owner has verified.
  */
 
 export const PRODUCT_NAME = "MaaCash";
@@ -172,9 +171,12 @@ export const LEGAL_ROUTES = [
 ] as const;
 
 /** Sign-in entry points. These are existing routes; do not rename them. */
-export const BUSINESS_LOGIN_PATH = "/login";
-/** Dedicated tenant administrator login. */
+/** Dedicated tenant administrator (business owner) login. */
 export const ADMIN_LOGIN_PATH = "/admin/login";
+/** Public "sign in" links point at the business owner login. */
+export const BUSINESS_LOGIN_PATH = ADMIN_LOGIN_PATH;
+/** Shared staff, collector and customer login. */
+export const STAFF_LOGIN_PATH = "/login";
 export const ALL_ACCESS_PATH = "/access";
 export const PLATFORM_LOGIN_PATH = "/platform/login";
 

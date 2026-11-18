@@ -16,16 +16,27 @@ export interface EnquiryDraft {
   locationCount?: unknown;
   interestedPlan?: unknown;
   message?: unknown;
+  /** What the business wants to manage: mobile money, Susu, or both. */
+  modules?: unknown;
 }
+
+/** Public enquiry kinds. Both feed the same AccountEnquiry pipeline. */
+export const ENQUIRY_TYPES = {
+  account: "ACCOUNT_REQUEST",
+  demo: "DEMO_REQUEST",
+} as const;
+
+export const ENQUIRY_MODULES = ["momo", "susu", "both"] as const;
 
 export interface NormalizedEnquiry {
   businessName: string;
   contactName: string;
   phone: string;
-  email: string;
+  email: string | null;
   locationCount: number | null;
   interestedPlan: string | null;
   message: string | null;
+  modules: string | null;
 }
 
 export type EnquiryValidation =
@@ -36,13 +47,24 @@ function text(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max);
 }
 
-export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
+export function validateEnquiry(
+  input: EnquiryDraft,
+  options: {
+    requireEmail?: boolean;
+    requireLocationCount?: boolean;
+    requireModules?: boolean;
+  } = {}
+): EnquiryValidation {
+  const requireEmail = options.requireEmail ?? true;
+  const requireLocationCount = options.requireLocationCount ?? false;
+  const requireModules = options.requireModules ?? false;
   const businessName = text(input?.businessName, 160);
   const contactName = text(input?.contactName, 120);
   const phoneInput = text(input?.phone, 40);
   const email = text(input?.email, 160).toLowerCase();
   const message = text(input?.message, 2000);
   const interestedPlan = text(input?.interestedPlan, 60);
+  const modules = text(input?.modules, 10).toLowerCase();
 
   if (businessName.length < 2) {
     return { ok: false, error: "Enter your business name." };
@@ -54,15 +76,25 @@ export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
   if (!phone) {
     return { ok: false, error: "Enter a valid Ghana phone number." };
   }
-  // The business owner signs in with this address, so it cannot be optional.
-  if (!email) {
+  // A business account is signed in with this address, so it is required
+  // there. A demonstration request may be handled by phone only.
+  if (requireEmail && !email) {
     return {
       ok: false,
       error: "Enter the email address the business owner will sign in with.",
     };
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
+  }
+  if (requireModules && !modules) {
+    return {
+      ok: false,
+      error: "Choose what you want to manage: mobile money, Susu, or both.",
+    };
+  }
+  if (modules && !(ENQUIRY_MODULES as readonly string[]).includes(modules)) {
+    return { ok: false, error: "Choose mobile money, Susu, or both." };
   }
 
   let locationCount: number | null = null;
@@ -72,6 +104,9 @@ export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
       return { ok: false, error: "Enter the number of locations between 1 and 100." };
     }
     locationCount = parsed;
+  }
+  if (requireLocationCount && locationCount === null) {
+    return { ok: false, error: "Enter how many locations your business runs." };
   }
 
   if (interestedPlan && !(ENQUIRY_PACKAGES as readonly string[]).includes(interestedPlan)) {
@@ -84,10 +119,11 @@ export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
       businessName,
       contactName,
       phone,
-      email,
+      email: email || null,
       locationCount,
       interestedPlan: interestedPlan || null,
       message: message || null,
+      modules: modules || null,
     },
   };
 }

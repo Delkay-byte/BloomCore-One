@@ -109,3 +109,45 @@ describe("public copy", () => {
     }
   });
 });
+
+describe("demonstration request page", () => {
+  it("uses the public enquiry form and never gates it on contact configuration", () => {
+    const contact = read("src/app/(marketing)/contact/page.tsx");
+    expect(contact).toContain('variant="demo"');
+    expect(contact).toMatch(/Request a MaaCash demonstration/i);
+    // Optional contact details may appear, but never gate the form.
+    expect(contact).not.toMatch(/CONTACT_CONFIGURED/);
+    expect(contact).not.toMatch(/not published yet|submission route|configuration/i);
+    // Customer-facing sign-in destinations.
+    expect(contact).toContain("ADMIN_LOGIN_PATH");
+    expect(contact).toContain("ALL_ACCESS_PATH");
+  });
+
+  it("points public sign-in links at the business owner login", async () => {
+    const site = await import("@/lib/site");
+    expect(site.BUSINESS_LOGIN_PATH).toBe("/admin/login");
+    expect(site.ADMIN_LOGIN_PATH).toBe("/admin/login");
+    expect(site.ALL_ACCESS_PATH).toBe("/access");
+    expect(site.STAFF_LOGIN_PATH).toBe("/login");
+    expect(site.CONTACT_CONFIGURED).toBe(false);
+  });
+
+  it("contains no development URLs in customer-facing sources", () => {
+    for (const file of [
+      ...PUBLIC_FILES,
+      "src/components/marketing/PricingEnquiryForm.tsx",
+      "src/lib/metadata.ts",
+    ]) {
+      const source = read(file);
+      expect(source, file).not.toMatch(/localhost/);
+      expect(source, file).not.toMatch(/127\.0\.0\.1/);
+      expect(source, file).not.toMatch(/:(3000|3100)\b/);
+    }
+  });
+
+  it("builds public links from configuration, never a guessed host", async () => {
+    const site = await import("@/lib/site");
+    expect(site.absoluteUrl("/contact")).toBe(`${site.SITE_URL}/contact`);
+    expect(site.SITE_URL).not.toMatch(/\/$/);
+  });
+});

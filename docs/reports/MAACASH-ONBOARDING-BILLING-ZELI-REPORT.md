@@ -228,6 +228,25 @@ Checkout is offered only when the server can legally take the payment. Add to `.
 With a test key the UI also shows a "Test mode" note. A production build with only a test key keeps
 checkout closed unless `PAYSTACK_MODE=test` is set explicitly.
 
+## Demonstration request page
+
+`/contact` is now a working public enquiry channel instead of a
+"not published yet" notice. It renders the demonstration form (business name,
+contact name, Ghana phone, locations, package interest, mobile money/Susu/both,
+optional email and note) and submits through the existing `submitAccountEnquiry`
+action into `AccountEnquiry` with `enquiryType = DEMO_REQUEST`. The false
+`CONTACT_EMAIL`/`CONTACT_PHONE` gate and the internal configuration instructions
+are gone; those variables are optional supplementary channels only.
+
+Public sign-in links use relative route constants: Business Owner Sign In →
+`/admin/login`, Other Sign-in Options → `/access`. `BUSINESS_LOGIN_PATH` now
+points at the administrator login, and a test rejects `localhost`, `127.0.0.1`
+and development ports in customer-facing sources.
+
+Migration `20261121_enquiry_type_and_modules` adds `enquiryType` (default
+`ACCOUNT_REQUEST`) and `modules`, rehearsed on disposable PostgreSQL with
+`migrate diff` reporting no difference.
+
 ## Owner actions
 
 1. Publish a real, monitored contact phone/WhatsApp on the contact page when one exists.
