@@ -151,3 +151,30 @@ describe("demonstration request page", () => {
     expect(site.SITE_URL).not.toMatch(/\/$/);
   });
 });
+
+describe("public origins", () => {
+  it("treats loopback origins as provisional so localhost is never published", async () => {
+    const { isLocalOrigin } = await import("@/lib/site");
+    expect(isLocalOrigin("http://localhost:3100")).toBe(true);
+    expect(isLocalOrigin("http://127.0.0.1:3000")).toBe(true);
+    expect(isLocalOrigin("https://maacash.bloomcoretech.com")).toBe(false);
+  });
+
+  it("emits no canonical or absolute localhost URLs while provisional", async () => {
+    const { pageMetadata } = await import("@/lib/metadata");
+    const site = await import("@/lib/site");
+    const metadata = pageMetadata({
+      path: "/contact",
+      title: "Request a demonstration",
+      description: "x",
+    });
+    expect(JSON.stringify(metadata)).not.toMatch(/localhost|127\.0\.0\.1/);
+    if (site.SITE_URL_IS_PROVISIONAL) {
+      expect(metadata.alternates).toBeUndefined();
+      expect(metadata.openGraph).not.toHaveProperty("url");
+    } else {
+      // Production keeps an absolute canonical on the public origin.
+      expect(metadata.alternates?.canonical).toBe("/contact");
+    }
+  });
+});

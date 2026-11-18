@@ -98,12 +98,39 @@ export const SITE_URL = (configuredSiteUrl ?? defaultSiteUrl()).replace(
   ""
 );
 
+/** True when an origin points at this machine rather than a public host. */
+export function isLocalOrigin(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "[::1]" ||
+      hostname === "::1" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local")
+    );
+  } catch {
+    return true;
+  }
+}
+
 /**
  * True for local development, where the origin must not claim to be the
- * canonical public home. Render and staging deployments are never provisional.
+ * canonical public home.
+ *
+ * An explicitly configured loopback SITE_URL is still provisional: otherwise
+ * setting SITE_URL=http://localhost:3100 for local email links would publish
+ * "localhost" canonicals and Open Graph URLs. Render and staging are never
+ * provisional unless they are themselves loopback.
  */
 export const SITE_URL_IS_PROVISIONAL =
-  !configuredSiteUrl && !IS_RENDER_DEPLOYMENT && !IS_STAGING_DEPLOYMENT;
+  (configuredSiteUrl
+    ? isLocalOrigin(configuredSiteUrl)
+    : !IS_RENDER_DEPLOYMENT && !IS_STAGING_DEPLOYMENT) ||
+  ((IS_RENDER_DEPLOYMENT || IS_STAGING_DEPLOYMENT) && isLocalOrigin(SITE_URL));
 
 /** Normalize a Host or X-Forwarded-Host value to a bare lowercase hostname. */
 export function normalizeHostname(
