@@ -4,6 +4,7 @@ import { prisma, cleanDatabase, createTestAdmin, createTestTenant } from "./setu
 import type { TenantContext } from "@/lib/tenant";
 import {
   chargeMobileMoney,
+  paystackReadyForCheckout,
   verifyPaystackSignatureHeader,
   verifyWebhookRequest,
 } from "@/lib/payments/paystack";
@@ -136,6 +137,28 @@ beforeEach(async () => {
   vi.stubEnv("PAYSTACK_WEBHOOK_SIGNING_SECRET", SIGNING_SECRET);
   vi.stubEnv("NEXTAUTH_URL", "https://maacash.bloomcoretech.com");
   vi.stubEnv("NODE_ENV", "test");
+});
+
+describe("checkout availability", () => {
+  it("requires a configured key and a live key in production", () => {
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "");
+    expect(paystackReadyForCheckout()).toBe(false);
+
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "sk_test_example");
+    expect(paystackReadyForCheckout()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(paystackReadyForCheckout()).toBe(false);
+
+    // An explicit test preview is allowed, and cannot take real money.
+    vi.stubEnv("PAYSTACK_MODE", "test");
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "sk_test_example");
+    expect(paystackReadyForCheckout()).toBe(true);
+
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "sk_live_example");
+    expect(paystackReadyForCheckout()).toBe(true);
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("Paystack signature contract", () => {

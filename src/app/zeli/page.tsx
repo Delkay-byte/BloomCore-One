@@ -78,6 +78,9 @@ export default function ZeliPage() {
   const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -202,9 +205,13 @@ export default function ZeliPage() {
     await setZeliFeedback(message.id, next).catch(() => undefined);
   }
 
-  async function rename(id: string, title: string) {
-    const next = window.prompt("Rename this conversation", title);
-    if (!next) return;
+  function openRename(id: string, title: string) {
+    setRenameTarget({ id, title });
+    setRenameValue(title);
+  }
+
+  async function rename(id: string, next: string) {
+    setRenameTarget(null);
     const result = await renameZeliConversation(id, next);
     if (!result.success) {
       setError(result.error ?? "The conversation could not be renamed.");
@@ -216,7 +223,7 @@ export default function ZeliPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this conversation? The messages will be removed.")) return;
+    setConfirmDelete(null);
     const result = await deleteZeliConversation(id);
     if (!result.success) {
       setError(result.error ?? "The conversation could not be deleted.");
@@ -323,7 +330,7 @@ export default function ZeliPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => rename(conversation.id, conversation.title)}
+                        onClick={() => openRename(conversation.id, conversation.title)}
                         className="rounded p-1 text-xs text-slate-500 hover:text-slate-800"
                         aria-label={`Rename ${conversation.title}`}
                       >
@@ -331,7 +338,7 @@ export default function ZeliPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => remove(conversation.id)}
+                        onClick={() => setConfirmDelete({ id: conversation.id, title: conversation.title })}
                         className="rounded p-1 text-slate-500 hover:text-red-700"
                         aria-label={`Delete ${conversation.title}`}
                       >
@@ -538,6 +545,109 @@ export default function ZeliPage() {
           </div>
         </main>
       </div>
+      {renameTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setRenameTarget(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="zeli-rename-title"
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setRenameTarget(null);
+            }}
+          >
+            <h2 id="zeli-rename-title" className="text-base font-semibold text-slate-900">
+              Rename conversation
+            </h2>
+            <label className="mt-3 block text-sm">
+              <span className="text-slate-600">Conversation name</span>
+              <input
+                autoFocus
+                value={renameValue}
+                maxLength={80}
+                onChange={(event) => setRenameValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const next = renameValue.trim();
+                    if (next) void rename(renameTarget.id, next);
+                  }
+                }}
+                className="input mt-1 w-full"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setRenameTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!renameValue.trim()}
+                onClick={() => void rename(renameTarget.id, renameValue.trim())}
+              >
+                Save name
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setConfirmDelete(null);
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="zeli-delete-title"
+            aria-describedby="zeli-delete-body"
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setConfirmDelete(null);
+            }}
+          >
+            <h2 id="zeli-delete-title" className="text-base font-semibold text-slate-900">
+              Delete this conversation?
+            </h2>
+            <p id="zeli-delete-body" className="mt-2 text-sm text-slate-600">
+              &ldquo;{confirmDelete.title}&rdquo; and its messages will be removed. This cannot be
+              undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                className="btn btn-secondary"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Keep conversation
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void remove(confirmDelete.id)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

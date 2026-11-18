@@ -5,6 +5,11 @@ import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { requireTenantAdmin } from "@/lib/tenant";
 import {
+  paystackConfigured,
+  paystackKeyMode,
+  paystackReadyForCheckout,
+} from "@/lib/payments/paystack";
+import {
   checkZeliMobileMoneyStatus,
   createZeliCheckout,
   payProvisionedSubscription,
@@ -75,6 +80,9 @@ export interface BillingOverview {
   zeli: Awaited<ReturnType<typeof zeliUsageSummary>>;
   history: BillingHistoryRow[];
   providerReady: boolean;
+  /** Which key the server is using, so the UI can label test mode honestly. */
+  providerMode: "live" | "test" | "unknown";
+  providerConfigured: boolean;
   availablePlans: {
     code: string;
     name: string;
@@ -207,7 +215,11 @@ export async function getBillingOverview(): Promise<BillingOverview> {
       : null,
     entitlements: { locations, staff },
     zeli,
-    providerReady: process.env.PAYSTACK_MODE === "live" || process.env.PAYSTACK_ENABLED === "true",
+    // Checkout is offered only when the environment can legally take the
+    // payment: a configured key, and a live key once in production.
+    providerReady: paystackReadyForCheckout(),
+    providerMode: paystackKeyMode(),
+    providerConfigured: paystackConfigured(),
     availablePlans: plans.map((row) => ({
       ...row,
       price: Number(row.price),

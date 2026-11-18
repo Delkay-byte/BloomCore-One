@@ -48,7 +48,11 @@ export function paystackKeyMode(): "live" | "test" | "unknown" {
 export function paystackReadyForCheckout(): boolean {
   if (!paystackConfigured()) return false;
   if (process.env.NODE_ENV !== "production") return true;
-  return paystackKeyMode() === "live";
+  if (paystackKeyMode() === "live") return true;
+  // A production bundle (next start) still allows an explicit local preview of
+  // the checkout with test keys. Test keys cannot move real money, and the
+  // default remains closed.
+  return process.env.PAYSTACK_MODE === "test" && paystackKeyMode() === "test";
 }
 
 function secretKey(): string {

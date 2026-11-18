@@ -530,6 +530,13 @@ export default function BillingClient({
             payment with the provider — never from a screenshot or a browser message.
           </p>
 
+          {overview.providerReady && overview.providerMode === "test" && (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Test mode: your Paystack test key is active, so you can complete a checkout without
+              moving real money. Live activation needs the live key.
+            </p>
+          )}
+
           {!overview.providerReady ? (
             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               <p className="font-medium text-slate-900">Online payments are not connected yet</p>

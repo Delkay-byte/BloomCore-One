@@ -214,6 +214,20 @@ is additive and does not require maintenance mode.
 **Rollback:** revert the deploy and leave the additive migration in place (old code ignores the
 new columns and table); no data rollback is needed.
 
+## Local payment setup
+
+Checkout is offered only when the server can legally take the payment. Add to `.env`:
+
+| Variable | Purpose |
+| --- | --- |
+| `PAYSTACK_SECRET_KEY` | `sk_test_…` locally, `sk_live_…` in production. Required; without it the billing page says payments are not connected. |
+| `PAYSTACK_MODE=test` | Optional local preview: allows the checkout UI with a **test** key inside a production build (`next start`). It can never move real money and never unlocks a live key. |
+| `PAYSTACK_WEBHOOK_SIGNING_SECRET` | `whsec_…` for signed webhooks. Needed in production for automatic activation; locally the return-from-checkout callback verifies with the Paystack API instead. |
+| `SITE_URL` | Must match the running app (`http://localhost:3100` locally) so the checkout returns to this server. |
+
+With a test key the UI also shows a "Test mode" note. A production build with only a test key keeps
+checkout closed unless `PAYSTACK_MODE=test` is set explicitly.
+
 ## Owner actions
 
 1. Publish a real, monitored contact phone/WhatsApp on the contact page when one exists.

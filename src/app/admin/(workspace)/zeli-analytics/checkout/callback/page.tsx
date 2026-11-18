@@ -22,7 +22,9 @@ export default async function ZeliCheckoutCallbackPage({
     ? await confirmZeliCheckout(reference)
     : { success: false as const, error: "No payment reference was supplied." };
   if (result.success) {
-    redirect("/admin/zeli-analytics?subscription=active");
+    // The same callback serves package checkout and add-on checkout, so return
+    // the owner to billing, where the activated package and period are shown.
+    redirect("/admin/billing?paid=1");
   }
 
   return (
@@ -39,8 +41,8 @@ export default async function ZeliCheckoutCallbackPage({
             "We could not verify this payment. No entitlement was activated."}
         </p>
         <div className="mt-5 flex flex-wrap gap-2">
-          <Link href="/admin/zeli-analytics/upgrade" className="btn btn-secondary btn-sm">
-            Back to subscription
+          <Link href="/admin/billing" className="btn btn-secondary btn-sm">
+            Back to billing
           </Link>
         </div>
       </div>

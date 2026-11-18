@@ -309,17 +309,17 @@ export default function UnifiedLoginClient({
           )}
           {error && (
             <div role="alert" aria-live="assertive" className="banner banner-error mb-4 text-sm">
-              {error}
-              {emailUnverified && (
-                <p className="mt-2">
+              <div className="min-w-0 flex-1 space-y-2">
+                <p>{error}</p>
+                {emailUnverified && (
                   <Link
                     href={`/verify-email?email=${encodeURIComponent(emailUnverified)}`}
-                    className="font-semibold underline"
+                    className="inline-flex items-center font-semibold underline underline-offset-2"
                   >
                     Resend verification email
                   </Link>
-                </p>
-              )}
+                )}
+              </div>
             </div>
           )}
 
