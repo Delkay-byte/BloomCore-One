@@ -50,7 +50,7 @@ export default function PlatformLoginForm({
         return;
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/platform/login");
         window.location.assign(result.redirectTo);
         return;
       }

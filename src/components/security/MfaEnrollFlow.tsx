@@ -75,7 +75,7 @@ export default function MfaEnrollFlow() {
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
         clearMfaChallenge();
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/login");
         window.location.assign(result.redirectTo);
         return;
       }

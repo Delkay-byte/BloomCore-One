@@ -164,7 +164,7 @@ export default function UnifiedLoginClient({
         return;
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/login");
         window.location.assign(result.redirectTo);
         return;
       }

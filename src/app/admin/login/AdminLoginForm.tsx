@@ -60,7 +60,7 @@ export default function AdminLoginForm() {
         return;
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/admin/login");
         window.location.assign(result.redirectTo);
         return;
       }

@@ -1359,7 +1359,15 @@ export async function completeRequiredPasswordChange(
       entityType: "user",
       entityId: challenge.subjectId,
     });
-    return { success: true, redirectTo: "/login?reason=password_upgraded" };
+    // Administrators sign in at the private administrator login, never the
+    // shared staff/customer login.
+    return {
+      success: true,
+      redirectTo:
+        challenge.module === "admin"
+          ? "/admin/login?reason=password_upgraded"
+          : "/login?reason=password_upgraded",
+    };
   }
 
   return {

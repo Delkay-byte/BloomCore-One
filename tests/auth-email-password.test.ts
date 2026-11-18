@@ -124,6 +124,24 @@ describe("email verification", () => {
     expect(result.signInPath).toBe("/admin/login");
   });
 
+  it("returns an administrator to the private administrator login after the upgrade", async () => {
+    const admin = await makeUser({ email: "admin@example.com", role: "admin", forcePasswordReset: true });
+    const form = new FormData();
+    form.set("email", admin.email);
+    form.set("password", OLD_PASSWORD);
+    const login = await adminLogin(form);
+    const challengeToken = (login as { challengeToken?: string }).challengeToken;
+    expect(challengeToken).toBeTruthy();
+
+    const change = new FormData();
+    change.set("challengeToken", challengeToken ?? "");
+    change.set("newPassword", NEW_PASSWORD);
+    change.set("confirmPassword", NEW_PASSWORD);
+    const changed = await completeRequiredPasswordChange(change);
+    expect(changed.success).toBe(true);
+    expect(changed.redirectTo).toBe("/admin/login?reason=password_upgraded");
+  });
+
   it("rejects expired and invalid tokens", async () => {
     const user = await makeUser({ emailVerified: false });
     await issueEmailVerification(user.id);
@@ -203,6 +221,8 @@ describe("mandatory password upgrade", () => {
     const changed = await completeRequiredPasswordChange(strong);
     expect(changed.success).toBe(true);
     expect(changed).not.toHaveProperty("sessionToken");
+    // Staff keep the shared login after the upgrade.
+    expect(changed.redirectTo).toBe("/login?reason=password_upgraded");
 
     const updated = await prisma.user.findUnique({ where: { id: user.id } });
     expect(updated?.forcePasswordReset).toBe(false);
