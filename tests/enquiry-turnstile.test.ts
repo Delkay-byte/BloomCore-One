@@ -124,6 +124,26 @@ describe("public account enquiry with Turnstile", () => {
     expect(await prisma.accountEnquiry.count()).toBe(0);
   });
 
+  it("requires the email address the owner will sign in with", async () => {
+    const missing = await submitAccountEnquiry({
+      ...VALID,
+      email: "",
+      turnstileToken: "valid-token",
+    });
+    expect(missing.success).toBe(false);
+    expect(missing.error).toMatch(/sign in with/i);
+    expect(verifyTurnstileMock).not.toHaveBeenCalled();
+
+    const malformed = await submitAccountEnquiry({
+      ...VALID,
+      email: "not-an-email",
+      turnstileToken: "valid-token",
+    });
+    expect(malformed.success).toBe(false);
+    expect(malformed.error).toMatch(/valid email/i);
+    expect(await prisma.accountEnquiry.count()).toBe(0);
+  });
+
   it("never creates a tenant, user or subscription", async () => {
     await submitAccountEnquiry({ ...VALID, turnstileToken: "valid-token" });
     const [tenants, users, subscriptions] = await Promise.all([

@@ -150,17 +150,19 @@ describe("account enquiry validation", () => {
     expect(result.value.phone).toBe("0551234987");
   });
 
-  it("allows the email, location count, package and message to be omitted", () => {
+  it("requires the owner email but still allows location count, package and message to be omitted", () => {
     const result = validateEnquiry({
       businessName: valid.businessName,
       contactName: valid.contactName,
       phone: valid.phone,
+      email: valid.email,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.email).toBeNull();
+    expect(result.value.email).toBe(valid.email);
     expect(result.value.locationCount).toBeNull();
     expect(result.value.interestedPlan).toBeNull();
+    expect(result.value.message).toBeNull();
   });
 
   it("rejects a missing business name, contact or invalid phone", () => {
@@ -170,9 +172,11 @@ describe("account enquiry validation", () => {
     expect(validateEnquiry({ ...valid, phone: "abc" }).ok).toBe(false);
   });
 
-  it("rejects a malformed email but allows a blank one", () => {
+  it("rejects a malformed or missing email", () => {
+    // The business owner signs in with this address, so it is mandatory.
     expect(validateEnquiry({ ...valid, email: "not-an-email" }).ok).toBe(false);
-    expect(validateEnquiry({ ...valid, email: "" }).ok).toBe(true);
+    expect(validateEnquiry({ ...valid, email: "" }).ok).toBe(false);
+    expect(validateEnquiry({ ...valid, email: undefined }).ok).toBe(false);
   });
 
   it("rejects out-of-range location counts and unknown packages", () => {

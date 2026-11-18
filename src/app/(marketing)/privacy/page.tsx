@@ -49,7 +49,7 @@ export default function PrivacyPage() {
             <p>
               The account enquiry form on the pricing page asks for your business
               name, the name of the person we should contact, a Ghana phone
-              number, an optional email address, an optional number of locations,
+              number, an email address, an optional number of locations,
               an optional package preference, and anything you choose to write in
               the message box.
             </p>

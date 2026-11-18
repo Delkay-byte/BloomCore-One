@@ -22,7 +22,7 @@ export interface NormalizedEnquiry {
   businessName: string;
   contactName: string;
   phone: string;
-  email: string | null;
+  email: string;
   locationCount: number | null;
   interestedPlan: string | null;
   message: string | null;
@@ -54,8 +54,15 @@ export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
   if (!phone) {
     return { ok: false, error: "Enter a valid Ghana phone number." };
   }
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    return { ok: false, error: "Enter a valid email address, or leave it blank." };
+  // The business owner signs in with this address, so it cannot be optional.
+  if (!email) {
+    return {
+      ok: false,
+      error: "Enter the email address the business owner will sign in with.",
+    };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
   }
 
   let locationCount: number | null = null;
@@ -77,7 +84,7 @@ export function validateEnquiry(input: EnquiryDraft): EnquiryValidation {
       businessName,
       contactName,
       phone,
-      email: email || null,
+      email,
       locationCount,
       interestedPlan: interestedPlan || null,
       message: message || null,
