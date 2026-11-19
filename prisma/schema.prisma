@@ -690,6 +690,10 @@ model Contribution {
   receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
   receivedByName String? // Free-text name of the staff who physically received the money
   recordedByName String? // Free-text name of the person who recorded the payment (display)
+  /// Enrolled device that submitted an offline collection. Null for online
+  /// office/collector recording, which is attributed to the authenticated user.
+  recordedDeviceId   String?
+  recordedDeviceName String?
   referenceId    String    @unique // Idempotency key - prevents duplicate submissions
   notes          String?
   createdAt      DateTime  @default(now())
