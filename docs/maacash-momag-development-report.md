@@ -516,7 +516,7 @@ Workstream 4 — customer receipts, statements and the external messaging founda
 ## Workstream 4 — Customer receipts and messaging foundation
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `33c9fa2`
 
 ### Existing capability before changes
 
