@@ -59,6 +59,8 @@ export interface CustomerDisputeView {
   subjectAmount: number;
   category: DisputeCategory;
   details: string;
+  customerEvidence: string | null;
+  resolutionEvidence: string | null;
   status: DisputeStatus;
   accountNumber: string | null;
   cycleNumber: number | null;
@@ -206,6 +208,7 @@ export async function openCustomerDispute(input: {
   subjectId: string;
   category: string;
   details: string;
+  evidenceReference?: string;
 }): Promise<DisputeActionResponse> {
   const ctx = await requireTenantCustomer();
   const parsed = openDisputeSchema.safeParse(input);
@@ -222,7 +225,10 @@ export async function openCustomerDispute(input: {
             tenantId: ctx.tenantId,
             account: { customerId: ctx.userId, tenantId: ctx.tenantId },
           },
-          include: { account: { select: { id: true } } },
+          include: {
+            account: { select: { id: true } },
+            cycle: { select: { cycleNumber: true } },
+          },
         })
       : await db.withdrawal.findFirst({
           where: {
@@ -230,7 +236,10 @@ export async function openCustomerDispute(input: {
             tenantId: ctx.tenantId,
             account: { customerId: ctx.userId, tenantId: ctx.tenantId },
           },
-          include: { account: { select: { id: true } } },
+          include: {
+            account: { select: { id: true } },
+            cycle: { select: { cycleNumber: true } },
+          },
         });
 
   if (!subject) {
@@ -295,8 +304,13 @@ export async function openCustomerDispute(input: {
           subjectId: values.subjectId,
           subjectReference,
           subjectAmount: amount,
+          cycleNumber:
+            "cycle" in subject && subject.cycle
+              ? (subject.cycle as { cycleNumber: number }).cycleNumber
+              : null,
           category: values.category,
           details: values.details,
+          customerEvidence: values.evidenceReference?.trim() || null,
           status: "open",
           openedByType: "customer",
           openedById: ctx.userId,
@@ -323,6 +337,7 @@ export async function openCustomerDispute(input: {
           subjectReference,
           subjectAmount: amount,
           category: values.category,
+          customerEvidence: values.evidenceReference?.trim() || null,
         },
       });
       return created;
@@ -382,9 +397,11 @@ function mapCustomerDispute(
     subjectAmount: money(row.subjectAmount),
     category: row.category as DisputeCategory,
     details: row.details,
+    customerEvidence: row.customerEvidence,
+    resolutionEvidence: row.resolutionEvidence,
     status: row.status as DisputeStatus,
     accountNumber: row.account?.accountId ?? null,
-    cycleNumber: null,
+    cycleNumber: row.cycleNumber,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     resolutionNote: row.resolutionNote,
@@ -718,6 +735,7 @@ export async function resolveCustomerDispute(input: {
   outcome: string;
   note: string;
   outcomeReference?: string;
+  resolutionEvidence?: string;
 }): Promise<DisputeActionResponse> {
   const ctx = await requireTenantAdminSusu();
   const parsed = resolveDisputeSchema.safeParse(input);
@@ -750,6 +768,7 @@ export async function resolveCustomerDispute(input: {
           resolvedAt: new Date(),
           outcomeReference:
             values.outcome === "upheld" ? values.outcomeReference?.trim() || null : null,
+          resolutionEvidence: values.resolutionEvidence?.trim() || null,
         },
       });
       if (updated.count !== 1) throw new Error("DISPUTE_CONFLICT");
@@ -774,6 +793,7 @@ export async function resolveCustomerDispute(input: {
           outcome: values.outcome,
           note: values.note,
           outcomeReference: values.outcomeReference ?? null,
+          resolutionEvidence: values.resolutionEvidence?.trim() || null,
           financialMutation: false,
         },
       });

@@ -151,8 +151,11 @@ export default function CustomerDisputeDetailPage() {
             <dd className="text-slate-800">{fmt(dispute.createdAt)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Account</dt>
-            <dd className="text-slate-800">{dispute.accountNumber ?? "—"}</dd>
+            <dt className="text-xs text-slate-500">Account / cycle</dt>
+            <dd className="text-slate-800">
+              {dispute.accountNumber ?? "—"}
+              {dispute.cycleNumber === null ? "" : ` · cycle ${dispute.cycleNumber}`}
+            </dd>
           </div>
           {dispute.resolvedAt && (
             <div>
@@ -165,6 +168,12 @@ export default function CustomerDisputeDetailPage() {
           <span className="font-semibold">Your explanation: </span>
           {dispute.details}
         </div>
+        {dispute.customerEvidence && (
+          <p className="mt-2 text-xs text-slate-600">
+            <span className="font-semibold">Your evidence reference: </span>
+            {dispute.customerEvidence}
+          </p>
+        )}
         {dispute.resolutionNote && (
           <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
             <span className="font-semibold">Outcome: </span>
@@ -172,6 +181,11 @@ export default function CustomerDisputeDetailPage() {
             {dispute.outcomeReference && (
               <span className="mt-1 block text-xs">
                 Correction reference: {dispute.outcomeReference}
+              </span>
+            )}
+            {dispute.resolutionEvidence && (
+              <span className="mt-1 block text-xs">
+                Evidence checked: {dispute.resolutionEvidence}
               </span>
             )}
           </div>

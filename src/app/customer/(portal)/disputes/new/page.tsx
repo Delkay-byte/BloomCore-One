@@ -28,6 +28,7 @@ function NewDisputeForm() {
   const [error, setError] = useState("");
   const [category, setCategory] = useState<DisputeCategory>("not_received");
   const [details, setDetails] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +61,7 @@ function NewDisputeForm() {
       subjectId: subject.id,
       category,
       details,
+      evidenceReference: evidenceReference.trim() || undefined,
     });
     if (!result.success) {
       setError(result.error ?? "The dispute could not be opened.");
@@ -180,6 +182,17 @@ function NewDisputeForm() {
               <span className="mt-1 block text-[11px] text-slate-400">
                 {details.trim().length}/1000 · at least 10 characters
               </span>
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Evidence reference (optional)
+              <input
+                type="text"
+                value={evidenceReference}
+                onChange={(event) => setEvidenceReference(event.target.value)}
+                maxLength={300}
+                className="input mt-1 w-full"
+                placeholder="Receipt number, statement line or other reference you hold"
+              />
             </label>
             <button
               type="button"

@@ -220,6 +220,7 @@ describe("customer dispute lifecycle", () => {
       subjectId: f.customerA.contribution.id,
       category: "not_received",
       details: "I paid GH₵50 at the office but it does not appear on my statement.",
+      evidenceReference: "Office slip OS-1042",
     });
     expect(opened.success).toBe(true);
     const disputeId = (opened.data as { disputeId: string }).disputeId;
@@ -243,6 +244,8 @@ describe("customer dispute lifecycle", () => {
       status: "open",
       category: "not_received",
       openedByType: "customer",
+      cycleNumber: 1,
+      customerEvidence: "Office slip OS-1042",
     });
     expect(Number(stored.subjectAmount)).toBe(50);
     expect(stored.events.map((event) => event.action)).toEqual(["opened"]);
@@ -290,6 +293,7 @@ describe("customer dispute lifecycle", () => {
       outcome: "upheld",
       note: "Receipt was located and the contribution confirmed; correction reference recorded.",
       outcomeReference: "REV-C-TEST-1",
+      resolutionEvidence: "Contribution counterfoil OS-1042",
     });
     expect(resolved.success).toBe(true);
 
@@ -297,6 +301,9 @@ describe("customer dispute lifecycle", () => {
     const after = await getCustomerDispute(disputeId);
     expect(after?.status).toBe("resolved_upheld");
     expect(after?.outcomeReference).toBe("REV-C-TEST-1");
+    expect(after?.resolutionEvidence).toBe("Contribution counterfoil OS-1042");
+    expect(after?.cycleNumber).toBe(1);
+    expect(after?.customerEvidence).toBe("Office slip OS-1042");
     expect(after?.events.map((event) => event.action)).toEqual(
       expect.arrayContaining([
         "opened",

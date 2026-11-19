@@ -577,3 +577,68 @@ The customer opened the seeded contribution receipt, switched between SMS and Wh
 ### Next dependency
 
 Workstream 5 — customer self-service and dispute hardening on top of the existing portal and dispute records.
+
+## Workstream 5 — Customer self-service and dispute hardening
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+The customer portal already supported sign-in, statement and date filtering, receipt lookup, withdrawal status, profile/settings, and one dispute per recorded contribution or withdrawal. A dispute could be opened by the customer, reviewed by an administrator, paused for customer information, answered by the customer, cancelled before review, and resolved as upheld or declined. Disputes never changed money.
+
+### What was implemented
+
+- A dispute now snapshots the account **cycle number** when opened, so the record remains meaningful after the account moves to another cycle.
+- The customer can record an **evidence reference** when opening a dispute (receipt number, statement line or other held evidence).
+- The administrator can record the **evidence checked** when resolving.
+- Both evidence references are shown to the customer and the administrator, including after closure.
+- Customer and administrator audit entries carry the evidence reference and still declare `financialMutation: false`.
+- No dispute transition writes a contribution, withdrawal, commission or balance.
+
+### Schema and migration
+
+`prisma/migrations/20261204_dispute_evidence_cycle/migration.sql` adds, additively:
+
+- `CustomerDispute.cycleNumber`;
+- `CustomerDispute.customerEvidence`;
+- `CustomerDispute.resolutionEvidence`.
+
+Existing rows keep `NULL`, read as “not recorded”. No status, outcome or financial row is rewritten. Both Prisma schemas were validated and the SQLite test/E2E databases were pushed.
+
+### Tests and results
+
+- The lifecycle test now opens with customer evidence, asserts the cycle snapshot, resolves with administrator evidence, and asserts both are visible on the customer view.
+- Existing coverage still proves one dispute per transaction, tenant/customer isolation, transition rules, two-sided review and the audit trail.
+- `tests/customer-disputes.test.ts`: **6 passed**.
+- Full regression suite: **116 files, 1,290 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+The customer raised a dispute from the contribution receipt with `Office slip OS-W05`. The administrator opened it from the dispute register, started review, and resolved it with `Contribution counterfoil OS-W05`. The customer then saw both evidence references and the cycle on the closed dispute. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Customer reads and writes remain scoped by customer, tenant and account ownership.
+- Administrator reads remain scoped by tenant and the Susu module guard.
+- The subject is re-resolved from the database; the client cannot attach a dispute to another customer's transaction.
+- Evidence is bounded free text, not an uploaded file.
+- The outcome still changes the review record only. Any correction remains a separate financial action with its own audit evidence.
+
+### Known limitations
+
+- `outcomeReference` is recorded as text. It is not yet validated against an actual reversal/correction row, so an administrator can enter a reference that does not exist.
+- Evidence is a reference only; there is no document upload or retention store.
+- A dispute remains one-per-transaction. A second concern needs a separate channel or a future linked case.
+- No automatic correction is performed when a dispute is upheld; the normal financial control must be used.
+- There is no dispute SLA timer or aging alert; the board is reviewed on demand.
+
+### External approvals still required
+
+None for the local review flow. A future evidence-upload feature would need storage, retention and customer-privacy approval.
+
+### Next dependency
+
+Workstream 6 — association foundation: membership, sponsored subscriptions and training records.

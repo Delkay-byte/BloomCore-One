@@ -648,9 +648,15 @@ model CustomerDispute {
   /// Snapshot of the transaction reference at the time of the dispute.
   subjectReference String
   subjectAmount    Decimal
+  /// Cycle number snapshotted when the dispute is opened.
+  cycleNumber      Int?
   /// not_received | wrong_amount | duplicate_charge | unauthorised | other
   category         String
   details          String
+  /// Receipt, statement line or other evidence reference supplied by the customer.
+  customerEvidence String?
+  /// Evidence reference recorded by the administrator at resolution.
+  resolutionEvidence String?
   /// open | under_review | awaiting_customer | resolved_upheld |
   /// resolved_declined | cancelled
   status           String   @default("open")

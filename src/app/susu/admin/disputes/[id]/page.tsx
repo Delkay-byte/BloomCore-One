@@ -52,6 +52,7 @@ export default function AdminDisputeDetailPage() {
   const [outcome, setOutcome] = useState<"upheld" | "declined">("upheld");
   const [resolutionNote, setResolutionNote] = useState("");
   const [outcomeReference, setOutcomeReference] = useState("");
+  const [resolutionEvidence, setResolutionEvidence] = useState("");
 
   const load = useCallback(async () => {
     if (!disputeId) return;
@@ -135,8 +136,11 @@ export default function AdminDisputeDetailPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Account</dt>
-            <dd className="text-slate-800">{dispute.accountNumber ?? "—"}</dd>
+            <dt className="text-xs text-slate-500">Account / cycle</dt>
+            <dd className="text-slate-800">
+              {dispute.accountNumber ?? "—"}
+              {dispute.cycleNumber === null ? "" : ` · cycle ${dispute.cycleNumber}`}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-slate-500">Category</dt>
@@ -153,6 +157,12 @@ export default function AdminDisputeDetailPage() {
         <div className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
           {dispute.details}
         </div>
+        {dispute.customerEvidence && (
+          <p className="mt-2 text-xs text-slate-600">
+            <span className="font-semibold">Customer evidence reference: </span>
+            {dispute.customerEvidence}
+          </p>
+        )}
         {dispute.resolutionNote && (
           <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
             <span className="font-semibold">Outcome: </span>
@@ -160,6 +170,11 @@ export default function AdminDisputeDetailPage() {
             {dispute.outcomeReference && (
               <span className="mt-1 block text-xs">
                 Correction reference: {dispute.outcomeReference}
+              </span>
+            )}
+            {dispute.resolutionEvidence && (
+              <span className="mt-1 block text-xs">
+                Evidence checked: {dispute.resolutionEvidence}
               </span>
             )}
           </div>
@@ -290,6 +305,17 @@ export default function AdminDisputeDetailPage() {
                   placeholder="e.g. REV-C-... / REV-W-..."
                 />
               </label>
+              <label className="mt-2 block text-xs font-medium text-slate-600">
+                Evidence checked (optional)
+                <input
+                  type="text"
+                  value={resolutionEvidence}
+                  onChange={(event) => setResolutionEvidence(event.target.value)}
+                  maxLength={300}
+                  className="input mt-1 w-full"
+                  placeholder="Receipt, statement line or count sheet used for the decision"
+                />
+              </label>
               <button
                 type="button"
                 className="btn btn-primary mt-2"
@@ -302,6 +328,7 @@ export default function AdminDisputeDetailPage() {
                         outcome,
                         note: resolutionNote,
                         outcomeReference: outcomeReference || undefined,
+                        resolutionEvidence: resolutionEvidence || undefined,
                       }),
                     "Outcome recorded."
                   )

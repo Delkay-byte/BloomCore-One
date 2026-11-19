@@ -97,6 +97,11 @@ export const openDisputeSchema = z.object({
     .trim()
     .min(10, "Explain what happened in at least 10 characters.")
     .max(1000, "Keep the explanation under 1000 characters."),
+  evidenceReference: z
+    .string()
+    .trim()
+    .max(300, "Evidence reference must be 300 characters or fewer.")
+    .optional(),
 });
 
 export const respondToDisputeSchema = z.object({
@@ -117,6 +122,11 @@ export const resolveDisputeSchema = z.object({
     .min(10, "Record the evidence checked and the outcome (at least 10 characters).")
     .max(1000, "Keep the outcome under 1000 characters."),
   outcomeReference: z.string().trim().max(120).optional(),
+  resolutionEvidence: z
+    .string()
+    .trim()
+    .max(300, "Resolution evidence must be 300 characters or fewer.")
+    .optional(),
 });
 
 export const requestDisputeInfoSchema = z.object({
