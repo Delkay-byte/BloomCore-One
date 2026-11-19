@@ -15,7 +15,7 @@ This report starts the new Workstream 0 review and records each feature from her
 
 | # | Risk | Current classification | Evidence and remaining gap |
 |---|---|---|---|
-| 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / DISCLOSED** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Aggregate days remain supported, but reports now label them as operator-declared and not transaction-proven. Performance counts ledger-backed versus aggregate days, and a new anomaly rule flags aggregate closes that have ledger activity. Forcing every business onto the ledger remains a product decision. |
+| 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / DISCLOSED** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Workstream 1 adds an explicit verification state, supporting evidence and per-row cash/float effects, so a manual row can never be presented as provider-confirmed. Aggregate days remain supported but are labelled operator-declared and not transaction-proven; performance counts ledger-backed versus aggregate days and an anomaly flags mixed sources. Forcing every business onto the ledger remains a product decision. |
 | 2 | Best-effort audit records leave financial actions without evidence | **RESOLVED for money movements; residual control record** | Successful money changes now write audit evidence in the same transaction. `createAuditLog()` remains for non-financial/security events, and the final `finance.approval_applied` summary is still written after the already-audited reversal. |
 | 3 | Activity History omits meaningful actor identity | **RESOLVED for actor identity** | Audit rows now snapshot actor name, role and type at write time. Renames and removed accounts do not rewrite history. Device attribution remains part of 0.3. |
 | 4 | Offline shared-device recovery creates attribution and replay risk | **RESOLVED for attribution and replay; device trust remains a foundation** | Per-user IndexedDB scope, device ownership checks, global payload-bound idempotency and revoked-device refusal exist. Synced collections now store the verified device and commit with audit evidence. Device attestation/hardware binding is not claimed. |
@@ -294,3 +294,84 @@ A product decision is still required on whether new businesses should default to
 ### Next dependency
 
 Workstream 1 — strengthen the independent transaction ledger to cover the remaining attribution, verification-state, statement and export requirements.
+
+## Workstream 1 — Independent transaction ledger hardening
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+A tenant-scoped `MomoTransaction` ledger already existed with unique business references, per-tenant idempotency keys, employee and branch attribution, reversal and correction rows, posting history, a filterable admin screen and CSV export. Every row was described as “operator-recorded”, but the record itself had no explicit verification state, no evidence reference and no device attribution.
+
+### What was implemented
+
+- Every ledger row now carries a server-controlled verification state:
+  - **Operator-recorded** — manually captured, not provider-verified;
+  - **Imported statement** — reserved for a future statement import;
+  - **Provider-confirmed** — reserved for a future verified integration;
+  - **Disputed** — reserved for review.
+- Manual recording always writes `operator_recorded`. A client cannot promote its own submission to a provider-confirmed row; the value is not accepted from the form.
+- Optional **supporting evidence** text stores a receipt number, statement line or other held evidence. The UI states that this is a reference and does not verify the transaction with a network.
+- Optional `recordedDeviceId` / `recordedDeviceName` columns are ready for an enrolled offline device. Online web entry leaves them empty rather than inventing a device identity.
+- Cash and float effects are exposed per row:
+  - deposits: cash up, float down;
+  - cash-outs: cash down, float up;
+  - reversals carry the opposite effect so the pair nets to zero.
+- Reversals and corrections are always operator-recorded, even when correcting an imported or provider-confirmed row. A correction cannot inherit a stronger verification claim.
+- The admin ledger list and detail show verification state, effects, device and evidence. The worker ledger shows the verification badge and evidence reference.
+- CSV export adds cash effect, float effect, verification, recorded device and supporting evidence.
+
+### Schema and migration
+
+`prisma/migrations/20261201_momo_verification_state/migration.sql` adds, additively:
+
+- `MomoTransaction.verificationStatus` (default `operator_recorded`);
+- `recordedDeviceId`, `recordedDeviceName`;
+- `supportingEvidence`;
+- an index on `[tenantId, verificationStatus]`.
+
+Both SQLite and PostgreSQL Prisma schemas were updated. `prisma validate` passes for both. The SQLite test and E2E databases were pushed successfully. No historical row is rewritten: every existing row correctly defaults to operator-recorded.
+
+### Tests and results
+
+- New tests prove:
+  - every manual entry is `operator_recorded`;
+  - a client-supplied `provider_confirmed` value is ignored;
+  - supporting evidence is stored and returned;
+  - cash and float effects are correct for deposits and cash-outs;
+  - a reversal carries the opposite effect and nets to zero;
+  - the CSV discloses verification and effects.
+- `tests/momo-ledger.test.ts`: **25 passed**.
+- Full regression suite: **115 files, 1,285 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+Worker switched the seeded draft day to the ledger, recorded a GH₵120 deposit with supporting evidence, and saw the operator-recorded badge and evidence on the row. The administrator then opened the ledger and saw the same entry with its verification state. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Verification state is set by the server action, never trusted from the request.
+- Tenant, branch and employee scope are unchanged; all reads remain session-scoped.
+- Audit evidence remains atomic and now records the verification state and evidence reference.
+- Provider-confirmed remains impossible until a real integration exists, so the ledger cannot overstate certainty.
+- CSV escaping still neutralises formula-leading values.
+
+### Known limitations
+
+- No telco, aggregator or bank integration exists. Provider-confirmed and imported-statement states are defined but cannot yet be produced.
+- Online web entries do not have an enrolled device identity; device columns remain empty until device enrolment is wired to ledger entry.
+- Cash and float effects are derived operational views, not a full double-entry general ledger. They describe the ledger’s own effect model.
+- Statement import, reconciliation against a provider file and customer-facing MoMo statements are not implemented in this workstream.
+- PostgreSQL migration SQL was validated by schema and migration review, not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- MTN MoMo, Telecel Cash and AT Money API access, sandbox credentials and written confirmation of provider reference semantics before any row can be marked provider-confirmed.
+- Agreement on statement-import formats and evidence retention if imported statements are to become a supported source.
+
+### Next dependency
+
+Workstream 2 — extend the existing branch cash and float transfer lifecycle with the remaining approval, evidence and reporting requirements.

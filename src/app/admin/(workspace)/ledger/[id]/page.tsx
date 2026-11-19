@@ -41,6 +41,7 @@ export default function LedgerEntryPage() {
   const [reference, setReference] = useState("");
   const [externalReference, setExternalReference] = useState("");
   const [note, setNote] = useState("");
+  const [supportingEvidence, setSupportingEvidence] = useState("");
   const [reason, setReason] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(newKey());
 
@@ -61,6 +62,7 @@ export default function LedgerEntryPage() {
       setReference(`${result.entry.reference}-C`);
       setExternalReference(result.entry.externalReference ?? "");
       setNote(result.entry.note ?? "");
+      setSupportingEvidence(result.entry.supportingEvidence ?? "");
     } catch {
       setError("The transaction could not be loaded.");
     } finally {
@@ -83,6 +85,7 @@ export default function LedgerEntryPage() {
       reference: reference.trim(),
       externalReference: externalReference.trim() || null,
       note: note.trim() || undefined,
+      supportingEvidence: supportingEvidence.trim() || undefined,
       reason,
       idempotencyKey,
       stepUpToken: token,
@@ -120,7 +123,8 @@ export default function LedgerEntryPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Transaction {entry.reference}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Operator-recorded entry. Not provider-verified.
+          {entry.verificationLabel}. This ledger does not query a network
+          provider, so an operator-recorded entry is not a provider confirmation.
         </p>
       </div>
 
@@ -144,6 +148,21 @@ export default function LedgerEntryPage() {
           <Detail label="Location" value={entry.locationName ?? "—"} />
           <Detail label="Provider reference" value={entry.externalReference ?? "—"} />
           <Detail label="Recording source" value={entry.recordingSource} />
+          <Detail label="Verification" value={entry.verificationLabel} />
+          <Detail
+            label="Cash / float effect"
+            value={`${entry.cashEffect >= 0 ? "+" : ""}${entry.cashEffect.toFixed(2)} / ${
+              entry.floatEffect >= 0 ? "+" : ""
+            }${entry.floatEffect.toFixed(2)}`}
+          />
+          <Detail
+            label="Recorded device"
+            value={entry.recordedDeviceName ?? entry.recordedDeviceId ?? "Not captured"}
+          />
+          <Detail
+            label="Supporting evidence"
+            value={entry.supportingEvidence ?? "None recorded"}
+          />
         </div>
         {entry.note && <p className="mt-3 text-sm text-slate-600">Note: {entry.note}</p>}
         {entry.correctionReason && (
@@ -196,6 +215,10 @@ export default function LedgerEntryPage() {
               <input type="text" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full" />
             </label>
             <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
+              Supporting evidence (optional)
+              <input type="text" maxLength={300} value={supportingEvidence} onChange={(e) => setSupportingEvidence(e.target.value)} className="mt-1 w-full" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
               Correction reason (required)
               <textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full" />
             </label>
@@ -223,6 +246,7 @@ export default function LedgerEntryPage() {
                 <th>Reference</th>
                 <th>Type</th>
                 <th>Amount</th>
+                <th>Verification</th>
                 <th>Status</th>
                 <th>Link</th>
               </tr>
@@ -234,6 +258,7 @@ export default function LedgerEntryPage() {
                   <td className="text-xs">{row.reference}</td>
                   <td className="text-xs">{row.typeLabel}</td>
                   <td className="tnum text-xs"><CediAmount amount={row.amount} /></td>
+                  <td className="text-xs">{row.verificationLabel}</td>
                   <td className="text-xs capitalize">{row.status}</td>
                   <td className="text-xs">
                     {row.correctsTransactionId ? "correction of original" : row.reversesTransactionId ? "reversal entry" : "original"}

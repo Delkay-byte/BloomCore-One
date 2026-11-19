@@ -51,6 +51,30 @@ export const MOMO_TRANSACTION_TYPES = [
 ] as const;
 export type MomoTransactionType = (typeof MOMO_TRANSACTION_TYPES)[number];
 
+export const MOMO_VERIFICATION_STATUSES = [
+  "operator_recorded",
+  "statement_imported",
+  "provider_confirmed",
+  "disputed",
+] as const;
+export type MomoVerificationStatus = (typeof MOMO_VERIFICATION_STATUSES)[number];
+
+export const MOMO_VERIFICATION_LABELS: Record<MomoVerificationStatus, string> = {
+  operator_recorded: "Operator-recorded — not provider-verified",
+  statement_imported: "Imported statement — not independently verified",
+  provider_confirmed: "Provider-confirmed",
+  disputed: "Disputed — under review",
+};
+
+export function isMomoVerificationStatus(
+  value: unknown
+): value is MomoVerificationStatus {
+  return (
+    typeof value === "string" &&
+    (MOMO_VERIFICATION_STATUSES as readonly string[]).includes(value)
+  );
+}
+
 export type LedgerEffectClass = "principal" | "commission" | "income" | "expense";
 
 export interface MomoTransactionDefinition {
@@ -381,6 +405,11 @@ export const momoTransactionInputSchema = z
       .optional()
       .nullable(),
     note: z.string().trim().max(300, "The note must be 300 characters or fewer.").optional(),
+    supportingEvidence: z
+      .string()
+      .trim()
+      .max(300, "Supporting evidence must be 300 characters or fewer.")
+      .optional(),
     idempotencyKey: z
       .string()
       .trim()

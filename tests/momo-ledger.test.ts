@@ -118,6 +118,7 @@ function entry(
     reference: string;
     externalReference: string | null;
     note: string;
+    supportingEvidence: string;
     idempotencyKey: string;
   }> = {}
 ) {
@@ -299,6 +300,77 @@ describe("transaction recording", () => {
       where: { tenantId: tenant.id, action: "momo.transaction_recorded" },
     });
     expect(audit).not.toBeNull();
+  });
+
+  it("records manual entries as operator-recorded and never provider-confirmed", async () => {
+    const { tenant, location, worker } = await fixture();
+    const accountId = await ledgerAccount(worker.id, location.id, "2026-11-24");
+
+    const result = await recordMomoTransaction(accountId, {
+      ...entry({
+        type: "cash_out",
+        amount: 120,
+        externalReference: "PROV-REF-1",
+        supportingEvidence: "Receipt R-1042 held at the branch",
+      }),
+      // A client must not be able to promote its own entry.
+      verificationStatus: "provider_confirmed",
+    } as never);
+    expect(result.success).toBe(true);
+
+    const row = await prisma.momoTransaction.findFirstOrThrow({
+      where: { tenantId: tenant.id, dailyAccountId: accountId },
+    });
+    expect(row.verificationStatus).toBe("operator_recorded");
+    expect(row.recordingSource).toBe("manual_operator");
+    expect(row.supportingEvidence).toBe("Receipt R-1042 held at the branch");
+    expect(row.recordedDeviceId).toBeNull();
+  });
+
+  it("exposes cash and float effects without counting principal as income", async () => {
+    const { location, worker } = await fixture();
+    const accountId = await ledgerAccount(worker.id, location.id, "2026-11-24");
+
+    await recordMomoTransaction(
+      accountId,
+      entry({ type: "cash_in", network: "mtn", amount: 300 })
+    );
+    await recordMomoTransaction(
+      accountId,
+      entry({
+        type: "cash_out",
+        network: "mtn",
+        amount: 100,
+        commissionAmount: 2,
+        reference: "MM-OUT-1",
+      })
+    );
+
+    const view = await getAccountLedgerView(accountId);
+    const cashIn = view!.entries.find((item) => item.type === "cash_in");
+    const cashOut = view!.entries.find((item) => item.type === "cash_out");
+    expect(cashIn).toMatchObject({
+      cashEffect: 300,
+      floatEffect: -300,
+      verificationStatus: "operator_recorded",
+      verificationLabel: "Operator-recorded",
+    });
+    expect(cashOut).toMatchObject({ cashEffect: -100, floatEffect: 100 });
+    expect(cashOut!.commissionAmount).toBe(2);
+
+    // A reversal row carries the opposite effect, so the pair nets to zero.
+    const reversed = await reverseMomoTransaction({
+      transactionId: cashIn!.id,
+      reason: "Synthetic reversal for the effect check",
+    });
+    expect(reversed.success).toBe(true);
+    const after = await getAccountLedgerView(accountId);
+    const reversal = after!.entries.find((item) => item.direction === "reversal");
+    expect(reversal).toMatchObject({
+      cashEffect: -300,
+      floatEffect: 300,
+      verificationStatus: "operator_recorded",
+    });
   });
 
   it("rejects a location the worker is not assigned to", async () => {
@@ -852,6 +924,9 @@ describe("ledger reporting", () => {
     const csv = await exportLedgerCsv({});
     expect(csv.csv).toContain("Business date");
     expect(csv.csv).toContain("Ledger Shop");
+    expect(csv.csv).toContain("Cash effect (GHS)");
+    expect(csv.csv).toContain("Verification");
+    expect(csv.csv).toContain("operator_recorded");
     // The formula-leading reference is neutralised.
     expect(csv.csv).toContain("\"'=FORMULA-1\"");
     expect(csv.csv).not.toContain(second.tenant.code);

@@ -79,6 +79,7 @@ export default function MomoLedgerPanel({
   const [reference, setReference] = useState("");
   const [externalReference, setExternalReference] = useState("");
   const [note, setNote] = useState("");
+  const [supportingEvidence, setSupportingEvidence] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(newKey());
 
   const [reverseFor, setReverseFor] = useState<string | null>(null);
@@ -128,6 +129,7 @@ export default function MomoLedgerPanel({
         reference: reference.trim(),
         externalReference: externalReference.trim() || null,
         note: note.trim() || undefined,
+        supportingEvidence: supportingEvidence.trim() || undefined,
         idempotencyKey,
       });
       if (!result.success) {
@@ -145,6 +147,7 @@ export default function MomoLedgerPanel({
       setReference("");
       setExternalReference("");
       setNote("");
+      setSupportingEvidence("");
       setIdempotencyKey(newKey());
       await load();
     } catch {
@@ -448,6 +451,21 @@ export default function MomoLedgerPanel({
                 className="mt-1 w-full"
               />
             </label>
+            <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">
+              Supporting evidence (optional)
+              <input
+                type="text"
+                maxLength={300}
+                value={supportingEvidence}
+                onChange={(event) => setSupportingEvidence(event.target.value)}
+                placeholder="Receipt number, statement line or other evidence held on file"
+                className="mt-1 w-full"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                Stored as a reference only. This does not verify the transaction
+                with the network.
+              </span>
+            </label>
           </div>
           <button
             type="button"
@@ -491,6 +509,7 @@ export default function MomoLedgerPanel({
                   <th>Amount</th>
                   <th>Commission</th>
                   <th>Reference</th>
+                  <th>Verification</th>
                   <th>Status</th>
                   <th />
                 </tr>
@@ -519,6 +538,14 @@ export default function MomoLedgerPanel({
                           corrected
                         </span>
                       )}
+                      {entry.supportingEvidence && (
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          Evidence: {entry.supportingEvidence}
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-xs">
+                      <VerificationBadge status={entry.verificationStatus} />
                     </td>
                     <td className="text-xs">
                       <StatusBadge status={entry.status} />
@@ -618,6 +645,32 @@ function Metric({
         {amount !== undefined ? <CediAmount amount={amount} /> : text ?? value}
       </p>
     </div>
+  );
+}
+
+function VerificationBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    operator_recorded: {
+      label: "Operator-recorded",
+      className: "bg-slate-100 text-slate-700",
+    },
+    statement_imported: {
+      label: "Imported statement",
+      className: "bg-amber-100 text-amber-800",
+    },
+    provider_confirmed: {
+      label: "Provider-confirmed",
+      className: "bg-emerald-100 text-emerald-800",
+    },
+    disputed: { label: "Disputed", className: "bg-red-100 text-red-800" },
+  };
+  const item = map[status] ?? { label: status, className: "bg-slate-100 text-slate-700" };
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.className}`}
+    >
+      {item.label}
+    </span>
   );
 }
 

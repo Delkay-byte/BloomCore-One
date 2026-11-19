@@ -203,6 +203,14 @@ model MomoTransaction {
   externalReference     String?
   /// manual_operator | statement_import | provider_api (future sources)
   recordingSource       String    @default("manual_operator")
+  /// operator_recorded | statement_imported | provider_confirmed | disputed
+  /// Only an integration may set provider_confirmed. Manual entry cannot.
+  verificationStatus    String    @default("operator_recorded")
+  /// Enrolled device that captured the entry, when one is available.
+  recordedDeviceId      String?
+  recordedDeviceName    String?
+  /// Free-text pointer to the receipt, statement line or other evidence.
+  supportingEvidence    String?
   /// recorded | reversed | corrected | reversal
   status                String    @default("recorded")
   idempotencyKey        String
@@ -229,6 +237,7 @@ model MomoTransaction {
   @@index([workerId, businessDate])
   @@index([dailyAccountId, status])
   @@index([type, status])
+  @@index([tenantId, verificationStatus])
   @@index([createdAt])
 }
 

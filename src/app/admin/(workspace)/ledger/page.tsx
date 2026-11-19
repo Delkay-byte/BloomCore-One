@@ -248,6 +248,7 @@ export default function AdminLedgerPage() {
                   <th>Amount</th>
                   <th>Commission</th>
                   <th>Reference</th>
+                  <th>Verification</th>
                   <th>Status</th>
                   <th />
                 </tr>
@@ -276,6 +277,26 @@ export default function AdminLedgerPage() {
                       </Link>
                       {entry.correctsTransactionId && (
                         <span className="ml-1 text-[10px] text-amber-700">corrected</span>
+                      )}
+                    </td>
+                    <td className="text-xs">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          entry.verificationStatus === "provider_confirmed"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : entry.verificationStatus === "disputed"
+                              ? "bg-red-100 text-red-800"
+                              : entry.verificationStatus === "statement_imported"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {entry.verificationLabel}
+                      </span>
+                      {entry.supportingEvidence && (
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          Evidence: {entry.supportingEvidence}
+                        </span>
                       )}
                     </td>
                     <td className="text-xs capitalize">{entry.status}</td>

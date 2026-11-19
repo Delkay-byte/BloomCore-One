@@ -89,6 +89,13 @@ export interface LedgerEntryView {
   network: string;
   networkLabel: string;
   direction: string;
+  verificationStatus: string;
+  verificationLabel: string;
+  recordedDeviceId: string | null;
+  recordedDeviceName: string | null;
+  supportingEvidence: string | null;
+  cashEffect: number;
+  floatEffect: number;
   amount: number;
   commissionAmount: number;
   businessDate: string;
@@ -109,6 +116,13 @@ export interface LedgerEntryView {
   workerName?: string;
 }
 
+const VERIFICATION_LABEL: Record<string, string> = {
+  operator_recorded: "Operator-recorded",
+  statement_imported: "Imported statement",
+  provider_confirmed: "Provider-confirmed",
+  disputed: "Disputed",
+};
+
 const NETWORK_LABEL: Record<string, string> = {
   mtn: "MTN MoMo",
   telecel: "Telecel Cash",
@@ -122,6 +136,10 @@ function entryView(row: {
   type: string;
   network: string;
   direction: string;
+  verificationStatus: string;
+  recordedDeviceId: string | null;
+  recordedDeviceName: string | null;
+  supportingEvidence: string | null;
   amount: unknown;
   commissionAmount: unknown;
   businessDate: Date;
@@ -139,15 +157,32 @@ function entryView(row: {
   location?: { name: string; code: string } | null;
   worker?: { fullName: string } | null;
 }): LedgerEntryView {
+  const definition = isMomoTransactionType(row.type)
+    ? transactionDefinition(row.type)
+    : null;
   return {
     id: row.id,
     type: row.type,
-    typeLabel: isMomoTransactionType(row.type)
-      ? transactionDefinition(row.type).shortLabel
-      : row.type,
+    typeLabel: definition ? definition.shortLabel : row.type,
     network: row.network,
     networkLabel: NETWORK_LABEL[row.network] ?? row.network,
     direction: row.direction,
+    verificationStatus: row.verificationStatus,
+    verificationLabel:
+      VERIFICATION_LABEL[row.verificationStatus] ?? row.verificationStatus,
+    recordedDeviceId: row.recordedDeviceId,
+    recordedDeviceName: row.recordedDeviceName,
+    supportingEvidence: row.supportingEvidence,
+    cashEffect: definition
+      ? definition.cashEffect *
+        money(row.amount) *
+        (row.direction === "reversal" ? -1 : 1)
+      : 0,
+    floatEffect: definition
+      ? definition.floatEffect *
+        money(row.amount) *
+        (row.direction === "reversal" ? -1 : 1)
+      : 0,
     amount: money(row.amount),
     commissionAmount: money(row.commissionAmount),
     businessDate: row.businessDate.toISOString(),
@@ -184,6 +219,7 @@ export async function recordMomoTransaction(
     reference: string;
     externalReference?: string | null;
     note?: string;
+    supportingEvidence?: string;
     idempotencyKey: string;
   }
 ): Promise<LedgerActionResponse> {
@@ -194,6 +230,7 @@ export async function recordMomoTransaction(
     ...input,
     commissionAmount: input.commissionAmount ?? 0,
     externalReference: input.externalReference?.trim() || null,
+    supportingEvidence: input.supportingEvidence?.trim() || undefined,
   });
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0].message };
@@ -304,9 +341,11 @@ export async function recordMomoTransaction(
           reference: values.reference,
           externalReference: values.externalReference ?? null,
           recordingSource: "manual_operator",
+          verificationStatus: "operator_recorded",
           status: "recorded",
           idempotencyKey: values.idempotencyKey,
           note: values.note?.trim() || null,
+          supportingEvidence: values.supportingEvidence?.trim() || null,
           recordedById: ctx.userId,
         },
         include: {
@@ -332,6 +371,8 @@ export async function recordMomoTransaction(
           commissionAmount: values.commissionAmount,
           reference: values.reference,
           recordingSource: "manual_operator",
+          verificationStatus: "operator_recorded",
+          supportingEvidence: values.supportingEvidence?.trim() || null,
         },
       });
       return row;
@@ -474,6 +515,8 @@ export async function reverseMomoTransaction(input: {
           reference: `REV-${original.reference}`.slice(0, 64),
           externalReference: null,
           recordingSource: "manual_operator",
+          verificationStatus: "operator_recorded",
+          supportingEvidence: original.supportingEvidence,
           status: "reversal",
           idempotencyKey: `reversal:${original.id}`.slice(0, 120),
           reversesTransactionId: original.id,
@@ -526,6 +569,7 @@ export async function correctMomoTransaction(input: {
   reference: string;
   externalReference?: string | null;
   note?: string;
+  supportingEvidence?: string;
   reason: string;
   idempotencyKey: string;
   stepUpToken?: string;
@@ -590,6 +634,8 @@ export async function correctMomoTransaction(input: {
     reference: input.reference,
     externalReference: input.externalReference?.trim() || null,
     note: input.note?.trim() || undefined,
+    supportingEvidence:
+      input.supportingEvidence?.trim() || original.supportingEvidence || undefined,
     idempotencyKey: input.idempotencyKey,
   });
   if (!parsed.success) {
@@ -657,6 +703,8 @@ export async function correctMomoTransaction(input: {
           reference: values.reference,
           externalReference: values.externalReference ?? null,
           recordingSource: "manual_operator",
+          verificationStatus: "operator_recorded",
+          supportingEvidence: values.supportingEvidence ?? null,
           status: "recorded",
           idempotencyKey: values.idempotencyKey,
           correctsTransactionId: original.id,
@@ -1170,6 +1218,11 @@ export async function exportLedgerCsv(filters: AdminLedgerFilters = {}) {
     "Type",
     "Network",
     "Direction",
+    "Cash effect (GHS)",
+    "Float effect (GHS)",
+    "Verification",
+    "Recorded device",
+    "Supporting evidence",
     "Amount (GHS)",
     "Commission (GHS)",
     "Reference",
@@ -1193,6 +1246,11 @@ export async function exportLedgerCsv(filters: AdminLedgerFilters = {}) {
         entry.typeLabel,
         entry.networkLabel,
         entry.direction,
+        entry.cashEffect.toFixed(2),
+        entry.floatEffect.toFixed(2),
+        entry.verificationStatus,
+        entry.recordedDeviceName ?? entry.recordedDeviceId ?? "",
+        entry.supportingEvidence ?? "",
         entry.amount.toFixed(2),
         entry.commissionAmount.toFixed(2),
         entry.reference,
