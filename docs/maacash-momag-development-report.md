@@ -448,7 +448,7 @@ Workstream 3 — extend shift accountability and handover with the remaining cov
 ## Workstream 3 — Shift accountability and two-sided handover
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `dd6201a`
 
 ### Existing capability before changes
 
