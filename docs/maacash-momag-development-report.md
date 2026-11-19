@@ -1447,3 +1447,47 @@ Browser: **2 passed**
   indicator and discards the result, but the server may still finish computing
   and recording the assistant message in the original conversation.
 - There is no elapsed-time or queue-position display.
+
+---
+
+# Consolidated close-out — Workstreams 11–18
+
+**Branch:** `feat/maacash-momag-readiness`  
+**Baseline:** `92d6d974e1e41d7b0586e823f9c000a0a7fe0925` (production, untouched)  
+**State:** local commits only — nothing pushed, merged, deployed or run against a live payment, WhatsApp or SMS service.
+
+| Workstream | Feature commit | Delivered |
+|---|---|---|
+| 11 — Paystack Mobile Money-first checkout | `c64f995` | Explicit method selection, Mobile Money default, only the selected channel is sent, checkout method locked once open, no duplicate transaction. |
+| 12 — WhatsApp receipt delivery | `bc7a3dc` | Meta Cloud provider, consent-gated receipt outbox, receipt events for contributions/withdrawals, template-only messages, signed webhook, sanitised failures. Delivery off by default. |
+| 13 — SMS foundation | `f051507` | Provider interface, non-delivering mock adapter, consent-gated SMS path, readiness row. No real SMS. |
+| 14 — BloomCore attribution | `732d7c7` | Shared footer/link to `https://bloomcoretech.com` across every shell, login, portal and marketing surface. |
+| 15 — Zeli titles | `7a6d744` | Deterministic, privacy-safe title from the first meaningful message; manual renames preserved; no external model. |
+| 16 — Zeli History repair | `7fc0054` | Accessible history dialog on every viewport, tenant/user-scoped title and content search, metadata, loading/empty/error states, stale-title refresh. |
+| 17 — Zeli response structure | `fd35a5a` | Machine tags removed; typed Key figures / What changed / How to read this / Recommended next step / Not established sections; persisted metadata; legacy messages translated on read. |
+| 18 — Zeli thinking state | `d4543eb` | Accessible live-region thinking indicator, reduced-motion safe, cleared on success/failure/navigation; late replies ignored after navigation. |
+
+## Final verification
+
+- **126 test files / 1,350 tests passed** (`npx vitest run`).
+- **`npx tsc --noEmit`:** clean.
+- **ESLint:** 0 errors; only pre-existing warnings (including the history-search effect warning and unused test variables).
+- Both SQLite and PostgreSQL Prisma schemas validate; new migrations are additive.
+- Browser checks passed for checkout method selection, WhatsApp consent, integrations readiness, attribution, Zeli titles/history/structure and the thinking state.
+- Working tree contains no secrets, customer data, database files or temporary test artefacts.
+- Production remains at `92d6d97`.
+
+## External items still required before any production enablement
+
+1. **Paystack** — confirm the business account has Mobile Money enabled for the intended currency; no live Paystack request was made in this work.
+2. **Meta WhatsApp** — approve the `maacash_receipt` template, provide the webhook verify token and app secret, confirm the system-user token has the required WhatsApp permission scope, and make a deliberate owner decision to set `WHATSAPP_DELIVERY_ENABLED=true`. Until then receipts remain simulated and nothing is sent.
+3. **SMS** — no provider has been selected. The mock never delivers and reports `simulated`.
+4. **Hosting/rollout** — a controlled deployment plan, migration window and production smoke test are still needed. No deployment has been performed.
+
+## Standing limitations
+
+- MoMo, transfers, shifts, disputes and association records remain operator-recorded; there is no telco/aggregator feed or provider-confirmed balance.
+- Messaging is template-only and consent-gated; there is no consent/opt-out history beyond the stored preference, and no delivery guarantee.
+- Zeli is rule-based. It is read-only, its sections are evidence labels rather than confidence scores, and it does not reason beyond authorised records.
+- History search is a bounded `contains` query, not a ranked full-text index.
+- Late Zeli replies finish server-side after navigation even though their UI result is discarded.
