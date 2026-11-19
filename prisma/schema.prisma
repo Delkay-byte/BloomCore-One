@@ -294,9 +294,13 @@ model BranchTransfer {
   approvedAt        DateTime?
   dispatchedById    String?
   dispatchedAt      DateTime?
+  /// Receipt number, waybill or other evidence held for the dispatch.
+  dispatchEvidence  String?
   receivedById      String?
   receivedAt        DateTime?
   actualAmountReceived Decimal?
+  /// Receipt number, count sheet or other evidence held at the destination.
+  receiptEvidence   String?
   variance          Decimal?
   varianceReason    String?
   rejectedById      String?

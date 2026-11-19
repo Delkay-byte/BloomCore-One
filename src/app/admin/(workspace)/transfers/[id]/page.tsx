@@ -52,6 +52,7 @@ export default function BranchTransferDetailPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [reason, setReason] = useState("");
+  const [evidence, setEvidence] = useState("");
   const [actualAmount, setActualAmount] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [reauthOpen, setReauthOpen] = useState(false);
@@ -94,13 +95,14 @@ export default function BranchTransferDetailPage() {
           result = await rejectBranchTransfer({ id: transfer.id, reason });
           break;
         case "dispatch":
-          result = await dispatchBranchTransfer(transfer.id);
+          result = await dispatchBranchTransfer(transfer.id, evidence.trim() || undefined);
           break;
         case "receive":
           result = await receiveBranchTransfer({
             id: transfer.id,
             actualAmountReceived: Number(actualAmount),
             note: reason.trim() || undefined,
+            evidence: evidence.trim() || undefined,
           });
           break;
         case "complete":
@@ -131,6 +133,7 @@ export default function BranchTransferDetailPage() {
         setSuccess("Transfer updated.");
         setPending(null);
         setReason("");
+        setEvidence("");
         setReauthOpen(false);
         await load();
       }
@@ -162,6 +165,7 @@ export default function BranchTransferDetailPage() {
       setSuccess("Transfer updated.");
       setPending(null);
       setReason("");
+      setEvidence("");
       setReauthOpen(false);
       await load();
     } finally {
@@ -230,6 +234,8 @@ export default function BranchTransferDetailPage() {
         <Detail label="Approved by" value={transfer.approvedByName ?? "—"} />
         <Detail label="Dispatched by" value={transfer.dispatchedByName ?? "—"} />
         <Detail label="Received by" value={transfer.receivedByName ?? "—"} />
+        <Detail label="Dispatch evidence" value={transfer.dispatchEvidence ?? "None recorded"} />
+        <Detail label="Receipt evidence" value={transfer.receiptEvidence ?? "None recorded"} />
         <Detail label="Purpose" value={transfer.purpose ?? "—"} />
         <Detail label="Created" value={new Date(transfer.createdAt).toLocaleString("en-GB")} />
         {transfer.varianceReason && (
@@ -281,7 +287,7 @@ export default function BranchTransferDetailPage() {
           </>
         )}
         {status === "received" && (
-          <button type="button" onClick={() => setPending("complete")} disabled={busy} className="btn btn-primary btn-sm">
+          <button type="button" onClick={() => void run("complete")} disabled={busy} className="btn btn-primary btn-sm">
             Complete transfer
           </button>
         )}
@@ -307,12 +313,14 @@ export default function BranchTransferDetailPage() {
         )}
       </div>
 
-      {pending && !["approve", "dispatch", "complete"].includes(pending) && (
+      {pending && !["approve", "complete"].includes(pending) && (
         <div className="card p-4">
           <h2 className="text-sm font-bold text-slate-900">
             {pending === "receive"
               ? "Confirm receipt"
-              : pending === "reject"
+              : pending === "dispatch"
+                ? "Confirm dispatch"
+                : pending === "reject"
                 ? "Reject the transfer"
                 : pending === "cancel"
                   ? "Cancel the transfer"
@@ -331,6 +339,22 @@ export default function BranchTransferDetailPage() {
                 onChange={(event) => setActualAmount(event.target.value)}
                 className="mt-1 w-full"
               />
+            </label>
+          )}
+          {(pending === "dispatch" || pending === "receive") && (
+            <label className="mt-2 block text-xs font-semibold text-slate-700">
+              {pending === "dispatch" ? "Dispatch" : "Receipt"} evidence (optional)
+              <input
+                type="text"
+                maxLength={300}
+                value={evidence}
+                onChange={(event) => setEvidence(event.target.value)}
+                placeholder="Waybill, count sheet, receipt number or other evidence held"
+                className="mt-1 w-full"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                Stored as a reference only. It does not confirm a provider balance.
+              </span>
             </label>
           )}
           <label className="mt-2 block text-xs font-semibold text-slate-700">
@@ -353,7 +377,13 @@ export default function BranchTransferDetailPage() {
                   void run(pending);
                 }
               }}
-              disabled={busy || reason.trim().length < (pending === "receive" ? 0 : 5)}
+              disabled={
+                busy ||
+                (["reject", "cancel", "dispute", "resolve_completed", "resolve_disputed"].includes(
+                  pending
+                ) &&
+                  reason.trim().length < 5)
+              }
               className="btn btn-primary btn-sm"
             >
               Confirm

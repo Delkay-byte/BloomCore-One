@@ -375,3 +375,72 @@ Worker switched the seeded draft day to the ledger, recorded a GH₵120 deposit 
 ### Next dependency
 
 Workstream 2 — extend the existing branch cash and float transfer lifecycle with the remaining approval, evidence and reporting requirements.
+
+## Workstream 2 — Branch cash and float transfer lifecycle
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+The branch transfer lifecycle already supported declared cash and per-network float, request, approval by a different administrator, rejection, dispatch, receipt, variance capture, dispute, investigation resolution, cancellation and append-only events. Transfers were reserved against the declared balance and high-value approvals required step-up.
+
+Two gaps remained:
+
+- The read-then-reserve balance check relied on the database default isolation level. SQLite serialises writes, but PostgreSQL at read committed could let two concurrent requests both pass before either committed.
+- The admin **Complete transfer** button set a pending state that the form block deliberately excluded, so a received transfer could not be completed from the screen even though the server action worked.
+
+### What was implemented
+
+- Balance reservation and draft request now run at **Serializable** isolation, with a bounded retry for serialization and write conflicts.
+- The admin **Complete transfer** button now calls the completion action directly.
+- Dispatch can record a **dispatch evidence** reference (waybill, count sheet, receipt number).
+- Receipt can record a **receipt evidence** reference in addition to the counted amount and variance note.
+- Both evidence references are stored on the transfer, written into the append-only event/audit trail where applicable, and shown on the transfer detail.
+- The evidence fields state that a reference does not confirm a provider balance.
+
+### Schema and migration
+
+`prisma/migrations/20261202_branch_transfer_evidence/migration.sql` adds, additively:
+
+- `BranchTransfer.dispatchEvidence`;
+- `BranchTransfer.receiptEvidence`.
+
+Existing rows keep `NULL`, read as “None recorded”. No historical transition is rewritten. Both Prisma schemas were updated and validated; SQLite test and E2E databases were pushed successfully.
+
+### Tests and results
+
+- The lifecycle test now records dispatch and receipt evidence and asserts both are returned on the transfer detail and that dispatch evidence appears in history.
+- Existing coverage still proves separation of duties, location roles, variance handling, cancellation release and the concurrent full-balance request result.
+- `tests/branch-transfers.test.ts`: **18 passed**.
+- Full regression suite: **115 files, 1,285 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warning only.
+
+### Browser acceptance
+
+An approved transfer was opened as an administrator. Dispatch was confirmed with `Waybill WB-E2E-1`; receipt was confirmed for GH₵300 with `Count sheet CS-E2E-1`; the transfer was then completed from the screen. Both evidence references and the completed state were visible. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Tenant and location scope are unchanged; a worker may only act from their assigned source or destination.
+- Approval still requires a different administrator, and step-up is unchanged.
+- Evidence is server-side validated at 300 characters or fewer and never treated as provider confirmation.
+- Serializable isolation plus retry closes the PostgreSQL over-reservation window that the previous default isolation level left open.
+
+### Known limitations
+
+- Evidence is a free-text reference; file attachments and document storage are not implemented.
+- Declared balances remain operator declarations. There is no telco, bank or aggregator balance feed.
+- Transfers move internal declared positions only; they do not initiate a real bank or mobile-money movement.
+- Serializable retry is bounded. A persistent conflict returns a clean failure rather than retrying indefinitely.
+- PostgreSQL serialization behaviour was reasoned from Prisma/database semantics and exercised on SQLite; it was not load-tested against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- Bank and telco integration agreements before any transfer can be confirmed against a real provider movement.
+- A retention policy for physical waybills and count sheets if evidence references are to be audited externally.
+
+### Next dependency
+
+Workstream 3 — extend shift accountability and handover with the remaining coverage and reporting requirements.

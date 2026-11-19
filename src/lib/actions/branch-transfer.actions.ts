@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAdminSession, getMomoSession } from "@/lib/auth";
 import {
@@ -58,6 +58,43 @@ function uniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: string }).code === "P2002"
   );
+}
+
+function serializationConflict(error: unknown): boolean {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: string }).code
+      : undefined;
+  const message = error instanceof Error ? error.message : "";
+  return (
+    code === "P2034" ||
+    code === "P2028" ||
+    code === "P1008" ||
+    /database is locked|SQLITE_BUSY|timed out|transaction already closed/i.test(message)
+  );
+}
+
+/**
+ * Balance reservations are read-then-write. PostgreSQL must run them at
+ * Serializable isolation, and a serialization failure is safe to retry because
+ * the whole reservation rolled back.
+ */
+async function withSerializableRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt < 2 && serializationConflict(error)) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+function evidenceText(value: string | undefined): string | null {
+  return value?.trim() || null;
 }
 
 async function requireTransferActor(): Promise<TenantContext> {
@@ -250,7 +287,9 @@ export async function createBranchTransfer(
   const now = new Date();
 
   try {
-    const created = await db.$transaction(async (tx) => {
+    const created = await withSerializableRetry(() =>
+      db.$transaction(
+        async (tx) => {
       // Availability is computed inside the transaction. PostgreSQL runs this
       // at Serializable isolation, and the post-insert recheck below also
       // catches a concurrent request that slipped in on SQLite.
@@ -321,7 +360,10 @@ export async function createBranchTransfer(
         }
       }
       return row;
-    });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
+    );
 
     revalidateTransfers();
     return {
@@ -374,7 +416,9 @@ export async function requestBranchTransfer(id: string): Promise<TransferActionR
   }
 
   try {
-    await db.$transaction(async (tx) => {
+    await withSerializableRetry(() =>
+      db.$transaction(
+        async (tx) => {
       const position = await positionFor(
         tx,
         ctx.tenantId,
@@ -404,7 +448,10 @@ export async function requestBranchTransfer(id: string): Promise<TransferActionR
         entityId: id,
         details: { reference: transfer.reference, amount: money(transfer.amount) },
       });
-    });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "NO_DECLARED_BALANCE") {
       return { success: false, error: "Declare the sending location's balance first." };
@@ -575,8 +622,15 @@ export async function rejectBranchTransfer(input: {
   return { success: true };
 }
 
-export async function dispatchBranchTransfer(id: string): Promise<TransferActionResponse> {
+export async function dispatchBranchTransfer(
+  id: string,
+  evidence?: string
+): Promise<TransferActionResponse> {
   const ctx = await requireTransferActor();
+  const dispatchEvidence = evidenceText(evidence);
+  if (dispatchEvidence && dispatchEvidence.length > 300) {
+    return { success: false, error: "Dispatch evidence must be 300 characters or fewer." };
+  }
   const transfer = await db.branchTransfer.findFirst({
     where: { id, tenantId: ctx.tenantId },
   });
@@ -605,6 +659,7 @@ export async function dispatchBranchTransfer(id: string): Promise<TransferAction
           status: "dispatched",
           dispatchedById: ctx.userId,
           dispatchedAt: new Date(),
+          dispatchEvidence,
         },
       });
       if (updated.count !== 1) throw new Error("TRANSFER_CONFLICT");
@@ -613,6 +668,7 @@ export async function dispatchBranchTransfer(id: string): Promise<TransferAction
         transferId: transfer.id,
         action: "dispatched",
         actorId: ctx.userId,
+        note: dispatchEvidence ? `Dispatch evidence: ${dispatchEvidence}` : null,
       });
       await createAuditLogTx(tx, {
         userId: ctx.userId,
@@ -620,7 +676,11 @@ export async function dispatchBranchTransfer(id: string): Promise<TransferAction
         action: "branch_transfer.dispatched",
         entityType: "branchTransfer",
         entityId: transfer.id,
-        details: { reference: transfer.reference, amount: money(transfer.amount) },
+        details: {
+          reference: transfer.reference,
+          amount: money(transfer.amount),
+          evidence: dispatchEvidence,
+        },
       });
     });
   } catch {
@@ -635,8 +695,13 @@ export async function receiveBranchTransfer(input: {
   id: string;
   actualAmountReceived: number;
   note?: string;
+  evidence?: string;
 }): Promise<TransferActionResponse> {
   const ctx = await requireTransferActor();
+  const receiptEvidence = evidenceText(input.evidence);
+  if (receiptEvidence && receiptEvidence.length > 300) {
+    return { success: false, error: "Receipt evidence must be 300 characters or fewer." };
+  }
   const transfer = await db.branchTransfer.findFirst({
     where: { id: input.id, tenantId: ctx.tenantId },
   });
@@ -692,6 +757,7 @@ export async function receiveBranchTransfer(input: {
           receivedById: ctx.userId,
           receivedAt: new Date(),
           actualAmountReceived: actual,
+          receiptEvidence,
           variance,
           varianceReason: variance === 0 ? null : note,
         },
@@ -722,6 +788,7 @@ export async function receiveBranchTransfer(input: {
           actualAmountReceived: actual,
           variance,
           reason: note,
+          evidence: receiptEvidence,
         },
       });
     });
@@ -1041,6 +1108,8 @@ export interface BranchTransferView {
   receivedByName: string | null;
   receivedAt: string | null;
   actualAmountReceived: number | null;
+  dispatchEvidence: string | null;
+  receiptEvidence: string | null;
   variance: number | null;
   varianceReason: string | null;
   rejectionReason: string | null;
@@ -1089,6 +1158,8 @@ function transferView(
     receivedById: string | null;
     receivedAt: Date | null;
     actualAmountReceived: unknown;
+    dispatchEvidence: string | null;
+    receiptEvidence: string | null;
     variance: unknown;
     varianceReason: string | null;
     rejectionReason: string | null;
@@ -1138,6 +1209,8 @@ function transferView(
     receivedAt: row.receivedAt?.toISOString() ?? null,
     actualAmountReceived:
       row.actualAmountReceived === null ? null : money(row.actualAmountReceived),
+    dispatchEvidence: row.dispatchEvidence,
+    receiptEvidence: row.receiptEvidence,
     variance: row.variance === null ? null : money(row.variance),
     varianceReason: row.varianceReason,
     rejectionReason: row.rejectionReason,

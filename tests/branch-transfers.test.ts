@@ -320,13 +320,16 @@ describe("branch transfer lifecycle", () => {
     expect((await approveBranchTransfer({ id: transferId })).success).toBe(true);
 
     await setSession("momo", f.sourceWorker);
-    expect((await dispatchBranchTransfer(transferId)).success).toBe(true);
+    expect(
+      (await dispatchBranchTransfer(transferId, "Waybill WB-1042")).success
+    ).toBe(true);
 
     await setSession("momo", f.destinationWorker);
     const received = await receiveBranchTransfer({
       id: transferId,
       actualAmountReceived: 300,
       note: "Counted at the counter",
+      evidence: "Count sheet CS-77 signed by the receiver",
     });
     expect(received.success).toBe(true);
     expect((received.data as { variance: number }).variance).toBe(0);
@@ -350,6 +353,11 @@ describe("branch transfer lifecycle", () => {
       "completed",
     ]);
     expect(detail?.approvedByName).toBe("Test Admin");
+    expect(detail?.dispatchEvidence).toBe("Waybill WB-1042");
+    expect(detail?.receiptEvidence).toBe("Count sheet CS-77 signed by the receiver");
+    expect(detail?.events.find((event) => event.action === "dispatched")?.note).toContain(
+      "Waybill WB-1042"
+    );
   });
 
   it("refuses self-approval when the requester is also an administrator", async () => {
