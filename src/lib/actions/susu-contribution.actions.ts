@@ -8,6 +8,10 @@ import {
   type TenantContext,
 } from "@/lib/tenant";
 import { createAuditLogTx } from "@/lib/audit";
+import {
+  enqueueReceiptForTransactionTx,
+  queueCustomerReceiptDelivery,
+} from "@/lib/messaging/outbox";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -349,6 +353,23 @@ export async function recordContribution(params: {
       },
     });
 
+    await enqueueReceiptForTransactionTx(tx, {
+      tenantId: ctx.tenantId,
+      customerId: account.customerId,
+      subjectType: "contribution",
+      subjectId: contribution.id,
+      receipt: {
+        businessName: ctx.tenantName,
+        transactionType: "contribution",
+        amount: Number(contribution.amount),
+        currency: "GHS",
+        reference: referenceId,
+        occurredAt: contribution.collectionDate,
+        accountReference: account.accountId,
+        confirmationStatus: "confirmed",
+      },
+    });
+
     return {
       contribution,
       daysAllocated: daysToAllocate.length,
@@ -376,6 +397,7 @@ export async function recordContribution(params: {
     };
   }
   const result = outcome.value;
+  queueCustomerReceiptDelivery();
 
   revalidatePath("/susu/admin/contributions");
   revalidatePath("/susu/admin/customers");

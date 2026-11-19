@@ -3,6 +3,10 @@
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
 import { createAuditLogTx } from "@/lib/audit";
+import {
+  enqueueReceiptForTransactionTx,
+  queueCustomerReceiptDelivery,
+} from "@/lib/messaging/outbox";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { formatCedi } from "@/lib/utils";
@@ -250,6 +254,23 @@ export async function processWithdrawal(params: {
         },
       });
 
+      await enqueueReceiptForTransactionTx(tx, {
+        tenantId: ctx.tenantId,
+        customerId: account.customerId,
+        subjectType: "withdrawal",
+        subjectId: withdrawal.id,
+        receipt: {
+          businessName: ctx.tenantName,
+          transactionType: "withdrawal",
+          amount: Number(withdrawal.netAmount),
+          currency: "GHS",
+          reference: referenceId,
+          occurredAt: withdrawal.createdAt,
+          accountReference: account.accountId,
+          confirmationStatus: "confirmed",
+        },
+      });
+
       return {
         withdrawal,
         commissionAmount,
@@ -258,6 +279,7 @@ export async function processWithdrawal(params: {
       };
     });
 
+    queueCustomerReceiptDelivery();
     revalidatePath("/susu/admin/withdrawals");
     revalidatePath("/susu/admin/customers");
     revalidatePath("/susu/admin");

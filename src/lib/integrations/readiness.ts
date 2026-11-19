@@ -11,6 +11,7 @@
  */
 
 import { getMessageProvider } from "@/lib/messaging/provider";
+import { getWhatsAppConfig } from "@/lib/messaging/whatsapp";
 
 export type IntegrationReadinessStatus = "sandbox" | "unavailable";
 
@@ -71,6 +72,7 @@ export function getTelcoProvider(): TelcoProvider {
 export function getIntegrationReadiness(): IntegrationReadiness[] {
   const messages = getMessageProvider();
   const telco = getTelcoProvider();
+  const whatsapp = getWhatsAppConfig();
 
   return [
     {
@@ -78,10 +80,13 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       label: "SMS and WhatsApp",
       capability: "Customer receipt and statement message preview",
       status: "sandbox",
-      delivers: messages.delivers,
-      detail: messages.delivers
-        ? "A delivering adapter is configured."
-        : "Sandbox only. Messages are previewed and validated; nothing is transmitted, stored or charged.",
+      delivers: whatsapp.deliveryEnabled && whatsapp.configured,
+      detail:
+        whatsapp.deliveryEnabled && whatsapp.configured
+          ? "Cloud API credentials are configured and delivery is enabled for allowlisted numbers only. Approved utility templates are required."
+          : whatsapp.configured
+            ? "WhatsApp Cloud API credentials are present, but delivery is disabled by policy. Receipts are queued and remain unsent; nothing leaves MaaCash."
+            : "Sandbox only. Messages are previewed, validated and queued; nothing is transmitted or charged.",
       requiredApprovals: [
         "Provider contract, sender ID and pricing",
         "Consent, opt-out and message-retention rules",

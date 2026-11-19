@@ -565,6 +565,8 @@ model Customer {
   accounts    SusuAccount[]
   assignments CollectorCustomerAssignment[]
   disputes    CustomerDispute[]
+  messagingPreference CustomerMessagingPreference?
+  customerMessages    CustomerMessageOutbox[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1144,6 +1146,8 @@ model BusinessTenant {
   associationMembers           AssociationMember[]
   associationSponsorships      AssociationSponsorship[]
   associationTrainingRecords   AssociationTrainingRecord[]
+  customerMessagingPreferences CustomerMessagingPreference[]
+  customerMessages             CustomerMessageOutbox[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]
@@ -2140,4 +2144,92 @@ model ZeliUsagePeriod {
 
   @@unique([tenantId, period])
   @@index([period])
+}
+
+/// Customer consent and contact details for transactional receipts.
+/// WhatsApp is deliberately separate from the ordinary mobile number: a
+/// customer's phone is not assumed to be a WhatsApp account.
+model CustomerMessagingPreference {
+  id                 String    @id @default(cuid())
+  customerId         String    @unique
+  tenantId           String?
+  whatsappNumber     String?
+  /// unverified | verified
+  whatsappStatus     String    @default("unverified")
+  whatsappOptInAt    DateTime?
+  whatsappOptInSource String?
+  whatsappOptOutAt   DateTime?
+  smsNumber          String?
+  /// unverified | verified
+  smsStatus          String    @default("unverified")
+  smsOptInAt         DateTime?
+  smsOptInSource     String?
+  smsOptOutAt        DateTime?
+  /// sms | whatsapp | null (no receipt channel)
+  preferredChannel   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([preferredChannel])
+}
+
+/// Durable outbound customer-message queue. One row per receipt event and
+/// channel; the unique event key makes a repeated confirmation harmless.
+/// The recipient is stored encrypted and only a masked form is exposed.
+model CustomerMessageOutbox {
+  id                String    @id @default(cuid())
+  eventKey          String    @unique
+  tenantId          String?
+  customerId        String
+  /// sms | whatsapp
+  channel           String
+  /// receipt
+  purpose           String    @default("receipt")
+  reference         String
+  recipientEncrypted String
+  recipientMasked   String
+  /// Rendered template parameters and safe display fields. No PIN or OTP.
+  payload           String
+  /// pending | sending | accepted | sent | delivered | read | failed | rejected
+  status            String    @default("pending")
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime  @default(now())
+  providerId        String?
+  providerMessageId String?
+  lastError         String?
+  acceptedAt        DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  statusEvents CustomerMessageStatusEvent[]
+
+  @@index([tenantId, status])
+  @@index([status, nextAttemptAt])
+  @@index([customerId, createdAt])
+  @@index([providerMessageId])
+}
+
+/// Idempotent delivery-status events from a provider webhook.
+model CustomerMessageStatusEvent {
+  id          String    @id @default(cuid())
+  outboxId    String
+  eventId     String    @unique
+  status      String
+  occurredAt  DateTime
+  reason      String?
+  createdAt   DateTime  @default(now())
+
+  outbox CustomerMessageOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
+
+  @@index([outboxId, occurredAt])
 }

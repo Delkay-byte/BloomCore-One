@@ -14,6 +14,7 @@ import PasswordInput from "@/components/PasswordInput";
 import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { ConfirmDialog } from "@/components/ui/Modal";
+import MessagingPreferencesCard from "@/components/customer/MessagingPreferencesCard";
 
 interface UserProfile {
   fullName: string;
@@ -235,6 +236,8 @@ export default function CustomerSettingsPage() {
                   to update your name or email.
                 </p>
               </div>
+
+              <MessagingPreferencesCard />
             </div>
           </div>
         )}

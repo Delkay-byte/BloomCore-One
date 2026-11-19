@@ -1126,3 +1126,73 @@ because their method cannot be proven.
 - Browser: Billing opened with Mobile Money selected, Card selectable, Bank
   Transfer absent, URL unchanged and no payment started. **1 passed.**
 - TypeScript clean; ESLint 0 errors.
+
+## Workstream 12 — WhatsApp Business Cloud API foundation
+
+**Status:** GREEN for the local adapter and outbox; real delivery **AMBER**
+pending Meta template approval and an explicit owner decision to enable it.
+
+**Commit:** recorded at commit time
+
+### Credential classification
+
+The local environment contains a 286-character token beginning `EAA…`, plus a
+numeric WhatsApp Business Account ID and a numeric Phone Number ID. The shape
+is consistent with a Meta system-user access token for the WhatsApp Cloud API.
+No credential value was printed, logged, committed or sent to a browser.
+
+### What was implemented
+
+- A Meta Cloud API adapter that sends **approved utility templates only**,
+  returns the provider message ID, sanitises errors and classifies 429/5xx and
+  timeouts as retryable.
+- A durable `CustomerMessageOutbox` written in the same transaction as the
+  confirmed contribution or withdrawal. The unique event key prevents duplicate
+  messages; the recipient is encrypted and only a masked form is stored.
+- Consent is explicit and channel-specific: separate WhatsApp number, opt-in
+  timestamp/source, opt-out timestamp and preferred channel. The ordinary phone
+  number is never assumed to be WhatsApp.
+- Customer-portal receipt preferences, including SMS and WhatsApp opt-in/out.
+- A signed Meta webhook route: GET challenge, POST `X-Hub-Signature-256`
+  verification, idempotent `sent`/`delivered`/`read`/`failed` events.
+- Real delivery is OFF unless `WHATSAPP_DELIVERY_ENABLED=true`, all three
+  identifiers are present **and** the recipient is in
+  `WHATSAPP_DELIVERY_ALLOWLIST`. Local tests therefore never contact Meta.
+- The integration-readiness page now distinguishes “credentials present,
+  delivery disabled” from “sandbox”.
+
+### Schema and migration
+
+`prisma/migrations/20261207_customer_messaging/migration.sql` adds
+`CustomerMessagingPreference`, `CustomerMessageOutbox` and
+`CustomerMessageStatusEvent`. Both Prisma schemas validate.
+
+### Tests
+
+`tests/customer-messaging.test.ts`: **12 passed** — contribution creates one
+event, no consent creates none, opt-out blocks, duplicate confirmation is
+idempotent, withdrawal event, cross-tenant refusal, disabled delivery makes no
+network call, timeout stays retryable, rejected template is permanent,
+webhook replay is idempotent, signature verification and preference
+opt-in/opt-out.
+
+Browser: the customer opened Settings and saved WhatsApp receipt consent; the
+page showed “Currently opted in.” **1 passed.**
+
+### Missing external assets
+
+- Approval of the `maacash_receipt` utility template (or the configured
+  replacement) and its language.
+- Meta app webhook subscription, verify token and app secret.
+- Confirmation that the system-user token is long-lived and has
+  `whatsapp_business_messaging` permission for this WABA/Phone Number ID.
+- A written decision to enable delivery for real customers.
+
+### Limitations
+
+- No real WhatsApp message was sent in this session.
+- A successful Cloud API response is recorded as `accepted`, never as proof the
+  customer received it; only webhook events advance to sent/delivered/read.
+- Reversal notifications are supported by the outbox event type but are not
+  yet wired into the correction action.
+- Delivery is a bounded best-effort run, not a scheduler.
