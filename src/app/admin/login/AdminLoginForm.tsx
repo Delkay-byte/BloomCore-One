@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { adminLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
@@ -15,6 +16,15 @@ import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
+
+/** A stale client bundle (usually a cached chunk) cannot call the new action. */
+function staleLoginMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? "");
+  if (/Failed to find Server Action|Server Action .*not found|older or newer deployment/i.test(text)) {
+    return "This sign-in page is out of date. Reload the page and sign in again.";
+  }
+  return "An unexpected error occurred";
+}
 
 const WORKSPACE_POINTS = [
   "Your business workspace is isolated from every other tenant",
@@ -81,7 +91,7 @@ export default function AdminLoginForm() {
       setError("Login could not establish a tab session.");
     } catch (err) {
       if (isRedirectError(err)) throw err;
-      setError("An unexpected error occurred");
+      setError(staleLoginMessage(err));
     } finally {
       setLoading(false);
     }
@@ -172,19 +182,19 @@ export default function AdminLoginForm() {
               </p>
 
               {passwordReset && (
-                <div role="status" className="banner banner-success mt-6 flex items-start gap-2 text-sm">
+                <Notice type="success" className="mt-6 flex items-start gap-2 text-sm">
                   <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
                   Password reset successful. Sign in with your new password.
-                </div>
+                </Notice>
               )}
               {passwordUpgraded && (
-                <div role="status" className="banner banner-success mt-6 flex items-start gap-2 text-sm">
+                <Notice type="success" className="mt-6 flex items-start gap-2 text-sm">
                   <CheckCircle2 size={16} className="mt-0.5 flex-none" aria-hidden />
                   Password updated. Sign in with your new password.
-                </div>
+                </Notice>
               )}
               {error && (
-                <div role="alert" className="banner banner-error mt-6 text-sm">
+                <Notice type="error" className="mt-6 text-sm" message={error} popup={false}>
                   <div className="min-w-0 flex-1 space-y-2">
                     <p>{error}</p>
                     {emailUnverified && (
@@ -196,7 +206,7 @@ export default function AdminLoginForm() {
                       </Link>
                     )}
                   </div>
-                </div>
+                </Notice>
               )}
 
               <form action={handleSubmit} className="mt-7 space-y-5">

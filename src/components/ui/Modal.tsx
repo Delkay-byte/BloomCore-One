@@ -16,6 +16,8 @@ export default function Modal({
   children,
   footer,
   size = "md",
+  role = "dialog",
+  safeFocus = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,6 +26,10 @@ export default function Modal({
   children?: React.ReactNode;
   footer?: React.ReactNode;
   size?: "sm" | "md" | "lg";
+  /** `alertdialog` for a decision that interrupts the flow. */
+  role?: "dialog" | "alertdialog";
+  /** Focus a descendant marked `data-autofocus` instead of the panel. */
+  safeFocus?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -31,8 +37,12 @@ export default function Modal({
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement;
-    // Move focus into the dialog.
-    panelRef.current?.focus();
+    // Move focus into the dialog. A consequential choice focuses the safe
+    // option (`data-autofocus`) so Enter cannot replace a live payment intent.
+    const safe = safeFocus
+      ? panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")
+      : null;
+    (safe ?? panelRef.current)?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
@@ -66,7 +76,7 @@ export default function Modal({
       document.removeEventListener("keydown", onKeyDown);
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open, onClose, safeFocus]);
 
   if (!open) return null;
 
@@ -82,7 +92,7 @@ export default function Modal({
     >
       <div
         ref={panelRef}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
@@ -213,31 +223,47 @@ export function ConfirmDialog({
   onConfirm,
   title,
   description,
+  children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "primary",
   loading = false,
+  safeCancelFocus = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
   title: string;
   description?: string;
+  children?: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: "primary" | "danger";
   loading?: boolean;
+  /** Focus the cancel button first: the non-destructive default. */
+  safeCancelFocus?: boolean;
 }) {
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      // A dialog waiting on a request must not be dismissed into an unknown state.
+      onClose={() => {
+        if (!loading) onClose();
+      }}
       title={title}
       description={description}
       size="sm"
+      role="alertdialog"
+      safeFocus={safeCancelFocus}
       footer={
         <>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} disabled={loading}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onClose}
+            disabled={loading}
+            {...(safeCancelFocus ? { "data-autofocus": "true" } : {})}
+          >
             {cancelLabel}
           </button>
           <button
@@ -256,6 +282,8 @@ export function ConfirmDialog({
           </button>
         </>
       }
-    />
+    >
+      {children}
+    </Modal>
   );
 }

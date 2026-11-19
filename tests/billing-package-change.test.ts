@@ -95,6 +95,19 @@ beforeEach(async () => {
   ctxHolder.current = null;
 });
 
+describe("billing readiness for the authenticated workspace", () => {
+  it("reports availability without exposing key mode or local guard details", async () => {
+    vi.stubEnv("PAYSTACK_SECRET_KEY", "");
+    await seedTenant();
+    const overview = await getBillingOverview();
+    expect(overview.paymentsAvailable).toBe(false);
+    expect("liveReadiness" in overview).toBe(false);
+    expect("providerMode" in overview).toBe(false);
+    expect("localLiveTest" in overview).toBe(false);
+    vi.unstubAllEnvs();
+  });
+});
+
 describe("package selection before payment", () => {
   it("creates one pending_payment subscription and never charges", async () => {
     const { tenant } = await seedTenant();
@@ -123,28 +136,46 @@ describe("package selection before payment", () => {
     expect(subscription.foundingAllocationId).toBeTruthy();
   });
 
-  it("expires the previous pending intent when the package changes, so it cannot be charged", async () => {
+  it("asks before replacing a pending intent and keeps its reference intact", async () => {
     const { tenant } = await seedTenant();
     await plan({ code: "starter" });
     await plan({ code: "business", name: "Business", price: 169, foundingPrice: 149, locationLimit: 3, staffLimit: 10 });
 
-    await selectPackageAction({ planCode: "starter" });
-    const first = await prisma.zeliSubscription.findFirstOrThrow({ where: { tenantId: tenant.id } });
-    await selectPackageAction({ planCode: "business" });
+    const first = await selectPackageAction({ planCode: "starter" });
+    const guarded = await selectPackageAction({ planCode: "business" });
+
+    expect(guarded.ok).toBe(false);
+    expect(guarded.needsConfirmation).toBe(true);
+    expect(guarded.existing?.reference).toBe(first.reference);
+    const stillPending = await prisma.zeliSubscription.findUniqueOrThrow({
+      where: { id: first.subscriptionId! },
+    });
+    expect(stillPending.status).toBe("pending_payment");
+    expect(await prisma.zeliSubscription.count({ where: { tenantId: tenant.id } })).toBe(1);
+  });
+
+  it("expires the previous intent only after an explicit replacement confirmation", async () => {
+    const { tenant } = await seedTenant();
+    await plan({ code: "starter" });
+    await plan({ code: "business", name: "Business", price: 169, foundingPrice: 149, locationLimit: 3, staffLimit: 10 });
+
+    const first = await selectPackageAction({ planCode: "starter" });
+    const replaced = await selectPackageAction({ planCode: "business", confirmReplace: true });
+    expect(replaced.ok).toBe(true);
 
     const rows = await prisma.zeliSubscription.findMany({
       where: { tenantId: tenant.id },
       orderBy: { createdAt: "asc" },
     });
     expect(rows).toHaveLength(2);
-    const expired = rows.find((row) => row.id === first.id)!;
+    const expired = rows.find((row) => row.id === first.subscriptionId)!;
     expect(expired.status).toBe("expired");
     expect(expired.pendingKey).toBeNull();
-    expect(expired.failureReason).toContain("Package changed");
-    const current = rows.find((row) => row.id !== first.id)!;
+    expect(expired.failureReason).toContain("Replaced by the owner");
+    const current = rows.find((row) => row.id !== first.subscriptionId)!;
     expect(current.status).toBe("pending_payment");
     expect(Number(current.amount)).toBe(169);
-    expect(current.providerReference).not.toBe(first.providerReference);
+    expect(current.providerReference).not.toBe(first.reference);
   });
 
   it("allows switching to annual billing and prices it from the catalogue", async () => {

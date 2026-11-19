@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ShieldCheck, XCircle } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import { verifyPasswordAction } from "@/lib/actions/auth.actions";
 import {
   approveFinancialApproval,
@@ -89,9 +90,9 @@ export default function ApprovalsQueue({ initial }: { initial: ApprovalRow[] }) 
   return (
     <div className="space-y-4">
       {error && (
-        <div role="alert" className="banner banner-error">
+        <Notice type="error" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
       {initial.map((row) => (
         <article key={row.id} className="card">

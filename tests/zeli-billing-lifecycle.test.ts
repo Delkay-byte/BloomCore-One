@@ -395,10 +395,11 @@ describe("B. concurrent checkouts and duplicate settlements", () => {
       return initializeResponse(body.reference);
     }));
 
-    await createZeliCheckout(ctx, "zeli-monthly");
-    await expect(createZeliCheckout(ctx, "zeli-monthly")).rejects.toMatchObject({
-      code: "checkout_in_progress",
-    });
+    // A second checkout for the same plan is idempotent: it reuses the pending
+    // intent and its reference instead of creating a second payable row.
+    const first = await createZeliCheckout(ctx, "zeli-monthly");
+    const second = await createZeliCheckout(ctx, "zeli-monthly");
+    expect(second.reference).toBe(first.reference);
 
     const pending = await prisma.zeliSubscription.count({
       where: { tenantId: tenant.id, status: "pending" },
@@ -453,10 +454,12 @@ describe("B. concurrent checkouts and duplicate settlements", () => {
       const body = JSON.parse(String(init?.body));
       return initializeResponse(body.reference);
     }));
-    await createZeliCheckout(ctx, "zeli-monthly");
+    // A stale unpaid intent is reused rather than replaced, so the reference
+    // the owner already has stays valid and the tenant is never blocked.
+    const refreshed = await createZeliCheckout(ctx, "zeli-monthly");
+    expect(refreshed.reference).toBe(stale.providerReference);
     const old = await prisma.zeliSubscription.findUniqueOrThrow({ where: { id: stale.id } });
-    expect(old.status).toBe("expired");
-    expect(old.pendingKey).toBeNull();
+    expect(old.status).toBe("pending");
     const pending = await prisma.zeliSubscription.count({
       where: { tenantId: tenant.id, status: "pending" },
     });

@@ -6,6 +6,7 @@ import {
   selfDisableAction,
   selfEnrollmentAction,
 } from "@/lib/security/mfa.actions";
+import Notice from "@/components/ui/Notice";
 
 export default function MfaSettings() {
   const [enabled, setEnabled] = useState(false);
@@ -96,8 +97,8 @@ export default function MfaSettings() {
         )}
       </div>
 
-      {message && <div role="status" className="banner banner-success text-sm">{message}</div>}
-      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
+      {message && <Notice type="success" className="text-sm" message={message}>{message}</Notice>}
+      {error && <Notice type="error" className="text-sm" message={error}>{error}</Notice>}
 
       {qr && (
         <div className="rounded-lg border border-slate-200 p-4">

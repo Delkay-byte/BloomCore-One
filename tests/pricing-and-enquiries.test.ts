@@ -1,18 +1,17 @@
-import { existsSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import { isPublicMarketingRoute } from "@/lib/public-routes";
 import {
   APPROVED_ANNUAL_PRICES,
-  APPROVED_FOUNDING_PRICES,
   APPROVED_MONTHLY_PRICES,
   ENQUIRY_PACKAGES,
-  FOUNDING_PROMOTION,
   annualSavingPercent,
   formatGhs,
   groupPlansForDisplay,
   type PublicPlan,
 } from "@/lib/pricing/catalogue";
+import { APPROVED_FOUNDING_PRICES, FOUNDING_PROMOTION } from "@/lib/pricing/founding";
 import { validateEnquiry } from "@/lib/pricing/enquiry";
 
 /**
@@ -31,24 +30,68 @@ const plan = (overrides: Partial<PublicPlan> = {}): PublicPlan => ({
   currency: "GHS",
   features: ["MoMo operations", "Susu collections"],
   usageAllowance: null,
-  foundingPrice: null,
   locationLimit: 3,
   staffLimit: 10,
   supportLevel: "Standard support",
   ...overrides,
 });
 
-describe("approved commercial terms", () => {
-  it("matches the owner-approved monthly prices", () => {
-    expect(APPROVED_MONTHLY_PRICES).toEqual({ starter: 99, business: 169, "multi-branch": 339 });
+function publicMarketingSources(): Array<{ file: string; text: string }> {
+  const roots = [
+    path.join(process.cwd(), "src", "app", "(marketing)"),
+    path.join(process.cwd(), "src", "components", "marketing"),
+  ];
+  const files: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory)) {
+      const full = path.join(directory, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(tsx?|mdx?)$/.test(entry)) files.push(full);
+    }
+  };
+  roots.forEach(walk);
+  return files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
+}
+
+describe("public pricing has no founding promotion", () => {
+  it("never advertises founding customers, discounts, slots or promotional prices", () => {
+    const sources = publicMarketingSources();
+    expect(sources.length).toBeGreaterThan(5);
+    for (const { file, text } of sources) {
+      expect(text, file).not.toMatch(
+        /founding|early-business|months\s*1|GH₵\s*(79|149|225)\b/i
+      );
+    }
   });
 
-  it("matches the owner-approved founding prices and three-period rule", () => {
+  it("removes the internal promotion field from the public plan shape", () => {
+    const sample = plan();
+    expect("foundingPrice" in sample).toBe(false);
+    expect(Object.keys(sample)).not.toContain("foundingPrice");
+  });
+
+  it("queries only standard public columns and renders no availability lookup", () => {
+    const page = readFileSync(
+      path.join(process.cwd(), "src/app/(marketing)/pricing/page.tsx"),
+      "utf8"
+    );
+    expect(page).toContain("select: {");
+    expect(page).not.toMatch(/foundingPrice|foundingAvailability|FOUNDING_PROMOTION|showFounding/);
+    expect(page).toContain("Standard monthly packages");
+    expect(page).toContain("Annual packages");
+  });
+
+  it("keeps the internal founding policy and rules available only to backend code", () => {
     expect(APPROVED_FOUNDING_PRICES).toEqual({ starter: 79, business: 149, "multi-branch": 225 });
     expect(FOUNDING_PROMOTION.maxBusinesses).toBe(5);
     expect(FOUNDING_PROMOTION.discountedPeriods).toBe(3);
     expect(FOUNDING_PROMOTION.annualEligible).toBe(false);
-    expect(FOUNDING_PROMOTION.terms).toContain("first three monthly periods");
+  });
+});
+
+describe("approved commercial terms", () => {
+  it("matches the owner-approved monthly prices", () => {
+    expect(APPROVED_MONTHLY_PRICES).toEqual({ starter: 99, business: 169, "multi-branch": 339 });
   });
 
   it("matches the owner-approved annual prices and stays near a 10% saving", () => {

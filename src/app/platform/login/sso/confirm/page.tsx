@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { BrandLockup } from "@/components/brand/Brand";
+import Notice from "@/components/ui/Notice";
 import {
   attemptExpired,
   oidcEnabled,
@@ -79,9 +80,9 @@ export default async function SsoConfirmPage({
               </p>
 
               {error && (
-                <div role="alert" className="banner banner-error mb-4">
+                <Notice type="error" className="mb-4" message={error}>
                   {error}
-                </div>
+                </Notice>
               )}
 
               <form action={confirmPlatformSsoLink} className="space-y-4">

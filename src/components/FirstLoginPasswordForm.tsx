@@ -8,6 +8,7 @@ import {
   customerChangePassword,
 } from "@/lib/actions/auth.actions";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
+import Notice from "@/components/ui/Notice";
 import PasswordInput from "@/components/PasswordInput";
 import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 import { BrandLockup } from "@/components/brand/Brand";
@@ -150,9 +151,9 @@ export default function FirstLoginPasswordForm({
             </div>
 
             {error && (
-              <div role="alert" className="banner banner-error mt-5 text-sm">
+              <Notice type="error" className="mt-5 text-sm" message={error}>
                 {error}
-              </div>
+              </Notice>
             )}
 
             <form action={handleSubmit} className="mt-6 space-y-5">

@@ -53,6 +53,14 @@ describe("Public marketing pages", () => {
     }
   });
 
+  it("serves the Paystack return page without a workspace tab session", async () => {
+    const res = await middleware(
+      request("/checkout/return?reference=ZELI-test-manual-return")
+    );
+    expect(res.status).toBe(200);
+    expect(location(res)).toBeNull();
+  });
+
   it("serves the root page even when a visitor carries a forged cookie", async () => {
     const res = await middleware(
       request("/", { "bik-admin-session": "not-a-real-token" })

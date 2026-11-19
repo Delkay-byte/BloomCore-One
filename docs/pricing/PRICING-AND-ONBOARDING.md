@@ -11,9 +11,11 @@ controlled provisioning journey, and what the shipped release enforces.
 | Business | GH₵169 | GH₵1,825 | 3 | 10 |
 | Multi-Branch | GH₵339 | GH₵3,660 | 5 | 20 |
 
-Founding promotion: GH₵79 / GH₵149 / GH₵225 for the first three paid monthly periods, limited
-to five eligible businesses, monthly billing only, no stacking with annual pricing, and never
-reset or extended by a package change.
+Internal founding programme: GH₵79 / GH₵149 / GH₵225 for the first three paid monthly periods,
+limited to five eligible businesses, monthly billing only, no stacking with annual pricing, and
+never reset or extended by a package change. Allocation is a Platform Super Admin decision.
+Public pages deliberately show standard prices only and never expose founding prices, slots or
+promotional wording; an existing founding customer still sees their agreed price in billing.
 
 Prices live in the platform plan catalogue (`ZeliPlan`). The public page renders whatever the
 catalogue publishes, so no price is duplicated in code. The approved figures above are the
@@ -22,8 +24,9 @@ source of truth for the operator who enters them.
 ## Implemented in this change
 
 - Public `/pricing` page, no authentication, rendered from the catalogue: monthly and annual
-  sections, per-package location/staff/support limits, features, annual saving percentage,
-  founding terms, and empty state when the catalogue has no published plans.
+  sections, per-package location/staff/support limits, features, annual saving percentage, and
+  empty state when the catalogue has no published plans. It selects only standard fields and
+  never reads or renders the internal founding price.
 - `Pricing` added to the public navigation and to the marketing route allow-list.
 - Landing hero links to pricing and to the business-owner sign-in (`/admin/login`).
 - Public account-enquiry form with validation, per-IP rate limit, optional Turnstile
@@ -57,8 +60,8 @@ verified.
 
 ## Implemented in the commercial release
 
-- Public catalogue `/pricing` from `ZeliPlan`; six plans seeded by migration; founding prices and
-  the five-slot allocation.
+- Public catalogue `/pricing` from `ZeliPlan`; six plans seeded by migration; standard prices
+  only in public output. The five-slot founding allocation remains internal.
 - Founding allocation model (`FoundingAllocation`, unique slot and tenant), assignment audit,
   discounted periods counted per renewal, automatic return to standard price on the fourth
   renewal, monthly billing only.
@@ -68,7 +71,8 @@ verified.
 - Platform provisioning that records plan code and billing term; `/platform/billing` for
   subscriptions, payments, plan catalogue and outstanding reconciliation.
 - Business-owner `/admin/billing`: summary, current package, usage against limits, package cards
-  with monthly/annual toggle and annual saving, founding terms, payment history and receipts.
+  with monthly/annual toggle and annual saving, account-specific founding price when one is
+  assigned, payment history and receipts.
 - Package changes scheduled for the next renewal only (no proration, no deletion) with a
   server-detected usage conflict when the target package is smaller than current usage.
 - Server-side package limits (`checkPackageLimit`) on location and worker creation, with
@@ -90,11 +94,18 @@ verified.
 
 ## Payments
 
-Unchanged from PR #47. Ghana mobile money only (`mtn`, `atl`, `vod`), GHS pesewas from the
-catalogue, server-side verification before activation, idempotent activation, no automatic
-debits. The MaaCash webhook endpoint is
-`https://maacash.bloomcoretech.com/api/payments/paystack/webhook`; the SchemeKnit webhook is
-untouched and must not be replaced.
+Every new payment uses Paystack's **hosted checkout**
+(`POST /transaction/initialize`) and offers Mobile Money, Card and Bank Transfer
+on Paystack's own page. The server derives the amount, currency and email from
+the approved `ZeliSubscription`; the browser cannot choose a price, package,
+reference or payer address. Amounts are sent as GHS pesewas from the catalogue;
+activation is server-verified and idempotent, and no automatic debit is created.
+
+The hosted page owns the payment method, the mobile-money number, and any OTP or
+PIN. MaaCash never asks for those inside its own UI. The MaaCash webhook endpoint
+remains
+`https://maacash.bloomcoretech.com/api/payments/paystack/webhook`; the SchemeKnit
+webhook is untouched and must not be replaced.
 
 ## Local live-payment test (developer machine only)
 
@@ -112,17 +123,111 @@ provider charge is created.
 | Isolated database | `DATABASE_URL` is a `file:` SQLite path or PostgreSQL on loopback |
 | Live key | key prefix `sk_live_` (the only mode authority) |
 | Payments enabled, GHS | `PAYSTACK_ENABLED=true`, `PAYSTACK_CURRENCY=GHS` |
-| Designated synthetic tenant | `PAYSTACK_LOCAL_TEST_TENANT` matches the tenant id or code |
+| Exact tenant allowlist | `PAYSTACK_LOCAL_LIVE_ALLOWED_TENANT_IDS` contains the tenant id (or code). The legacy `PAYSTACK_LOCAL_TEST_TENANT` is merged into the same list, so `LOCAL-LIVE-01` keeps working. |
 
 A refusal happens before any provider call and before a payable row is stored.
 The flag never bypasses authentication, MFA, billing-role checks, subscription
-rules or payment verification, and it must never be set in Render.
+rules or payment verification, and it must never be set in Render. The tenant
+allowlist is server-side only; the browser cannot add a tenant to it.
 
-`scripts/live-test-tenant.mjs` creates the one synthetic tenant
+`scripts/live-test-tenant.mjs` creates the original synthetic tenant
 (`LOCAL-LIVE-01`, owner `livetest@demo.local`) in the local SQLite database. A
+real local workspace can be approved instead by adding its tenant id to
+`PAYSTACK_LOCAL_LIVE_ALLOWED_TENANT_IDS` (Jane D Wholes is `cmwm8sr6i000bs4uaut0z7d4s`
+in the local verification database). A
 live charge from localhost still delivers its webhook to the registered
 production endpoint; the production handler acknowledges an unknown reference
 with HTTP 200, records a sanitized ledger row and changes nothing.
+
+## Payment intents and charge attempts
+
+A reference is part of the payment intent, so it is protected:
+
+* Selecting the package that is already pending returns the existing row,
+  reference and amount. Refreshing, reopening checkout or pressing
+  "Continue to payment" cannot replace it.
+* Selecting a different package asks for confirmation first, and the backend
+  refuses to replace an intent whose provider charge is pending, unresolved,
+  failed or successful.
+* `ZeliChargeAttempt` holds one row per reference. Its unique `reference` is
+  the concurrency guard: a second request, even ten at once, cannot reach the
+  provider twice. Only a definite rejection or a reconciled "no charge" may be
+  retried on the same reference.
+* Provider rejections keep a bounded, sanitized explanation (`safeMessage`);
+  timeouts and 5xx answers become `unresolved` and block further charges until
+  verification settles them. The browser only ever sees owner-safe text.
+
+## Hosted checkout, legacy authorisations and internal notifications
+
+**One primary action.** Billing and the Zeli upgrade page show
+**"Pay securely with Paystack"** with the supporting text "Pay using Mobile
+Money, Card or Bank Transfer. Payment is securely processed by Paystack." There
+is no separate card button and no in-app mobile-money network/number form for a
+new payment.
+
+**New tab, original tab preserved.** The blank tab is opened synchronously inside
+the click (before any `await`), so a popup blocker can never leave a created
+transaction without a window. The handle is detached (`opener = null`) to prevent
+reverse tabnabbing. The server response is validated with `isTrustedCheckoutUrl`
+(HTTPS only, `checkout.paystack.com` / `paystack.com`, no embedded credentials)
+before the tab is navigated. If the tab was blocked or closed, the original page
+shows a toast and an explicit **Open Paystack checkout** recovery link that
+reuses the same transaction; it never initialises a second one.
+
+**Return handling.** The new tab returns to the public `/checkout/return` page.
+It verifies the reference with Paystack and fulfils through the same
+exactly-once path as the signed webhook. It deliberately does not require the
+workspace tab session, because a new tab may not carry it; it renders no tenant
+data and only the provider-verified outcome. A same-origin `localStorage` signal
+lets the original billing tab re-check status when the customer returns, on
+`focus` or `visibilitychange`. The original tab also keeps **Check payment
+status**; neither the redirect nor the signal is treated as proof of payment.
+
+**One ledger row per reference.** Hosted checkout claims the same
+`ZeliChargeAttempt` row before `initialize`. The trusted `authorizationUrl` is
+stored on the row, so a refresh, a second click or ten concurrent clicks reuse it
+instead of initialising again. A definitively closed attempt may rotate to a
+fresh reference; an open or unknown attempt never does. A timeout or 5xx leaves
+the row `unresolved` with "do not pay again" guidance.
+
+**Paystack reports an unpaid checkout as `abandoned`.** That label is not proof
+of failure. A pending hosted attempt stays reusable for 60 minutes; a legacy OTP
+or phone-prompt attempt stays open for 15 minutes. After the window, a status
+check may close it so the owner can start again. `success` is always verified
+server-side before access is granted.
+
+**Legacy direct-charge codes.** An older payment that Paystack put into
+`send_otp` still has a completion path. Its attempt stays `pending` with
+`requiredAction="otp"` and Billing offers **Finish earlier direct-charge payment**,
+which opens a fixed verification dialog (numeric keypad,
+`autocomplete="one-time-code"`, focus moved to the code field, visible at any
+scroll position). No new charge is initialised through this path.
+
+* The code is posted to `POST /api/billing/payments/submit-otp`, a route handler
+  rather than a Server Action because development mode logs Server Action
+  arguments. The code is validated, forwarded once to `/charge/submit_otp` and
+  never stored, hashed, logged, toasted or written to the ledger. Only the
+  *kind* of required input is stored.
+* The route refuses any reference that is not this tenant's, is not payable, or
+  is not actually waiting for a code. An invalid code leaves the attempt open so
+  the owner can retype it; an ambiguous provider answer marks it `unresolved`
+  and tells the owner not to pay again.
+* A provider `success` is still verified server-side and fulfilled through the
+  same exactly-once activation path as the webhook.
+
+Every verified payment writes, in the same transaction that grants access:
+
+* one in-app `TenantNotification` with audience `platform` (shown in the
+  Platform Super Admin console); and
+* one `PlatformEmailOutbox` row keyed by the payment reference, delivered
+  through the existing Resend integration to
+  `PLATFORM_PAYMENT_NOTIFICATION_EMAIL`
+  (default `bloomcoretechnologies@gmail.com`).
+
+Both records are unique per reference, so a replayed webhook, a status return and
+a repeated legacy OTP submission cannot create a second alert or email. Delivery
+is a bounded, retryable step that never blocks the webhook or rolls back an
+activation; undelivered rows are retried on later payment reconciliation.
 
 ## Safety rules honoured here
 

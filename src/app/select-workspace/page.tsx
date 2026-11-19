@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -115,9 +116,9 @@ export default function SelectWorkspacePage() {
         </div>
 
         {error && (
-          <div role="alert" className="banner banner-error mb-4 text-sm text-center">
+          <Notice type="error" className="mb-4 text-sm text-center" message={error}>
             {error}
-          </div>
+          </Notice>
         )}
 
         <div className="space-y-3">

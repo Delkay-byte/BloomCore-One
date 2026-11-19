@@ -296,10 +296,15 @@ describe("mobile money charge initiation", () => {
       })
     ).rejects.toThrow(/declined/i);
 
+    // The intent stays payable so the same reference can be retried after the
+    // provider-declined charge; activation never happened.
     const rows = await prisma.zeliSubscription.findMany();
     expect(rows).toHaveLength(1);
-    expect(rows[0].status).toBe("failed");
+    expect(rows[0].status).toBe("pending");
     expect(rows[0].paidAt).toBeNull();
+    expect(rows[0].failureReason).toMatch(/declined/i);
+    const attempt = await prisma.zeliChargeAttempt.findFirstOrThrow();
+    expect(attempt.state).toBe("failed");
   });
 });
 

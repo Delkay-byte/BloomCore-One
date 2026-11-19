@@ -54,8 +54,7 @@ export default function TermsPage() {
               </Link>{" "}
               are the current package prices. The amount you are asked to pay in
               Subscription &amp; Billing is the amount that applies to your
-              business, including any founding-customer price already assigned to
-              it.
+              business, including any account-specific price already agreed for it.
             </p>
           </div>
 

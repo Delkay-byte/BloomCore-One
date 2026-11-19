@@ -9,27 +9,11 @@
 
 export const PRICING_PATH = "/pricing";
 
-/** Approved founding promotion terms. Assignment/accounting is separate work. */
-export const FOUNDING_PROMOTION = {
-  maxBusinesses: 5,
-  discountedPeriods: 3,
-  terms:
-    "Founding price for the first three monthly periods only. Standard pricing applies from the fourth renewal. Limited to five eligible businesses.",
-  annualEligible: false,
-} as const;
-
 /** Approved standard monthly prices, used for catalogue seeding and checks. */
 export const APPROVED_MONTHLY_PRICES = {
   starter: 99,
   business: 169,
   "multi-branch": 339,
-} as const;
-
-/** Approved founding monthly prices. */
-export const APPROVED_FOUNDING_PRICES = {
-  starter: 79,
-  business: 149,
-  "multi-branch": 225,
 } as const;
 
 /** Approved annual prices (standard subscriptions, roughly 10% saving). */
@@ -48,7 +32,6 @@ export interface PublicPlan {
   currency: string;
   features: string[];
   usageAllowance: number | null;
-  foundingPrice: number | null;
   locationLimit: number | null;
   staffLimit: number | null;
   supportLevel: string | null;

@@ -101,3 +101,75 @@ export function passwordResetEmail(options: {
     text: `${intro}\n\nReset: ${url}\n\nThis link expires in ${options.expiresInMinutes} minutes and can be used once.\n\nIf you did not request this, ignore this email.`,
   };
 }
+
+export function platformPaymentEmail(options: {
+  tenantName: string;
+  tenantCode: string;
+  planName: string;
+  billingTerm: string;
+  amount: number;
+  currency: string;
+  reference: string;
+  paidAt: string | null;
+  periodEnd: string | null;
+  dashboardUrl: string;
+}): { subject: string; html: string; text: string } {
+  const amount = `${options.currency.toUpperCase() === "GHS" ? "GHS " : `${options.currency} `}${options.amount.toLocaleString(
+    "en-GH",
+    { minimumFractionDigits: 0, maximumFractionDigits: 2 }
+  )}`;
+  const rows: [string, string][] = [
+    ["Business", `${options.tenantName} (${options.tenantCode})`],
+    ["Package", `${options.planName} · ${options.billingTerm}`],
+    ["Amount", amount],
+    ["Payment reference", options.reference],
+    ["Paid at", options.paidAt ?? "Confirmed by provider"],
+    ["Access until", options.periodEnd ?? "See the console"],
+  ];
+
+  const table = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:6px 0;color:${MUTED};font-size:13px;width:40%;">${escapeHtml(
+          label
+        )}</td><td style="padding:6px 0;color:${INK};font-size:14px;font-weight:600;">${escapeHtml(
+          value
+        )}</td></tr>`
+    )
+    .join("");
+
+  const intro = `A verified Paystack payment has been applied to ${options.tenantName}. Access was granted only after MaaCash verified the transaction server-side.`;
+  const url = options.dashboardUrl;
+
+  return {
+    subject: `Payment received: ${options.tenantName} — ${amount}`,
+    html: `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:${INK};">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
+          <tr><td style="background:${BRAND};padding:20px 24px;color:#ffffff;font-size:20px;font-weight:bold;">MaaCash</td></tr>
+          <tr><td style="padding:28px 24px 8px;">
+            <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:${INK};">Payment received</h1>
+            <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:${MUTED};">${escapeHtml(
+              intro
+            )}</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;margin-bottom:18px;">${table}</table>
+            <p style="margin:0 0 20px;">
+              <a href="${escapeHtml(
+                url
+              )}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px;">Open the platform console</a>
+            </p>
+            <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:${MUTED};">This message contains no card, wallet or verification-code details. If you were not expecting this payment, review the tenant before acting on it.</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`,
+    text: `Payment received\n\n${intro}\n\n${rows
+      .map(([label, value]) => `${label}: ${value}`)
+      .join("\n")}\n\nOpen the platform console: ${url}\n`,
+  };
+}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Notice from "@/components/ui/Notice";
 import { redeemRecoveryCode } from "@/lib/actions/account-recovery.actions";
 import { BrandLockup } from "@/components/brand/Brand";
 
@@ -56,7 +57,7 @@ export default function RecoverAccountPage() {
               </p>
 
               {error && (
-                <div role="alert" className="banner banner-error mb-4 text-sm">{error}</div>
+                <Notice type="error" className="mb-4 text-sm" message={error}>{error}</Notice>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">

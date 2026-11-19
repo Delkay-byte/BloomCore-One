@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 import { ClipboardList, X } from "lucide-react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
@@ -398,16 +399,16 @@ export default function SusuCustomerDetailPage() {
       </div>
 
       {error && (
-        <div role="alert" className="banner banner-error mb-4">
+        <Notice type="error" className="mb-4" message={error}>
           {error}
-          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setError("")} className="ml-2" aria-label="Dismiss error"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
       {success && (
-        <div role="status" className="banner banner-success mb-4">
+        <Notice type="success" className="mb-4" message={success}>
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setSuccess("")} className="ml-2" aria-label="Dismiss confirmation"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
 
       {/* Current Savings Summary */}

@@ -4,6 +4,7 @@ import {
   assignFoundingAllocation,
   consumeFoundingPeriod,
   effectiveMonthlyPrice,
+  foundingAvailability,
   foundingRemaining,
   FOUNDING_MAX_BUSINESSES,
 } from "@/lib/pricing/founding";
@@ -70,6 +71,67 @@ describe("founding allocation", () => {
     expect(results[results.length - 1]).toEqual({ ok: false, reason: "capacity_reached" });
     const slots = await prisma.foundingAllocation.findMany({ orderBy: { slot: "asc" } });
     expect(slots.map((row) => row.slot)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("reports the slot that is actually free and zero remaining after the fifth allocation", async () => {
+    const p = await plan();
+    for (let index = 0; index < FOUNDING_MAX_BUSINESSES - 1; index += 1) {
+      const t = await tenant(`Early ${index}`);
+      expect(await assignFoundingAllocation({ tenantId: t.id, plan: p, actorId: "platform-1" })).toMatchObject({ ok: true });
+    }
+    expect(await foundingAvailability()).toEqual({
+      capacity: FOUNDING_MAX_BUSINESSES,
+      allocated: 4,
+      remaining: 1,
+      available: true,
+    });
+
+    const last = await tenant("Last Slot");
+    expect(await assignFoundingAllocation({ tenantId: last.id, plan: p, actorId: "platform-1" })).toMatchObject({ ok: true });
+    expect(await foundingAvailability()).toEqual({
+      capacity: FOUNDING_MAX_BUSINESSES,
+      allocated: 5,
+      remaining: 0,
+      available: false,
+    });
+  });
+
+  it("lets only one business claim the final slot when two requests race", async () => {
+    const p = await plan();
+    for (let index = 0; index < FOUNDING_MAX_BUSINESSES - 1; index += 1) {
+      const t = await tenant(`Filled ${index}`);
+      await assignFoundingAllocation({ tenantId: t.id, plan: p, actorId: "platform-1" });
+    }
+    const [a, b] = await Promise.all([tenant("Racer A"), tenant("Racer B")]);
+    const results = await Promise.all([
+      assignFoundingAllocation({ tenantId: a.id, plan: p, actorId: "platform-1" }),
+      assignFoundingAllocation({ tenantId: b.id, plan: p, actorId: "platform-1" }),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => !result.ok)).toMatchObject({ reason: "capacity_reached" });
+    const rows = await prisma.foundingAllocation.findMany({ orderBy: { slot: "asc" } });
+    expect(rows).toHaveLength(5);
+    expect(new Set(rows.map((row) => row.slot)).size).toBe(5);
+  });
+
+  it("keeps an existing founding price and consumed periods after all five slots are allocated", async () => {
+    const p = await plan();
+    const existing = await tenant("Existing Founding");
+    const assignment = await assignFoundingAllocation({ tenantId: existing.id, plan: p, actorId: "platform-1" });
+    await db.$transaction((tx) => consumeFoundingPeriod(tx, (assignment as { allocationId: string }).allocationId));
+    for (let index = 0; index < FOUNDING_MAX_BUSINESSES - 1; index += 1) {
+      const t = await tenant(`Later ${index}`);
+      await assignFoundingAllocation({ tenantId: t.id, plan: p, actorId: "platform-1" });
+    }
+
+    expect((await foundingAvailability()).available).toBe(false);
+    const fee = await effectiveMonthlyPrice({ tenantId: existing.id, plan: p });
+    expect(fee.source).toBe("founding");
+    expect(Number(fee.amount)).toBe(149);
+    expect(fee.remainingPeriods).toBe(2);
+    const row = await prisma.foundingAllocation.findUniqueOrThrow({ where: { tenantId: existing.id } });
+    expect(row.periodsUsed).toBe(1);
+    expect(row.status).toBe("active");
   });
 
   it("grants three discounted monthly periods, then the standard price", async () => {

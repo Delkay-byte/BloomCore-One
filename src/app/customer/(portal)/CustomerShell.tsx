@@ -14,6 +14,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Notice from "@/components/ui/Notice";
 import { AppBrand } from "@/components/brand/AppBrand";
 import { customerLogout } from "@/lib/actions/auth.actions";
 import { isRedirectError } from "@/lib/errors";
@@ -185,9 +186,9 @@ export default function CustomerShell({
               You will need your customer ID, phone or email and your password to sign in again.
             </p>
             {signOutError && (
-              <div role="alert" className="banner banner-error mt-3 text-sm">
+              <Notice type="error" className="mt-3 text-sm" message={signOutError}>
                 {signOutError}
-              </div>
+              </Notice>
             )}
             <div className="mt-6 flex gap-3">
               <button

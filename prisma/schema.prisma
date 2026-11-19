@@ -1234,6 +1234,51 @@ model ZeliPaymentException {
   @@index([reference])
 }
 
+/// One durable record per provider reference, used as the concurrency guard
+/// that allows at most one in-flight Paystack charge for that reference.
+///
+/// The unique `reference` is the database-level claim: a second concurrent
+/// request cannot create a row, so it can never reach the provider a second
+/// time. A definite rejection may be retried on the same reference by an
+/// atomic state transition; a pending, unresolved, successful or failed charge
+/// may not be reused.
+///
+/// Never stores a mobile-money number, customer email, payload or secret.
+model ZeliChargeAttempt {
+  id                 String    @id @default(cuid())
+  reference          String    @unique
+  tenantId           String
+  subscriptionId     String
+  provider           String    @default("paystack")
+  method             String    // mobile_money | hosted
+  network            String?   // mtn | atl | vod
+  amount             Decimal
+  currency           String
+  /// initiating | pending | rejected | failed | unresolved | succeeded | abandoned
+  state              String    @default("initiating")
+  /// What the customer must supply while `state` is pending:
+  /// otp | phone_prompt | offline | checkout | null. Never holds the code.
+  requiredAction     String?
+  /// Trusted Paystack authorization URL for a pending hosted checkout. It is a
+  /// public checkout page, never a secret, and it lets a retry reopen the same
+  /// transaction instead of initialising a second one.
+  checkoutUrl        String?
+  /// How many provider calls this reference has consumed (1 normally).
+  attempts           Int       @default(1)
+  providerHttpStatus Int?
+  providerCode       String?
+  /// Sanitized provider explanation or customer-safe instruction.
+  reason             String?
+  correlationId      String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  resolvedAt         DateTime?
+
+  @@index([tenantId, state])
+  @@index([subscriptionId])
+  @@index([state, updatedAt])
+}
+
 /// Global external-AI control. A missing row means disabled + emergency on.
 /// Production mode additionally requires reviewed code approval and
 /// environment approvals; this row cannot enable it alone.
@@ -1535,6 +1580,26 @@ model TenantNotification {
   @@index([tenantId, createdAt])
   @@index([audience, createdAt])
   @@index([resolvedAt])
+}
+
+/// Durable outbox for internal platform email. `eventKey` is unique, so a
+/// repeated webhook, status check or retry can never send a second message.
+/// `payload` holds the already-computed, non-secret message fields only.
+model PlatformEmailOutbox {
+  id          String    @id @default(cuid())
+  eventKey    String    @unique
+  kind        String    @default("payment_received")
+  recipient   String
+  /// pending | sent | failed
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  lastError   String?
+  payload     String
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 /// Tenant-wide Zeli request allowance for one calendar month. The conditional

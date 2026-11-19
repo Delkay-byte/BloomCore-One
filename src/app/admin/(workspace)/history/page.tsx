@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
+import Notice from "@/components/ui/Notice";
 import {
   getMoMoHistory,
   searchLocations,
@@ -179,10 +180,10 @@ export default function MoMoHistoryPage() {
       />
 
       {error && (
-        <div role="alert" className="banner banner-error mb-4">
+        <Notice type="error" className="mb-4" message={error}>
           {error}
-          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setError("")} className="ml-2" aria-label="Dismiss error"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
 
       {/* Summary - reconciles exactly with the filtered records */}

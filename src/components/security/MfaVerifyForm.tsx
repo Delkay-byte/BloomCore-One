@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { verifyMfaLoginAction } from "@/lib/security/mfa.actions";
+import Notice from "@/components/ui/Notice";
 import { isRedirectError } from "@/lib/errors";
 import {
   clearMfaChallenge,
@@ -77,9 +78,9 @@ export default function MfaVerifyForm() {
           </p>
 
           {error && (
-            <div role="alert" className="banner banner-error mb-4 text-sm">
+            <Notice type="error" className="mb-4 text-sm" message={error}>
               {error}
-            </div>
+            </Notice>
           )}
 
           <form action={handleSubmit} className="space-y-4">

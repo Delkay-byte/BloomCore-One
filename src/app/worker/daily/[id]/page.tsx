@@ -35,6 +35,7 @@ import {
 } from "@/lib/momo-reconciliation";
 import { sumExpenseLines } from "@/lib/expense-lines";
 import { SuccessTick } from "@/components/ui/SuccessTick";
+import Notice from "@/components/ui/Notice";
 
 interface Expense {
   description: string;
@@ -521,17 +522,21 @@ export default function DailyAccountFormPage() {
       </header>
 
       {error && (
-        <div role="alert" className="banner banner-error text-sm">
+        <Notice type="error" className="text-sm" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
       {success && (
-        <div role="status" className="banner banner-success text-sm">
+        <Notice type="success" className="text-sm" message={success}>
           {success}
-        </div>
+        </Notice>
       )}
       {saveFailed && (
-        <div role="alert" className="banner banner-error flex flex-wrap items-center gap-3 text-sm">
+        <Notice
+          type="error"
+          className="flex flex-wrap items-center gap-3 text-sm"
+          message={`We couldn't save your draft${saveError && saveError !== "Failed to save" ? `: ${saveError}` : ""}. Your changes are still on this page.`}
+        >
           <span>
             We couldn&apos;t save your draft. Your changes are still on this page.
             Please try again.
@@ -545,7 +550,7 @@ export default function DailyAccountFormPage() {
           >
             {saving ? "Retrying…" : "Retry save"}
           </button>
-        </div>
+        </Notice>
       )}
       <DraftIndicator
         status={dailyDraft.status}

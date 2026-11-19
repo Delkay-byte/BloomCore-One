@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -155,14 +156,14 @@ export default function CustomerSettingsPage() {
       </div>
 
       {error && (
-        <div role="alert" className="banner banner-error mb-6">
+        <Notice type="error" className="mb-6" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
       {success && (
-        <div role="status" className="banner banner-success mb-6">
+        <Notice type="success" className="mb-6" message={success}>
           {success}
-        </div>
+        </Notice>
       )}
 
       <div className="card mb-6">

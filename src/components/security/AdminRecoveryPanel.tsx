@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/Modal";
+import Notice from "@/components/ui/Notice";
 import {
   issueAccountRecoveryCode,
   resetAccountMfa,
@@ -142,8 +143,8 @@ export default function AdminRecoveryPanel() {
         </div>
       </form>
 
-      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
-      {message && <div role="status" className="banner banner-success text-sm">{message}</div>}
+      {error && <Notice type="error" className="text-sm" message={error}>{error}</Notice>}
+      {message && <Notice type="success" className="text-sm" message={message}>{message}</Notice>}
 
       {result && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">

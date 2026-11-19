@@ -46,7 +46,16 @@ export interface LocalLiveTestEnvironment {
   tenantId: string | null;
   /** Public code of that tenant, e.g. `DEMO-001`. */
   tenantCode: string | null;
-  /** `PAYSTACK_LOCAL_TEST_TENANT`: the only tenant allowed to pay live locally. */
+  /**
+   * `PAYSTACK_LOCAL_LIVE_ALLOWED_TENANT_IDS`: the explicit local allowlist.
+   * Entries may be tenant ids or tenant codes, comma separated.
+   */
+  allowedTenants?: string[] | null;
+  /**
+   * `PAYSTACK_LOCAL_TEST_TENANT`: the original single designated tenant.
+   * Kept so existing local setups and tests keep working; it is merged into
+   * the allowlist rather than replacing it.
+   */
   designatedTenant: string | null;
 }
 
@@ -112,6 +121,37 @@ function isOn(value: string | undefined): boolean {
 }
 
 /**
+ * Split one or more allowlist values into distinct, non-empty tenant
+ * identifiers. Accepts comma, semicolon or whitespace separated entries so a
+ * pasted list keeps working. Identifiers stay case-sensitive: a tenant id is a
+ * CUID and a tenant code is uppercase, and neither is a display name.
+ */
+export function parseTenantAllowlist(
+  ...values: Array<string | string[] | null | undefined>
+): string[] {
+  const out = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    const parts = Array.isArray(value) ? value : [value];
+    for (const part of parts) {
+      for (const entry of String(part).split(/[,;\s]+/)) {
+        const trimmed = entry.trim();
+        if (trimmed) out.add(trimmed);
+      }
+    }
+  }
+  return [...out];
+}
+
+/** The allowlist this process is configured with, from both variables. */
+export function liveTestAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
+  return parseTenantAllowlist(
+    env.PAYSTACK_LOCAL_LIVE_ALLOWED_TENANT_IDS,
+    env.PAYSTACK_LOCAL_TEST_TENANT
+  );
+}
+
+/**
  * Whether a live key used by this process must pass the local-live guard.
  *
  * A hosted deployment is ordinary production commerce and keeps its existing
@@ -155,13 +195,15 @@ export function evaluateLocalLiveTest(
   }
   if (!isLocalDatabaseUrl(environment.databaseUrl)) reasons.push("database_not_local");
 
-  const designated = (environment.designatedTenant ?? "").trim();
-  if (!designated) {
+  const allowlist = parseTenantAllowlist(
+    environment.allowedTenants ?? null,
+    environment.designatedTenant ?? null
+  );
+  const tenantId = (environment.tenantId ?? "").trim();
+  const tenantCode = (environment.tenantCode ?? "").trim();
+  if (allowlist.length === 0) {
     reasons.push("no_designated_tenant");
-  } else if (
-    environment.tenantId !== designated &&
-    environment.tenantCode !== designated
-  ) {
+  } else if (!allowlist.includes(tenantId) && !allowlist.includes(tenantCode)) {
     reasons.push("tenant_not_designated");
   }
 
@@ -184,6 +226,7 @@ export function localLiveTestEnvironment(
     databaseUrl: env.DATABASE_URL ?? null,
     tenantId: null,
     tenantCode: null,
+    allowedTenants: parseTenantAllowlist(env.PAYSTACK_LOCAL_LIVE_ALLOWED_TENANT_IDS),
     designatedTenant: env.PAYSTACK_LOCAL_TEST_TENANT ?? null,
     ...overrides,
   };

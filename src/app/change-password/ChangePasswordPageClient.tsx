@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, ShieldCheck } from "lucide-react";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import { BrandLockup } from "@/components/brand/Brand";
 import {
   completeRequiredCustomerPasswordChange,
@@ -154,9 +155,9 @@ function RequiredPasswordChange() {
       </p>
 
       {error && (
-        <div className="banner banner-error mt-4 text-sm" role="alert">
+        <Notice type="error" className="mt-4 text-sm" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
 
       <form onSubmit={submit} className="mt-4 space-y-4">

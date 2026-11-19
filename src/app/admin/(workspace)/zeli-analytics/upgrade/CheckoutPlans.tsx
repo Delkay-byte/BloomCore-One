@@ -1,19 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CreditCard, Loader2, Smartphone } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, ShieldCheck } from "lucide-react";
+import { startZeliCheckout, startZeliTrial } from "@/lib/actions/zeli-billing.actions";
 import {
-  checkZeliMobileMoneyPayment,
-  startZeliCheckout,
-  startZeliMobileMoneyCheckout,
-  startZeliTrial,
-} from "@/lib/actions/zeli-billing.actions";
-
-const MOBILE_MONEY_NETWORKS = [
-  { code: "mtn", label: "MTN MoMo" },
-  { code: "atl", label: "ATMoney / Airtel Money" },
-  { code: "vod", label: "Telecel Cash" },
-] as const;
+  navigateCheckoutTab,
+  openBlankCheckoutTab,
+  type CheckoutTab,
+} from "@/lib/payments/checkout-window";
 
 export interface CheckoutPlan {
   code: string;
@@ -27,6 +21,13 @@ export interface CheckoutPlan {
   trialDays: number;
 }
 
+/**
+ * Package checkout for the Zeli Analytics page.
+ *
+ * Every method is chosen on Paystack's hosted checkout. The blank tab is opened
+ * synchronously inside the click so a popup blocker can never leave a created
+ * transaction without a window, and the original page stays open.
+ */
 export default function CheckoutPlans({
   plans,
   paymentConfigured,
@@ -39,12 +40,7 @@ export default function CheckoutPlans({
   const [selected, setSelected] = useState<string | null>(plans[0]?.code ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [momoNetwork, setMomoNetwork] = useState<string>("mtn");
-  const [momoPhone, setMomoPhone] = useState("");
-  const [momoBusy, setMomoBusy] = useState(false);
-  const [momoReference, setMomoReference] = useState<string | null>(null);
-  const [momoStatus, setMomoStatus] = useState<string>("");
-  const [momoPending, setMomoPending] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function trial() {
     if (!selected) return;
@@ -63,78 +59,58 @@ export default function CheckoutPlans({
   }
 
   async function checkout() {
-    if (!selected) return;
+    if (!selected || busy) return;
+
+    const tab: CheckoutTab | null = openBlankCheckoutTab();
+    if (!tab) {
+      setError(
+        "Your browser blocked the Paystack checkout tab. Allow pop-ups for this site, then try again. Nothing has been charged."
+      );
+      return;
+    }
+
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const result = await startZeliCheckout(selected);
-      if (!result.success || !result.data) {
+      if (!result.success || !result.data?.authorizationUrl) {
+        try {
+          tab.close();
+        } catch {
+          // The tab may already be gone.
+        }
         setError(result.error ?? "Checkout could not be started.");
         return;
       }
-      window.location.assign(result.data.authorizationUrl);
-    } catch {
-      setError("Checkout could not be started. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function startMobileMoney() {
-    if (!selected) return;
-    setMomoBusy(true);
-    setError("");
-    setMomoStatus("");
-    setMomoReference(null);
-    setMomoPending(false);
-    try {
-      const result = await startZeliMobileMoneyCheckout({
-        planCode: selected,
-        phone: momoPhone,
-        provider: momoNetwork,
-      });
-      if (!result.success || !result.data) {
-        setError(result.error ?? "The mobile money request could not be started.");
+      const navigation = navigateCheckoutTab(tab, result.data.authorizationUrl);
+      if (navigation === "untrusted") {
+        try {
+          tab.close();
+        } catch {
+          // The tab may already be gone.
+        }
+        setError("The payment provider returned an untrusted checkout address. No money was taken.");
         return;
       }
-      setMomoReference(result.data.reference);
-      setMomoPending(true);
-      setMomoStatus(
-        result.data.displayText ??
-          result.data.message ??
-          "Approve the payment prompt on your phone, then check the status here."
-      );
-    } catch {
-      setError("The mobile money request could not be started. Please try again.");
-    } finally {
-      setMomoBusy(false);
-    }
-  }
-
-  async function checkMobileMoney() {
-    if (!momoReference) return;
-    setMomoBusy(true);
-    setError("");
-    try {
-      const result = await checkZeliMobileMoneyPayment(momoReference);
-      if (result.success && result.data?.status === "success") {
-        setMomoStatus("Payment confirmed. Your subscription is active.");
-        setMomoPending(false);
-        window.location.assign("/admin/zeli-analytics?subscription=active");
-        return;
-      }
-      if (result.success) {
-        setMomoStatus(
-          "Still waiting for authorisation. Approve the prompt on your phone, then check again."
+      if (navigation === "closed") {
+        setNotice(
+          "The Paystack tab was closed before it opened. Use Check payment status in Billing to reopen the same checkout."
         );
         return;
       }
-      setMomoStatus(result.error ?? "The payment was not completed. No charge was applied.");
-      setMomoPending(false);
+      setNotice(
+        "Paystack checkout has opened in a new tab. Complete your payment there, then return here and check the payment status."
+      );
     } catch {
-      setError("Payment status could not be checked. Please try again.");
+      try {
+        tab.close();
+      } catch {
+        // The tab may already be gone.
+      }
+      setError("Checkout could not be started. Please try again.");
     } finally {
-      setMomoBusy(false);
+      setBusy(false);
     }
   }
 
@@ -214,6 +190,11 @@ export default function CheckoutPlans({
           {error}
         </p>
       )}
+      {notice && (
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900" role="status">
+          {notice}
+        </p>
+      )}
 
       {selected && plans.find((plan) => plan.code === selected)?.trialDays ? (
         <button type="button" onClick={trial} className="btn btn-secondary mr-2" disabled={busy}>
@@ -222,101 +203,28 @@ export default function CheckoutPlans({
       ) : null}
       <button
         type="button"
-        onClick={checkout}
+        onClick={() => void checkout()}
         className="btn btn-primary"
         disabled={busy || !selected}
+        aria-busy={busy}
       >
         {busy ? (
           <Loader2 size={15} className="animate-spin" aria-hidden />
         ) : (
           <CreditCard size={15} aria-hidden />
         )}
-        {busy ? "Opening secure checkout…" : "Continue to secure checkout"}
+        {busy ? "Opening Paystack…" : "Pay securely with Paystack"}
       </button>
       <p className="text-xs text-slate-500">
-        Payment is processed by Paystack. Access is activated only after the
-        server verifies the payment event; returning to this page alone does not
-        grant access.
+        Payments are processed securely by Paystack. Your subscription will be activated once your
+        payment has been successfully verified. You will see the applicable amount before confirming
+        your payment. Paystack opens in a new tab, so this page stays open; choose Mobile Money, Card
+        or Bank Transfer there.
       </p>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-brand-900">
-          <Smartphone size={15} aria-hidden />
-          Pay with Ghana mobile money
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Choose your network and number. Paystack sends a prompt to your phone;
-          you have 180 seconds to approve it. Your subscription activates only
-          after the payment is verified.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <label className="text-xs font-medium text-slate-700">
-            Network
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={momoNetwork}
-              onChange={(event) => setMomoNetwork(event.target.value)}
-              disabled={momoBusy}
-            >
-              {MOBILE_MONEY_NETWORKS.map((network) => (
-                <option key={network.code} value={network.code}>
-                  {network.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs font-medium text-slate-700">
-            Mobile money number
-            <input
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              placeholder="0551234987"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={momoPhone}
-              onChange={(event) => setMomoPhone(event.target.value)}
-              disabled={momoBusy}
-            />
-          </label>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={startMobileMoney}
-            className="btn btn-secondary"
-            disabled={momoBusy || !selected || momoPhone.trim().length < 9}
-          >
-            {momoBusy && !momoReference ? (
-              <Loader2 size={15} className="animate-spin" aria-hidden />
-            ) : (
-              <Smartphone size={15} aria-hidden />
-            )}
-            Send payment prompt
-          </button>
-          <button
-            type="button"
-            onClick={checkMobileMoney}
-            className="btn btn-primary"
-            disabled={momoBusy || !momoReference}
-          >
-            {momoBusy && momoReference ? (
-              <Loader2 size={15} className="animate-spin" aria-hidden />
-            ) : null}
-            Check payment status
-          </button>
-        </div>
-        {momoStatus && (
-          <p
-            className={`mt-3 rounded-lg px-3 py-2 text-sm ${
-              momoPending ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"
-            }`}
-            role="status"
-            aria-live="polite"
-          >
-            {momoStatus}
-          </p>
-        )}
-      </section>
+      <p className="flex items-start gap-1.5 text-xs text-slate-500">
+        <ShieldCheck size={13} className="mt-0.5 shrink-0 text-emerald-600" aria-hidden />
+        Any mobile-money code or PIN is entered on Paystack&apos;s checkout, never inside MaaCash.
+      </p>
     </div>
   );
 }
