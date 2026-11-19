@@ -581,7 +581,7 @@ Workstream 5 — customer self-service and dispute hardening on top of the exist
 ## Workstream 5 — Customer self-service and dispute hardening
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `c7945f8`
 
 ### Existing capability before changes
 
