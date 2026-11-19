@@ -88,11 +88,31 @@ describe("Zeli grounding and isolation", () => {
     expect(updated.title).not.toBe("New conversation");
   });
 
+  it("returns only the requested customer when a customer id is supplied", async () => {
+    const { tenantA, adminA } = await seed();
+    await prisma.customer.create({
+      data: {
+        tenantId: tenantA.id,
+        customerId: "ZELI-A-002",
+        fullName: "Kofi Other Customer",
+        phone: "+233200000333",
+        status: "active",
+      },
+    });
+    const context = await buildZeliContext(
+      identity({ userId: adminA.id, tenantId: tenantA.id }),
+      "Find customer ZELI-A-001"
+    );
+    const lookup = context.blocks.find((block) => block.title === "customer_lookup");
+    const rows = JSON.parse(String(lookup?.data)) as Array<{ customerId: string }>;
+    expect(rows.map((row) => row.customerId)).toEqual(["ZELI-A-001"]);
+  });
+
   it("never exposes Tenant B records in Tenant A context or answers", async () => {
     const { tenantA, adminA } = await seed();
     const context = await buildZeliContext(
       identity({ userId: adminA.id, tenantId: tenantA.id }),
-      "Find customer B Absent Customer"
+      "Find customer Ama Zeli"
     );
     const serialized = JSON.stringify(context.blocks);
     expect(serialized).toContain("Ama Zeli Customer");

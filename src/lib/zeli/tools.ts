@@ -140,12 +140,41 @@ export async function customerLookup(
   question: string
 ): Promise<ZeliToolOutcome | null> {
   if (!identity.tenantId || !canUse(identity, "customer_lookup")) return null;
-  const terms = question
+  const requestWords = new Set([
+    "find",
+    "search",
+    "show",
+    "lookup",
+    "customer",
+    "customers",
+    "account",
+    "accounts",
+    "details",
+    "detail",
+    "please",
+    "about",
+    "open",
+    "their",
+    "this",
+    "that",
+    "with",
+    "status",
+  ]);
+  const tokens = question
     .replace(/[^\p{L}\p{N}@+ -]/gu, " ")
     .trim()
     .split(/\s+/)
-    .filter((word) => word.length >= 2)
-    .slice(0, 6);
+    .filter((word) => word.length >= 2);
+  // An explicit business identifier is the strongest signal. Do not let a
+  // generic word such as "customer" or "account" widen that lookup.
+  const identifier = tokens.find((word) =>
+    /^[A-Z]{2,}-[A-Z0-9-]{2,}$/i.test(word)
+  );
+  const terms = identifier
+    ? [identifier]
+    : tokens
+        .filter((word) => !requestWords.has(word.toLowerCase()))
+        .slice(0, 6);
   if (terms.length === 0) return null;
 
   const rows = await db.customer.findMany({
