@@ -51,6 +51,12 @@ Key properties:
   `aud == client_id`, 30-second clock leeway, RS/PS/ES algorithms only (never
   HS/shared-secret), nonce single-use, and a present, non-`false`
   `email_verified` claim.
+* **Strict redirect allowlist.** The callback URI is always read from
+  `PLATFORM_OIDC_REDIRECT_URI`, never derived from the request `Host` header,
+  and must match `PLATFORM_OIDC_ALLOWED_REDIRECT_URIS` exactly when that list is
+  set. A missing or non-allowlisted redirect disables the interactive login
+  flow (404) without disabling back-channel logout or central session
+  revocation, which do not use a browser redirect.
 * **Native sessions.** Sign-in mints the platform JWT through
   `setPlatformSession()` — same claims (`kind:"platform"`, `tokenUse:"platform"`,
   `amr`, `jti`, `tokenVersion`), same cookie, same `SessionRecord` registry row
@@ -126,7 +132,8 @@ All env-prefixed, all default OFF (see `.env.example`):
 | `PLATFORM_OIDC_CLIENT_SECRET` | OAuth2 client secret. Never commit.                           |
 | `PLATFORM_OIDC_CC_BASE`       | Control Center base URL, e.g. `http://localhost:8400`.        |
 | `PLATFORM_OIDC_CC_API_KEY`    | Per-product key for `bloomcore-one` (`CC_PRODUCT_API_KEYS` in the CC env). Never leaves the server. |
-| `PLATFORM_OIDC_REDIRECT_URI`  | Optional override when behind a rewriting proxy (default `<origin>/platform/login/sso/callback`). |
+| `PLATFORM_OIDC_REDIRECT_URI`  | **Required** when enabled. The exact registered callback. It is never derived from the request Host header. |
+| `PLATFORM_OIDC_ALLOWED_REDIRECT_URIS` | Comma-separated exact allowlist. The chosen redirect must appear here; mismatches disable the feature. |
 | `PLATFORM_OIDC_SCOPES`        | Optional; default `openid email profile`. Add `offline_access` if central refresh-token revocation is wanted. |
 | `PLATFORM_OIDC_DEBUG`         | Optional; logs validation failure details (claim keys, header alg — no token values) to stderr. |
 
@@ -137,7 +144,10 @@ present.
 
 Strict match: `http://localhost:3100/platform/login/sso/callback` for local
 runs; the production equivalent must be registered in Authentik
-(`Providers → bloomcore-one-sso → Redirect URIs`).
+(`Providers → bloomcore-one-sso → Redirect URIs`). The application now requires
+`PLATFORM_OIDC_REDIRECT_URI` and, when set, an exact
+`PLATFORM_OIDC_ALLOWED_REDIRECT_URIS` match. A request Host header can never
+select the callback.
 
 ### Identity provider requirements
 
@@ -176,6 +186,8 @@ and can be dropped later.
 * ID-token validation: valid, bad signature, wrong issuer, wrong audience,
   expired, nonce mismatch, unverified email; amr second-factor classification.
 * Flow-cookie HMAC tamper rejection; state mismatch; unsigned cookie.
+* Redirect selection ignores the request origin; a redirect outside the
+  allowlist makes the login flow unavailable.
 * Flag off → 404 on start and callback.
 * Verified link → native session (claims verified) + `SessionRecord` + refresh
   companion + `sso_success` audit; second-factor mapping to `pwd+mfa` under

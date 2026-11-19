@@ -55,7 +55,12 @@ export interface OidcConfig {
   ccBase: string;
   ccApiKey: string;
   scopes: string[];
+  redirectUri: string;
+  allowedRedirectUris: string[];
+  /** Identity-provider + Control Center configuration is usable. */
   complete: boolean;
+  /** The browser login flow additionally has a safe, allowlisted redirect. */
+  loginReady: boolean;
 }
 
 /** Read the (env-prefixed) SSO configuration on every call so tests and ops can toggle it. */
@@ -73,6 +78,16 @@ export function getOidcConfig(): OidcConfig {
     .split(" ")
     .map((s) => s.trim())
     .filter(Boolean);
+  const allowedRedirectUris = (process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const redirectUri =
+    process.env.PLATFORM_OIDC_REDIRECT_URI?.trim() ||
+    (allowedRedirectUris.length === 1 ? allowedRedirectUris[0] : "");
+  const redirectAllowed =
+    Boolean(redirectUri) &&
+    (allowedRedirectUris.length === 0 || allowedRedirectUris.includes(redirectUri));
   return {
     enabled,
     issuer,
@@ -81,13 +96,30 @@ export function getOidcConfig(): OidcConfig {
     ccBase,
     ccApiKey,
     scopes,
+    redirectUri,
+    allowedRedirectUris,
     complete: Boolean(issuer && clientId && clientSecret && ccBase && ccApiKey),
+    loginReady:
+      Boolean(issuer && clientId && clientSecret && ccBase && ccApiKey) && redirectAllowed,
   };
 }
 
+/**
+ * Core SSO configuration (identity provider + Control Center) is present.
+ * Back-channel logout and central session revocation only need this much.
+ */
 export function oidcEnabled(): boolean {
   const config = getOidcConfig();
   return config.enabled && config.complete;
+}
+
+/**
+ * The interactive browser login flow is available. This additionally requires
+ * an explicit, allowlisted redirect URI; it is never derived from Host.
+ */
+export function oidcLoginEnabled(): boolean {
+  const config = getOidcConfig();
+  return config.enabled && config.loginReady;
 }
 
 /**
@@ -95,11 +127,21 @@ export function oidcEnabled(): boolean {
  * request origin; override with PLATFORM_OIDC_REDIRECT_URI when the app sits
  * behind a proxy that rewrites the Host header.
  */
-export function ssoRedirectUri(requestOrigin: string): string {
-  return (
-    process.env.PLATFORM_OIDC_REDIRECT_URI?.trim() ||
-    `${requestOrigin}/platform/login/sso/callback`
-  );
+export function ssoRedirectUri(_requestOrigin: string): string {
+  void _requestOrigin;
+  const config = getOidcConfig();
+  if (!config.redirectUri) {
+    // Never derive the redirect from an untrusted Host header. An explicit URI
+    // is required whenever the feature is enabled.
+    throw new Error("PLATFORM_OIDC_REDIRECT_URI is required");
+  }
+  if (
+    config.allowedRedirectUris.length > 0 &&
+    !config.allowedRedirectUris.includes(config.redirectUri)
+  ) {
+    throw new Error("OIDC redirect URI is not in the allowlist");
+  }
+  return config.redirectUri;
 }
 
 // ---------------------------------------------------------------------------

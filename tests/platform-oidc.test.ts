@@ -67,6 +67,7 @@ import {
   verifyOidcBlob,
   validateIdToken,
   amrHasSecondFactor,
+  ssoRedirectUri,
   clearDiscoveryCache,
   type OidcAttempt,
   type OidcFlow,
@@ -267,6 +268,10 @@ beforeAll(() => {
   process.env.PLATFORM_OIDC_CLIENT_SECRET = CLIENT_SECRET;
   process.env.PLATFORM_OIDC_CC_BASE = CC_BASE;
   process.env.PLATFORM_OIDC_CC_API_KEY = CC_API_KEY;
+  process.env.PLATFORM_OIDC_REDIRECT_URI =
+    "http://localhost:3100/platform/login/sso/callback";
+  process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS =
+    "http://localhost:3100/platform/login/sso/callback";
   process.env.RATE_LIMIT_HMAC_SECRET ??= "test-rate-limit-key-not-for-prod-32b";
   process.env.MFA_ENCRYPTION_KEY ??= "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 });
@@ -278,6 +283,8 @@ afterAll(() => {
   delete process.env.PLATFORM_OIDC_CLIENT_SECRET;
   delete process.env.PLATFORM_OIDC_CC_BASE;
   delete process.env.PLATFORM_OIDC_CC_API_KEY;
+  delete process.env.PLATFORM_OIDC_REDIRECT_URI;
+  delete process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS;
 });
 
 describe("Platform OIDC SSO", () => {
@@ -451,6 +458,30 @@ describe("Platform OIDC SSO", () => {
       where: { action: "platform.sso_start" },
     });
     expect(audit).not.toBeNull();
+  });
+
+  it("ignores the request origin when choosing the redirect URI", () => {
+    expect(ssoRedirectUri("https://attacker.example")).toBe(
+      "http://localhost:3100/platform/login/sso/callback"
+    );
+  });
+
+  it("rejects a redirect URI outside the strict allowlist", async () => {
+    const previous = process.env.PLATFORM_OIDC_REDIRECT_URI;
+    const previousAllowed = process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS;
+    try {
+      process.env.PLATFORM_OIDC_REDIRECT_URI =
+        "https://attacker.example/platform/login/sso/callback";
+      process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS =
+        "http://localhost:3100/platform/login/sso/callback";
+      expect(getOidcConfig().loginReady).toBe(false);
+      expect(() => ssoRedirectUri("http://localhost:3100")).toThrow(
+        "not in the allowlist"
+      );
+    } finally {
+      process.env.PLATFORM_OIDC_REDIRECT_URI = previous;
+      process.env.PLATFORM_OIDC_ALLOWED_REDIRECT_URIS = previousAllowed;
+    }
   });
 
   // -------------------------------------------------- verified link path ---

@@ -715,3 +715,88 @@ The administrator registered `E2E Agents Association`, recorded a GH₵500 spons
 ### Next dependency
 
 Workstream 7 — BloomCore Identity OIDC readiness review against the existing platform SSO implementation.
+
+## Workstream 7 — BloomCore Identity OIDC readiness review
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+Platform-console single sign-on against BloomCore Identity (Authentik/Control
+Center) already existed behind `PLATFORM_OIDC_ENABLED`, default OFF:
+
+- Authorization Code with PKCE (S256), server-side token exchange;
+- single-use `state`, `nonce` and verifier in an HMAC-signed, HttpOnly,
+  path-scoped flow cookie;
+- ID-token signature/issuer/audience/expiry/nonce/verified-email validation
+  against the IdP JWKS with RS/PS/ES only;
+- native platform session minting, `amr` mapping and MFA enforcement;
+- suspended-admin denial, forced-password-reset denial and platform audit
+  events;
+- refresh-token storage for central revocation and back-channel logout.
+
+### Gap found and fixed
+
+The callback URI was derived from the request origin when
+`PLATFORM_OIDC_REDIRECT_URI` was unset. A forged or rewritten `Host` header
+could therefore select a redirect the IdP had registered, undermining the
+authorization-code boundary.
+
+The login flow now requires an explicit `PLATFORM_OIDC_REDIRECT_URI` and, when
+`PLATFORM_OIDC_ALLOWED_REDIRECT_URIS` is set, an exact allowlist match. The
+request origin is ignored. A missing or non-allowlisted redirect disables the
+interactive login flow (404) but does **not** disable back-channel logout or
+central session revocation, which never use a browser redirect.
+
+### Tests and results
+
+- `tests/platform-oidc.test.ts`: **28 passed**, including new cases proving the
+  request origin cannot select the callback and that an off-allowlist redirect
+  makes the login flow unavailable.
+- `tests/platform-session-revocation.test.ts`: **11 passed**, confirming the
+  narrower login gate did not disable central revocation.
+- Full regression suite: **117 files, 1,298 tests passed**.
+- TypeScript: clean. ESLint on touched files: 0 errors.
+
+### Browser acceptance
+
+With a complete, allowlisted OIDC configuration, `/platform/login` rendered the
+“Sign in with BloomCore Identity” entry point pointing at
+`/platform/login/sso/start`. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The redirect URI is server configuration, never client or `Host` input.
+- PKCE verifier, state and nonce remain server-side in a signed, single-use,
+  path-scoped cookie.
+- Platform SSO mints only platform sessions; no tenant, worker or customer
+  session is created and no tenant data is read.
+- Back-channel logout and central revocation target SSO-derived platform
+  sessions of one immutable subject and never a local password session.
+
+### Known limitations
+
+- No live IdP or Control Center was contacted in this session. Validation used
+  the existing synthetic RSA/JWKS and fake-IdP tests plus a browser render.
+- The feature remains default OFF; production is untouched.
+- MFA strength is only as good as the IdP `amr` claim. A password-only IdP
+  session is refused only when `MFA_ENFORCEMENT=enforce`.
+- Refresh-token revocation applies only when the IdP issues refresh tokens
+  (`offline_access`).
+- The pending-link confirm step deliberately does not mint a session; one more
+  SSO click is required after linking.
+
+### External approvals still required
+
+- Final production issuer, client ID, client secret, redirect URI and allowlist
+  from BloomCore Identity.
+- A verified-email scope mapping in Authentik.
+- Registration of the exact production callback URI in the IdP.
+- Agreement on whether platform MFA is enforced at the IdP, locally, or both.
+
+### Next dependency
+
+Workstream 8 — Zeli anomaly detection foundation. The existing deterministic
+anomaly monitor remains the baseline; any model-based scoring requires an
+approved data set and false-positive review process.
