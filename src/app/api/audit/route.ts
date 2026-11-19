@@ -9,6 +9,9 @@ import {
 interface AuditRow {
   id: string;
   userId: string;
+  actorName: string | null;
+  actorRole: string | null;
+  actorType: string | null;
   action: string;
   entityType: string;
   entityId: string | null;
@@ -369,17 +372,22 @@ export async function GET(request: NextRequest) {
   }
 
   const presented = logs.map((log) => {
-    const actor = actorsById.get(log.userId) ?? null;
+    const liveActor = actorsById.get(log.userId) ?? null;
+    // The snapshot is authoritative for the historical action. A later rename
+    // must not rewrite who did it. Legacy rows without a snapshot fall back to
+    // the current account, then to an explicit unattributed state.
+    const actorName = log.actorName ?? liveActor?.fullName ?? null;
+    const actorRole = log.actorRole ?? liveActor?.role ?? null;
     return {
       ...log,
-      actorName: actor?.fullName ?? null,
-      actorRole: actor?.role ?? null,
+      actorName,
+      actorRole,
       presentation: presentAuditEntry({
         action: log.action,
         entityType: log.entityType,
         entityId: log.entityId,
         details: log.details,
-        actorName: actor?.fullName ?? null,
+        actorName,
         entity: context.get(log.entityId ?? "") ?? null,
       }),
     };

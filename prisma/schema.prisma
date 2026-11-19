@@ -493,6 +493,12 @@ model AuditLog {
   id         String   @id @default(cuid())
   tenantId   String?
   userId     String
+  /// Snapshot of the actor at the time of the action. A later rename or
+  /// removal must not rewrite who performed the historical action.
+  actorName  String?
+  actorRole  String?
+  /// user | customer | system
+  actorType  String?
   action     String
   entityType String
   entityId   String?
