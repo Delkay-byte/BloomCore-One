@@ -1202,7 +1202,7 @@ page showed “Currently opted in.” **1 passed.**
 **Status:** GREEN for the interface, consent, outbox and mock; **AMBER** for
 real delivery because no SMS provider has been selected.
 
-**Commit:** recorded at commit time
+**Commit:** `f051507`
 
 ### What was implemented
 
