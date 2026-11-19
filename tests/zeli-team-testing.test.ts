@@ -10,6 +10,8 @@ import {
 import {
   generateTeamConversation,
   redactKnownTenantIdentifiers,
+  stripExternalDisclosure,
+  teamTestingDisclosure,
 } from "@/lib/zeli/providers/conversation-provider";
 import { requestDeepSeekTeamConversation } from "@/lib/zeli/providers/deepseek-conversation";
 import { runZeliTurn } from "@/lib/zeli/service";
@@ -179,6 +181,29 @@ describe("Team Testing provider", () => {
     expect(body.messages.length).toBeGreaterThan(2);
     expect(JSON.stringify(body)).toContain("First genuine reply.");
     expect(second?.text).toContain("Second genuine reply with context.");
+  });
+
+  it("does not send MaaCash disclosures back as model history", async () => {
+    const { identity } = await teamFixture();
+    fetchMock.mockResolvedValueOnce(okResponse("Follow-up reply."));
+    const disclosure = teamTestingDisclosure();
+    const prior = `Earlier external answer.
+
+${disclosure}`;
+    expect(stripExternalDisclosure(prior)).toBe("Earlier external answer.");
+
+    await generateTeamConversation({
+      identity,
+      message: "What did you mean?",
+      history: [
+        { role: "user", content: "Earlier question" },
+        { role: "assistant", content: prior },
+      ],
+    });
+    const body = JSON.stringify(JSON.parse(fetchMock.mock.calls[0][1].body as string));
+    expect(body).toContain("Earlier external answer.");
+    expect(body).not.toContain("TEAM TESTING · LIVE DEEPSEEK API");
+    expect(body).not.toContain("This reply came from the external provider");
   });
 
   it("redacts real customer identifiers before sending", async () => {

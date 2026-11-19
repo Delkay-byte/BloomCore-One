@@ -209,6 +209,24 @@ export function teamTestingDisclosure(): string {
   return "[TEAM TESTING · LIVE DEEPSEEK API · SYNTHETIC BUSINESS DATA] This reply came from the external provider. No live customer or financial records were sent.";
 }
 
+/**
+ * MaaCash appends its own disclosure to every external answer. That disclosure
+ * must not be fed back as conversation history, otherwise the model starts
+ * imitating it and the user sees the same notice twice.
+ */
+export function stripExternalDisclosure(text: string): string {
+  return text
+    .replace(
+      /\n*\[TEAM TESTING · LIVE DEEPSEEK API · SYNTHETIC BUSINESS DATA\][\s\S]*$/i,
+      ""
+    )
+    .replace(
+      /\n*\[EXTERNAL AI · (?:SYNTHETIC TEST|CONVERSATIONAL)\][\s\S]*$/i,
+      ""
+    )
+    .trim();
+}
+
 export async function generateTeamConversation(params: {
   identity: ZeliIdentity;
   message: string;
@@ -251,7 +269,7 @@ export async function generateTeamConversation(params: {
         role: item.role,
         content: await redactKnownTenantIdentifiers(
           params.identity.tenantId,
-          item.content
+          stripExternalDisclosure(item.content)
         ),
       }))
     );
