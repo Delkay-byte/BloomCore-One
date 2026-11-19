@@ -20,6 +20,11 @@ import {
   runAnomalyScan,
   type AnomalyBoard,
 } from "@/lib/actions/anomaly.actions";
+import {
+  getZeliAnomalyBriefing,
+  type ZeliAnomalyBriefingResponse,
+} from "@/lib/actions/zeli-anomaly.actions";
+import type { AnomalyTriageBriefing } from "@/lib/zeli/anomaly-detection";
 
 type ScanResult = {
   scanned: number;
@@ -40,6 +45,12 @@ const STATUS_CLASSES: Record<string, string> = {
   open: "badge-yellow",
   acknowledged: "badge-blue",
   resolved: "badge-green",
+};
+
+const BAND_CLASSES: Record<string, string> = {
+  high: "border-red-200 bg-red-50 text-red-800",
+  elevated: "border-amber-200 bg-amber-50 text-amber-900",
+  low: "border-slate-200 bg-slate-50 text-slate-700",
 };
 
 function fmt(value: string | null): string {
@@ -81,6 +92,7 @@ function last30(): { from: string; to: string } {
 
 export default function AdminAnomaliesPage() {
   const [board, setBoard] = useState<AnomalyBoard | null>(null);
+  const [briefing, setBriefing] = useState<AnomalyTriageBriefing | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
@@ -99,7 +111,12 @@ export default function AdminAnomaliesPage() {
     setLoading(true);
     setError("");
     try {
-      setBoard(await getAnomalyBoard(filters));
+      const [nextBoard, nextBriefing] = await Promise.all([
+        getAnomalyBoard(filters),
+        getZeliAnomalyBriefing() as Promise<ZeliAnomalyBriefingResponse>,
+      ]);
+      setBoard(nextBoard);
+      setBriefing(nextBriefing.success ? nextBriefing.data ?? null : null);
     } catch {
       setError("The anomaly monitor could not be loaded.");
     } finally {
@@ -244,6 +261,94 @@ export default function AdminAnomaliesPage() {
             <StatCard label="Medium" value={board.counts.medium} />
             <StatCard label="Low" value={board.counts.low} />
           </section>
+
+          {briefing && (
+            <section className="card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Zeli anomaly briefing
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-xs text-slate-600">
+                    {briefing.headline}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase ${
+                    BAND_CLASSES[briefing.band] ?? BAND_CLASSES.low
+                  }`}
+                >
+                  {briefing.band} attention · {briefing.score}/100
+                </span>
+              </div>
+
+              <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                Deterministic rule-weighted triage. {briefing.signalsConsidered} active
+                finding{briefing.signalsConsidered === 1 ? "" : "s"} considered. This is
+                not a probability of fraud, and no external model was called.
+              </p>
+
+              {briefing.groups.length === 0 ? (
+                <p className="mt-3 text-sm text-slate-500">
+                  No active findings are available for triage.
+                </p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[38rem] text-left text-xs">
+                    <thead className="text-[11px] uppercase text-slate-500">
+                      <tr>
+                        <th className="pb-2 pr-3 font-semibold">Group</th>
+                        <th className="pb-2 pr-3 font-semibold">Active</th>
+                        <th className="pb-2 pr-3 font-semibold">High</th>
+                        <th className="pb-2 pr-3 font-semibold">Attention</th>
+                        <th className="pb-2 font-semibold">Why it is ranked here</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {briefing.groups.slice(0, 5).map((group) => (
+                        <tr key={group.key}>
+                          <td className="py-2 pr-3">
+                            <span className="font-medium text-slate-800">
+                              {group.label}
+                            </span>
+                            <span className="ml-1 text-[11px] text-slate-500">
+                              ({group.kind})
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-slate-700">{group.signalCount}</td>
+                          <td className="py-2 pr-3 text-slate-700">{group.high}</td>
+                          <td className="py-2 pr-3">
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase ${
+                                BAND_CLASSES[group.band] ?? BAND_CLASSES.low
+                              }`}
+                            >
+                              {group.band} · {group.score}
+                            </span>
+                          </td>
+                          <td className="py-2 text-slate-600">
+                            {group.reasons.slice(0, 2).join(" ")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <details className="mt-3 text-[11px] text-slate-600">
+                <summary className="cursor-pointer font-semibold text-slate-600">
+                  How the attention score is calculated
+                </summary>
+                <p className="mt-2">{briefing.methodology}</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {briefing.limitations.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </details>
+            </section>
+          )}
 
           <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <label className="card p-3 text-xs font-medium text-slate-600">

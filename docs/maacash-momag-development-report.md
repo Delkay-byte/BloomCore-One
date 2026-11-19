@@ -800,3 +800,98 @@ With a complete, allowlisted OIDC configuration, `/platform/login` rendered the
 Workstream 8 — Zeli anomaly detection foundation. The existing deterministic
 anomaly monitor remains the baseline; any model-based scoring requires an
 approved data set and false-positive review process.
+
+## Workstream 8 — Zeli anomaly detection foundation
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+The anomaly monitor already produced deterministic findings from named
+threshold rules. Zeli had a deterministic business-insight engine, but no
+connection between operational findings and a Zeli advisory view.
+
+### What was implemented
+
+- A tenant-scoped **Zeli anomaly briefing** that groups active (open and
+  acknowledged) findings by employee first, then by branch, then as
+  unassigned.
+- A fixed, published **attention score** used only to order review:
+  high 42, medium 20, low 7, plus 8 per repeated finding for the same employee
+  or branch (capped at 24), capped at 100. High band starts at 70, elevated at
+  35. Resolved findings are excluded.
+- Each group shows its active/high counts, band, top rule and plain-language
+  reasons. The interface states that this is not a probability of fraud and
+  that no external model was called.
+- An `AnomalyScoringProvider` interface with **one** implementation,
+  `deterministic_rules`, which reports `modelUsed: false` and
+  `externalModel: false`. No model adapter is wired in.
+- The briefing is read-only: it never creates, acknowledges, resolves or
+  changes a finding, and creates no money movement.
+
+### Schema and migration
+
+No schema change. The briefing reads existing `OperationalAnomaly` rows and
+resolves employee and branch names inside the current tenant.
+
+### Tests and results
+
+- New `tests/zeli-anomaly-detection.test.ts` proves:
+  - a zero score and explicit no-findings state;
+  - fixed weights and band boundaries;
+  - repeat uplift and the 100-point cap;
+  - employee-first grouping, branch fallback and exclusion of resolved rows;
+  - the provider discloses no model and no external call;
+  - the action returns only the caller's tenant findings, with tenant-scoped
+    employee and branch names.
+- `tests/zeli-anomaly-detection.test.ts`: **6 passed**.
+- Full regression suite: **118 files, 1,304 tests passed**.
+- TypeScript: clean. ESLint: 0 errors; one existing admin-page effect warning.
+
+### Browser acceptance
+
+The administrator opened `/admin/anomalies` with a seeded high-severity
+finding. The Zeli briefing rendered “elevated attention · 42/100”, named the
+assigned employee, and showed the deterministic/no-model disclosure.
+**1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The action uses `requireTenantAdminMomo`; tenant identity comes from the
+  session.
+- Findings, employee names and branch names are all queried with the current
+  tenant ID.
+- The briefing is read-only and cannot acknowledge, resolve or mutate a
+  finding.
+- No customer record, provider credential or external request is involved.
+
+### Known limitations
+
+- The score is a rule-weighted review order, **not** a fraud probability,
+  credit score, prediction or AI classification.
+- It only re-orders existing deterministic findings; it does not detect new
+  patterns or use historical baselines beyond those rules.
+- The briefing reads at most 500 active findings and shows the top ten groups.
+- Scanning remains on request; no scheduler runs it automatically.
+- There is no model-backed provider, no training data, no feedback loop and no
+  automatic enforcement action.
+- The briefing is available to tenant administrators with the MoMo module; it
+  is not a customer-facing or platform-level view.
+
+### External approvals still required
+
+- A reviewed, labelled data set and a documented false-positive review process
+  before any model-backed scoring is introduced.
+- Fairness, explainability and appeal requirements for any scoring that could
+  affect a person's employment or standing.
+- A decision that any model output remains advisory, with a human reviewing
+  before money, employment or disciplinary action.
+- A vendor/data-processing agreement if an external model or service is ever
+  approved.
+
+### Next dependency
+
+Workstream 9 — external integration readiness: provider interfaces and
+non-delivering adapters for telco, messaging and payment status, without
+contacting production services.
