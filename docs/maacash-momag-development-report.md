@@ -18,7 +18,7 @@ This report starts the new Workstream 0 review and records each feature from her
 | 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / FOUNDATION** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Aggregate days remain the default, so an operator can still close a day from totals without individual transactions. Next: 0.5 aggregate-vs-ledger integrity. |
 | 2 | Best-effort audit records leave financial actions without evidence | **RESOLVED for money movements; residual control record** | Successful money changes now write audit evidence in the same transaction. `createAuditLog()` remains for non-financial/security events, and the final `finance.approval_applied` summary is still written after the already-audited reversal. |
 | 3 | Activity History omits meaningful actor identity | **RESOLVED for actor identity** | Audit rows now snapshot actor name, role and type at write time. Renames and removed accounts do not rewrite history. Device attribution remains part of 0.3. |
-| 4 | Offline shared-device recovery creates attribution and replay risk | **PARTIALLY ADDRESSED / FOUNDATION** | Per-user IndexedDB scope, device ownership checks, server idempotency and revoked-device refusal exist. Device identity is not yet carried onto every financial ledger row, and shared-device recovery needs a dedicated replay test. Next: 0.3. |
+| 4 | Offline shared-device recovery creates attribution and replay risk | **RESOLVED for attribution and replay; device trust remains a foundation** | Per-user IndexedDB scope, device ownership checks, global payload-bound idempotency and revoked-device refusal exist. Synced collections now store the verified device and commit with audit evidence. Device attestation/hardware binding is not claimed. |
 | 5 | Revenue and profit definitions can mislead | **PARTIALLY ADDRESSED** | Performance reporting separates revenue (commission + other income) from principal volume and excludes drafts. Older daily/report screens still use “profit” for net increase. Next: 0.4. |
 
 ## Feature 0.1 — Atomic financial audit evidence
@@ -138,3 +138,64 @@ None.
 ### Next dependency
 
 0.3 — offline shared-device attribution and replay hardening.
+
+## Feature 0.3 — Offline device attribution and atomic sync
+
+**Status:** GREEN  
+**Commit:** `f92cdbc`
+
+### Existing capability before changes
+
+The offline route already bound a queue key to the authenticated user, tenant, device and canonical payload, and rejected cross-tenant/cross-user reuse. However, the resulting `Contribution` carried only the user, not the device. The contribution, offline queue acknowledgement and audit row also committed in separate steps.
+
+### What was implemented
+
+- `Contribution` stores `recordedDeviceId` and `recordedDeviceName` for offline collections only.
+- The verified `DeviceEnrollment` is the source of both values; the client cannot supply them.
+- Contribution, allocations, actor-snapshotted audit row and `OfflineTransaction` acknowledgement commit in one transaction.
+- Audit details include the device identifier and name plus `source: offline_sync`.
+- A retry of an already-synced key returns the original result without a second contribution or audit row.
+- The existing per-user IndexedDB scope and device-ownership checks are unchanged.
+
+### Schema and migrations
+
+- `Contribution.recordedDeviceId`, `Contribution.recordedDeviceName` in both Prisma schemas.
+- Additive migration `20261130_contribution_device_attribution`.
+
+### Tests and results
+
+- New `tests/offline-sync-attribution.test.ts`:
+  - verified device and actor snapshot stored on the contribution;
+  - one audit row with device evidence;
+  - retry remains idempotent with one posting and one audit row;
+  - audit-storage failure posts no contribution and does not acknowledge the queue item.
+- Offline/security targeted suite: **6 files, 58 tests passed**.
+- Full regression suite: **114 files, 1,279 tests passed**.
+- TypeScript and touched-file ESLint: clean.
+
+### Browser acceptance
+
+Mobile collector offline status flow: Online → Offline → Online transitions without a false “Offline Active” state. **1 passed.** No offline financial queue was created in the browser test; the server route is covered by the integration tests above.
+
+### Security and tenant-isolation evidence
+
+- Device lookup remains scoped by `deviceId`, `userId` and `tenantId`, with `status = active`.
+- The 24-hour offline authorization window and revocation checks remain enforced.
+- The global idempotency key remains bound to the original user, device and canonical payload.
+- No client-supplied device name or actor identity is trusted.
+- No existing queue record is deleted or rewritten beyond its sync acknowledgement.
+
+### Known limitations
+
+- IndexedDB is ordinary browser storage. Per-user scoping prevents normal cross-account access, but it is not hardware-backed secure storage.
+- Device identity is recorded, not cryptographically attested. A rooted or instrumented device can still lie about its local clock or UI state.
+- Offline `collectionDate` still reflects the server posting time, not a separately verified device capture time. This is recorded as a follow-up for the ledger hardening work.
+- PostgreSQL replay tests were updated conceptually by the shared route but were not run locally without a disposable PostgreSQL target.
+
+### External approvals still required
+
+None for local implementation.
+
+### Next dependency
+
+0.4 — revenue/profit definitions and misleading report language.
