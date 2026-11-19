@@ -12,6 +12,7 @@ import type {
   SusuStatementEntry,
   SusuStatementKind,
 } from "@/lib/susu-statements";
+import { buildCsv } from "@/lib/csv";
 
 const KIND_LABEL: Record<SusuStatementKind, string> = {
   contribution: "Contribution",
@@ -38,14 +39,6 @@ function channelLabel(entry: SusuStatementEntry): string {
   if (entry.kind === "withdrawal") return "Withdrawal paid to customer";
   if (entry.kind === "commission") return "First-withdrawal commission";
   return "Susu card fee";
-}
-
-function csvCell(value: string): string {
-  // Neutralise spreadsheet formula injection from free-text notes.
-  const first = value.charAt(0);
-  const dangerous = ["=", "+", "-", "@", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13)].includes(first);
-  const safe = dangerous ? `'${value}` : value;
-  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 export default function CustomerStatementPage() {
@@ -100,9 +93,7 @@ export default function CustomerStatementPage() {
       entry.reference ?? "",
       entry.status,
     ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => csvCell(String(cell))).join(","))
-      .join("\r\n");
+    const csv = buildCsv([headers, ...rows]);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

@@ -5,12 +5,7 @@ import { buildAnalyticsSnapshot } from "@/lib/zeli/intelligence/metrics";
 import { detectInsights } from "@/lib/zeli/intelligence/insights";
 import { PeriodValidationError, type PeriodPreset } from "@/lib/zeli/intelligence/period";
 import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
-
-function csvCell(value: unknown): string {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
+import { csvCell } from "@/lib/csv";
 
 function line(cells: unknown[]): string {
   return cells.map(csvCell).join(",");

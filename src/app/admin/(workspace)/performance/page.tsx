@@ -18,6 +18,7 @@ import {
   type PerformanceReportResponse,
 } from "@/lib/actions/performance.actions";
 import type { PerformanceDelta } from "@/lib/performance-report";
+import { buildCsv } from "@/lib/csv";
 
 type Preset = "last7" | "last30" | "this_month" | "last_month" | "custom";
 
@@ -56,13 +57,6 @@ function fmtDay(value: string): string {
     month: "short",
     timeZone: "UTC",
   });
-}
-
-function csvSafe(value: string): string {
-  const first = value.charAt(0);
-  const dangerous = ["=", "+", "-", "@", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13)].includes(first);
-  const safe = dangerous ? `'${value}` : value;
-  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 const DELTA_LABEL: Record<PerformanceDelta["metric"], string> = {
@@ -150,7 +144,7 @@ export default function AdminPerformancePage() {
       [],
       ["Note", "Draft accounts are excluded from confirmed figures."],
     ];
-    const csv = rows.map((row) => row.map((cell) => csvSafe(String(cell))).join(",")).join("\r\n");
+    const csv = buildCsv(rows);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

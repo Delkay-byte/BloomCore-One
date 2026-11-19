@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions/momo-history.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { buildCsv } from "@/lib/csv";
 import SmartSearch from "@/components/SmartSearch";
 import FilterChips from "@/components/ui/FilterChips";
 import { NoResults, PageHeader } from "@/components/ui/DataDisplay";
@@ -140,8 +141,8 @@ export default function MoMoHistoryPage() {
       r.status,
       r.notes,
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

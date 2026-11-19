@@ -13,6 +13,7 @@ import CediAmount from "@/components/CediAmount";
 import PasswordInput from "@/components/PasswordInput";
 import { buildSusuStatement } from "@/lib/susu-statements";
 import Link from "next/link";
+import { buildCsv } from "@/lib/csv";
 
 interface CustomerDetail {
   id: string;
@@ -363,11 +364,6 @@ export default function SusuCustomerDetailPage() {
     return true;
   });
 
-  function csvSafe(value: string): string {
-    const first = value.charAt(0);
-    const dangerous = ["=", "+", "-", "@", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13)].includes(first);
-    return dangerous ? `'${value}` : value;
-  }
 
   function handleExportCSV() {
     if (!account || !customer) return;
@@ -407,8 +403,8 @@ export default function SusuCustomerDetailPage() {
       e.reference || "",
       e.status,
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

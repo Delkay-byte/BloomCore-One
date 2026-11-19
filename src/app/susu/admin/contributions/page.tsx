@@ -8,6 +8,7 @@ import { searchCustomers, searchStaff } from "@/lib/actions/susu-customer.action
 import { getCollectors } from "@/lib/actions/susu-collector.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { buildCsv } from "@/lib/csv";
 import { useEffect, useRef, useState } from "react";
 import { useObjectDraft } from "@/hooks/useObjectDraft";
 import DraftIndicator from "@/components/DraftIndicator";
@@ -346,8 +347,8 @@ export default function SusuContributionsPage() {
       c.recordedByName || c.recordedBy?.fullName || "Not recorded",
       c.notes || "",
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

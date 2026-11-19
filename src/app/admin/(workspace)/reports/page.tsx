@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import CediAmount from "@/components/CediAmount";
 import { resolveStoredDifference } from "@/lib/momo-reconciliation";
+import { buildCsv } from "@/lib/csv";
 
 interface Account {
   id: string; businessDate: Date; status: string; submittedAt?: Date | null;
@@ -70,8 +71,8 @@ export default function ReportsPage() {
         Number(a.commission) + Number(a.debtsCollected) - Number(a.totalExpenses);
       return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, netIncrease, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status, a.ledgerMode === "ledger" ? "Transaction ledger" : "Operator-declared aggregate"];
     });
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `maacash-momo-reports-${new Date().toISOString().split("T")[0]}.csv`; a.click(); URL.revokeObjectURL(url);
   }

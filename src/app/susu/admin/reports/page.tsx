@@ -9,6 +9,7 @@ import { getContributions } from "@/lib/actions/susu-contribution.actions";
 import { getWithdrawals } from "@/lib/actions/susu-withdrawal.actions";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { buildCsv } from "@/lib/csv";
 
 type Tab = "contributions" | "withdrawals";
 
@@ -85,8 +86,8 @@ export default function SusuReportsPage() {
         String(c.allocations.length),
         c.channel,
       ]);
-      const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
+      const csv = buildCsv([headers, ...rows]);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -105,8 +106,8 @@ export default function SusuReportsPage() {
         String(w.remainingBalance),
         String(w.cycle.cycleNumber),
       ]);
-      const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
+      const csv = buildCsv([headers, ...rows]);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

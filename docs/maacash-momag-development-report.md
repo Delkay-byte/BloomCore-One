@@ -985,3 +985,103 @@ provider-confirmation limitation. **1 passed.**
 
 Workstream 10 — reporting and business-intelligence hardening: consistent
 definitions, export safety and a review of aggregate-versus-ledger reporting.
+
+## Workstream 10 — Reporting and export hardening
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+MaaCash had several CSV downloads across MoMo reports, Susu reports, money
+history, customer statements, performance and Zeli analytics. Escaping was
+implemented separately in each page:
+
+- some exports joined raw values with commas, so a name or note containing a
+  comma shifted every later column;
+- some quoted values but did not neutralise a leading `=`, `+`, `-` or `@`;
+- three files applied a formula guard, but each had its own copy and treated
+  negative money as text.
+
+The result was inconsistent: the same customer note could break one export and
+open as a formula in another.
+
+### What was implemented
+
+- One shared CSV module (`src/lib/csv.ts`) with:
+  - formula neutralisation for leading `=`, `@`, tab, carriage return and for
+    non-numeric `+`/`-` values;
+  - numeric preservation for plain positive and negative numbers, including
+    amounts such as `-350.50`;
+  - RFC-style quoting for commas, quotes and newlines;
+  - CRLF row separators and UTF-8 blobs.
+- Every export path now uses the shared builder or cell function:
+  - MoMo daily reports and MoMo money history;
+  - Susu reports (contributions and withdrawals), Susu contributions, Susu
+    money history and the customer Susu statement;
+  - the customer portal statement, performance report and Zeli analytics
+    export.
+- Duplicated local `csvSafe`/`csvCell` implementations were removed.
+
+### Schema and migration
+
+No schema change. No export contents or financial calculations changed; only
+cell formatting and escaping.
+
+### Tests and results
+
+- New `tests/csv-export.test.ts` proves:
+  - negative money stays numeric and is not turned into text;
+  - `=`, `@`, non-numeric `+`/`-` and tab-prefixed values are neutralised;
+  - commas, quotes, carriage returns and newlines are quoted correctly;
+  - `null`/`undefined` become empty cells;
+  - rows use CRLF and every cell is escaped.
+- `tests/csv-export.test.ts`: **4 passed**.
+- Full regression suite: **120 files, 1,313 tests passed**.
+- TypeScript: clean. ESLint: 0 errors; existing data-loading effect warnings
+  only.
+
+### Browser acceptance
+
+The administrator opened `/admin/reports` with seeded daily accounts and
+downloaded the CSV through the real browser. The file name, header row, CRLF
+separators and difference-status column were verified. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Export data still comes from the same tenant-scoped server actions and
+  routes; this change does not add a query or widen a filter.
+- Formula prefixes in free-text fields can no longer execute as spreadsheet
+  formulas.
+- The Zeli export keeps its existing entitlement guard and aggregate-only
+  payload.
+- No new file, credential or customer record is stored by an export.
+
+### Known limitations
+
+- Exports are generated in the browser from the rows already loaded. A
+  paginated report exports the current result set, not the entire period.
+- Formula neutralisation uses a leading apostrophe, the common spreadsheet
+  convention. A determined user can still import data as text and choose to
+  interpret it; CSV is not a signed format.
+- Files are UTF-8 without a BOM, so some older spreadsheet versions may
+  misread accented names.
+- There is no server-side export audit trail, scheduled report delivery,
+  report template editor or BI warehouse.
+- Metric definitions remain displayed in the performance and statement views;
+  there is no single glossary page yet.
+
+### External approvals still required
+
+- Agreement on which reports are official management accounts and who signs
+  them off.
+- A retention and access policy for downloaded customer data.
+- A decision on scheduled report delivery and its consent/security model.
+- Finance approval before any exported figure is used for tax, lending or
+  regulatory filing.
+
+### Next dependency
+
+All ten workstreams are complete. Remaining work is meeting preparation,
+operator training and a controlled production rollout decision; production
+stays at the untouched baseline until that decision is made.
