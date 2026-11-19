@@ -31,6 +31,7 @@ export async function cleanDatabase() {
     prisma.customer.deleteMany(),
     prisma.collector.deleteMany(),
     prisma.expense.deleteMany(),
+    prisma.momoTransaction.deleteMany(),
     prisma.dailyAccountRevision.deleteMany(),
     prisma.dailyAccount.deleteMany(),
     prisma.auditLog.deleteMany(),

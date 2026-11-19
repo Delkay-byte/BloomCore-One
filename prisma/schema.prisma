@@ -48,6 +48,7 @@ model User {
   devices               DeviceEnrollment[]
   recordedContributions Contribution[]       @relation("RecordedContributions")
   receivedContributions Contribution[]       @relation("ReceivedContributions")
+  recordedMomoTransactions MomoTransaction[] @relation("MomoTransactionRecordedBy")
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -71,6 +72,7 @@ model Location {
 
   users         User[]
   dailyAccounts DailyAccount[]
+  momoTransactions MomoTransaction[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -123,6 +125,21 @@ model DailyAccount {
   correctedById    String?
   correctionReason String?
   revisionCount    Int       @default(0)
+
+  // Financial source of truth for the day.
+  //   aggregate — opening/closing plus manual commission, debts and expenses.
+  //   ledger    — commission, debts, other income and expenses derive from the
+  //               operational MomoTransaction rows; principal customer
+  //               transactions never enter the accountability formula.
+  // The mode is set once, explicitly, before any ledger entry is recorded. A
+  // historical aggregate row is never converted or back-filled silently.
+  ledgerMode               String    @default("aggregate")
+  ledgerCutoverAt          DateTime?
+  // Where this day's opening figures came from: manual | carried | manual_adjusted
+  openingBalanceSource     String    @default("manual")
+  carriedFromAccountId     String?
+  openingAdjustmentReason  String?
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -130,6 +147,7 @@ model DailyAccount {
   worker    User                   @relation(fields: [workerId], references: [id])
   expenses  Expense[]
   revisions DailyAccountRevision[]
+  momoTransactions MomoTransaction[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -140,6 +158,73 @@ model DailyAccount {
   @@index([status])
   @@index([submittedAt])
   @@index([tenantId])
+}
+
+/// Operational MoMo transaction ledger entry.
+///
+/// Every row is an operator-recorded operational record. Nothing here is a
+/// provider confirmation or a statement import; `recordingSource` always says
+/// so. Principal customer movements (cash in, cash out, airtime) are retained
+/// for operational reporting but never enter the accountability formula, which
+/// keeps them from being counted as business revenue or profit.
+///
+/// Corrections and reversals are append-only. The superseded row keeps all of
+/// its original values and only changes status; the successor or reversal row
+/// carries the linkage so the full history stays auditable.
+model MomoTransaction {
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  locationId            String
+  dailyAccountId        String?
+  /// The employee the transaction belongs to (the operator who recorded it).
+  workerId              String
+  /// cash_in | cash_out | airtime_sale | commission | debts_collected |
+  /// other_income | expense
+  type                  String
+  /// mtn | telecel | at_money | other | unassigned
+  network               String    @default("unassigned")
+  /// inflow | outflow | neutral | reversal
+  direction             String
+  amount                Decimal   @default(0)
+  /// Provider/business commission earned on this transaction. A day-total
+  /// commission row (type=commission) takes precedence over per-transaction
+  /// commission so the same money is never counted twice.
+  commissionAmount      Decimal   @default(0)
+  businessDate          DateTime
+  occurredAt            DateTime
+  /// Operator business reference; unique per tenant.
+  reference             String
+  /// Provider reference when the operator has one. Optional and non-verified.
+  externalReference     String?
+  /// manual_operator | statement_import | provider_api (future sources)
+  recordingSource       String    @default("manual_operator")
+  /// recorded | reversed | corrected | reversal
+  status                String    @default("recorded")
+  idempotencyKey        String
+  reversesTransactionId String?   @unique
+  correctsTransactionId String?
+  correctionReason      String?
+  note                  String?
+  recordedById          String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location     Location        @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
+  worker       User            @relation("MomoTransactionRecordedBy", fields: [workerId], references: [id])
+  reversalOf   MomoTransaction? @relation("MomoTransactionReversal", fields: [reversesTransactionId], references: [id])
+  reversal     MomoTransaction? @relation("MomoTransactionReversal")
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, reference])
+  @@unique([tenantId, network, externalReference])
+  @@index([tenantId, businessDate])
+  @@index([locationId, businessDate])
+  @@index([workerId, businessDate])
+  @@index([dailyAccountId, status])
+  @@index([type, status])
+  @@index([createdAt])
 }
 
 model Expense {
@@ -622,6 +707,7 @@ model BusinessTenant {
   users                        User[]
   locations                    Location[]
   dailyAccounts                DailyAccount[]
+  momoTransactions             MomoTransaction[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]

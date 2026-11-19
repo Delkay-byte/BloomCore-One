@@ -87,6 +87,11 @@ export interface ReconciliationInput {
   openingCash: number;
   debtsCollected?: number;
   commission?: number;
+  /**
+   * Approved operational income recorded separately from commission.
+   * Defaults to zero, so every existing aggregate caller is unchanged.
+   */
+  otherIncome?: number;
   totalExpenses?: number;
   closingMomoFloat: number;
   closingCash: number;
@@ -108,9 +113,11 @@ export interface ReconciliationResult {
   debtsCollected: number;
   /** Commission entered once from the provider statement. */
   commission: number;
+  /** Approved operational income outside commission and debt collection. */
+  otherIncome: number;
   /** Itemised business expenses. */
   expenses: number;
-  /** Commission + debts collected - expenses. */
+  /** Commission + debts collected + other income - expenses. */
   netIncrease: number;
   /**
    * The minimum closing total that still preserves the business's money.
@@ -162,12 +169,13 @@ export function calculateReconciliation(
   const openingMomoFloat = pesewas(data.openingMomoFloat);
   const debtsCollected = pesewas(data.debtsCollected ?? 0);
   const commission = pesewas(data.commission ?? 0);
+  const otherIncome = pesewas(data.otherIncome ?? 0);
   const expenses = pesewas(data.totalExpenses ?? 0);
   const closingCash = pesewas(data.closingCash);
   const closingMomoFloat = pesewas(data.closingMomoFloat);
 
   const openingTotal = openingCash + openingMomoFloat;
-  const netIncrease = debtsCollected + commission - expenses;
+  const netIncrease = debtsCollected + commission + otherIncome - expenses;
   const expectedClosing = openingTotal + netIncrease;
   const capitalFloor = openingTotal + Math.min(netIncrease, 0);
   const actualClosing = closingCash + closingMomoFloat;
@@ -197,6 +205,7 @@ export function calculateReconciliation(
     openingTotal: fromPesewas(openingTotal),
     debtsCollected: fromPesewas(debtsCollected),
     commission: fromPesewas(commission),
+    otherIncome: fromPesewas(otherIncome),
     expenses: fromPesewas(expenses),
     netIncrease: fromPesewas(netIncrease),
     capitalFloor: fromPesewas(capitalFloor),

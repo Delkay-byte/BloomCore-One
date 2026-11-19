@@ -26,6 +26,12 @@ import {
   resolveStoredDifference,
 } from "@/lib/momo-reconciliation";
 import { createAuditLog } from "@/lib/audit";
+import {
+  ledgerSummaryForAccount,
+  latestPriorDailyAccount,
+  resolveOpeningCarryForward,
+} from "@/lib/momo-ledger-service";
+import { openingDifferenceIsMaterial } from "@/lib/momo-ledger";
 import { revalidatePath } from "next/cache";
 
 export interface ActionResponse {
@@ -47,6 +53,7 @@ function reconcileDailyAccount(data: {
   openingCash: number;
   debtsCollected: number;
   commission: number;
+  otherIncome?: number;
   totalExpenses: number;
   closingMomoFloat: number;
   closingCash: number;
@@ -56,6 +63,7 @@ function reconcileDailyAccount(data: {
     openingCash: data.openingCash,
     debtsCollected: data.debtsCollected,
     commission: data.commission,
+    otherIncome: data.otherIncome ?? 0,
     totalExpenses: data.totalExpenses,
     closingMomoFloat: data.closingMomoFloat,
     closingCash: data.closingCash,
@@ -124,6 +132,14 @@ export async function createDailyAccount(
     };
   }
 
+  // Opening roll-forward. Only a reviewed, balanced previous close is carried;
+  // anything else stays manual and must be explained when it is entered.
+  const carry = await resolveOpeningCarryForward({
+    tenantId: ctx.tenantId,
+    locationId,
+    businessDate: dateObj,
+  });
+
   const account = await db.dailyAccount.create({
     data: {
       tenantId: ctx.tenantId,
@@ -131,6 +147,10 @@ export async function createDailyAccount(
       workerId: ctx.userId,
       businessDate: dateObj,
       status: "draft",
+      openingCash: carry.openingCash ?? 0,
+      openingMomoFloat: carry.openingMomoFloat ?? 0,
+      openingBalanceSource: carry.available ? "carried" : "manual",
+      carriedFromAccountId: carry.sourceAccountId,
     },
   });
 
@@ -139,7 +159,13 @@ export async function createDailyAccount(
     action: "daily_account.created",
     entityType: "daily_account",
     entityId: account.id,
-    details: { locationId, businessDate },
+    details: {
+      locationId,
+      businessDate,
+      openingBalanceSource: account.openingBalanceSource,
+      carriedFromAccountId: carry.sourceAccountId,
+      carryReason: carry.reason,
+    },
   });
 
   revalidatePath("/worker/dashboard");
@@ -224,12 +250,77 @@ export async function saveDailyAccount(
     return { success: false, error: validated.error.issues[0].message };
   }
 
-  // The itemised expense rows are authoritative. The browser may not submit a
-  // separate aggregate, and any legacy totalExpenses field is ignored.
-  const totalExpenses = expenseResult.total;
+  // In ledger mode the individual transaction rows are the source of truth for
+  // commission, debts, other income, airtime and expenses. The manual fields in
+  // the same form are ignored so the same money cannot be counted twice.
+  const isLedger = account.ledgerMode === "ledger";
+  const ledgerSummary = isLedger
+    ? await ledgerSummaryForAccount(account.id, ctx.tenantId)
+    : null;
+  const effective = ledgerSummary
+    ? {
+        commission: ledgerSummary.commission,
+        debtsCollected: ledgerSummary.debtsCollected,
+        otherIncome: ledgerSummary.otherIncome,
+        airtimeSold: ledgerSummary.airtimeSold,
+        totalExpenses: ledgerSummary.expenses,
+      }
+    : {
+        commission: parsed.commission,
+        debtsCollected: parsed.debtsCollected,
+        otherIncome: 0,
+        airtimeSold: parsed.totalAirtimeSold,
+        totalExpenses: expenseResult.total,
+      };
+  const effectiveExpenses = ledgerSummary ? [] : expenses;
+  const totalExpenses = effective.totalExpenses;
+
+  // Opening-balance continuity. A material difference from the latest known
+  // close has to be explained; the source is recorded so a reader can tell an
+  // automatically carried balance from a manual one.
+  const prior = await latestPriorDailyAccount({
+    tenantId: ctx.tenantId,
+    locationId: account.locationId,
+    businessDate: account.businessDate,
+    excludeAccountId: account.id,
+  });
+  const openingReasonRaw =
+    (formData.get("openingAdjustmentReason") as string | null)?.trim() ?? "";
+  const materialOpeningDifference = prior
+    ? openingDifferenceIsMaterial(
+        { cash: parsed.openingCash, float: parsed.openingMomoFloat },
+        { cash: prior.closingCash, float: prior.closingMomoFloat }
+      )
+    : false;
+  if (materialOpeningDifference && openingReasonRaw.length < 10) {
+    return {
+      success: false,
+      error:
+        "This opening balance differs from the last recorded close. Explain the difference in at least 10 characters.",
+    };
+  }
+  if (openingReasonRaw.length > 500) {
+    return {
+      success: false,
+      error: "The opening balance explanation must be 500 characters or fewer.",
+    };
+  }
+  const openingBalanceSource = materialOpeningDifference
+    ? "manual_adjusted"
+    : account.carriedFromAccountId && prior?.accountId === account.carriedFromAccountId
+      ? "carried"
+      : "manual";
+  const openingAdjustmentReason = materialOpeningDifference ? openingReasonRaw : null;
+
   const reconciled = reconcileDailyAccount({
-    ...parsed,
+    openingMomoFloat: parsed.openingMomoFloat,
+    openingCash: parsed.openingCash,
+    debtsCollected: effective.debtsCollected,
+    commission: effective.commission,
+    otherIncome: effective.otherIncome,
     totalExpenses,
+    closingMomoFloat: parsed.closingMomoFloat,
+    closingCash: parsed.closingCash,
   });
   const legacy = legacyVarianceColumns(reconciled.difference);
   let persisted = false;
@@ -246,15 +337,17 @@ export async function saveDailyAccount(
         additionalMomoFloat: parsed.additionalMomoFloat,
         totalCashIn: parsed.totalCashIn,
         totalCashOut: parsed.totalCashOut,
-        totalAirtimeSold: parsed.totalAirtimeSold,
+        totalAirtimeSold: effective.airtimeSold,
         totalCashReceived: 0,
         totalCashPaid: 0,
-        commission: parsed.commission,
-        debtsCollected: parsed.debtsCollected,
-        otherIncome: 0,
+        commission: effective.commission,
+        debtsCollected: effective.debtsCollected,
+        otherIncome: effective.otherIncome,
         closingMomoFloat: parsed.closingMomoFloat,
         closingCash: parsed.closingCash,
         totalExpenses,
+        openingBalanceSource,
+        openingAdjustmentReason,
         calculatedDifference: reconciled.difference,
         differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
         reconciliationNote: reconciliationNote,
@@ -264,13 +357,15 @@ export async function saveDailyAccount(
     if (updated.count !== 1) return;
     persisted = true;
 
-    // Expense replacement is scoped to this tenant's account.
+    // Expense replacement is scoped to this tenant's account. A ledger-mode
+    // day has no Expense rows at all: its expenses live in the transaction
+    // ledger so the same cost is never present in two places.
     await tx.expense.deleteMany({
       where: { dailyAccountId: accountId, tenantId: ctx.tenantId },
     });
-    if (expenses.length > 0) {
+    if (effectiveExpenses.length > 0) {
       await tx.expense.createMany({
-        data: expenses.map((e) => ({
+        data: effectiveExpenses.map((e) => ({
           tenantId: ctx.tenantId,
           dailyAccountId: accountId,
           description: e.description,
@@ -295,10 +390,16 @@ export async function saveDailyAccount(
     entityId: accountId,
     details: {
       totalExpenses,
-      airtimeSold: parsed.totalAirtimeSold,
+      airtimeSold: effective.airtimeSold,
+      commission: effective.commission,
+      debtsCollected: effective.debtsCollected,
+      otherIncome: effective.otherIncome,
       difference: reconciled.difference,
       differenceStatus: reconciled.differenceStatus,
-      expenseCount: expenses.length,
+      expenseCount: effectiveExpenses.length,
+      ledgerMode: account.ledgerMode,
+      openingBalanceSource,
+      openingAdjusted: materialOpeningDifference,
     },
   });
 
@@ -346,6 +447,13 @@ export async function correctDailyAccount(
     return {
       success: false,
       error: "Only submitted or reviewed daily accounts can be corrected.",
+    };
+  }
+  if (account.ledgerMode === "ledger") {
+    return {
+      success: false,
+      error:
+        "This day was closed from the transaction ledger. Correct or reverse the individual transactions instead; the daily totals then re-derive without overwriting posting history.",
     };
   }
 
@@ -568,27 +676,53 @@ export async function submitDailyAccount(
     return { success: false, error: "Only draft accounts can be submitted" };
   }
 
-  // Re-derive the total from the persisted rows at submission time. A stored
-  // aggregate that disagrees with its supporting rows is never submitted.
-  const validatedExpenses = parseExpenseLines(
-    account.expenses.map((expense) => ({
-      description: expense.description,
-      amount: Number(expense.amount),
-    }))
-  );
-  if (!validatedExpenses.ok) {
-    return { success: false, error: validatedExpenses.error };
+  // The day has one financial source of truth.
+  //   ledger    — commission, debts, other income, airtime and expenses are
+  //               re-derived from the effective transaction rows now. Stored
+  //               aggregates are outputs, never trusted inputs.
+  //   aggregate — the itemised expense rows are re-totalled and the manual
+  //               commission/debts figures are used exactly as before.
+  let totalExpenses: number;
+  let commission: number;
+  let debtsCollected: number;
+  let otherIncome: number;
+  let airtimeSold: number;
+  let ledgerEntryCount = 0;
+
+  if (account.ledgerMode === "ledger") {
+    const summary = await ledgerSummaryForAccount(account.id, ctx.tenantId);
+    ledgerEntryCount = summary.entryCount;
+    totalExpenses = summary.expenses;
+    commission = summary.commission;
+    debtsCollected = summary.debtsCollected;
+    otherIncome = summary.otherIncome;
+    airtimeSold = summary.airtimeSold;
+  } else {
+    const validatedExpenses = parseExpenseLines(
+      account.expenses.map((expense) => ({
+        description: expense.description,
+        amount: Number(expense.amount),
+      }))
+    );
+    if (!validatedExpenses.ok) {
+      return { success: false, error: validatedExpenses.error };
+    }
+    totalExpenses = validatedExpenses.total;
+    commission = Number(account.commission);
+    debtsCollected = Number(account.debtsCollected);
+    otherIncome = Number(account.otherIncome ?? 0);
+    airtimeSold = Number(account.totalAirtimeSold);
   }
-  const totalExpenses = validatedExpenses.total;
 
   if (
     Number(account.openingMomoFloat) === 0 &&
     Number(account.openingCash) === 0 &&
     Number(account.closingMomoFloat) === 0 &&
     Number(account.closingCash) === 0 &&
-    Number(account.debtsCollected) === 0 &&
-    Number(account.commission) === 0 &&
-    Number(account.totalAirtimeSold) === 0 &&
+    debtsCollected === 0 &&
+    commission === 0 &&
+    otherIncome === 0 &&
+    airtimeSold === 0 &&
     totalExpenses === 0
   ) {
     return {
@@ -600,8 +734,9 @@ export async function submitDailyAccount(
   const reconciled = reconcileDailyAccount({
     openingMomoFloat: Number(account.openingMomoFloat),
     openingCash: Number(account.openingCash),
-    debtsCollected: Number(account.debtsCollected),
-    commission: Number(account.commission),
+    debtsCollected,
+    commission,
+    otherIncome,
     totalExpenses,
     closingMomoFloat: Number(account.closingMomoFloat),
     closingCash: Number(account.closingCash),
@@ -624,6 +759,10 @@ export async function submitDailyAccount(
       status: "submitted",
       submittedAt: new Date(),
       totalExpenses,
+      commission,
+      debtsCollected,
+      otherIncome,
+      totalAirtimeSold: airtimeSold,
       calculatedDifference: reconciled.difference,
       differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
       ...legacyVarianceColumns(reconciled.difference),
@@ -646,6 +785,12 @@ export async function submitDailyAccount(
       locationId: account.locationId,
       difference: reconciled.difference,
       differenceStatus: reconciled.differenceStatus,
+      ledgerMode: account.ledgerMode,
+      ledgerEntryCount,
+      commission,
+      debtsCollected,
+      otherIncome,
+      totalExpenses,
     },
   });
 

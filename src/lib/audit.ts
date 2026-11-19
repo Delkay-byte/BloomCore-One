@@ -1,4 +1,5 @@
 import { db } from "./db";
+import type { Prisma } from "@prisma/client";
 
 interface AuditParams {
   userId: string;
@@ -130,4 +131,36 @@ export async function createAuditLog({
     // In production, this should be routed to external monitoring.
     console.error("[SECURITY] Audit log failed:", action, error);
   }
+}
+
+/**
+ * Audit write that participates in the caller's financial transaction.
+ *
+ * Unlike createAuditLog(), a failure here throws, which rolls the financial
+ * operation back. New financial operations use this helper so a committed
+ * ledger posting can never exist without its audit record.
+ */
+export async function createAuditLogTx(
+  tx: Prisma.TransactionClient,
+  {
+    userId,
+    tenantId,
+    action,
+    entityType,
+    entityId,
+    details,
+    ipAddress,
+  }: AuditParams
+) {
+  await tx.auditLog.create({
+    data: {
+      userId,
+      tenantId: tenantId ?? undefined,
+      action,
+      entityType,
+      entityId,
+      details: details ? JSON.stringify(details) : undefined,
+      ipAddress,
+    },
+  });
 }

@@ -34,6 +34,8 @@ import {
   resolveStoredDifference,
 } from "@/lib/momo-reconciliation";
 import { sumExpenseLines } from "@/lib/expense-lines";
+import MomoLedgerPanel from "@/components/momo/MomoLedgerPanel";
+import type { LedgerSummary } from "@/lib/momo-ledger";
 import { SuccessTick } from "@/components/ui/SuccessTick";
 import Notice from "@/components/ui/Notice";
 
@@ -49,6 +51,7 @@ interface AccountDetail {
   openingMomoFloat: number;
   openingCash: number;
   debtsCollected: number;
+  otherIncome?: number;
   commission: number;
   closingMomoFloat: number;
   closingCash: number;
@@ -57,6 +60,10 @@ interface AccountDetail {
   calculatedDifference: number;
   differenceStatus: string;
   reconciliationNote: string | null;
+  ledgerMode: string;
+  openingBalanceSource: string;
+  carriedFromAccountId: string | null;
+  openingAdjustmentReason: string | null;
   location: { name: string; code: string };
   expenses: Array<{ id: string; description: string; amount: number }>;
 }
@@ -87,7 +94,9 @@ export default function DailyAccountFormPage() {
   // the combined expected closing total.
   const [airtimeSold, setAirtimeSold] = useState(0);
   const [reconciliationNote, setReconciliationNote] = useState("");
+  const [openingAdjustmentReason, setOpeningAdjustmentReason] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
 
   // Unfinished daily accounts survive refresh and accidental navigation. The
   // draft is only applied when it is newer than the server record.
@@ -105,6 +114,7 @@ export default function DailyAccountFormPage() {
       debtsCollected,
       airtimeSold,
       reconciliationNote,
+      openingAdjustmentReason,
       expenses,
     },
     restore: (draft) => {
@@ -118,6 +128,7 @@ export default function DailyAccountFormPage() {
         debtsCollected?: number;
         airtimeSold?: number;
         reconciliationNote?: string;
+        openingAdjustmentReason?: string;
         expenses?: Expense[];
       };
       // Only apply keys the draft actually contains. A missing property must
@@ -130,6 +141,9 @@ export default function DailyAccountFormPage() {
       if (value.debtsCollected !== undefined) setDebtsCollected(Number(value.debtsCollected));
       if (value.airtimeSold !== undefined) setAirtimeSold(Number(value.airtimeSold));
       if (value.reconciliationNote !== undefined) setReconciliationNote(String(value.reconciliationNote));
+      if (value.openingAdjustmentReason !== undefined) {
+        setOpeningAdjustmentReason(String(value.openingAdjustmentReason));
+      }
       if (Array.isArray(value.expenses)) {
         const restored = value.expenses.map((expense) => ({
           description: String(expense?.description ?? ""),
@@ -177,6 +191,7 @@ export default function DailyAccountFormPage() {
       setDebtsCollected(Number(detail.debtsCollected));
       setAirtimeSold(Number(detail.totalAirtimeSold));
       setReconciliationNote(detail.reconciliationNote ?? "");
+      setOpeningAdjustmentReason(detail.openingAdjustmentReason ?? "");
       setExpenses(
         (detail.expenses ?? []).map((expense) => ({
           description: expense.description,
@@ -216,12 +231,23 @@ export default function DailyAccountFormPage() {
     [expenses]
   );
 
+  // Ledger-mode days derive these figures from the recorded transaction rows.
+  // The manual inputs are hidden and ignored, so the same money cannot be
+  // counted twice between the ledger and the closing form.
+  const isLedger = account?.ledgerMode === "ledger";
+  const effectiveCommission = isLedger ? (ledgerSummary?.commission ?? commission) : commission;
+  const effectiveDebts = isLedger ? (ledgerSummary?.debtsCollected ?? debtsCollected) : debtsCollected;
+  const effectiveOtherIncome = isLedger ? (ledgerSummary?.otherIncome ?? 0) : 0;
+  const effectiveAirtime = isLedger ? (ledgerSummary?.airtimeSold ?? airtimeSold) : airtimeSold;
+  const effectiveExpenses = isLedger ? (ledgerSummary?.expenses ?? expensesTotal) : expensesTotal;
+
   const result = calculateReconciliation({
     openingCash,
     openingMomoFloat,
-    debtsCollected,
-    commission,
-    totalExpenses: expensesTotal,
+    debtsCollected: effectiveDebts,
+    commission: effectiveCommission,
+    otherIncome: effectiveOtherIncome,
+    totalExpenses: effectiveExpenses,
     closingCash,
     closingMomoFloat,
   });
@@ -245,6 +271,7 @@ export default function DailyAccountFormPage() {
     formData.set("debtsCollected", String(debtsCollected));
     formData.set("totalAirtimeSold", String(airtimeSold));
     formData.set("reconciliationNote", reconciliationNote.trim());
+    formData.set("openingAdjustmentReason", openingAdjustmentReason.trim());
     formData.set(
       "expenses",
       JSON.stringify(
@@ -377,7 +404,8 @@ export default function DailyAccountFormPage() {
       Number(account.openingCash) + Number(account.openingMomoFloat);
     const netIncrease =
       Number(account.commission) +
-      Number(account.debtsCollected) -
+      Number(account.debtsCollected) +
+      Number(account.otherIncome ?? 0) -
       Number(account.totalExpenses);
     const expectedClosing = stored.netModel
       ? openingTotal + netIncrease
@@ -397,6 +425,7 @@ export default function DailyAccountFormPage() {
         >
           <ArrowLeft size={15} aria-hidden /> Back to dashboard
         </button>
+        <MomoLedgerPanel accountId={account.id} status={account.status} />
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[var(--shadow-card)]">
           <div className="bg-brand-900 px-5 py-5 text-white sm:px-7">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-gold-300">
@@ -610,7 +639,49 @@ export default function DailyAccountFormPage() {
                 <CediAmount amount={result.openingTotal} />
               </span>
             </div>
+            <div className="mx-4 mb-4 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3.5 py-3 sm:mx-5 sm:mb-5">
+              <p className="text-xs font-semibold text-indigo-900">
+                Opening source:{" "}
+                {account.openingBalanceSource === "carried"
+                  ? "carried from the last reviewed close"
+                  : account.openingBalanceSource === "manual_adjusted"
+                    ? "manually adjusted — explanation required"
+                    : "entered manually"}
+              </p>
+              {account.openingAdjustmentReason && (
+                <p className="mt-1 text-xs text-indigo-900">
+                  Saving history: {account.openingAdjustmentReason}
+                </p>
+              )}
+              <label
+                htmlFor="opening-adjustment-reason"
+                className="mt-2 block text-xs font-semibold text-indigo-900"
+              >
+                Opening balance explanation
+              </label>
+              <textarea
+                id="opening-adjustment-reason"
+                rows={2}
+                maxLength={500}
+                value={openingAdjustmentReason}
+                onChange={(event) => setOpeningAdjustmentReason(event.target.value)}
+                placeholder="Required when your opening differs from the last recorded close by GH₵1.00 or more."
+                className="mt-1 w-full"
+              />
+              <p className="mt-1 text-[11px] text-indigo-800">
+                A reviewed, balanced previous close is carried forward
+                automatically. Unreviewed or unresolved days must be entered and
+                explained manually.
+              </p>
+            </div>
           </section>
+
+          <MomoLedgerPanel
+            accountId={account.id}
+            status={account.status}
+            onSummaryChange={setLedgerSummary}
+            onAccountUpdated={() => void loadAccount()}
+          />
 
           {/* END OF DAY — green/teal */}
           <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-[var(--shadow-card)]">
@@ -643,6 +714,8 @@ export default function DailyAccountFormPage() {
                 hint="The MoMo E-cash balance you actually see at closing."
                 tone="emerald"
               />
+              {!isLedger && (
+                <>
               <div className="sm:col-span-2 overflow-hidden rounded-xl border border-emerald-200 bg-white">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
                   <div>
@@ -758,6 +831,25 @@ export default function DailyAccountFormPage() {
                   nested
                 />
               </div>
+                </>
+              )}
+              {isLedger && (
+                <div className="sm:col-span-2 rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-2.5 text-sm text-sky-950">
+                  <p className="font-semibold">Commission, debts, other income, airtime and expenses come from the transaction ledger.</p>
+                  <p className="mt-1 text-xs text-sky-900">
+                    They are shown above and re-derived when you submit, so they
+                    cannot be counted twice. Only the counted closing cash and
+                    E-cash below are entered here.
+                  </p>
+                  <p className="mt-1 text-xs text-sky-900">
+                    Commission <CediAmount amount={effectiveCommission} /> ·
+                    Debts <CediAmount amount={effectiveDebts} /> ·
+                    Other income <CediAmount amount={effectiveOtherIncome} /> ·
+                    Expenses <CediAmount amount={effectiveExpenses} /> ·
+                    Airtime <CediAmount amount={effectiveAirtime} />
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 
@@ -817,15 +909,15 @@ export default function DailyAccountFormPage() {
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-slate-600">+ Commission</span>
-                <CediAmount amount={commission} className="font-semibold text-emerald-800" />
+                <CediAmount amount={effectiveCommission} className="font-semibold text-emerald-800" />
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-slate-600">+ Debts Collected</span>
-                <CediAmount amount={debtsCollected} className="font-semibold text-emerald-800" />
+                <CediAmount amount={effectiveDebts} className="font-semibold text-emerald-800" />
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-slate-600">− Total Expenses</span>
-                <CediAmount amount={expensesTotal} className="font-semibold text-red-700" />
+                <CediAmount amount={effectiveExpenses} className="font-semibold text-red-700" />
               </div>
               <div className="flex justify-between gap-3 border-t border-white/70 pt-2">
                 <span className="font-semibold text-slate-700">= Net Daily Profit / Increase</span>
@@ -907,9 +999,9 @@ export default function DailyAccountFormPage() {
             </div>
             <div className="space-y-2.5 p-4 text-sm">
               <SummaryRow label="Opening total" amount={result.openingTotal} />
-              <SummaryRow label="Debts collected" amount={debtsCollected} tone="positive" />
-              <SummaryRow label="Commission" amount={commission} tone="positive" />
-              <SummaryRow label="Expenses" amount={-expensesTotal} tone="negative" />
+              <SummaryRow label="Debts collected" amount={effectiveDebts} tone="positive" />
+              <SummaryRow label="Commission" amount={effectiveCommission} tone="positive" />
+              <SummaryRow label="Expenses" amount={-effectiveExpenses} tone="negative" />
               <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2">
                 <span className="text-xs font-medium text-amber-900">
                   Airtime Sold
@@ -918,9 +1010,10 @@ export default function DailyAccountFormPage() {
                   </span>
                 </span>
                 <span className="tnum text-sm font-semibold text-amber-950">
-                  <CediAmount amount={airtimeSold} />
+                  <CediAmount amount={effectiveAirtime} />
                 </span>
               </div>
+              {!isLedger && (
               <details className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-700">
                   View expense breakdown ({expenses.length})
@@ -942,6 +1035,7 @@ export default function DailyAccountFormPage() {
                   )}
                 </div>
               </details>
+              )}
               <div className="border-t border-slate-100 pt-2.5">
                 <SummaryRow
                   label="Net daily profit / increase"

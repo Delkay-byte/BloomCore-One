@@ -29,6 +29,7 @@ export const STEP_UP_PURPOSES = [
   "susu.contribution.reverse",
   "susu.withdrawal.reverse",
   "finance.daily_account.correct",
+  "finance.momo_transaction.reverse",
   "staff.password_reset",
   "worker.password_reset",
   "collector.password_reset",
