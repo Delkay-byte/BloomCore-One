@@ -1,9 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, MessageSquareWarning, Printer, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  MessageSquare,
+  MessageSquareWarning,
+  Printer,
+  ShieldCheck,
+} from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import type { SusuReceipt } from "@/lib/susu-statements";
+import { buildReceiptMessage } from "@/lib/messaging/receipt-message";
+import { MAX_MESSAGE_LENGTH, type MessageChannel } from "@/lib/messaging/provider";
 
 function fmt(value: string): string {
   return new Date(value).toLocaleString("en-GB", {
@@ -30,6 +41,21 @@ export default function SusuReceiptDocument({
   disputeHref?: string;
 }) {
   const isContribution = receipt.kind === "contribution";
+  const [messageChannel, setMessageChannel] = useState<MessageChannel | null>(null);
+  const [copied, setCopied] = useState(false);
+  const message = messageChannel ? buildReceiptMessage(receipt, messageChannel) : "";
+
+  async function copyMessage() {
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       {backHref && (
@@ -156,6 +182,64 @@ export default function SusuReceiptDocument({
           </Link>
         )}
       </div>
+
+      <section className="card p-4 print:hidden">
+        <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+          <MessageSquare size={15} aria-hidden /> Receipt message preview
+        </h2>
+        <p className="mt-1 text-xs text-slate-600">
+          Preview the text a customer would receive. SMS and WhatsApp delivery are
+          <strong> not configured</strong>, so nothing is sent from MaaCash.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={messageChannel === "sms" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+            onClick={() => {
+              setCopied(false);
+              setMessageChannel((current) => (current === "sms" ? null : "sms"));
+            }}
+          >
+            SMS preview
+          </button>
+          <button
+            type="button"
+            className={
+              messageChannel === "whatsapp" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"
+            }
+            onClick={() => {
+              setCopied(false);
+              setMessageChannel((current) => (current === "whatsapp" ? null : "whatsapp"));
+            }}
+          >
+            WhatsApp preview
+          </button>
+        </div>
+        {messageChannel && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {messageChannel} · {message.length}/{MAX_MESSAGE_LENGTH[messageChannel]} characters
+              </p>
+              <button
+                type="button"
+                onClick={() => void copyMessage()}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline"
+              >
+                {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+                {copied ? "Copied" : "Copy text"}
+              </button>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm text-slate-800">
+              {message}
+            </pre>
+            <p className="mt-2 text-[11px] text-amber-800">
+              Sandbox only. No SMS or WhatsApp message has been sent, and no
+              delivery receipt exists.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

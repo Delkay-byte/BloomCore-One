@@ -512,3 +512,68 @@ None for the local accountability flow. A future document-storage or biometric/d
 ### Next dependency
 
 Workstream 4 — customer receipts, statements and the external messaging foundation.
+
+## Workstream 4 — Customer receipts and messaging foundation
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+Customers already had a date-filtered statement with opening/closing balance, CSV export, receipt lookup by the original transaction reference, a printable receipt, and a direct route to dispute a record. Receipts were tenant/customer scoped and did not expose a public enumeration endpoint. No SMS or WhatsApp capability existed.
+
+### What was implemented
+
+- A provider-neutral outbound message contract with SMS and WhatsApp channels, E.164 recipient validation, per-channel length limits, and a **mock adapter**.
+- The mock adapter never opens a network connection and never reports a message as sent. It returns `simulated`.
+- Deterministic receipt text for SMS and WhatsApp built only from the recorded receipt:
+  - business, transaction reference, amount and date;
+  - customer, account and cycle on WhatsApp;
+  - no claim that a contribution is profit or that a balance is provider-confirmed.
+- A **Receipt message preview** on every customer and admin receipt:
+  - SMS and WhatsApp previews;
+  - character count and limit;
+  - copy-to-clipboard;
+  - an explicit statement that nothing is sent and no delivery receipt exists.
+- Recipient masking helper for future logs.
+
+### Schema and migrations
+
+None. The preview is generated from the already-authorized receipt; nothing is stored or transmitted.
+
+### Tests and results
+
+- New `tests/receipt-messaging.test.ts` proves SMS/WhatsApp content, withdrawal wording, channel limits, E.164 validation, PII masking, and that the mock provider returns `simulated` rather than `sent`.
+- `tests/receipt-messaging.test.ts`: **3 passed**.
+- Full regression suite: **116 files, 1,290 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors.
+
+### Browser acceptance
+
+The customer opened the seeded contribution receipt, switched between SMS and WhatsApp previews, saw the GHS amount, reference, account and cycle, and saw the “Sandbox only. No SMS or WhatsApp message has been sent” notice. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The preview uses the receipt already returned by the customer-scoped action; it does not add a new lookup or enumeration path.
+- No phone number, message body or recipient list is persisted by this feature.
+- The mock provider cannot deliver, and there is no production messaging credential in the repository.
+- Message text is deterministic and cannot describe principal as revenue or a declared balance as provider-confirmed.
+
+### Known limitations
+
+- No SMS or WhatsApp message is sent. There is no provider account, sender ID, template approval or delivery receipt.
+- There is no outbox, retry queue, delivery-status table, consent record or opt-out handling yet.
+- The preview runs in the browser from data the customer is already allowed to see; it is not an audited messaging event.
+- Message localisation is English only.
+- The mock adapter validates E.164, but customer phone normalisation remains the existing customer-record rule.
+
+### External approvals still required
+
+- An approved SMS gateway contract, Ghana sender ID/shortcode registration and delivery-report access.
+- A WhatsApp Business Platform account, approved message templates and opt-in evidence before any WhatsApp send.
+- A consent, opt-out and retention policy approved by the business before real customer messaging is enabled.
+
+### Next dependency
+
+Workstream 5 — customer self-service and dispute hardening on top of the existing portal and dispute records.
