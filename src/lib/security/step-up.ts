@@ -32,6 +32,7 @@ export const STEP_UP_PURPOSES = [
   "finance.momo_transaction.reverse",
   "finance.branch_transfer.approve",
   "finance.branch_transfer.resolve",
+  "finance.shift_handover.resolve",
   "staff.password_reset",
   "worker.password_reset",
   "collector.password_reset",

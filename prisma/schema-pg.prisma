@@ -76,6 +76,7 @@ model Location {
   assetBalances BranchAssetBalance[]
   outgoingTransfers BranchTransfer[] @relation("TransferSource")
   incomingTransfers BranchTransfer[] @relation("TransferDestination")
+  shifts Shift[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -151,6 +152,7 @@ model DailyAccount {
   expenses  Expense[]
   revisions DailyAccountRevision[]
   momoTransactions MomoTransaction[]
+  shifts Shift[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -329,6 +331,97 @@ model BranchTransferEvent {
 
   @@index([transferId, createdAt])
   @@index([tenantId, createdAt])
+}
+
+/// A working shift at one location on one business day.
+///
+/// A daily account can have several shifts. Shifts are accountability
+/// snapshots: their opening/closing figures are never added into the daily
+/// account's reconciliation, so the two records cannot double count.
+model Shift {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  locationId     String
+  dailyAccountId String?
+  reference      String
+  businessDate   DateTime
+  /// morning | afternoon | evening | custom
+  name           String
+  label          String?
+  assignedUserId String
+  /// draft | open | awaiting_handover | variance_open | closed | cancelled
+  status         String   @default("draft")
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  openingCash    Decimal  @default(0)
+  openingMomoFloat Decimal @default(0)
+  /// manual | carried | manual_adjusted
+  openingSource  String   @default("manual")
+  carriedFromShiftId String?
+  openingAdjustmentReason String?
+  closingCash    Decimal?
+  closingMomoFloat Decimal?
+  closingNotes   String?
+  openedById     String?
+  openedAt       DateTime?
+  closedById     String?
+  closedAt       DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location     Location        @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
+  handovers    ShiftHandover[]
+
+  @@unique([tenantId, locationId, businessDate, name])
+  @@unique([tenantId, reference])
+  @@index([tenantId, businessDate])
+  @@index([locationId, businessDate])
+  @@index([assignedUserId, businessDate])
+  @@index([status])
+}
+
+/// Two-sided shift handover. The outgoing employee's declared figures are
+/// immutable once submitted; the receiving employee records their own counted
+/// figures separately. A difference is preserved as a variance and stays open
+/// until an administrator resolves it.
+model ShiftHandover {
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  shiftId             String
+  reference           String
+  outgoingUserId      String
+  outgoingCash        Decimal
+  outgoingMomoFloat   Decimal
+  outstandingOperations String?
+  outgoingNotes       String?
+  incomingUserId      String?
+  incomingCash        Decimal?
+  incomingMomoFloat   Decimal?
+  operationsAccepted  Boolean?
+  incomingNotes       String?
+  cashVariance        Decimal?
+  floatVariance       Decimal?
+  varianceReason      String?
+  /// awaiting_receipt | confirmed | variance_open | resolved
+  status              String   @default("awaiting_receipt")
+  confirmedAt         DateTime?
+  resolvedById        String?
+  resolvedAt          DateTime?
+  resolutionNote      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  shift  Shift           @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, reference])
+  @@index([shiftId, createdAt])
+  @@index([tenantId, status])
+  @@index([outgoingUserId])
+  @@index([incomingUserId])
 }
 
 model Expense {
@@ -814,6 +907,8 @@ model BusinessTenant {
   momoTransactions             MomoTransaction[]
   branchAssetBalances          BranchAssetBalance[]
   branchTransfers              BranchTransfer[]
+  shifts                       Shift[]
+  shiftHandovers               ShiftHandover[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]

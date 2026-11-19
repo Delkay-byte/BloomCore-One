@@ -345,28 +345,35 @@ export async function GET(request: NextRequest) {
   const context = await buildAuditContext(logs as AuditRow[], ctx.tenantId);
 
   const actorIds = Array.from(new Set(logs.map((log) => log.userId)));
-  let actorNames = new Map<string, string>();
+  let actorsById = new Map<string, { fullName: string; role: string }>();
   try {
     const actors = await db.user.findMany({
       where: { tenantId: ctx.tenantId, id: { in: actorIds } },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, role: true },
     });
-    actorNames = new Map(actors.map((actor) => [actor.id, actor.fullName]));
+    actorsById = new Map(
+      actors.map((actor) => [actor.id, { fullName: actor.fullName, role: actor.role }])
+    );
   } catch {
-    actorNames = new Map();
+    actorsById = new Map();
   }
 
-  const presented = logs.map((log) => ({
-    ...log,
-    presentation: presentAuditEntry({
-      action: log.action,
-      entityType: log.entityType,
-      entityId: log.entityId,
-      details: log.details,
-      actorName: actorNames.get(log.userId) ?? null,
-      entity: context.get(log.entityId ?? "") ?? null,
-    }),
-  }));
+  const presented = logs.map((log) => {
+    const actor = actorsById.get(log.userId) ?? null;
+    return {
+      ...log,
+      actorName: actor?.fullName ?? null,
+      actorRole: actor?.role ?? null,
+      presentation: presentAuditEntry({
+        action: log.action,
+        entityType: log.entityType,
+        entityId: log.entityId,
+        details: log.details,
+        actorName: actor?.fullName ?? null,
+        entity: context.get(log.entityId ?? "") ?? null,
+      }),
+    };
+  });
 
   return NextResponse.json({ logs: presented, total, page, limit });
 }

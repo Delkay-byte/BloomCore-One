@@ -11,6 +11,8 @@ import {
   reviewDailyAccount,
 } from "@/lib/actions/daily-account.actions";
 import { resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
+import { getDailyAccountShiftSummary } from "@/lib/actions/shift.actions";
+import type { DailyAccountShiftAggregate } from "@/lib/shift-service";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 
@@ -36,6 +38,7 @@ export default function ReportDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [account, setAccount] = useState<AccountDetail | null>(null);
+  const [shiftSummary, setShiftSummary] = useState<DailyAccountShiftAggregate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -48,7 +51,14 @@ export default function ReportDetailPage() {
   useEffect(() => { loadAccount(); }, [params.id]);
 
   async function loadAccount() {
-    try { const data = await getDailyAccountById(params.id as string); setAccount(data as unknown as AccountDetail); }
+    try {
+      const [data, shifts] = await Promise.all([
+        getDailyAccountById(params.id as string),
+        getDailyAccountShiftSummary(params.id as string).catch(() => null),
+      ]);
+      setAccount(data as unknown as AccountDetail);
+      setShiftSummary(shifts);
+    }
     catch { setError("Failed to load report"); } finally { setLoading(false); }
   }
 
@@ -357,6 +367,44 @@ export default function ReportDetailPage() {
           )}
         </div>
       </div>
+
+      {shiftSummary && shiftSummary.shiftCount > 0 && (
+        <section className="card mt-6">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h3 className="font-semibold">Shift accountability</h3>
+            <p className="text-xs text-slate-500">
+              {shiftSummary.shiftCount} shift{shiftSummary.shiftCount === 1 ? "" : "s"} ·{" "}
+              {shiftSummary.closedCount} closed · {shiftSummary.varianceCount} variance open
+            </p>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{shiftSummary.note}</p>
+          {(shiftSummary.totalCashVariance !== 0 || shiftSummary.totalFloatVariance !== 0) && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Handover variances on this day: cash{" "}
+              <CediAmount amount={shiftSummary.totalCashVariance} showSign /> · float{" "}
+              <CediAmount amount={shiftSummary.totalFloatVariance} showSign />.
+            </p>
+          )}
+          <ul className="mt-3 divide-y divide-slate-100">
+            {shiftSummary.shifts.map((shift) => (
+              <li key={shift.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-slate-800">
+                  <strong>{shift.label}</strong> · {shift.assignedUserName ?? "Unassigned"}
+                </span>
+                <span className="text-xs text-slate-600">
+                  {shift.status.replace(/_/g, " ")}
+                  {shift.cashVariance !== null && (
+                    <>
+                      {" "}· cash{" "}
+                      <CediAmount amount={shift.cashVariance} showSign />
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
