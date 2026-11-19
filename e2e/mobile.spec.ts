@@ -12,7 +12,11 @@ test.describe("Zeli on a mobile viewport", () => {
   test("keeps the conversation selector, input and analytics usable", async ({ page }) => {
     await loginAdmin(page, ADMIN_A);
     await page.goto("/zeli");
-    await expect(page.locator("#zeli-conversation-mobile")).toBeVisible();
+    // On a phone the conversation list is behind the History control. Open it
+    // and assert the real selector, then confirm the composer is still usable.
+    await expect(page.getByRole("button", { name: "History" })).toBeVisible();
+    await page.getByRole("button", { name: "History" }).click();
+    await expect(page.locator("#zeli-history")).toBeVisible();
     await expect(page.locator("#zeli-input")).toBeVisible();
     await sendZeliMessage(page, "Show outstanding operational exceptions.");
     await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
