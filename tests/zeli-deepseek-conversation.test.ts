@@ -294,6 +294,40 @@ describe("DeepSeek conversational adapter", () => {
     expect(String(error?.message)).not.toContain(DUMMY_KEY);
   });
 
+  it("maps timeouts and rate limiting without retrying", async () => {
+    fetchMock.mockRejectedValueOnce(
+      Object.assign(new Error("aborted"), { name: "AbortError" })
+    );
+    await expect(
+      requestDeepSeekConversation({
+        message: "Hello",
+        policy: stubPolicy(),
+        apiKey: DUMMY_KEY,
+        consent: false,
+        synthetic: true,
+      })
+    ).rejects.toMatchObject({ code: "timeout" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 429 }));
+    let rateLimited: ConversationProviderError | null = null;
+    try {
+      await requestDeepSeekConversation({
+        message: "Hello",
+        policy: stubPolicy(),
+        apiKey: DUMMY_KEY,
+        consent: false,
+        synthetic: true,
+      });
+    } catch (caught) {
+      rateLimited = caught as ConversationProviderError;
+    }
+    expect(rateLimited?.code).toBe("provider_status");
+    expect(String(rateLimited?.message)).toContain("429");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an oversized response", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response("{}", {
