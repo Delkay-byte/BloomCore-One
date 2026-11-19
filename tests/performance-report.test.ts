@@ -103,6 +103,7 @@ describe("performance report rules", () => {
           calculatedDifference: -10,
         }),
         account("b1", "b", "2026-11-01", "reviewed", {
+          ledgerMode: "ledger",
           commission: 50,
           totalExpenses: 10,
           totalCashIn: 1000,
@@ -173,6 +174,8 @@ describe("performance report rules", () => {
       draftDays: 1,
       shortageDays: 1,
       transactionCount: 2,
+      ledgerDays: 1,
+      aggregateDays: 1,
     });
     expect(report.drafts).toMatchObject({
       days: 1,
@@ -192,7 +195,12 @@ describe("performance report rules", () => {
       draftDays: 1,
     });
     const kumasi = report.byLocation.find((row) => row.locationId === "b");
-    expect(kumasi).toMatchObject({ revenue: 50, netOperating: 40 });
+    expect(kumasi).toMatchObject({
+      revenue: 50,
+      netOperating: 40,
+      ledgerDays: 1,
+      aggregateDays: 0,
+    });
 
     expect(report.completeness).toMatchObject({
       activeLocations: 2,

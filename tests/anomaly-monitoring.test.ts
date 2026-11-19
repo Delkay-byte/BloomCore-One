@@ -97,6 +97,7 @@ function account(
     reviewedAt: new Date("2026-11-21T09:00:00Z"),
     totalExpenses: 10,
     calculatedDifference: 0,
+    ledgerMode: "aggregate",
     ...overrides,
   };
 }
@@ -152,6 +153,64 @@ describe("deterministic rule set", () => {
         })
       )
     ).toEqual(findings);
+  });
+
+  it("flags an aggregate close that has transaction-level ledger activity", () => {
+    const findings = evaluateAnomalies(
+      baseInput({
+        accounts: [account("a-mixed", { ledgerMode: "aggregate" })],
+        transactions: [
+          {
+            id: "tx-mixed",
+            type: "cash_in",
+            amount: 50,
+            status: "recorded",
+            businessDate: new Date("2026-11-20T10:00:00Z"),
+            locationId: "loc",
+            locationName: "Main Branch",
+            workerId: "worker",
+            workerName: "Ama Worker",
+            reference: "MIXED-1",
+            isReversal: false,
+          },
+        ],
+      })
+    );
+
+    const finding = findings.find((row) => row.ruleKey === "mixed_aggregate_ledger");
+    expect(finding).toBeTruthy();
+    expect(finding).toMatchObject({
+      entityId: "a-mixed",
+      severity: "medium",
+      metricValue: 1,
+      thresholdValue: null,
+    });
+    expect(finding?.summary).toContain("which source is authoritative");
+    expect(finding?.evidence.transactionReferences).toEqual(["MIXED-1"]);
+
+    const ledgerBacked = evaluateAnomalies(
+      baseInput({
+        accounts: [account("a-ledger", { ledgerMode: "ledger" })],
+        transactions: [
+          {
+            id: "tx-ledger",
+            type: "cash_in",
+            amount: 50,
+            status: "recorded",
+            businessDate: new Date("2026-11-20T10:00:00Z"),
+            locationId: "loc",
+            locationName: "Main Branch",
+            workerId: "worker",
+            workerName: "Ama Worker",
+            reference: "LEDGER-1",
+            isReversal: false,
+          },
+        ],
+      })
+    );
+    expect(
+      ledgerBacked.find((row) => row.ruleKey === "mixed_aggregate_ledger")
+    ).toBeUndefined();
   });
 
   it("finds large transactions, repeated reversals, stale transfers and handover issues", () => {

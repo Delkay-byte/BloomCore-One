@@ -42,6 +42,12 @@ describe("financial reporting language", () => {
     expect(source("src/app/admin/(workspace)/reports/[id]/page.tsx")).toContain(
       "not accounting profit or revenue"
     );
+    expect(source("src/app/admin/(workspace)/reports/[id]/page.tsx")).toContain(
+      "Operator-declared aggregate"
+    );
+    expect(source("src/app/admin/(workspace)/reports/[id]/page.tsx")).toContain(
+      "cannot prove that every customer transaction was captured"
+    );
     expect(source("src/app/admin/(workspace)/dashboard/page.tsx")).toContain(
       "Not revenue or accounting profit"
     );
@@ -53,5 +59,7 @@ describe("financial reporting language", () => {
     expect(page).toContain("source.definitions.revenue");
     expect(page).toContain("source.definitions.cashMovement");
     expect(page).toContain("How each metric is defined");
+    expect(page).toContain("Ledger-backed days");
+    expect(page).toContain("Operator-declared totals; no transaction-level proof");
   });
 });

@@ -137,6 +137,7 @@ export async function runAnomalyScan(input?: {
         reviewedAt: true,
         totalExpenses: true,
         calculatedDifference: true,
+        ledgerMode: true,
       },
     }),
     db.momoTransaction.findMany({
@@ -251,6 +252,7 @@ export async function runAnomalyScan(input?: {
       reviewedAt: row.reviewedAt,
       totalExpenses: row.totalExpenses,
       calculatedDifference: row.calculatedDifference,
+      ledgerMode: row.ledgerMode,
     })),
     transactions: transactions.map((row) => ({
       id: row.id,

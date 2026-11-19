@@ -83,6 +83,10 @@ export interface PerformanceTotals {
   draftDays: number;
   shortageDays: number;
   unreviewedDays: number;
+  /** Confirmed days closed from individual transaction rows. */
+  ledgerDays: number;
+  /** Confirmed days closed from operator-declared aggregate totals. */
+  aggregateDays: number;
 }
 
 export interface PerformanceDay {
@@ -110,6 +114,8 @@ export interface PerformanceLocationRow {
   draftDays: number;
   shortageDays: number;
   netVariance: number;
+  ledgerDays: number;
+  aggregateDays: number;
 }
 
 export interface PerformanceReport {
@@ -279,6 +285,8 @@ export function buildPerformanceReport(input: PerformanceInput): PerformanceRepo
     draftDays: 0,
     shortageDays: 0,
     netVariance: 0,
+    ledgerDays: 0,
+    aggregateDays: 0,
   });
   for (const location of input.locations) locationMap.set(location.id, blankLocation(location.id));
 
@@ -299,6 +307,8 @@ export function buildPerformanceReport(input: PerformanceInput): PerformanceRepo
     draftDays: 0,
     shortageDays: 0,
     unreviewedDays: 0,
+    ledgerDays: 0,
+    aggregateDays: 0,
   };
 
   for (const account of confirmed) {
@@ -333,6 +343,8 @@ export function buildPerformanceReport(input: PerformanceInput): PerformanceRepo
     location.submittedDays += 1;
     location.netVariance = money(location.netVariance + variance);
     if (variance < 0) location.shortageDays += 1;
+    if (account.ledgerMode === "ledger") location.ledgerDays += 1;
+    else location.aggregateDays += 1;
     locationMap.set(account.locationId, location);
 
     totals.revenue = money(totals.revenue + revenue);
@@ -349,6 +361,8 @@ export function buildPerformanceReport(input: PerformanceInput): PerformanceRepo
     if (account.status === "reviewed") totals.reviewedDays += 1;
     if (variance < 0) totals.shortageDays += 1;
     if (account.status === "submitted") totals.unreviewedDays += 1;
+    if (account.ledgerMode === "ledger") totals.ledgerDays += 1;
+    else totals.aggregateDays += 1;
 
     submittedKeys.add(`${account.locationId}:${date}`);
   }

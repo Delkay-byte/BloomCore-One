@@ -97,6 +97,12 @@ export const ANOMALY_RULE_CATALOG = [
     label: "Handover not confirmed",
     description: "A submitted handover has waited longer than the confirmation threshold.",
   },
+  {
+    key: "mixed_aggregate_ledger",
+    label: "Aggregate close with ledger activity",
+    description:
+      "A day closed from aggregate totals has individual transaction rows for the same branch and date.",
+  },
 ] as const;
 
 export type AnomalySeverity = "high" | "medium" | "low";
@@ -113,6 +119,8 @@ export interface AnomalyAccountRow {
   reviewedAt: Date | string | null;
   totalExpenses: unknown;
   calculatedDifference: unknown;
+  /** aggregate | ledger */
+  ledgerMode: string;
 }
 
 export interface AnomalyTransactionRow {
@@ -286,6 +294,40 @@ export function evaluateAnomalies(input: AnomalyInput): AnomalyFinding[] {
         evidence: { difference, status: account.status },
       });
     }
+    if (account.ledgerMode !== "ledger") {
+      const sameDayLedger = input.transactions.filter(
+        (row) =>
+          row.status === "recorded" &&
+          row.locationId === account.locationId &&
+          dayKey(row.businessDate) === dayKey(account.businessDate)
+      );
+      if (sameDayLedger.length > 0) {
+        findings.push({
+          fingerprint: `mixed_aggregate_ledger:${account.id}`,
+          ruleKey: "mixed_aggregate_ledger",
+          severity: "medium",
+          title: `Aggregate close with ledger activity at ${account.locationName}`,
+          summary: `${labelDate(account.businessDate)} was closed from day totals but ${
+            sameDayLedger.length
+          } transaction row${sameDayLedger.length === 1 ? "" : "s"} exist for the same branch and date. Confirm which source is authoritative.`,
+          entityType: "dailyAccount",
+          entityId: account.id,
+          locationId: account.locationId,
+          workerId: account.workerId,
+          businessDate: dayKey(account.businessDate),
+          metricValue: sameDayLedger.length,
+          thresholdValue: null,
+          evidence: {
+            ledgerMode: account.ledgerMode,
+            transactionCount: sameDayLedger.length,
+            transactionReferences: sameDayLedger
+              .slice(0, 5)
+              .map((row) => row.reference),
+          },
+        });
+      }
+    }
+
     if (
       account.status === "submitted" &&
       account.submittedAt &&

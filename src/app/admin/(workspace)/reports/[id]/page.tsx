@@ -24,6 +24,7 @@ interface AccountDetail {
   commission: number; debtsCollected: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
+  ledgerMode?: string;
   reconciliationNote?: string | null;
   actualAmountReceived?: number | null;
   handoverDifference?: number | null;
@@ -153,10 +154,23 @@ export default function ReportDetailPage() {
       {error && <Notice type="error" className="mb-4" message={error}>{error}</Notice>}
       {success && <Notice type="success" className="mb-4" message={success}>{success}</Notice>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 xl:grid-cols-4">
         <div className="card"><div className="text-sm text-slate-500">Business Date</div><div className="font-medium">{formatDate(account.businessDate)}</div></div>
         <div className="card"><div className="text-sm text-slate-500">Submitted At</div><div className="font-medium">{account.submittedAt ? formatDateTime(account.submittedAt) : "Not submitted"}</div></div>
         <div className="card"><div className="text-sm text-slate-500">Reviewed At</div><div className="font-medium">{account.reviewedAt ? formatDateTime(account.reviewedAt) : "Not reviewed"}</div></div>
+        <div className="card">
+          <div className="text-sm text-slate-500">Closing basis</div>
+          <div className="font-medium">
+            {account.ledgerMode === "ledger"
+              ? "Transaction ledger"
+              : "Operator-declared aggregate"}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {account.ledgerMode === "ledger"
+              ? "Commission, income and expenses were derived from individual recorded transactions."
+              : "Only day totals were recorded. This close cannot prove that every customer transaction was captured."}
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

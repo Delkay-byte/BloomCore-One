@@ -122,7 +122,7 @@ export default function AdminPerformancePage() {
       ["Period", `${report.period.from} to ${report.period.to}`],
       ["Basis", report.source.financial],
       [],
-      ["Location", "Operating revenue", "Expenses", "Net operating", "Debts collected", "Cash in", "Cash out", "Submitted days", "Draft days", "Shortage days"],
+      ["Location", "Operating revenue", "Expenses", "Net operating", "Debts collected", "Cash in", "Cash out", "Submitted days", "Draft days", "Shortage days", "Ledger-backed days", "Aggregate days"],
       ...report.byLocation.map((row) => [
         row.locationName,
         row.revenue.toFixed(2),
@@ -134,6 +134,8 @@ export default function AdminPerformancePage() {
         String(row.submittedDays),
         String(row.draftDays),
         String(row.shortageDays),
+        String(row.ledgerDays),
+        String(row.aggregateDays),
       ]),
       [],
       ["Day", "Operating revenue", "Expenses", "Net operating", "Cash in", "Cash out"],
@@ -318,6 +320,17 @@ export default function AdminPerformancePage() {
               hint="Principal volume, not income"
               icon={<Activity />}
             />
+            <StatCard
+              label="Ledger-backed days"
+              value={data.current.totals.ledgerDays}
+              hint="Closed from individual transaction rows"
+            />
+            <StatCard
+              label="Aggregate days"
+              value={data.current.totals.aggregateDays}
+              hint="Operator-declared totals; no transaction-level proof"
+              tone={data.current.totals.aggregateDays > 0 ? "warning" : "positive"}
+            />
           </section>
 
           <section className="card p-4">
@@ -428,6 +441,8 @@ export default function AdminPerformancePage() {
                       <th className="px-4 py-2 text-right">Confirmed days</th>
                       <th className="px-4 py-2 text-right">Draft days</th>
                       <th className="px-4 py-2 text-right">Shortage days</th>
+                      <th className="px-4 py-2 text-right">Ledger days</th>
+                      <th className="px-4 py-2 text-right">Aggregate days</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -461,6 +476,8 @@ export default function AdminPerformancePage() {
                         <td className="px-4 py-2 text-right tnum">{row.submittedDays}</td>
                         <td className="px-4 py-2 text-right tnum">{row.draftDays}</td>
                         <td className="px-4 py-2 text-right tnum">{row.shortageDays}</td>
+                        <td className="px-4 py-2 text-right tnum">{row.ledgerDays}</td>
+                        <td className="px-4 py-2 text-right tnum">{row.aggregateDays}</td>
                       </tr>
                     ))}
                   </tbody>
