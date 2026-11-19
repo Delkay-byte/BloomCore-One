@@ -804,7 +804,7 @@ approved data set and false-positive review process.
 ## Workstream 8 — Zeli anomaly detection foundation
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `d0135b3`
 
 ### Existing capability before changes
 
