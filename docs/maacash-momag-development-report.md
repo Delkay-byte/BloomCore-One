@@ -1359,3 +1359,50 @@ opens History, searches by title, and sees the explicit no-match state.
 - Search is a bounded `contains` query over the current user's conversations
   (maximum 50 results); there is no full-text index or ranking.
 - No cross-tenant or platform-wide history is exposed.
+
+## Workstream 17 — Zeli response structure and reading quality
+
+**Status:** GREEN  
+**Commit:** `fd35a5a`
+
+### What was implemented
+
+- Removed the bracketed machine vocabulary (`[CALCULATED FACT]`,
+  `[PERIOD]`, `[LIMITATIONS]` and the other tags) from answers Zeli writes.
+- Answers now carry typed sections: **Key figures**, **What changed**,
+  **How to read this**, **Recommended next step** and **Not established**.
+- The Zeli message renderer presents those as labelled sections, using a list
+  for figures and paragraphs for interpretation and actions. Period, source,
+  freshness and limitations sit in a compact metadata block.
+- Structured sections, period, source, freshness and limitations are stored in
+  the assistant message metadata, so reopening a conversation renders the same
+  structure.
+- Older stored messages are translated on read by a legacy parser; their
+  bracketed labels are never shown and their content is not rewritten.
+- Plain prose (greetings, clarifications, external-provider answers) still
+  renders unchanged.
+- Copy remains the human-readable answer, with section headings instead of
+  tags.
+
+### Tests
+
+`tests/zeli-response-format.test.ts`: **4 passed** — human labels, old-answer
+translation (figures, pattern, action, period/source/freshness, limitations),
+plain prose passthrough and malformed stored sections.
+
+Existing Zeli suites were updated to assert human headings rather than machine
+tags. `tests/zeli-conversation.test.ts` also checks that structured sections
+and answer metadata are persisted and that stored content contains no machine
+labels.
+
+Browser: the live answer shows Key figures, How to read this and Limitations,
+with no `[CALCULATED FACT]` or `[PERIOD]` text.
+
+### Backwards compatibility and limitations
+
+- Historical messages are parsed for display only. The database is not
+  migrated and no answer text is rewritten.
+- External-provider or conversational answers do not receive typed sections;
+  they render as prose so nothing is fabricated.
+- The section labels describe the evidence type (figure, comparison,
+  interpretation, next step, unknown); they are not a confidence score.
