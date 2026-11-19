@@ -1132,7 +1132,7 @@ because their method cannot be proven.
 **Status:** GREEN for the local adapter and outbox; real delivery **AMBER**
 pending Meta template approval and an explicit owner decision to enable it.
 
-**Commit:** recorded at commit time
+**Commit:** `bc7a3dc`
 
 ### Credential classification
 
