@@ -1282,7 +1282,7 @@ admin login and authenticated admin shell, with `target=_blank` and
 ## Workstream 15 — Automatic Zeli conversation titles
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `7a6d744`
 
 ### What was implemented
 
