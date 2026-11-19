@@ -128,6 +128,16 @@ test.describe("MoMo worker workspace", () => {
     await fillMoney(page, "#closing-cash", 600);
     await fillMoney(page, "#closing-float", 0);
 
+    // A seeded prior close can make this opening material. The control requires
+    // an explanation before saving; supply one so the reconciliation itself is
+    // what the test exercises.
+    const openingReason = page.locator("#opening-adjustment-reason");
+    if (await openingReason.isVisible().catch(() => false)) {
+      await openingReason.fill(
+        "Opening float reset for the E2E acceptance run; prior close reviewed."
+      );
+    }
+
     await expect(page.getByText("BALANCED", { exact: true }).first()).toBeVisible();
 
     const dialog = await submitFromReview(page);
