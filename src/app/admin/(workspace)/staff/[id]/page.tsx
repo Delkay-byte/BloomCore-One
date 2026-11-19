@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -184,16 +185,16 @@ export default function StaffDetailPage() {
       </div>
 
       {error && (
-        <div role="alert" className="banner banner-error mb-4">
+        <Notice type="error" className="mb-4" message={error}>
           {error}
-          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
       {success && (
-        <div role="status" className="banner banner-success mb-4">
+        <Notice type="success" className="mb-4" message={success}>
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700" aria-label="Dismiss confirmation"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
 
       {/* Edit Form */}

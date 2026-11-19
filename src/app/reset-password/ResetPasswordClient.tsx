@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, ShieldAlert } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import { BrandLockup } from "@/components/brand/Brand";
 import { completePasswordReset } from "@/lib/actions/password-recovery.actions";
 import { PASSWORD_REQUIREMENTS } from "@/lib/security/password-policy";
@@ -88,9 +89,9 @@ export default function ResetPasswordClient({
               </p>
 
               {error && (
-                <div role="alert" className="banner banner-error mt-4 text-sm">
+                <Notice type="error" className="mt-4 text-sm" message={error}>
                   {error}
-                </div>
+                </Notice>
               )}
 
               <form onSubmit={handleSubmit} className="mt-4 space-y-4">

@@ -3,6 +3,8 @@
 import { UserPlus, Wallet, RefreshCw, Info, CheckCircle2, Clock } from "lucide-react";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
+import { useNoticeToast } from "@/hooks/useNoticeToast";
+import Notice from "@/components/ui/Notice";
 import { getCollectorDashboardStats } from "@/lib/actions/susu-dashboard.actions";
 import { recordContribution } from "@/lib/actions/susu-contribution.actions";
 import { registerCustomerByCollector } from "@/lib/actions/susu-collector.actions";
@@ -158,6 +160,26 @@ export default function CollectorDashboardPage({
   const collectKeyRef = useRef<string | null>(null);
   const [success, setSuccess] = useState("");
   const [successTone, setSuccessTone] = useState<"confirmed" | "saved">("confirmed");
+
+  // The rich inline banners stay; each distinct message also raises one popup,
+  // so a result is visible while the collector is scrolled down the list.
+  useNoticeToast(error, "error");
+  useNoticeToast(success, successTone === "confirmed" ? "success" : "warning");
+  useNoticeToast(syncAlert?.message, syncAlert?.tone ?? "info");
+  useNoticeToast(collectError, "error");
+  useNoticeToast(regError, "error");
+  useNoticeToast(
+    queueAttention !== null && queueAttention > 0 && syncAlert?.tone !== "error"
+      ? `${queueAttention} collection${queueAttention === 1 ? "" : "s"} need attention. Open Offline records for the exact server reason.`
+      : null,
+    "error"
+  );
+  useNoticeToast(
+    queueAttention === null
+      ? "The offline queue could not be read. Saved records are not deleted; reload or open Offline records to retry."
+      : null,
+    "warning"
+  );
 
   // Customer registration modal
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -846,7 +868,7 @@ export default function CollectorDashboardPage({
       </div>
     );
   }
-  if (error && !data) return <div role="alert" className="banner banner-error">{error}</div>;
+  if (error && !data) return <Notice type="error" message={error}>{error}</Notice>;
 
   const totalAssigned = data?.assignedCustomers || 0;
   const collected = data?.collectedToday.length || 0;
@@ -963,7 +985,7 @@ export default function CollectorDashboardPage({
           Offline records to retry.
         </div>
       )}
-      {error && <div role="alert" className="banner banner-error text-sm">{error}</div>}
+      {error && <Notice type="error" className="text-sm" message={error}>{error}</Notice>}
 
       {usingCachedData && (
         <div className="banner banner-warning !rounded-xl text-sm" role="status">

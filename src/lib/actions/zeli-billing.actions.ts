@@ -15,6 +15,7 @@ import {
   SubscriptionError,
   verifyAndFulfil,
 } from "@/lib/payments/zeli-subscriptions";
+import { customerPaymentMessage } from "@/lib/payments/live-readiness";
 import type { MobileMoneyProvider } from "@/lib/payments/paystack";
 
 export interface BillingActionResponse<T = unknown> {
@@ -65,7 +66,7 @@ export async function startZeliMobileMoneyCheckout(input: {
     };
   } catch (error) {
     if (error instanceof SubscriptionError) {
-      return { success: false, error: error.message };
+      return { success: false, error: customerPaymentMessage(error) };
     }
     return { success: false, error: "The mobile money request could not be started." };
   }
@@ -109,7 +110,7 @@ export async function startZeliCheckout(
     return { success: true, data: { authorizationUrl: checkout.authorizationUrl } };
   } catch (error) {
     if (error instanceof SubscriptionError) {
-      return { success: false, error: error.message };
+      return { success: false, error: customerPaymentMessage(error) };
     }
     return { success: false, error: "Checkout could not be started." };
   }
@@ -150,6 +151,13 @@ export async function confirmZeliCheckout(
           result.reason === "payment_mismatch"
             ? "The payment did not match the selected package."
             : "Payment could not be verified yet. If you were charged, contact support.",
+      };
+    }
+    if (result.decision === "ignored" && result.reason === "not_successful") {
+      return {
+        success: false,
+        error:
+          "Paystack has not confirmed this payment yet. If you completed checkout, wait a moment and use Check payment status. Nothing was activated.",
       };
     }
     return { success: true, data: { decision: result.decision } };

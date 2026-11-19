@@ -6,15 +6,14 @@ import {
   COMPANY_LOCATION,
   COMPANY_NAME,
   LEGAL_ROUTES,
-  PLATFORM_LOGIN_PATH,
   PRODUCT_NAME,
   PUBLIC_ROUTES,
 } from "@/lib/site";
 
 /**
- * Public site footer. The platform control plane is referenced once, quietly,
- * as "Platform administration" — the marketing site never advertises
- * administrative access.
+ * Public site footer. It never links to the platform control plane: the Super
+ * Admin sign-in is not a customer navigation option, and the route stays
+ * protected by its own authentication, MFA and authorization checks.
  */
 export default function MarketingFooter() {
   const year = new Date().getFullYear();
@@ -93,12 +92,6 @@ export default function MarketingFooter() {
             © {year} {COMPANY_NAME}. {PRODUCT_NAME}™ is a product of{" "}
             {COMPANY_NAME}. All rights reserved.
           </p>
-          <Link
-            href={PLATFORM_LOGIN_PATH}
-            className="text-xs text-ink-faint hover:text-ink-muted"
-          >
-            Platform administration
-          </Link>
         </div>
       </div>
     </footer>

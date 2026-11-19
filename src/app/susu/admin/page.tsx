@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 
 import { Footprints } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -67,9 +68,9 @@ export default function SusuAdminOverviewPage() {
   if (loading) return <SkeletonPage variant="dashboard" />;
   if (error)
     return (
-      <div role="alert" className="banner banner-error">
+      <Notice type="error" message={error}>
         {error}
-      </div>
+      </Notice>
     );
   if (!stats) return null;
 

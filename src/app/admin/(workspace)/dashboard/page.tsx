@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Notice from "@/components/ui/Notice";
 import {
   AlertTriangle,
   ArrowRight,
@@ -134,9 +135,9 @@ export default function AdminDashboardPage() {
   }
   if (error) {
     return (
-      <div role="alert" className="banner banner-error">
+      <Notice type="error" message={error}>
         {error}
-      </div>
+      </Notice>
     );
   }
 

@@ -1,140 +1,77 @@
 import { describe, expect, it } from "vitest";
-import type {
-  EffectiveProviderPolicy,
-  ProviderControlRecord,
-} from "@/lib/zeli/provider-control";
-import { providerPolicyHeaders } from "@/lib/zeli/provider-status";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 
-const CONTROL: ProviderControlRecord = {
-  mode: "disabled",
-  enabled: false,
-  emergencyDisabled: false,
-  approvedProvider: "deepseek",
-  approvedPurposes: null,
-  policyVersion: "2026-11.2",
-  approvalReference: null,
-  reason: null,
-  updatedById: null,
-  updatedAt: new Date(0),
-};
+/**
+ * Customer-facing branding guard.
+ *
+ * Zeli is the product name. A customer must never see the underlying AI
+ * provider's name, model name, or Team Testing wording in a page, component or
+ * chat response. Technical provider configuration stays in server modules and
+ * in the Platform Super Admin console.
+ */
 
-function policy(overrides: Partial<EffectiveProviderPolicy>): EffectiveProviderPolicy {
-  return {
-    state: "disabled",
-    allowed: false,
-    provider: "deepseek",
-    model: "deepseek-flash",
-    reason: "External AI is disabled.",
-    syntheticOnly: false,
-    productionApproved: false,
-    emergencyDisabled: false,
-    control: CONTROL,
-    credentialConfigured: true,
-    codeApprovalPresent: false,
-    privacyVersionPresent: false,
-    approvalReferencePresent: false,
-    tenantAuthorized: false,
-    ...overrides,
-  };
+const ROOT = path.resolve(__dirname, "..");
+const SCANNED_ROOTS = [
+  path.join(ROOT, "src", "app"),
+  path.join(ROOT, "src", "components"),
+];
+
+function walk(dir: string, files: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      // The platform console is the operator surface, not a customer surface.
+      if (full.includes(`${path.sep}platform${path.sep}`)) continue;
+      walk(full, files);
+    } else if (/\.(tsx?|jsx?)$/.test(entry)) {
+      files.push(full);
+    }
+  }
+  return files;
 }
 
-describe("external AI status header", () => {
-  it("reports disabled when the emergency stop is active", () => {
-    const headers = providerPolicyHeaders(
-      policy({
-        state: "disabled",
-        allowed: false,
-        emergencyDisabled: true,
-        reason: "External AI is stopped by the global emergency disable control.",
-      })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("disabled");
-    expect(headers["x-zeli-external-ai-allowed"]).toBe("false");
+const FORBIDDEN = [
+  /deepseek/i,
+  /team testing/i,
+  /external provider/i,
+  /provider:\s*\$\{/i,
+];
+
+describe("customer-facing Zeli branding", () => {
+  const files = SCANNED_ROOTS.flatMap((dir) => walk(dir));
+
+  it("scans a meaningful number of customer files", () => {
+    expect(files.length).toBeGreaterThan(40);
   });
 
-  it("reports disabled for a deliberately disabled provider", () => {
-    const headers = providerPolicyHeaders(
-      policy({ state: "disabled", allowed: false, control: { ...CONTROL, enabled: false } })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("disabled");
+  it("never names the AI provider or Team Testing outside the platform console", () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const relative = path.relative(ROOT, file);
+      for (const pattern of FORBIDDEN) {
+        if (pattern.test(source)) offenders.push(`${relative} matched ${pattern}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
-  it("reports disabled when no credential is configured", () => {
-    const headers = providerPolicyHeaders(
-      policy({ state: "disabled", allowed: false, credentialConfigured: false })
+  it("does not send provider identity in the chat response headers", () => {
+    const route = readFileSync(
+      path.join(ROOT, "src", "app", "api", "zeli", "chat", "route.ts"),
+      "utf8"
     );
-    expect(headers["x-zeli-external-ai"]).toBe("disabled");
+    expect(route).not.toMatch(/x-zeli-provider/i);
+    expect(route).not.toMatch(/x-zeli-conversation-provider/i);
+    expect(route).not.toMatch(/providerPolicyHeaders/);
   });
 
-  it("reports synthetic when synthetic testing is allowed", () => {
-    const headers = providerPolicyHeaders(
-      policy({ state: "synthetic", allowed: true, syntheticOnly: true })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("synthetic");
-    expect(headers["x-zeli-external-ai-allowed"]).toBe("true");
-  });
-
-  it("reports disabled when synthetic mode is blocked by the environment", () => {
-    const headers = providerPolicyHeaders(
-      policy({
-        state: "disabled",
-        allowed: false,
-        syntheticOnly: true,
-        reason: "Synthetic provider testing is not enabled in this environment.",
-      })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("disabled");
-  });
-
-  it("reports disabled when approved production processing is locked", () => {
-    const headers = providerPolicyHeaders(
-      policy({
-        state: "disabled",
-        allowed: false,
-        productionApproved: false,
-        reason: "Aggregate production processing is locked: missing reviewed code approval.",
-      })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("disabled");
-  });
-
-  it("reports approved only when every approval is present", () => {
-    const headers = providerPolicyHeaders(
-      policy({
-        state: "approved",
-        allowed: true,
-        productionApproved: true,
-        codeApprovalPresent: true,
-        privacyVersionPresent: true,
-        approvalReferencePresent: true,
-        tenantAuthorized: true,
-      })
-    );
-    expect(headers["x-zeli-external-ai"]).toBe("approved");
-    expect(headers["x-zeli-external-ai-allowed"]).toBe("true");
-  });
-
-  it("never exposes credentials, approval references or private configuration", () => {
-    const headers = providerPolicyHeaders(
-      policy({
-        state: "disabled",
-        allowed: false,
-        reason: "Missing approval reference DPC-SECRET-REFERENCE and key sk-live-secret.",
-        credentialConfigured: true,
-        control: {
-          ...CONTROL,
-          approvalReference: "DPC-SECRET-REFERENCE",
-          reason: "Internal owner note that must stay private.",
-        },
-      })
-    );
-    const serialized = JSON.stringify(headers);
-    expect(serialized).not.toContain("sk-");
-    expect(serialized).not.toContain("DPC-SECRET-REFERENCE");
-    expect(serialized).not.toContain("Internal owner note");
-    expect(Object.keys(headers).sort()).toEqual([
-      "x-zeli-external-ai",
-      "x-zeli-external-ai-allowed",
-    ]);
+  it("keeps the customer Zeli page free of provider and testing banners", () => {
+    const page = readFileSync(path.join(ROOT, "src", "app", "zeli", "page.tsx"), "utf8");
+    expect(page).not.toMatch(/deepseek/i);
+    expect(page).not.toMatch(/team testing/i);
+    expect(page).not.toMatch(/acceptZeliTeamDisclosure/);
   });
 });

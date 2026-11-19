@@ -5,13 +5,17 @@ import Link from "next/link";
 import { Check, ShieldCheck } from "lucide-react";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import { BrandLockup } from "@/components/brand/Brand";
 import {
   completeRequiredCustomerPasswordChange,
   completeRequiredPasswordChange,
 } from "@/lib/actions/auth.actions";
 import { completeRequiredPlatformPasswordChange } from "@/lib/actions/platform.actions";
-import { PASSWORD_CHANGE_CHALLENGE_KEY } from "@/lib/security/password-change-client";
+import {
+  PASSWORD_CHANGE_CHALLENGE_KEY,
+  passwordChangeSignInPath,
+} from "@/lib/security/password-change-client";
 import { PASSWORD_REQUIREMENTS } from "@/lib/security/password-policy";
 import { isRedirectError } from "@/lib/errors";
 
@@ -47,12 +51,16 @@ function RequiredPasswordChange() {
   const [done, setDone] = useState(false);
   const [redirectTo, setRedirectTo] = useState("/login");
   const [challengeToken, setChallengeToken] = useState("");
+  const [signInPath, setSignInPath] = useState("/login");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     setChallengeToken(
       window.sessionStorage.getItem(PASSWORD_CHANGE_CHALLENGE_KEY) ?? ""
     );
+    // Administrators must return to the private administrator login when the
+    // upgrade session has expired; this is a stored routing hint, not a grant.
+    setSignInPath(passwordChangeSignInPath());
     setReady(true);
   }, []);
 
@@ -78,8 +86,10 @@ function RequiredPasswordChange() {
         setError(result.error || "The password could not be changed.");
         return;
       }
+      // Drop the spent challenge but keep the sign-in hint so a later expired
+      // screen still returns an administrator to the administrator login.
       window.sessionStorage.removeItem(PASSWORD_CHANGE_CHALLENGE_KEY);
-      setRedirectTo(result.redirectTo ?? "/login");
+      setRedirectTo(result.redirectTo ?? signInPath);
       setDone(true);
     } catch (err) {
       if (isRedirectError(err)) throw err;
@@ -108,7 +118,7 @@ function RequiredPasswordChange() {
         <p className="mt-2 text-sm text-slate-600">
           Sign in again with your current password to continue the required upgrade.
         </p>
-        <Link href="/login" className="btn btn-primary mt-5 w-full text-center">
+        <Link href={signInPath} className="btn btn-primary mt-5 w-full text-center">
           Back to sign in
         </Link>
       </Standalone>
@@ -145,9 +155,9 @@ function RequiredPasswordChange() {
       </p>
 
       {error && (
-        <div className="banner banner-error mt-4 text-sm" role="alert">
+        <Notice type="error" className="mt-4 text-sm" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
 
       <form onSubmit={submit} className="mt-4 space-y-4">

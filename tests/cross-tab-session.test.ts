@@ -36,6 +36,17 @@ describe("tab session identity", () => {
     );
   });
 
+  it("revalidates app chunks instead of pinning an old build", () => {
+    const worker = source("public/tab-session-sw.js");
+    expect(worker).toContain('const STATIC_CACHE = "maacash-static-v4";');
+    const branch = worker.slice(
+      worker.indexOf("if (isStatic && !isNavigation)"),
+      worker.indexOf("if (isNavigation)")
+    );
+    expect(branch.indexOf("fetch(forwarded)")).toBeGreaterThanOrEqual(0);
+    expect(branch.indexOf("caches.match")).toBeGreaterThan(branch.indexOf("fetch(forwarded)"));
+  });
+
   it("keeps the credential out of URLs and localStorage", () => {
     const client = source("src/lib/security/tab-session-client.ts");
     expect(client).not.toMatch(/localStorage\s*\./);

@@ -11,7 +11,6 @@ import { db } from "@/lib/db";
 import { pageMetadata } from "@/lib/metadata";
 import { ADMIN_LOGIN_PATH } from "@/lib/site";
 import {
-  FOUNDING_PROMOTION,
   annualSavingPercent,
   formatGhs,
   groupPlansForDisplay,
@@ -32,6 +31,20 @@ async function loadPlans(): Promise<PublicPlan[]> {
     const rows = await db.zeliPlan.findMany({
       where: { status: "active", isPublic: true },
       orderBy: [{ sortOrder: "asc" }, { price: "asc" }],
+      // Public pricing deliberately never reads or returns the internal promotional price.
+      select: {
+        code: true,
+        name: true,
+        description: true,
+        billingInterval: true,
+        price: true,
+        currency: true,
+        features: true,
+        usageAllowance: true,
+        locationLimit: true,
+        staffLimit: true,
+        supportLevel: true,
+      },
     });
     return rows.map((row) => ({
       code: row.code,
@@ -42,7 +55,6 @@ async function loadPlans(): Promise<PublicPlan[]> {
       currency: row.currency,
       features: row.features ? (JSON.parse(row.features) as string[]) : [],
       usageAllowance: row.usageAllowance,
-      foundingPrice: row.foundingPrice == null ? null : Number(row.foundingPrice),
       locationLimit: row.locationLimit,
       staffLimit: row.staffLimit,
       supportLevel: row.supportLevel,
@@ -75,13 +87,6 @@ function PlanCard({ plan, annualPrice }: { plan: PublicPlan; annualPrice?: numbe
           About {saving}% less than twelve monthly payments · {formatGhs(Math.round(plan.price / 12))}/month equivalent
         </p>
       )}
-      {!annual && plan.foundingPrice != null && (
-        <p className="mt-2 rounded-md bg-gold-50 px-2 py-1.5 text-xs font-medium text-gold-800">
-          Founding price {formatGhs(plan.foundingPrice)}/month for the first 3 monthly
-          periods, then {formatGhs(plan.price)}/month.
-        </p>
-      )}
-
       <dl className="mt-4 space-y-1 text-sm text-slate-600">
         {plan.locationLimit !== null && (
           <div className="flex items-center gap-2">
@@ -193,50 +198,6 @@ export default async function PricingPage() {
           </div>
         </Section>
       )}
-
-      <Section tone="white">
-        <div className="rounded-xl border border-gold-200 bg-gold-50/60 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-700">
-            Founding customers
-          </p>
-          <h2 className="mt-1 text-xl font-semibold text-brand-900">
-            Early-business discount for the first {FOUNDING_PROMOTION.maxBusinesses}{" "}
-            businesses
-          </h2>
-          <p className="mt-2 text-sm text-slate-700">{FOUNDING_PROMOTION.terms}</p>
-          <p className="mt-2 text-sm text-slate-600">
-            Founding rates apply to monthly billing only and never combine with annual
-            pricing. Eligibility is confirmed when your business is provisioned, and a
-            discount is not reset or extended by changing package.
-          </p>
-          {monthly.some((plan) => plan.foundingPrice != null) && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full max-w-xl text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="py-2 pr-4">Package</th>
-                    <th className="py-2 pr-4">Months 1–3</th>
-                    <th className="py-2">From month 4</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gold-200/70">
-                  {monthly
-                    .filter((plan) => plan.foundingPrice != null)
-                    .map((plan) => (
-                      <tr key={plan.code}>
-                        <td className="py-2 pr-4 font-medium text-brand-900">{plan.name}</td>
-                        <td className="py-2 pr-4 text-slate-800">
-                          {formatGhs(plan.foundingPrice!)}/month
-                        </td>
-                        <td className="py-2 text-slate-800">{formatGhs(plan.price)}/month</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Section>
 
       <Section tone="ivory">
         <div id="request-account">

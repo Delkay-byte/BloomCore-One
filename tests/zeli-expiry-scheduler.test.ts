@@ -56,11 +56,15 @@ describe("Zeli expiry scheduler wiring", () => {
       restore("ZELI_EXPIRY_INTERVAL_MS", prevInterval);
     });
 
-    it("runs a catch-up sweep and schedules repeats", async () => {
+    it("runs one catch-up sweep and schedules repeats only once", async () => {
       const expire = vi.fn().mockResolvedValue({ subscriptions: 0, entitlements: 0, skipped: 0 });
       vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
 
       const { register } = await import("../src/instrumentation");
+      await register();
+      // A second registration in the same process must be a no-op. This is the
+      // idempotency assertion, exercised in one test so the module-level
+      // scheduler state cannot leak into a following test.
       await register();
 
       // The scheduler loads its sweep module through a dynamic import. A loaded
@@ -68,22 +72,7 @@ describe("Zeli expiry scheduler wiring", () => {
       // assertion is unchanged, only the harness budget is raised.
       await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not start twice for the same process", async () => {
-      const expire = vi.fn().mockResolvedValue({ subscriptions: 0, entitlements: 0, skipped: 0 });
-      vi.doMock(EXPIRY_MODULE, () => ({ expireZeliLifecycle: expire }));
-
-      const { register } = await import("../src/instrumentation");
-      await register();
-      register();
-
-      // The scheduler loads its sweep module through a dynamic import. A loaded
-      // CI runner can take longer than waitFor's 1 s default to resolve it; the
-      // assertion is unchanged, only the harness budget is raised.
-      await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
-      expect(setIntervalMock).toHaveBeenCalledTimes(1);
-    });
+    }, 20_000);
 
     it("honours the explicit disabled switch", async () => {
       process.env.ZELI_EXPIRY_SCHEDULER = "disabled";

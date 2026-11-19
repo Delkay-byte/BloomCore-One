@@ -49,10 +49,11 @@ export function pageMetadata({
       siteName: PRODUCT_NAME,
       title: socialTitle,
       description,
-      url: path,
+      // Never advertise a loopback origin as the public page URL.
+      ...(SITE_URL_IS_PROVISIONAL ? {} : { url: path }),
       images: [
         {
-          url: absoluteUrl(OG_IMAGE),
+          url: SITE_URL_IS_PROVISIONAL ? OG_IMAGE : absoluteUrl(OG_IMAGE),
           width: 1200,
           height: 630,
           alt: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
@@ -63,7 +64,7 @@ export function pageMetadata({
       card: "summary_large_image",
       title: socialTitle,
       description,
-      images: [absoluteUrl(OG_IMAGE)],
+      images: [SITE_URL_IS_PROVISIONAL ? OG_IMAGE : absoluteUrl(OG_IMAGE)],
     },
     ...(SITE_URL_IS_PROVISIONAL || IS_STAGING_DEPLOYMENT
       ? {}

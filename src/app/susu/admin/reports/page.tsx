@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonTable } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 
 import { ClipboardList, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -128,10 +129,10 @@ export default function SusuReportsPage() {
       </div>
 
       {error && (
-        <div role="alert" className="banner banner-error mb-4">
+        <Notice type="error" className="mb-4" message={error}>
           {error}
-          <button onClick={() => setError("")} className="ml-2"><X size={14} aria-hidden /></button>
-        </div>
+          <button onClick={() => setError("")} className="ml-2" aria-label="Dismiss error"><X size={14} aria-hidden /></button>
+        </Notice>
       )}
 
       {/* Tabs */}

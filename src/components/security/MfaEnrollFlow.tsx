@@ -8,6 +8,7 @@ import {
   startMfaEnrollmentAction,
 } from "@/lib/security/mfa.actions";
 import { isRedirectError } from "@/lib/errors";
+import Notice from "@/components/ui/Notice";
 import {
   clearMfaChallenge,
   completeTabLogin,
@@ -75,7 +76,7 @@ export default function MfaEnrollFlow() {
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
         clearMfaChallenge();
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/login");
         window.location.assign(result.redirectTo);
         return;
       }
@@ -137,9 +138,9 @@ export default function MfaEnrollFlow() {
               </p>
 
               {error && (
-                <div role="alert" className="banner banner-error mb-4 text-sm">
+                <Notice type="error" className="mb-4 text-sm" message={error}>
                   {error}
-                </div>
+                </Notice>
               )}
 
               {starting || !qr ? (

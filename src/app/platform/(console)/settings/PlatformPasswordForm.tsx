@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { platformChangePassword } from "@/lib/actions/platform.actions";
 import { registerTabSession } from "@/lib/security/tab-session-client";
 import { useToast } from "@/components/ui/Toast";
+import Notice from "@/components/ui/Notice";
 import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 
 export default function PlatformPasswordForm() {
@@ -46,9 +47,9 @@ export default function PlatformPasswordForm() {
   return (
     <form action={handleSubmit} className="space-y-4 max-w-sm">
       {error && (
-        <div role="alert" className="banner banner-error">
+        <Notice type="error" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
       <div className="form-group">
         <label className="form-label" htmlFor="currentPassword">Current password</label>

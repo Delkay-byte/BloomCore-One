@@ -36,7 +36,7 @@ const ASSERTION_REFRESH_MARGIN_SECONDS = 25;
 // Offline application shell cache. It is namespaced by a non-secret local scope
 // (tenant:user) so one account's cached page is never served to another.
 const APP_CACHE_PREFIX = "maacash-app-v3:";
-const STATIC_CACHE = "maacash-static-v3";
+const STATIC_CACHE = "maacash-static-v4";
 const SCOPE_META_URL = new URL("/__maacash/offline-scope", self.location.origin).href;
 
 let activeOfflineScope = null;
@@ -397,14 +397,52 @@ self.addEventListener("activate", (event) => {
     (async () => {
       await self.clients.claim();
       await pruneMappings();
+      let names = [];
       try {
-        const names = await caches.keys();
+        names = await caches.keys();
+      } catch {
+        // Cache inspection is best effort.
+      }
+      // Only an upgrade from a previous static cache can leave an already-open
+      // login tab running chunks whose Server Action ids no longer exist.
+      // Reload those tabs once. A first install has no old cache and must not
+      // navigate a page that is still being hydrated (this raced the mobile
+      // browser tests). Other tabs, including an open checkout, are untouched.
+      const upgradingStaticCache = names.some(
+        (name) => name === "maacash-static-v2" || name === "maacash-static-v3"
+      );
+      if (upgradingStaticCache) {
+        try {
+          const loginPaths = ["/login", "/admin/login", "/platform/login", "/customer/login"];
+          const windows = await self.clients.matchAll({
+            type: "window",
+            includeUncontrolled: true,
+          });
+          await Promise.all(
+            windows.map(async (client) => {
+              try {
+                const url = new URL(client.url);
+                const isLogin = loginPaths.some(
+                  (path) => url.pathname === path || url.pathname.startsWith(`${path}/`)
+                );
+                if (isLogin) await client.navigate(client.url);
+              } catch {
+                // A closing or cross-origin client is not reloadable.
+              }
+            })
+          );
+        } catch {
+          // Reloading stale login tabs is best effort.
+        }
+      }
+      try {
         await Promise.all(
           names
             .filter(
               (name) =>
                 (name.startsWith("maacash-app-v2:") ||
-                  name === "maacash-static-v2")
+                  name === "maacash-static-v2" ||
+                  name === "maacash-static-v3")
             )
             .map((name) => caches.delete(name))
         );
@@ -553,11 +591,12 @@ self.addEventListener("fetch", (event) => {
         /\.(?:css|js|mjs|woff2?|ttf|png|jpe?g|svg|webp|ico)$/i.test(url.pathname);
 
       // App code and branding are shared by every account and contain no user
-      // data. Cache-first avoids re-downloading the shell on a weak connection.
+      // data. Always prefer the network while online: Next.js reuses these
+      // chunk URLs across builds, so a permanent cache entry would keep an old
+      // client bundle (and its Server Action ids) after a deploy. The cached
+      // copy is still the offline fallback.
       if (isStatic && !isNavigation) {
         try {
-          const cached = await caches.match(event.request);
-          if (cached) return cached;
           const response = await fetch(forwarded);
           if (response.ok) {
             const cache = await caches.open(STATIC_CACHE);

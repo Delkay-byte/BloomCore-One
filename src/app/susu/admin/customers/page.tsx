@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import DraftIndicator from "@/components/DraftIndicator";
 
@@ -292,20 +293,20 @@ export default function SusuCustomersPage() {
       </div>
 
       {error && (
-        <div role="alert" className="banner banner-error mb-4">
+        <Notice type="error" className="mb-4" message={error}>
           {error}
-          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">
+          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error">
             ✕
           </button>
-        </div>
+        </Notice>
       )}
       {success && (
-        <div role="status" className="banner banner-success mb-4">
+        <Notice type="success" className="mb-4" message={success}>
           {success}
-          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700">
+          <button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700" aria-label="Dismiss confirmation">
             ✕
           </button>
-        </div>
+        </Notice>
       )}
 
       {createdCustomer && (

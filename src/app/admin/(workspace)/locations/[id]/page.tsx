@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -69,8 +70,8 @@ export default function LocationDetailPage() {
         </div>
       </div>
 
-      {error && <div role="alert" className="banner banner-error mb-4">{error}</div>}
-      {success && <div role="status" className="banner banner-success mb-4">{success}</div>}
+      {error && <Notice type="error" className="mb-4" message={error}>{error}</Notice>}
+      {success && <Notice type="success" className="mb-4" message={success}>{success}</Notice>}
 
       {editing ? (
         <div className="card">

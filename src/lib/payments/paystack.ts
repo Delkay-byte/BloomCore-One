@@ -1,4 +1,14 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import {
+  evaluateLocalLiveTest,
+  localLiveTestEnvironment,
+  requiresLocalLiveGuard,
+} from "@/lib/payments/local-live-test";
+import {
+  isHostedCheckoutChannel,
+  isTrustedCheckoutUrl,
+  type HostedCheckoutChannel,
+} from "@/lib/payments/checkout-url";
 
 /**
  * Paystack payment adapter.
@@ -15,13 +25,90 @@ const PAYSTACK_BASE_URL = "https://api.paystack.co";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
 
+/** How certain we are that the provider did *not* act on the request. */
+export type PaystackFailureKind = "rejected" | "ambiguous";
+
+export interface PaystackErrorOptions {
+  providerStatus?: number;
+  providerCode?: string | null;
+  /** Bounded, sanitized provider explanation. Safe for protected logs. */
+  safeMessage?: string | null;
+  failureKind?: PaystackFailureKind;
+}
+
 export class PaystackError extends Error {
   code: string;
-  constructor(message: string, code = "paystack_error") {
+  providerStatus?: number;
+  providerCode?: string | null;
+  safeMessage?: string | null;
+  failureKind: PaystackFailureKind;
+  constructor(message: string, code = "paystack_error", options: PaystackErrorOptions = {}) {
     super(message);
     this.name = "PaystackError";
     this.code = code;
+    this.providerStatus = options.providerStatus;
+    this.providerCode = options.providerCode ?? null;
+    this.safeMessage = options.safeMessage ?? null;
+    this.failureKind = options.failureKind ?? "ambiguous";
   }
+}
+
+/**
+ * Reduce a provider explanation to something that is safe to keep.
+ *
+ * Paystack error messages occasionally echo what was submitted. This strips
+ * e-mail addresses, Ghana wallet numbers, long digit runs and anything shaped
+ * like an API key, and caps the length so a provider cannot inject a payload
+ * into our logs or the UI.
+ */
+export function sanitizeProviderMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[^\x20-\x7e]/g, " ")
+    .replace(/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, "[email]")
+    .replace(/\b(?:\+?233|0)\d{9}\b/g, "[phone]")
+    .replace(/\b\d{10,}\b/g, "[number]")
+    .replace(/\b(?:sk|pk|whsec)_[A-Za-z0-9_]+/g, "[key]")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return text.length > 0 ? text.slice(0, 200) : null;
+}
+
+/**
+ * HTTP statuses that normally mean the provider refused the request outright.
+ * `409` is deliberately absent: a conflict can mean a transaction for this
+ * reference already exists, which must be reconciled instead of retried.
+ */
+const DEFINITE_REJECTION_STATUSES = new Set([400, 401, 403, 404, 422]);
+
+/**
+ * Provider wording that means "something already exists for this reference".
+ * Such an answer never proves no charge exists, whatever status carries it.
+ */
+const EXISTING_TRANSACTION_HINT =
+  /(duplicate|already\s+(exists|been\s+used|paid|processed)|reference\s+(has\s+been\s+used|already\s+exists)|transaction\s+exists)/i;
+
+function indicatesExistingTransaction(fields: { code: string | null; message: string | null }): boolean {
+  return EXISTING_TRANSACTION_HINT.test(`${fields.code ?? ""} ${fields.message ?? ""}`);
+}
+
+function providerErrorFields(body: unknown): { code: string | null; message: string | null } {
+  if (!body || typeof body !== "object") return { code: null, message: null };
+  const record = body as Record<string, unknown>;
+  const message =
+    typeof record.message === "string"
+      ? record.message
+      : typeof record.error === "string"
+        ? record.error
+        : null;
+  const code =
+    typeof record.code === "string"
+      ? record.code
+      : typeof record.type === "string"
+        ? record.type
+        : null;
+  return { code: sanitizeProviderMessage(code), message: sanitizeProviderMessage(message) };
 }
 
 export function paystackConfigured(): boolean {
@@ -41,14 +128,68 @@ export function paystackKeyMode(): "live" | "test" | "unknown" {
 
 /**
  * Checkout is only offered when the environment can legally take the payment.
- * Production must use a live key: a test key in production would either fail
- * or take a real order without settling money, so checkout stays closed with
- * an honest message until the owner configures the live key.
+ *
+ *   * A test key is safe anywhere and is used for local previews.
+ *   * A live key in production is normal commerce.
+ *   * A live key anywhere else moves real money from a developer machine, so it
+ *     requires the explicit `PAYSTACK_LOCAL_LIVE_TEST=true` opt-in plus a
+ *     development process. The per-request guard (origin, database, tenant)
+ *     is enforced again when a charge is actually started.
+ *   * An unrecognised prefix is never offered: we do not guess about money.
  */
 export function paystackReadyForCheckout(): boolean {
   if (!paystackConfigured()) return false;
-  if (process.env.NODE_ENV !== "production") return true;
-  return paystackKeyMode() === "live";
+  const mode = paystackKeyMode();
+  if (mode === "test") {
+    // A production bundle still allows an explicit test-key preview. Test keys
+    // cannot move real money, and the default remains closed.
+    return process.env.NODE_ENV !== "production" || process.env.PAYSTACK_MODE === "test";
+  }
+  if (mode !== "live") return false;
+  if (!requiresLocalLiveGuard(process.env.SITE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? null)) {
+    // Hosted production, or a production build served on a real origin: the
+    // live key works exactly as it always has.
+    return true;
+  }
+  return isLocalLiveProcess();
+}
+
+/** The owner's opt-in, as read by the checkout gate (no request context). */
+function isLocalLiveProcess(): boolean {
+  return (
+    (process.env.PAYSTACK_LOCAL_LIVE_TEST ?? "").trim().toLowerCase() === "true" &&
+    process.env.NODE_ENV === "development"
+  );
+}
+
+/**
+ * Full per-request guard for a genuine live charge.
+ *
+ * Called immediately before a provider charge is created. Throws a
+ * `PaystackError` with a sanitized code when the environment is not the
+ * explicitly designated local test setup.
+ */
+export function assertLiveChargePermitted(input: {
+  origin: string | null;
+  tenantId: string;
+  tenantCode: string | null;
+}): void {
+  if (paystackKeyMode() !== "live") return;
+  if (!requiresLocalLiveGuard(input.origin)) return;
+  const decision = evaluateLocalLiveTest(
+    localLiveTestEnvironment({
+      keyMode: paystackKeyMode(),
+      origin: input.origin,
+      tenantId: input.tenantId,
+      tenantCode: input.tenantCode,
+    })
+  );
+  if (!decision.allowed) {
+    throw new PaystackError(
+      "Live payments are only enabled for the designated local test tenant.",
+      `live_test_blocked:${decision.reasons.join(",")}`
+    );
+  }
 }
 
 function secretKey(): string {
@@ -94,42 +235,54 @@ async function request<T>(
     try {
       body = JSON.parse(text);
     } catch {
-      throw new PaystackError("Payment provider returned an invalid response.", "invalid_response");
+      throw new PaystackError("Payment provider returned an invalid response.", "invalid_response", {
+        failureKind: "ambiguous",
+      });
     }
     if (!response.ok) {
+      const provider = providerErrorFields(body);
+      // Only a plain refusal with no hint of an existing transaction is a
+      // definite rejection. A duplicate-reference conflict, or a 409, could
+      // mean a charge already exists, so it stays reconciliation-required.
+      const rejected =
+        DEFINITE_REJECTION_STATUSES.has(response.status) &&
+        !indicatesExistingTransaction(provider);
       throw new PaystackError(
         `Payment provider rejected the request (${response.status}).`,
-        "provider_rejected"
+        rejected ? "provider_rejected" : "provider_unavailable",
+        {
+          providerStatus: response.status,
+          providerCode: provider.code,
+          safeMessage: provider.message,
+          failureKind: rejected ? "rejected" : "ambiguous",
+        }
       );
     }
     return body as T;
   } catch (error) {
     if (error instanceof PaystackError) throw error;
     if ((error as Error).name === "AbortError") {
-      throw new PaystackError("Payment provider timed out.", "timeout");
+      throw new PaystackError("Payment provider timed out.", "timeout", { failureKind: "ambiguous" });
     }
-    throw new PaystackError("Payment provider is unavailable.", "unavailable");
+    throw new PaystackError("Payment provider is unavailable.", "unavailable", {
+      failureKind: "ambiguous",
+    });
   } finally {
     clearTimeout(timer);
   }
 }
 
-const CHECKOUT_HOSTS = new Set(["checkout.paystack.com", "paystack.com"]);
-
 function approvedCheckoutUrl(value: unknown): string {
   if (typeof value !== "string") {
     throw new PaystackError("Payment provider did not return a checkout URL.", "invalid_checkout");
   }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new PaystackError("Payment provider returned an invalid checkout URL.", "invalid_checkout");
+  if (!isTrustedCheckoutUrl(value)) {
+    throw new PaystackError(
+      "Payment provider returned an unapproved checkout URL.",
+      "invalid_checkout"
+    );
   }
-  if (url.protocol !== "https:" || !CHECKOUT_HOSTS.has(url.hostname)) {
-    throw new PaystackError("Payment provider returned an unapproved checkout host.", "invalid_checkout");
-  }
-  return url.toString();
+  return new URL(value).toString();
 }
 
 export interface PaystackInitialization {
@@ -144,12 +297,17 @@ export async function initializeTransaction(input: {
   reference: string;
   callbackUrl: string;
   metadata: Record<string, string>;
+  /** Payment methods the hosted page should offer. Omitted = provider default. */
+  channels?: HostedCheckoutChannel[];
 }): Promise<PaystackInitialization> {
   if (!Number.isInteger(input.amountSubunit) || input.amountSubunit < 1) {
     throw new PaystackError("Invalid payment amount.", "invalid_amount");
   }
   if (!/^[A-Za-z0-9._=-]{6,120}$/.test(input.reference)) {
     throw new PaystackError("Invalid payment reference.", "invalid_reference");
+  }
+  if (input.channels && input.channels.some((channel) => !isHostedCheckoutChannel(channel))) {
+    throw new PaystackError("Unsupported payment channel.", "invalid_channel");
   }
   const body = await request<{
     status?: boolean;
@@ -162,6 +320,9 @@ export async function initializeTransaction(input: {
       currency: input.currency,
       reference: input.reference,
       callback_url: input.callbackUrl,
+      ...(input.channels && input.channels.length > 0
+        ? { channels: Array.from(new Set(input.channels)) }
+        : {}),
       metadata: JSON.stringify(input.metadata),
     }),
   });
@@ -226,6 +387,31 @@ export async function verifyTransaction(reference: string): Promise<PaystackTran
     metadata,
     id: typeof body.data.id === "number" ? body.data.id : null,
   };
+}
+
+/**
+ * Read-only reconciliation lookup.
+ *
+ * `found: false` is a definitive "Paystack has no transaction for this
+ * reference" only when the provider answers 400/404 for the lookup itself. Any
+ * other failure (timeout, 5xx, malformed body) is rethrown as ambiguous so a
+ * caller never mistakes "we could not ask" for "no charge exists".
+ */
+export async function lookupTransaction(
+  reference: string
+): Promise<{ found: boolean; transaction: PaystackTransaction | null }> {
+  try {
+    return { found: true, transaction: await verifyTransaction(reference) };
+  } catch (error) {
+    if (
+      error instanceof PaystackError &&
+      error.failureKind === "rejected" &&
+      (error.providerStatus === 400 || error.providerStatus === 404)
+    ) {
+      return { found: false, transaction: null };
+    }
+    throw error;
+  }
 }
 
 /** HMAC SHA-512 over the exact raw body, as documented by Paystack. */
@@ -453,6 +639,42 @@ export async function chargeMobileMoney(input: {
   });
   if (!body.status || !body.data) {
     throw new PaystackError("Mobile money charge could not be started.", "charge_failed");
+  }
+  return {
+    reference: String(body.data.reference ?? input.reference),
+    status: String(body.data.status ?? "pending").toLowerCase(),
+    displayText: body.data.display_text ?? null,
+    message: body.data.message ?? body.message ?? null,
+  };
+}
+
+/**
+ * Submit the verification code Paystack sent to the customer's phone.
+ *
+ * `otp` is a transient request value. It is validated, sent once and never
+ * logged, stored, hashed or returned. The provider's answer decides what
+ * happens next; this function never assumes the charge succeeded.
+ */
+export async function submitChargeOtp(input: {
+  reference: string;
+  otp: string;
+}): Promise<MobileMoneyCharge> {
+  if (!/^[A-Za-z0-9._=-]{6,120}$/.test(input.reference)) {
+    throw new PaystackError("Invalid payment reference.", "invalid_reference");
+  }
+  if (!/^\d{4,10}$/.test(input.otp)) {
+    throw new PaystackError("Enter the verification code Paystack sent to your phone.", "invalid_otp");
+  }
+  const body = await request<{
+    status?: boolean;
+    message?: string;
+    data?: { reference?: string; status?: string; display_text?: string; message?: string };
+  }>("/charge/submit_otp", {
+    method: "POST",
+    body: JSON.stringify({ otp: input.otp, reference: input.reference }),
+  });
+  if (!body.status || !body.data) {
+    throw new PaystackError("The verification code could not be submitted.", "otp_failed");
   }
   return {
     reference: String(body.data.reference ?? input.reference),

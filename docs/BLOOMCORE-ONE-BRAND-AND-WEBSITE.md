@@ -273,27 +273,33 @@ cannot act as a tenant user (and the reverse).
 | --- | --- | --- |
 | `SITE_URL` | Canonical public origin. Drives metadata base, sitemap, robots, Open Graph URLs | Set to the verified Render host `https://bloomcore-one.onrender.com` until a permanent domain is configured |
 | `NEXT_PUBLIC_SITE_URL` | Client-visible fallback for the same origin | Set to the same verified host |
-| `CONTACT_EMAIL` | Public enquiry email | Set on the Render service (never committed) |
-| `CONTACT_PHONE` | Public enquiry telephone and WhatsApp link | Set on the Render service (never committed) |
+| `CONTACT_EMAIL` | Optional supplementary public email | Only publish a verified address (never committed) |
+| `CONTACT_PHONE` | Optional supplementary telephone/WhatsApp | Only publish a verified number (never committed) |
 
 ---
 
 ## 8. Contact page
 
-No verified BloomCore Technologies business email or telephone exists, so
-`CONTACT_EMAIL` and `CONTACT_PHONE` are unset and `CONTACT_CONFIGURED` is
-false. The `/contact` page says plainly that no public enquiry channel has been
-published yet, and lists exactly what must be supplied:
+`/contact` is the public demonstration-request channel and it does not depend on
+`CONTACT_EMAIL` or `CONTACT_PHONE`. The form posts to the same
+`submitAccountEnquiry` server action and `AccountEnquiry` table as the pricing
+page, with `enquiryType = DEMO_REQUEST` and `source = public-contact`; Platform
+Super Admin reviews it at `/platform/enquiries` alongside account enquiries.
 
-1. A monitored business email address for enquiries.
-2. A business telephone number with the hours it is answered.
-3. The postal or registered-office address, if the owner wants it published.
+The visitor supplies business name, contact name, Ghana phone number, number of
+locations, package interest and what they want to manage (mobile money, Susu or
+both). Email and a free-text note are optional. Turnstile is verified
+server-side before anything is stored, submissions are rate limited, and a
+10-minute duplicate guard returns the existing reference instead of creating a
+second lead.
 
-There is **no** form that pretends to submit. No message is stored, no
-third-party service is called, and no success state is shown for a message
-that was never sent. Once a channel is configured, the page renders the real
-contact details and the same enquiry path.
+A submitted request creates only an `AccountEnquiry`: no tenant, user,
+subscription or charge. The success state shows the reference and states that
+no appointment has been booked and no workspace created.
 
+`CONTACT_EMAIL` and `CONTACT_PHONE` remain optional extras: when the owner
+supplies verified values, the page additionally offers email, telephone and
+WhatsApp links. They never gate or replace the form.
 ---
 
 ## 9. Legal pages
@@ -356,8 +362,9 @@ No production database was touched.
 1. **Confirm the public domain.** Set `SITE_URL` (server-side) or
    `NEXT_PUBLIC_SITE_URL` to the final origin, then rebuild. Canonical tags
    are emitted only after this is set.
-2. **Supply a verified contact channel.** Set `CONTACT_EMAIL` and
-   `CONTACT_PHONE` with the hours the number is answered.
+2. **Optionally add direct contact details.** The enquiry form already works;
+   set `CONTACT_EMAIL` / `CONTACT_PHONE` only if you want them published as
+   extra channels, with the hours the number is answered.
 3. **Review `/privacy` and `/terms` with a legal adviser.** Both pages still
    carry their draft notice until you remove it.
 4. **Decide the launch status of the product.** The public site describes a

@@ -13,6 +13,19 @@
 const WORKER_URL = "/tab-session-sw.js";
 const MFA_KEY = "bik-mfa-challenge";
 
+// A new service worker cannot change JavaScript that is already running. When
+// an updated worker takes over an already-controlled page, reload once so the
+// document uses the new chunks and the Server Action ids that belong to them.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
+}
+
 export function tabSessionsSupported(): boolean {
   return (
     typeof window !== "undefined" &&

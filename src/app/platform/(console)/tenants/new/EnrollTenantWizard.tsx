@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { enrollTenant } from "@/lib/actions/platform.actions";
+import Notice from "@/components/ui/Notice";
 
 type ModuleChoice = "momo" | "susu" | "both";
 
@@ -213,9 +214,9 @@ export default function EnrollTenantWizard() {
       </ol>
 
       {error && (
-        <div role="alert" className="banner banner-error text-sm">
+        <Notice type="error" className="text-sm" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
 
       <div className="card bg-white">

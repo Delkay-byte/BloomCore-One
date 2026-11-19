@@ -12,10 +12,15 @@ export const TURNSTILE_ACTIONS = {
   adminLogin: "admin_login",
   platformLogin: "platform_login",
   passwordReset: "password_reset",
+  /** Public account enquiry form on the marketing site. */
+  accountEnquiry: "account_enquiry",
 } as const;
 
 export type TurnstileAction =
   (typeof TURNSTILE_ACTIONS)[keyof typeof TURNSTILE_ACTIONS];
+
+/** Turnstile action bound to the public account-enquiry form. */
+export const ACCOUNT_ENQUIRY_ACTION = TURNSTILE_ACTIONS.accountEnquiry;
 
 /** Non-admin roles accepted by the shared `/login` portal. */
 export type SharedLoginRole = "customer" | "momo" | "susu";

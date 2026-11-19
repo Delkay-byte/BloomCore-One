@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { unifiedLogin } from "@/lib/actions/auth.actions";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { turnstileActionForRole } from "@/lib/security/turnstile-actions";
 import {
@@ -120,6 +121,15 @@ const ROLE_BY_KEY = ROLES.reduce(
   {} as Record<RoleKey, RoleConfig>
 );
 
+/** A stale client bundle (usually a cached chunk) cannot call the new action. */
+function staleLoginMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? "");
+  if (/Failed to find Server Action|Server Action .*not found|older or newer deployment/i.test(text)) {
+    return "This sign-in page is out of date. Reload the page and sign in again.";
+  }
+  return "An unexpected error occurred";
+}
+
 export default function UnifiedLoginClient({
   searchParams,
 }: {
@@ -164,7 +174,7 @@ export default function UnifiedLoginClient({
         return;
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/login");
         window.location.assign(result.redirectTo);
         return;
       }
@@ -185,7 +195,7 @@ export default function UnifiedLoginClient({
       setError("Login could not establish a tab session.");
     } catch (err) {
       if (isRedirectError(err)) throw err;
-      setError("An unexpected error occurred. Please try again.");
+      setError(staleLoginMessage(err));
     } finally {
       setLoading(false);
     }
@@ -298,29 +308,29 @@ export default function UnifiedLoginClient({
 
         <div className="rounded-2xl border border-line bg-white p-5 shadow-raised sm:p-6">
           {passwordReset && (
-            <div role="status" className="banner banner-success mb-4 text-sm">
+            <Notice type="success" className="mb-4 text-sm">
               Password reset successful. Please sign in with your new password.
-            </div>
+            </Notice>
           )}
           {passwordUpgraded && (
-            <div role="status" className="banner banner-success mb-4 text-sm">
+            <Notice type="success" className="mb-4 text-sm">
               Password updated. Please sign in with your new password.
-            </div>
+            </Notice>
           )}
           {error && (
-            <div role="alert" aria-live="assertive" className="banner banner-error mb-4 text-sm">
-              {error}
-              {emailUnverified && (
-                <p className="mt-2">
+            <Notice type="error" className="mb-4 text-sm" message={error} popup={false}>
+              <div className="min-w-0 flex-1 space-y-2">
+                <p>{error}</p>
+                {emailUnverified && (
                   <Link
                     href={`/verify-email?email=${encodeURIComponent(emailUnverified)}`}
-                    className="font-semibold underline"
+                    className="inline-flex items-center font-semibold underline underline-offset-2"
                   >
                     Resend verification email
                   </Link>
-                </p>
-              )}
-            </div>
+                )}
+              </div>
+            </Notice>
           )}
 
           <form action={handleSubmit} className="space-y-4">

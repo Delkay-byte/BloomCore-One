@@ -15,6 +15,8 @@ export const ENQUIRY_STATUSES = [
 
 export type EnquiryStatus = (typeof ENQUIRY_STATUSES)[number];
 
+export type EnquiryType = "ACCOUNT_REQUEST" | "DEMO_REQUEST";
+
 export interface EnquiryRow {
   id: string;
   businessName: string;
@@ -25,5 +27,7 @@ export interface EnquiryRow {
   interestedPlan: string | null;
   message: string | null;
   status: string;
+  enquiryType: string;
+  modules: string | null;
   createdAt: string;
 }

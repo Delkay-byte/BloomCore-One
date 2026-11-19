@@ -12,6 +12,7 @@ import {
   PlayCircle,
 } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
+import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { createDailyAccount } from "@/lib/actions/daily-account.actions";
 import { resolveStoredDifference } from "@/lib/momo-reconciliation";
@@ -98,9 +99,9 @@ export default function WorkerDashboardClient({
       </section>
 
       {error && (
-        <div role="alert" className="banner banner-error text-sm">
+        <Notice type="error" className="text-sm" message={error}>
           {error}
-        </div>
+        </Notice>
       )}
 
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">

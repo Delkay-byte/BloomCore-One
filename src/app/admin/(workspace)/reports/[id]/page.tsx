@@ -1,5 +1,6 @@
 "use client";
 import { SkeletonPage } from "@/components/ui/Skeletons";
+import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 
 import { useEffect, useState } from "react";
@@ -139,8 +140,8 @@ export default function ReportDetailPage() {
         </div>
       </div>
 
-      {error && <div role="alert" className="banner banner-error mb-4">{error}</div>}
-      {success && <div role="status" className="banner banner-success mb-4">{success}</div>}
+      {error && <Notice type="error" className="mb-4" message={error}>{error}</Notice>}
+      {success && <Notice type="success" className="mb-4" message={success}>{success}</Notice>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="card"><div className="text-sm text-slate-500">Business Date</div><div className="font-medium">{formatDate(account.businessDate)}</div></div>

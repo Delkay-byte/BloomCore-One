@@ -14,6 +14,26 @@ import type { Prisma } from "@prisma/client";
 export const FOUNDING_MAX_BUSINESSES = 5;
 export const FOUNDING_PERIODS = 3;
 
+/**
+ * Owner-approved internal policy. These values are never imported by a public
+ * page or a client component; public pricing intentionally shows standard
+ * prices only.
+ */
+export const FOUNDING_PROMOTION = {
+  maxBusinesses: FOUNDING_MAX_BUSINESSES,
+  discountedPeriods: FOUNDING_PERIODS,
+  terms:
+    "Founding price for the first three monthly periods only. Standard pricing applies from the fourth renewal. Limited to five eligible businesses.",
+  annualEligible: false,
+} as const;
+
+/** Approved founding monthly prices, used by allocation/accounting checks. */
+export const APPROVED_FOUNDING_PRICES = {
+  starter: 79,
+  business: 149,
+  "multi-branch": 225,
+} as const;
+
 export interface FoundingPlanLike {
   id: string;
   code: string;
@@ -180,17 +200,41 @@ export async function consumeFoundingPeriod(
   });
 }
 
+/**
+ * Public availability of the founding programme.
+ *
+ * Every allocation row permanently occupies its unique slot, including an
+ * exhausted or revoked one, because `assignFoundingAllocation` checks slot
+ * occupancy before inserting. Counting rows (not only active rows) therefore
+ * matches what the allocator will actually accept and keeps operator/backend
+ * reporting truthful. It is never called by a public page.
+ */
+export async function foundingAvailability(): Promise<{
+  capacity: number;
+  allocated: number;
+  remaining: number;
+  available: boolean;
+}> {
+  const allocated = await db.foundingAllocation.count();
+  const remaining = Math.max(0, FOUNDING_MAX_BUSINESSES - allocated);
+  return {
+    capacity: FOUNDING_MAX_BUSINESSES,
+    allocated,
+    remaining,
+    available: remaining > 0,
+  };
+}
+
 /** Slots for the platform dashboard. */
 export async function foundingSlots() {
   const rows = await db.foundingAllocation.findMany({
     orderBy: { slot: "asc" },
     include: { tenant: { select: { id: true, code: true, name: true } }, plan: { select: { code: true, name: true } } },
   });
-  const active = rows.filter((row) => row.status === "active");
   return {
     capacity: FOUNDING_MAX_BUSINESSES,
-    used: active.length,
-    remaining: Math.max(0, FOUNDING_MAX_BUSINESSES - active.length),
+    used: rows.length,
+    remaining: Math.max(0, FOUNDING_MAX_BUSINESSES - rows.length),
     rows,
   };
 }

@@ -103,6 +103,8 @@ describe("email verification", () => {
 
     const first = await confirmEmailVerification(token);
     expect(first.success).toBe(true);
+    // Staff and customers continue to the shared login.
+    expect(first.signInPath).toBe("/login");
     const verified = await prisma.user.findUnique({ where: { id: user.id } });
     expect(verified?.emailVerified).toBe(true);
     expect(verified?.emailVerifiedAt).toBeTruthy();
@@ -111,6 +113,82 @@ describe("email verification", () => {
     // Idempotent for the same, now-verified account; it cannot verify another.
     expect(reused.success).toBe(true);
     expect(reused.verified).toBe(true);
+  });
+
+  it("sends a verified administrator to the private administrator login", async () => {
+    const admin = await makeUser({ email: "owner@example.com", role: "admin", emailVerified: false });
+    await issueEmailVerification(admin.id);
+    const token = extractToken(getEmailOutbox()[0].text, "/verify-email");
+    const result = await confirmEmailVerification(token);
+    expect(result.success).toBe(true);
+    expect(result.signInPath).toBe("/admin/login");
+  });
+
+  it("sends a newly provisioned owner to billing instead of the dashboard", async () => {
+    const tenant = await prisma.businessTenant.create({
+      data: {
+        code: "BT-PENDING1",
+        name: "Pending Business",
+        momoEnabled: true,
+        susuEnabled: true,
+        status: "PENDING_PAYMENT",
+        onboardingStatus: "COMPLETED",
+      },
+    });
+    const plan = await prisma.zeliPlan.create({
+      data: {
+        code: "starter-pending",
+        name: "Starter",
+        billingInterval: "month",
+        price: 99,
+        status: "active",
+        isPublic: true,
+      },
+    });
+    const admin = await makeUser({
+      email: "pending.owner@example.com",
+      role: "admin",
+      tenantId: tenant.id,
+    });
+    await prisma.zeliSubscription.create({
+      data: {
+        tenantId: tenant.id,
+        planId: plan.id,
+        status: "pending_payment",
+        provider: "paystack",
+        providerReference: "PENDING-LOGIN-1",
+        amount: 99,
+        currency: "GHS",
+        billingTerm: "monthly",
+        standardAmount: 99,
+      },
+    });
+
+    const form = new FormData();
+    form.set("email", admin.email);
+    form.set("password", OLD_PASSWORD);
+    const login = await adminLogin(form);
+    expect(login?.success).toBe(true);
+    expect(login?.sessionToken).toBeTruthy();
+    expect(login?.redirectTo).toBe("/admin/billing?payment=required");
+  });
+
+  it("returns an administrator to the private administrator login after the upgrade", async () => {
+    const admin = await makeUser({ email: "admin@example.com", role: "admin", forcePasswordReset: true });
+    const form = new FormData();
+    form.set("email", admin.email);
+    form.set("password", OLD_PASSWORD);
+    const login = await adminLogin(form);
+    const challengeToken = (login as { challengeToken?: string }).challengeToken;
+    expect(challengeToken).toBeTruthy();
+
+    const change = new FormData();
+    change.set("challengeToken", challengeToken ?? "");
+    change.set("newPassword", NEW_PASSWORD);
+    change.set("confirmPassword", NEW_PASSWORD);
+    const changed = await completeRequiredPasswordChange(change);
+    expect(changed.success).toBe(true);
+    expect(changed.redirectTo).toBe("/admin/login?reason=password_upgraded");
   });
 
   it("rejects expired and invalid tokens", async () => {
@@ -192,6 +270,8 @@ describe("mandatory password upgrade", () => {
     const changed = await completeRequiredPasswordChange(strong);
     expect(changed.success).toBe(true);
     expect(changed).not.toHaveProperty("sessionToken");
+    // Staff keep the shared login after the upgrade.
+    expect(changed.redirectTo).toBe("/login?reason=password_upgraded");
 
     const updated = await prisma.user.findUnique({ where: { id: user.id } });
     expect(updated?.forcePasswordReset).toBe(false);

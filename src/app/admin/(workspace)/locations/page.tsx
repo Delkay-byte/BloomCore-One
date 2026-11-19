@@ -1,6 +1,7 @@
 "use client";
 import { useOptimisticAction } from "@/hooks/useOptimisticAction";
 import { useToast } from "@/components/ui/Toast";
+import Notice from "@/components/ui/Notice";
 import { SkeletonPage } from "@/components/ui/Skeletons";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import DraftIndicator from "@/components/DraftIndicator";
@@ -107,8 +108,8 @@ export default function LocationsPage() {
         </button>
       </div>
 
-      {error && <div role="alert" className="banner banner-error mb-4">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700"><X size={14} aria-hidden /></button></div>}
-      {success && <div role="status" className="banner banner-success mb-4">{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700"><X size={14} aria-hidden /></button></div>}
+      {error && <Notice type="error" className="mb-4" message={error}>{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error"><X size={14} aria-hidden /></button></Notice>}
+      {success && <Notice type="success" className="mb-4" message={success}>{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700" aria-label="Dismiss confirmation"><X size={14} aria-hidden /></button></Notice>}
 
       {showForm && (
         <div className="card mb-6">

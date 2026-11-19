@@ -247,15 +247,4 @@ export function CtaBand({
   );
 }
 
-/** Legal pages are drafts until the owner and their legal adviser review them. */
-export function DraftNotice({ children }: { children?: React.ReactNode }) {
-  return (
-    <div className="rounded-card border border-gold-300 bg-gold-50 p-4 text-sm text-ink">
-      <p className="font-semibold text-ink-deep">Draft — pending owner and legal review</p>
-      <p className="mt-1 leading-relaxed">
-        {children ??
-          "This page describes how the deployed application actually handles data. It is not a legal agreement and has not been reviewed by a lawyer. It must be reviewed before commercial launch."}
-      </p>
-    </div>
-  );
-}
+

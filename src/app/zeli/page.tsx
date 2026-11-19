@@ -3,20 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
   BarChart3,
   Check,
   Copy,
+  Loader2,
   MessageSquarePlus,
-  Pencil,
   Send,
-  ShieldCheck,
   Sparkles,
-  Square,
   ThumbsDown,
   ThumbsUp,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   createZeliConversation,
@@ -25,862 +21,633 @@ import {
   getZeliConversation,
   listZeliConversations,
   renameZeliConversation,
+  sendZeliMessage,
   setZeliFeedback,
 } from "@/lib/actions/zeli.actions";
-import { acceptZeliTeamDisclosure } from "@/lib/actions/zeli-team.actions";
-import { AppBrand } from "@/components/brand/AppBrand";
-import Modal, { ConfirmDialog } from "@/components/ui/Modal";
-import { useToast } from "@/components/ui/Toast";
-
-interface Conversation {
-  id: string;
-  title: string;
-  updatedAt: string;
-}
 
 interface Message {
   id: string;
   role: string;
   content: string;
-  sources: Array<{ label: string; href?: string; detail?: string }>;
-  feedback: string | null;
-  provider?: string | null;
-  model?: string | null;
-  deterministic?: boolean;
+  sources?: { label?: string; href?: string }[];
+  feedback?: string | null;
+  createdAt?: string;
 }
 
+interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+interface Usage {
+  used: number;
+  limit: number;
+  remaining: number;
+  periodLabel: string;
+  resetAt: string;
+  blocked: null | { code: string; message: string };
+}
+
+const dateLabel = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+/** Zeli — read-only business assistant. */
 export default function ZeliPage() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [ready, setReady] = useState(false);
+  const [fatal, setFatal] = useState("");
+  const [error, setError] = useState("");
+  const [role, setRole] = useState("admin");
+  const [analyticsAccess, setAnalyticsAccess] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [usage, setUsage] = useState<Usage | null>(null);
+
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
+  const [loadingThread, setLoadingThread] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState<{
-    provider: string;
-    model: string;
-    available: boolean;
-    reason?: string;
-    message?: string;
-    external?: { state: string; allowed: boolean };
-    conversation?: {
-      mode: "local" | "external";
-      state: string;
-      message: string;
-      provider?: string | null;
-      model?: string | null;
-      teamTesting?: boolean;
-      teamTesterActive?: boolean;
-      teamDisclosureAccepted?: boolean;
-      teamDisclosureVersion?: string;
-    };
-  } | null>(null);
-  const [acceptingDisclosure, setAcceptingDisclosure] = useState(false);
-  const [showAgreement, setShowAgreement] = useState(false);
-  const [agreementChecked, setAgreementChecked] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
+  const [input, setInput] = useState("");
+  const [lastQuestion, setLastQuestion] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
-  const [dialogBusy, setDialogBusy] = useState(false);
-  const toast = useToast();
-  const [environment, setEnvironment] = useState<"staging" | "production">("production");
-  const [acceptanceMode, setAcceptanceMode] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [analyticsAccess, setAnalyticsAccess] = useState(false);
-  const [usage, setUsage] = useState<{
-    used: number;
-    limit: number;
-    remaining: number;
-    periodLabel: string;
-    resetAt: string;
-    blocked: null | { code: string; message: string };
-  } | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const localIdRef = useRef(0);
 
   const loadConversation = useCallback(async (id: string) => {
-    const result = await getZeliConversation(id);
-    if (result.success) {
-      setSelected(id);
+    setLoadingThread(true);
+    setError("");
+    try {
+      const result = await getZeliConversation(id);
+      if (!result.success) {
+        setError(result.error ?? "That conversation could not be opened.");
+        return;
+      }
+      setSelected(result.data.id);
       setMessages(result.data.messages as Message[]);
+      setShowHistory(false);
+    } finally {
+      setLoadingThread(false);
     }
   }, []);
 
-  const boot = useCallback(async () => {
-    const [bootstrap, list] = await Promise.all([
-      getZeliBootstrap(),
-      listZeliConversations(),
-    ]);
-    if (bootstrap.success && bootstrap.data) {
-      setStatus(bootstrap.data.status);
-      setSuggestions(bootstrap.data.suggestions);
-      setAnalyticsAccess(Boolean(bootstrap.data.analyticsAccess));
-      setUsage(bootstrap.data.usage ?? null);
-      setEnvironment(bootstrap.data.environment ?? "production");
-      setAcceptanceMode(Boolean(bootstrap.data.acceptanceMode));
-    }
-    if (list.success && list.data && list.data.length > 0) {
-      setConversations(list.data);
-      await loadConversation(list.data[0].id);
-    } else {
-      const created = await createZeliConversation();
-      if (created.success && created.data) {
-        setConversations([
-          { id: created.data.id, title: created.data.title, updatedAt: new Date().toISOString() },
-        ]);
-        setSelected(created.data.id);
-        setMessages([]);
-      } else {
-        setError(created.error ?? "Could not start a conversation.");
-      }
-    }
-  }, [loadConversation]);
-
-  useEffect(() => {
-    void boot();
-  }, [boot]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending]);
-
-  async function refreshConversations() {
-    const list = await listZeliConversations();
-    if (list.success && list.data) setConversations(list.data);
-  }
-
-  async function newConversation() {
-    const created = await createZeliConversation();
-    if (!created.success || !created.data) {
-      setError(created.error ?? "Could not start a conversation.");
+  const newConversation = useCallback(async () => {
+    const result = await createZeliConversation();
+    if (!result.success || !result.data) {
+      setError(result.error ?? "A new conversation could not be started.");
       return;
     }
-    await refreshConversations();
-    setSelected(created.data.id);
+    setConversations((current) => [
+      { id: result.data!.id, title: result.data!.title, updatedAt: new Date().toISOString() },
+      ...current,
+    ]);
+    setSelected(result.data.id);
     setMessages([]);
     setError("");
-  }
+    setShowHistory(false);
+    composerRef.current?.focus();
+  }, []);
 
-  async function acceptDisclosure(): Promise<boolean> {
-    setAcceptingDisclosure(true);
-    setError("");
-    try {
-      const result = await acceptZeliTeamDisclosure();
-      if (!result.success) {
-        setError(result.error ?? "The disclosure could not be accepted.");
-        return false;
-      }
-      setStatus((current) =>
-        current
-          ? {
-              ...current,
-              conversation: current.conversation
-                ? { ...current.conversation, teamDisclosureAccepted: true }
-                : current.conversation,
-            }
-          : current
-      );
-      toast.push("success", "Zeli Usage Agreement accepted.");
-      return true;
-    } catch {
-      setError("The agreement could not be accepted. Please try again.");
-      return false;
-    } finally {
-      setAcceptingDisclosure(false);
-    }
-  }
-
-  async function handleAcceptAgreement() {
-    if (!agreementChecked || acceptingDisclosure) return;
-    const accepted = await acceptDisclosure();
-    if (accepted) {
-      setShowAgreement(false);
-      setAgreementChecked(false);
-    }
-  }
-
-  async function submitRename() {
-    if (!renameTarget || dialogBusy) return;
-    const title = renameValue.trim();
-    if (!title) {
-      setError("Enter a conversation title.");
-      return;
-    }
-    setDialogBusy(true);
-    try {
-      const result = await renameZeliConversation(renameTarget.id, title);
-      if (result.success) {
-        await refreshConversations();
-        toast.push("success", "Conversation renamed.");
-        setRenameTarget(null);
-      } else {
-        setError(result.error ?? "Could not rename the conversation.");
-      }
-    } catch {
-      setError("Could not rename the conversation. Please try again.");
-    } finally {
-      setDialogBusy(false);
-    }
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget || dialogBusy) return;
-    setDialogBusy(true);
-    try {
-      const result = await deleteZeliConversation(deleteTarget.id);
-      if (!result.success) {
-        setError(result.error ?? "Could not delete the conversation.");
+  useEffect(() => {
+    (async () => {
+      const boot = await getZeliBootstrap();
+      if (!boot.success) {
+        setFatal(boot.error ?? "Zeli is unavailable right now.");
+        setReady(true);
         return;
       }
-      const remaining = conversations.filter((item) => item.id !== deleteTarget.id);
-      setConversations(remaining);
-      toast.push("success", "Conversation deleted.");
-      if (selected === deleteTarget.id) {
-        if (remaining[0]) await loadConversation(remaining[0].id);
+      setRole(boot.data!.role);
+      setAnalyticsAccess(boot.data!.analyticsAccess);
+      setSuggestions(boot.data!.suggestions);
+      setUsage(boot.data!.usage as Usage | null);
+
+      const list = await listZeliConversations();
+      if (list.success && list.data) {
+        setConversations(list.data);
+        if (list.data[0]) await loadConversation(list.data[0].id);
         else await newConversation();
       }
-      setDeleteTarget(null);
-    } catch {
-      setError("Could not delete the conversation. Please try again.");
-    } finally {
-      setDialogBusy(false);
-    }
-  }
+      setReady(true);
+    })();
+  }, [loadConversation, newConversation]);
 
-  async function send(message: string) {
-    if (!selected || sending) return;
-    if (
-      status?.conversation?.teamTesting &&
-      !status.conversation.teamDisclosureAccepted
-    ) {
-      setError(
-        "Accept the Team Testing disclosure before sending a message to DeepSeek."
-      );
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, sending]);
+
+  async function send(question: string) {
+    const text = question.trim();
+    if (!text || !selected || sending) return;
+    if (usage?.blocked) {
+      setError(usage.blocked.message);
       return;
     }
-    const question = message.trim();
-    if (!question) return;
     setSending(true);
     setError("");
+    setLastQuestion(text);
     setInput("");
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    const localUser: Message = {
-      id: `local-user-${Date.now()}`,
-      role: "user",
-      content: question,
-      sources: [],
-      feedback: null,
-    };
-    const localAssistant: Message = {
-      id: `local-assistant-${Date.now()}`,
-      role: "assistant",
-      content: "",
-      sources: [],
-      feedback: null,
-    };
-    setMessages((current) => [...current, localUser, localAssistant]);
+    localIdRef.current += 1;
+    const optimistic: Message = { id: `local-${localIdRef.current}`, role: "user", content: text };
+    setMessages((current) => [...current, optimistic]);
 
     try {
-      const response = await fetch("/api/zeli/chat", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId: selected, message: question }),
-        signal: controller.signal,
-      });
-      if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || "Zeli could not answer. Please try again.");
+      const result = await sendZeliMessage({ conversationId: selected, message: text });
+      if (!result.success || !result.data) {
+        setError(result.error ?? "Zeli could not answer that question.");
+        return;
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let text = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        const snapshot = text;
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === localAssistant.id ? { ...item, content: snapshot } : item
-          )
-        );
-      }
-      // Reload authoritative persisted history (real message ids and sources).
-      await loadConversation(selected);
-      await refreshConversations();
-    } catch (caught) {
-      if ((caught as Error).name === "AbortError") {
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === localAssistant.id
-              ? { ...item, content: item.content || "Generation stopped." }
-              : item
-          )
-        );
-      } else {
-        setError((caught as Error).message);
-        setMessages((current) =>
-          current.filter((item) => item.id !== localAssistant.id)
-        );
-      }
+      setMessages((current) => [
+        ...current,
+        {
+          id: `answer-${localIdRef.current}`,
+          role: "assistant",
+          content: result.data!.text,
+          sources: (result.data!.sources as Message["sources"]) ?? [],
+          feedback: null,
+        },
+      ]);
+      setLastQuestion(null);
+    } catch {
+      setError("Zeli could not answer that question. Please try again.");
     } finally {
-      abortRef.current = null;
       setSending(false);
+      composerRef.current?.focus();
     }
   }
 
-  function stop() {
-    abortRef.current?.abort();
+  async function copyMessage(message: Message) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedId(message.id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      setError("The answer could not be copied on this device.");
+    }
   }
 
-  async function copy(message: Message) {
-    await navigator.clipboard.writeText(message.content);
-    setCopied(message.id);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
-  async function feedback(message: Message, value: "helpful" | "unhelpful") {
-    const result = await setZeliFeedback(
-      message.id,
-      message.feedback === value ? null : value
+  async function rate(message: Message, value: "helpful" | "unhelpful") {
+    const next = message.feedback === value ? null : value;
+    setMessages((current) =>
+      current.map((row) => (row.id === message.id ? { ...row, feedback: next } : row))
     );
-    if (result.success) {
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === message.id
-            ? { ...item, feedback: item.feedback === value ? null : value }
-            : item
-        )
-      );
+    await setZeliFeedback(message.id, next).catch(() => undefined);
+  }
+
+  function openRename(id: string, title: string) {
+    setRenameTarget({ id, title });
+    setRenameValue(title);
+  }
+
+  async function rename(id: string, next: string) {
+    setRenameTarget(null);
+    const result = await renameZeliConversation(id, next);
+    if (!result.success) {
+      setError(result.error ?? "The conversation could not be renamed.");
+      return;
+    }
+    setConversations((current) =>
+      current.map((row) => (row.id === id ? { ...row, title: next.trim().slice(0, 80) } : row))
+    );
+  }
+
+  async function remove(id: string) {
+    setConfirmDelete(null);
+    const result = await deleteZeliConversation(id);
+    if (!result.success) {
+      setError(result.error ?? "The conversation could not be deleted.");
+      return;
+    }
+    const remaining = conversations.filter((row) => row.id !== id);
+    setConversations(remaining);
+    if (selected === id) {
+      if (remaining[0]) await loadConversation(remaining[0].id);
+      else await newConversation();
     }
   }
 
-  function openRename(conversation: Conversation) {
-    setRenameTarget(conversation);
-    setRenameValue(conversation.title);
+  if (!ready) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-16" aria-busy="true">
+        <div className="h-8 w-40 animate-pulse rounded-md bg-slate-200" />
+        <div className="mt-6 space-y-3">
+          <div className="h-16 animate-pulse rounded-xl bg-slate-100" />
+          <div className="h-16 animate-pulse rounded-xl bg-slate-100" />
+          <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
+        </div>
+      </div>
+    );
   }
 
-  function openDelete(conversation: Conversation) {
-    setDeleteTarget(conversation);
+  if (fatal) {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-4 py-16">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
+          <Sparkles className="mx-auto text-brand-600" size={28} aria-hidden />
+          <h1 className="mt-3 text-xl font-semibold text-slate-900">Zeli is paused</h1>
+          <p className="mt-2 text-sm text-slate-600">{fatal}</p>
+          <p className="mt-2 text-sm text-slate-600">
+            Your MaaCash workspace, records and payments are unaffected.
+          </p>
+          <Link href="/admin/dashboard" className="btn btn-primary mt-5 inline-flex">
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-[#F6F5EC] text-[#17211C]">
-      <header className="sticky top-0 z-40 border-b border-brand-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link href="/workspace" className="text-brand-700 hover:text-brand-900" aria-label="Back to workspace">
-              <ArrowLeft size={18} aria-hidden />
+    <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-6 sm:py-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900 sm:text-2xl">
+            <Sparkles size={20} className="text-brand-600" aria-hidden /> Zeli
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-slate-600">
+            Ask about your business. Zeli reads your authorised records and cannot
+            post, reverse or delete money.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {analyticsAccess && (
+            <Link href="/admin/zeli-analytics" className="btn btn-secondary btn-sm">
+              <BarChart3 size={14} aria-hidden /> Analytics
             </Link>
-            <AppBrand markSize={28} href="/workspace" />
-            <span className="hidden items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800 sm:inline-flex">
-              <Sparkles size={13} aria-hidden /> Zeli
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`rounded-full px-2.5 py-1 font-medium ${
-                status?.available
-                  ? "bg-emerald-50 text-emerald-800"
-                  : "bg-amber-50 text-amber-800"
-              }`}
-              title={status?.reason}
-            >
-              {status?.conversation?.teamTesting
-                ? `Team Testing · ${status.conversation.model ?? "DeepSeek"}`
-                : status?.available
-                  ? `Provider: ${status.provider}`
-                  : "External provider disabled"}
-            </span>
-            {analyticsAccess && (
-              <Link href="/admin/zeli-analytics" className="btn btn-secondary btn-sm">
-                <BarChart3 size={14} aria-hidden /> Analytics
-              </Link>
-            )}
-            <button type="button" onClick={newConversation} className="btn btn-primary btn-sm">
-              <MessageSquarePlus size={14} aria-hidden /> New
-            </button>
-          </div>
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm md:hidden"
+            onClick={() => setShowHistory((value) => !value)}
+            aria-expanded={showHistory}
+            aria-controls="zeli-history"
+          >
+            History
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={newConversation}>
+            <MessageSquarePlus size={14} aria-hidden /> New
+          </button>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 pt-3">
-        {status?.conversation?.teamTesting ? (
-          <div className="rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs text-indigo-950">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="inline-flex items-center gap-1 font-semibold">
-                <Sparkles size={14} aria-hidden /> TEAM TESTING — LIVE DEEPSEEK API
-              </span>
-              <span>Provider: {status.conversation.provider ?? "deepseek"}</span>
-              <span>Model: {status.conversation.model ?? "configured model"}</span>
-              <span>Data: synthetic business fixtures only</span>
-            </div>
-            <p className="mt-1 font-medium text-amber-900">
-              Messages in this mode are processed by DeepSeek. Use fictional business,
-              customer and payment examples only. Do not enter real customer names,
-              telephone numbers, account details, balances or transaction records.
-            </p>
-            {!status.conversation.teamDisclosureAccepted && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-2 text-amber-950">
-                <span>
-                  Accept the external-AI disclosure (version{" "}
-                  {status.conversation.teamDisclosureVersion ?? "team"}) before your
-                  first DeepSeek conversation.
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => setShowAgreement(true)}
-                >
-                  Read and accept agreement
-                </button>
-              </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-[16rem_1fr]">
+        <aside
+          id="zeli-history"
+          className={`${showHistory ? "block" : "hidden"} md:block`}
+          aria-label="Conversations"
+        >
+          <div className="rounded-xl border border-slate-200 bg-white p-2">
+            {conversations.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-slate-600">No conversations yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {conversations.map((conversation) => (
+                  <li key={conversation.id}>
+                    <div
+                      className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 ${
+                        selected === conversation.id ? "bg-brand-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => loadConversation(conversation.id)}
+                        className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
+                        aria-current={selected === conversation.id ? "true" : undefined}
+                        title={conversation.title}
+                      >
+                        {conversation.title}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openRename(conversation.id, conversation.title)}
+                        className="rounded p-1 text-xs text-slate-500 hover:text-slate-800"
+                        aria-label={`Rename ${conversation.title}`}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete({ id: conversation.id, title: conversation.title })}
+                        className="rounded p-1 text-slate-500 hover:text-red-700"
+                        aria-label={`Delete ${conversation.title}`}
+                      >
+                        <Trash2 size={13} aria-hidden />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-        ) : acceptanceMode ? (
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="inline-flex items-center gap-1 font-semibold">
-                <Sparkles size={14} aria-hidden /> Enhanced AI — TEAM ACCEPTANCE MODE
-              </span>
-              <span>Provider: {status?.conversation?.provider ?? "deepseek"}</span>
-              <span>Model: {status?.conversation?.model ?? "configured model"}</span>
-              <span>Environment: {environment}</span>
-            </div>
-            <p className="mt-1 font-medium text-amber-900">
-              TEAM TEST ENVIRONMENT — Use dummy business data and fictional
-              conversations only. Do not enter real customer, employee, payment or
-              confidential business information.
-            </p>
-            <p className="mt-1">
-              Business figures come from this staging database and are calculated by
-              MaaCash. Enhanced AI explains them; it cannot change records. If an
-              answer is labelled “Local mode — Enhanced AI unavailable or blocked”, the
-              provider was unavailable and Zeli answered locally.
-            </p>
-          </div>
-        ) : (
-          <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${
-            status?.conversation?.mode === "external"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-amber-200 bg-amber-50 text-amber-900"
-          }`}>
-            <ShieldCheck size={15} className="mt-0.5 flex-none" aria-hidden />
-            <p>
-              <strong>
-                {status?.conversation?.mode === "external"
-                  ? "External AI conversation is enabled."
-                  : "Local mode."}
-              </strong>{" "}
-              {status?.conversation?.mode === "external"
-                ? "An approved external provider may help with greetings and general conversation. It never receives business records or figures; every financial answer is calculated inside MaaCash."
-                : "Zeli runs entirely inside MaaCash. Your messages are not sent to an external AI. Financial answers are calculated from your authorized records."}
-            </p>
-          </div>
-        )}
-      </div>
 
-      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[280px_1fr]">
-        <aside className="hidden lg:block" aria-label="Conversations">
-          <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Conversations
-          </h2>
-          <ul className="mt-2 space-y-1">
-            {conversations.map((conversation) => (
-              <li key={conversation.id} className="group flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => loadConversation(conversation.id)}
-                  className={`min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-sm ${
-                    selected === conversation.id
-                      ? "bg-white font-semibold text-brand-900 shadow-sm"
-                      : "text-slate-700 hover:bg-white/70"
-                  }`}
-                >
-                  <span className="block truncate">{conversation.title}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openRename(conversation)}
-                  className="rounded p-1 text-slate-400 hover:text-brand-700"
-                  aria-label={`Rename ${conversation.title}`}
-                >
-                  <Pencil size={13} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openDelete(conversation)}
-                  className="rounded p-1 text-slate-400 hover:text-red-700"
-                  aria-label={`Delete ${conversation.title}`}
-                >
-                  <Trash2 size={13} aria-hidden />
-                </button>
-              </li>
-            ))}
-          </ul>
+          {usage && (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+              {usage.blocked ? (
+                <p className="text-amber-800">{usage.blocked.message}</p>
+              ) : (
+                <>
+                  <p className="font-medium text-slate-800">
+                    {usage.used} of {usage.limit} requests this {usage.periodLabel.replace(/^this /, "")}
+                  </p>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-brand-600"
+                      style={{ width: `${Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100))}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5">
+                    {usage.remaining} left · resets{" "}
+                    {new Date(usage.resetAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
         </aside>
 
-        <div className="lg:hidden">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="zeli-conversation-mobile">
-            Conversation
-          </label>
-          <div className="mt-1 flex gap-2">
-            <select
-              id="zeli-conversation-mobile"
-              className="min-w-0 flex-1"
-              value={selected ?? ""}
-              onChange={(event) => loadConversation(event.target.value)}
-            >
-              {conversations.map((conversation) => (
-                <option key={conversation.id} value={conversation.id}>
-                  {conversation.title}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                const current = conversations.find((item) => item.id === selected);
-                if (current) openDelete(current);
-              }}
-              className="btn btn-secondary btn-sm"
-              aria-label="Delete current conversation"
-              disabled={!selected}
-            >
-              <Trash2 size={14} aria-hidden />
-            </button>
-          </div>
-        </div>
-
-        <main className="flex min-h-[70vh] flex-col rounded-2xl border border-brand-100 bg-white shadow-sm">
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6" aria-live="polite">
-            {messages.length === 0 && (
-              <div className="mx-auto max-w-xl py-10 text-center">
-                <Sparkles className="mx-auto text-brand-600" size={30} aria-hidden />
-                <h1 className="mt-3 text-xl font-semibold text-brand-900">
-                  Ask Zeli about your business
-                </h1>
-                <p className="mt-2 text-sm text-slate-600">
-                  Answers use your authorized records. Zeli cannot post or reverse money.
+        <main className="flex min-h-[65vh] flex-col rounded-2xl border border-slate-200 bg-white">
+          <div
+            ref={scrollRef}
+            className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
+            aria-live="polite"
+            aria-busy={loadingThread || sending}
+          >
+            {loadingThread ? (
+              <div className="space-y-3" aria-hidden="true">
+                <div className="h-14 w-3/4 animate-pulse rounded-2xl bg-slate-100" />
+                <div className="ml-auto h-10 w-1/2 animate-pulse rounded-2xl bg-slate-100" />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="mx-auto max-w-xl py-8 text-center">
+                <Sparkles className="mx-auto text-brand-600" size={28} aria-hidden />
+                <h2 className="mt-3 text-lg font-semibold text-slate-900">
+                  What would you like to know?
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Answers are calculated from your MaaCash records for your role
+                  {role === "admin" ? "" : ` (${role})`}. Zeli is read-only.
                 </p>
-                {usage && (
-                  <div className="mx-auto mt-4 max-w-sm rounded-lg bg-slate-50 px-3 py-2 text-left text-xs text-slate-600">
-                    {usage.blocked ? (
-                      <p className="text-amber-800">{usage.blocked.message}</p>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between gap-2">
-                          <span>
-                            Zeli usage in {usage.periodLabel}: <strong>{usage.used} of {usage.limit}</strong>
-                          </span>
-                          <span>{usage.remaining} left</span>
-                        </div>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-                          <div
-                            className="h-full rounded-full bg-brand-600"
-                            style={{ width: `${Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100))}%` }}
-                          />
-                        </div>
-                        <p className="mt-1">Resets {new Date(usage.resetAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}.</p>
-                      </>
-                    )}
-                  </div>
-                )}
                 <div className="mt-5 grid gap-2 text-left">
                   {suggestions.map((suggestion) => (
                     <button
                       key={suggestion}
                       type="button"
                       onClick={() => send(suggestion)}
-                      className="rounded-xl border border-brand-100 bg-brand-50/50 px-3 py-2 text-sm text-brand-900 hover:border-brand-300"
+                      disabled={sending || Boolean(usage?.blocked)}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 hover:border-brand-300 disabled:opacity-60"
                     >
                       {suggestion}
                     </button>
                   ))}
                 </div>
               </div>
+            ) : (
+              messages.map((message) => {
+                const assistant = message.role !== "user";
+                return (
+                  <article
+                    key={message.id}
+                    className={`max-w-[95%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      assistant
+                        ? "bg-slate-50 text-slate-900"
+                        : "ml-auto bg-brand-700 text-white"
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+
+                    {assistant && Boolean(message.sources?.length) && (
+                      <ul className="mt-2 space-y-1 border-t border-slate-200 pt-2 text-xs text-slate-600">
+                        {message.sources!.slice(0, 5).map((source, index) => (
+                          <li key={`${message.id}-src-${index}`}>
+                            {source.href ? (
+                              <Link href={source.href} className="underline">
+                                {source.label ?? source.href}
+                              </Link>
+                            ) : (
+                              source.label ?? "MaaCash records"
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {assistant && (
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        {message.createdAt && <span>{dateLabel(message.createdAt)}</span>}
+                        <button
+                          type="button"
+                          onClick={() => copyMessage(message)}
+                          className="inline-flex items-center gap-1 hover:text-slate-800"
+                        >
+                          {copiedId === message.id ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+                          {copiedId === message.id ? "Copied" : "Copy"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rate(message, "helpful")}
+                          className={`inline-flex items-center gap-1 hover:text-slate-800 ${
+                            message.feedback === "helpful" ? "text-emerald-700" : ""
+                          }`}
+                          aria-pressed={message.feedback === "helpful"}
+                        >
+                          <ThumbsUp size={12} aria-hidden /> Helpful
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rate(message, "unhelpful")}
+                          className={`inline-flex items-center gap-1 hover:text-slate-800 ${
+                            message.feedback === "unhelpful" ? "text-amber-700" : ""
+                          }`}
+                          aria-pressed={message.feedback === "unhelpful"}
+                        >
+                          <ThumbsDown size={12} aria-hidden /> Not helpful
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })
             )}
 
-            {messages.map((message) => (
-              <article
-                key={message.id}
-                className={`max-w-[95%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  message.role === "user"
-                    ? "ml-auto bg-brand-800 text-white"
-                    : "bg-[#F6F5EC] text-[#17211C]"
-                }`}
-              >
-                <div className="whitespace-pre-wrap">
-                  {message.content ||
-                    (sending && message.role === "assistant"
-                      ? "Reading authorized records…"
-                      : "")}
-                </div>
-                {message.role === "assistant" && message.content && (
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                    <button type="button" onClick={() => copy(message)} className="inline-flex items-center gap-1 hover:text-brand-800">
-                      {copied === message.id ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
-                      {copied === message.id ? "Copied" : "Copy"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => feedback(message, "helpful")}
-                      className={`inline-flex items-center gap-1 ${message.feedback === "helpful" ? "text-emerald-700" : "hover:text-brand-800"}`}
-                      aria-label="Helpful"
-                    >
-                      <ThumbsUp size={12} aria-hidden /> Helpful
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => feedback(message, "unhelpful")}
-                      className={`inline-flex items-center gap-1 ${message.feedback === "unhelpful" ? "text-red-700" : "hover:text-brand-800"}`}
-                      aria-label="Not helpful"
-                    >
-                      <ThumbsDown size={12} aria-hidden /> Not helpful
-                    </button>
-                    {message.role === "assistant" &&
-                      message.deterministic &&
-                      !(environment === "staging" && status?.conversation?.mode === "external") && (
-                        <span className="inline-flex items-center gap-1 text-slate-500" title="Computed from MaaCash records by the internal rule-based engine">
-                          <ShieldCheck size={12} aria-hidden /> Computed from your records
-                        </span>
-                      )}
-                    {message.role === "assistant" && message.provider === "deepseek-team-testing" && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-900"
-                        title="Genuine DeepSeek API response. Synthetic business data only; no live records were sent."
-                      >
-                        <Sparkles size={12} aria-hidden /> Team Testing · live DeepSeek
-                      </span>
-                    )}
-                    {message.role === "assistant" &&
-                      message.provider?.startsWith("deepseek") &&
-                      message.provider !== "deepseek-team-testing" && (
-                        <span className="inline-flex items-center gap-1 text-slate-500" title="Answered by an approved external provider. No business records or figures were sent.">
-                          <Sparkles size={12} aria-hidden /> External AI answer
-                        </span>
-                      )}
-                    {message.role === "assistant" &&
-                      environment === "staging" &&
-                      status?.conversation?.mode === "external" &&
-                      message.provider === "internal" && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900"
-                          title="The external provider was unavailable or blocked this turn. Zeli answered locally."
-                        >
-                          <ShieldCheck size={12} aria-hidden /> Local mode — Enhanced AI
-                          unavailable or blocked
-                        </span>
-                      )}
-                    {message.sources?.length > 0 && (
-                      <span className="text-slate-400">Sources:</span>
-                    )}
-                    {message.sources?.map((source) =>
-                      source.href ? (
-                        <Link key={source.label} href={source.href} className="underline underline-offset-2 hover:text-brand-800">
-                          {source.label}
-                        </Link>
-                      ) : (
-                        <span key={source.label}>{source.label}</span>
-                      )
-                    )}
-                  </div>
-                )}
-              </article>
-            ))}
+            {sending && (
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600" role="status">
+                <Loader2 size={14} className="animate-spin" aria-hidden /> Working through your records…
+              </div>
+            )}
           </div>
 
-          {error && (
-            <div className="mx-4 mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
-              {error}
-            </div>
-          )}
-
-          <form
-            className="border-t border-brand-100 p-3 sm:p-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void send(input);
-            }}
-          >
-            <label htmlFor="zeli-input" className="sr-only">
-              Ask Zeli
-            </label>
-            <div className="flex items-end gap-2">
+          <div className="border-t border-slate-200 p-3 sm:p-4">
+            {error && (
+              <div role="alert" className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+                {error}
+                {lastQuestion && (
+                  <button
+                    type="button"
+                    className="ml-2 font-medium underline"
+                    onClick={() => send(lastQuestion)}
+                    disabled={sending}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                send(input);
+              }}
+              className="flex items-end gap-2"
+            >
+              <label className="sr-only" htmlFor="zeli-input">
+                Ask Zeli a question
+              </label>
               <textarea
                 id="zeli-input"
+                ref={composerRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    send(input);
+                  }
+                }}
                 rows={2}
                 maxLength={4000}
-                placeholder="Ask about customers, contributions, remittances or today's daily accounts…"
-                className="min-h-[48px] flex-1 resize-y"
-                disabled={
-                  sending ||
-                  Boolean(
-                    status?.conversation?.teamTesting &&
-                      !status.conversation.teamDisclosureAccepted
-                  )
-                }
+                placeholder={usage?.blocked ? "Zeli is paused for this business." : "Ask about collections, balances, staff or reconciliations…"}
+                className="input max-h-40 min-h-[2.75rem] flex-1 resize-y"
+                disabled={sending || Boolean(usage?.blocked)}
               />
-              {sending ? (
-                <button type="button" onClick={stop} className="btn btn-secondary" aria-label="Stop generation">
-                  <Square size={14} aria-hidden /> Stop
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={
-                    !input.trim() ||
-                    Boolean(
-                      status?.conversation?.teamTesting &&
-                        !status.conversation.teamDisclosureAccepted
-                    )
-                  }
-                >
-                  <Send size={15} aria-hidden /> Send
-                </button>
-              )}
-            </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Zeli reads only records you are authorized to see. It cannot post, reverse or approve transactions. External AI is optional and never authoritative.
-            </p>
-          </form>
-        </main>
-      </div>
-
-      <Modal
-        open={showAgreement}
-        onClose={() => {
-          if (!acceptingDisclosure) {
-            setShowAgreement(false);
-            setAgreementChecked(false);
-          }
-        }}
-        title="Zeli Usage Agreement"
-        description="Read the agreement before using Zeli with an external AI provider."
-        size="lg"
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                setShowAgreement(false);
-                setAgreementChecked(false);
-              }}
-              disabled={acceptingDisclosure}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleAcceptAgreement}
-              disabled={!agreementChecked || acceptingDisclosure}
-              aria-busy={acceptingDisclosure}
-            >
-              {acceptingDisclosure ? "Saving acceptance…" : "Accept and Continue"}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">
-            <p className="font-semibold">Team Testing — external AI</p>
-            <p className="mt-1">
-              Messages sent in this mode may be processed by the approved external
-              provider. Use fictional business, customer and payment examples only.
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={sending || !input.trim() || Boolean(usage?.blocked)}
+              >
+                {sending ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Send size={15} aria-hidden />}
+                <span className="sr-only">Send question</span>
+              </button>
+            </form>
+            <p className="mt-1.5 text-xs text-slate-500">
+              Zeli explains and summarises. It never posts, approves or reverses money.
             </p>
           </div>
-          <ul className="list-disc space-y-2 pl-5 text-sm text-slate-700">
-            <li>Do not enter real customer names, phone numbers, account numbers, balances or transaction records.</li>
-            <li>Zeli can explain business figures, but it cannot create, approve, reverse or delete records.</li>
-            <li>Financial answers are calculated inside MaaCash; the external provider is never authoritative.</li>
-            <li>You may stop using Zeli at any time. Acceptance is recorded against your account.</li>
-          </ul>
-          <p className="text-xs text-slate-500">
-            Disclosure version {status?.conversation?.teamDisclosureVersion ?? "team"}.
-            Accepting means you understand these conditions and agree to use only
-            synthetic data in this mode.
-          </p>
-          <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-800">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={agreementChecked}
-              onChange={(event) => setAgreementChecked(event.target.checked)}
-            />
-            <span>I have read and accept the Zeli Usage Agreement.</span>
-          </label>
-          {error && (
-            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-              {error}
-            </p>
-          )}
+        </main>
+      </div>
+      {renameTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setRenameTarget(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="zeli-rename-title"
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setRenameTarget(null);
+            }}
+          >
+            <h2 id="zeli-rename-title" className="text-base font-semibold text-slate-900">
+              Rename conversation
+            </h2>
+            <label className="mt-3 block text-sm">
+              <span className="text-slate-600">Conversation name</span>
+              <input
+                autoFocus
+                value={renameValue}
+                maxLength={80}
+                onChange={(event) => setRenameValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const next = renameValue.trim();
+                    if (next) void rename(renameTarget.id, next);
+                  }
+                }}
+                className="input mt-1 w-full"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setRenameTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!renameValue.trim()}
+                onClick={() => void rename(renameTarget.id, renameValue.trim())}
+              >
+                Save name
+              </button>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
 
-      <Modal
-        open={Boolean(renameTarget)}
-        onClose={() => {
-          if (!dialogBusy) setRenameTarget(null);
-        }}
-        title="Rename conversation"
-        description="Give this conversation a short, recognisable title."
-        size="sm"
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setRenameTarget(null)}
-              disabled={dialogBusy}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={submitRename}
-              disabled={dialogBusy || !renameValue.trim()}
-              aria-busy={dialogBusy}
-            >
-              {dialogBusy ? "Saving…" : "Save title"}
-            </button>
-          </>
-        }
-      >
-        <label className="block text-sm">
-          <span className="font-medium text-slate-700">Conversation title</span>
-          <input
-            type="text"
-            className="mt-1 w-full"
-            maxLength={120}
-            value={renameValue}
-            onChange={(event) => setRenameValue(event.target.value)}
-            autoFocus
-          />
-        </label>
-      </Modal>
-
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onClose={() => {
-          if (!dialogBusy) setDeleteTarget(null);
-        }}
-        onConfirm={confirmDelete}
-        title="Delete this conversation?"
-        description="This conversation and its messages will be permanently removed. This cannot be undone."
-        confirmLabel="Delete conversation"
-        tone="danger"
-        loading={dialogBusy}
-      />
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setConfirmDelete(null);
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="zeli-delete-title"
+            aria-describedby="zeli-delete-body"
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setConfirmDelete(null);
+            }}
+          >
+            <h2 id="zeli-delete-title" className="text-base font-semibold text-slate-900">
+              Delete this conversation?
+            </h2>
+            <p id="zeli-delete-body" className="mt-2 text-sm text-slate-600">
+              &ldquo;{confirmDelete.title}&rdquo; and its messages will be removed. This cannot be
+              undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                className="btn btn-secondary"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Keep conversation
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void remove(confirmDelete.id)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,12 +7,16 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Billing & Plan | MaaCash" };
 
 /** Business owner subscription and billing. Server resolves the tenant first. */
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ payment?: string }>;
+}) {
   await requireTenantAdmin();
-  const overview = await getBillingOverview();
+  const [overview, params] = await Promise.all([getBillingOverview(), searchParams]);
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-      <BillingClient overview={overview} />
+      <BillingClient overview={overview} paymentRequired={params.payment === "required"} />
     </div>
   );
 }

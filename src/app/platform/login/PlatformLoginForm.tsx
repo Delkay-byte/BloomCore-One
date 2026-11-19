@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
 import { platformLogin } from "@/lib/actions/platform.actions";
 import PasswordInput from "@/components/PasswordInput";
+import Notice from "@/components/ui/Notice";
 import TurnstileWidget from "@/components/security/TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/security/turnstile-actions";
 import {
@@ -50,7 +51,7 @@ export default function PlatformLoginForm({
         return;
       }
       if (result.passwordChangeRequired && result.challengeToken && result.redirectTo) {
-        rememberPasswordChangeChallenge(result.challengeToken);
+        rememberPasswordChangeChallenge(result.challengeToken, "/platform/login");
         window.location.assign(result.redirectTo);
         return;
       }
@@ -99,19 +100,19 @@ export default function PlatformLoginForm({
           </p>
 
           {error && (
-            <div role="alert" className="banner banner-error mb-4">
+            <Notice type="error" className="mb-4" message={error}>
               {error}
-            </div>
+            </Notice>
           )}
           {!error && ssoError && (
-            <div role="alert" className="banner banner-error mb-4">
+            <Notice type="error" className="mb-4" message={ssoError}>
               {ssoError}
-            </div>
+            </Notice>
           )}
           {ssoNotice && (
-            <div role="status" className="banner banner-success mb-4">
+            <Notice type="success" className="mb-4" message={ssoNotice}>
               {ssoNotice}
-            </div>
+            </Notice>
           )}
 
           <form action={handleSubmit} className="space-y-4">
