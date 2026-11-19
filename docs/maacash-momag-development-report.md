@@ -1318,3 +1318,44 @@ fetch.
 - A manually renamed conversation keeps its manual title even if the topic
   changes, by design.
 - Existing rows are not back-filled.
+
+## Workstream 16 — Zeli History repair
+
+**Status:** GREEN  
+**Commit:** `7fc0054`
+
+### Root cause
+
+The header History control was hidden on desktop (`md:hidden`) and only toggled
+the existing mobile sidebar. On a laptop it was absent; on mobile it revealed a
+list with no loading state, no search and no explanation of scope. The sidebar
+also kept a stale title after a conversation was automatically titled.
+
+### What was implemented
+
+- A History button is now present on every viewport and opens an accessible
+  dialog (`role="dialog"`, `aria-modal`, Escape/backdrop close).
+- History is loaded through a tenant- and user-scoped server action, not from
+  client-supplied ids.
+- Search matches both conversation titles and message content, with a short
+  matched snippet and last-activity/creation timestamps.
+- The dialog has explicit loading, empty, no-match and error states.
+- Selecting a result loads that conversation and closes the dialog.
+- Conversation titles refresh in the sidebar immediately after a reply, so the
+  generated title from Workstream 15 appears without a reload.
+
+### Tests
+
+`tests/zeli-history.test.ts`: **3 passed** — user isolation, tenant isolation,
+title search, message-content search, snippets and metadata. Existing
+`tests/zeli-conversation-titles.test.ts` and `tests/zeli-conversation.test.ts`
+also pass (28 total in the focused run).
+
+Browser: admin signs in, asks a question, sees “November Business Summary”,
+opens History, searches by title, and sees the explicit no-match state.
+
+### Limitations
+
+- Search is a bounded `contains` query over the current user's conversations
+  (maximum 50 results); there is no full-text index or ranking.
+- No cross-tenant or platform-wide history is exposed.
