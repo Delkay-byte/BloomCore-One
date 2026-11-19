@@ -1089,7 +1089,7 @@ stays at the untouched baseline until that decision is made.
 ## Workstream 11 — Mobile Money-first Paystack checkout
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `c64f995`
 
 ### Gap found
 
