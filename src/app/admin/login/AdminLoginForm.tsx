@@ -16,6 +16,7 @@ import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 /** A stale client bundle (usually a cached chunk) cannot call the new action. */
 function staleLoginMessage(error: unknown): string {
@@ -271,9 +272,9 @@ export default function AdminLoginForm() {
         </div>
       </div>
 
-      <p className="relative pb-6 text-center text-xs text-ink-faint">
-        Built by BloomCore Technologies
-      </p>
+      <div className="relative pb-6 text-center">
+        <BloomCoreAttribution />
+      </div>
     </div>
   );
 }

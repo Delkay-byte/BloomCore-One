@@ -24,6 +24,7 @@ import {
   sendZeliMessage,
   setZeliFeedback,
 } from "@/lib/actions/zeli.actions";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 interface Message {
   id: string;
@@ -545,6 +546,10 @@ export default function ZeliPage() {
           </div>
         </main>
       </div>
+      <footer className="mt-6 border-t border-slate-200 pt-3 text-center">
+        <BloomCoreAttribution />
+      </footer>
+
       {renameTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"

@@ -6,6 +6,7 @@ import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 /**
  * Susu collector shell. Identity and business name arrive as server-resolved
@@ -113,8 +114,9 @@ export default function CollectorShell({
       <footer className="border-t border-slate-200 bg-white">
         <div className="px-4 py-4 text-center">
           <p className="text-xs text-slate-400">
-            MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+            MaaCash{tenantName ? ` · ${tenantName}` : ""}
           </p>
+          <BloomCoreAttribution className="mt-1 text-slate-400" />
         </div>
       </footer>
     </div>

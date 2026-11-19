@@ -15,6 +15,7 @@ import {
 import { isRedirectError } from "@/lib/errors";
 import { rememberPasswordChangeChallenge } from "@/lib/security/password-change-client";
 import { BrandLockup } from "@/components/brand/Brand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 interface PlatformLoginFormProps {
   /** Server-rendered: SSO entry point is shown only when the flag is on. */
@@ -175,9 +176,9 @@ export default function PlatformLoginForm({
           </div>
         </div>
 
-        <p className="text-center text-xs text-brand-400 mt-8">
-          Built by BloomCore Technologies
-        </p>
+        <div className="mt-8 text-center">
+          <BloomCoreAttribution />
+        </div>
       </div>
     </div>
   );

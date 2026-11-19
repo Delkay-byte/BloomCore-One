@@ -31,6 +31,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { BrandLockup } from "@/components/brand/Brand";
 import OfflineSessionPrompt from "@/components/OfflineSessionPrompt";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 type RoleKey = "customer" | "momo" | "susu";
 
@@ -513,9 +514,10 @@ function Shell({
       </main>
 
       <footer className="border-t border-line">
-        <p className="mx-auto max-w-6xl px-4 py-5 text-center text-xs text-ink-faint sm:px-6 lg:px-8">
-          Built by BloomCore Technologies · MaaCash
-        </p>
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-1 px-4 py-5 text-center text-xs text-ink-faint sm:flex-row sm:justify-between sm:px-6 lg:px-8">
+          <p>MaaCash</p>
+          <BloomCoreAttribution />
+        </div>
       </footer>
     </div>
   );

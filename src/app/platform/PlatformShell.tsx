@@ -20,6 +20,7 @@ import { clearTabSession } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
 import type { PlatformSession } from "@/lib/platform-auth";
 import { BrandLockup } from "@/components/brand/Brand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 const navItems = [
   { href: "/platform/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -153,7 +154,8 @@ export default function PlatformShell({
       {/* Footer */}
       <footer className="md:ml-64 border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
-          <p className="text-xs text-slate-400">MaaCash · Platform Administration · Built by BloomCore Technologies</p>
+          <p className="text-xs text-slate-400">MaaCash · Platform Administration</p>
+          <BloomCoreAttribution className="mt-1 text-slate-400" />
         </div>
       </footer>
     </div>

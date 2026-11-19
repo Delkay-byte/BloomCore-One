@@ -20,6 +20,7 @@ import { AppBrand } from "@/components/brand/AppBrand";
 import { customerLogout } from "@/lib/actions/auth.actions";
 import { isRedirectError } from "@/lib/errors";
 import { clearTabSession } from "@/lib/security/tab-session-client";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/customer/dashboard", label: "My Savings", icon: Wallet },
@@ -164,8 +165,9 @@ export default function CustomerShell({
       <footer className="border-t border-slate-200 bg-white">
         <div className="px-4 py-4 text-center">
           <p className="text-xs text-slate-400">
-            MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+            MaaCash{tenantName ? ` · ${tenantName}` : ""}
           </p>
+          <BloomCoreAttribution className="mt-1 text-slate-400" />
         </div>
       </footer>
 

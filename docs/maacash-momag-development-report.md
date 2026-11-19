@@ -1244,3 +1244,37 @@ Browser: the administrator saw the SMS readiness card marked unavailable with
 - No delivery-report webhook exists for SMS until a provider is chosen.
 - SMS messages use the same 320-character receipt body used by the preview.
 - The delivery runner is bounded and on-request, not a scheduler.
+
+## Workstream 14 — BloomCore Technologies attribution
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### What was implemented
+
+- One shared `BloomCoreAttribution` component rendering **Powered by BloomCore
+  Technologies**, linking to `https://bloomcoretech.com` with
+  `target="_blank"` and `rel="noopener noreferrer"`.
+- Replaced duplicated “Built by BloomCore Technologies” text in the public
+  marketing footer, tenant admin shell, MoMo worker shell, Susu collector
+  shell, customer portal shell, platform shell, Zeli workspace, unified login,
+  admin and platform login forms, SSO confirmation, password recovery, first
+  login, workspace selection and all-access page.
+- The link sits in the existing page footer, not over financial actions, and
+  inherits responsive layout.
+
+### Tests
+
+`tests/bloomcore-attribution.test.ts`: **2 passed** — official HTTPS URL and
+safe new-tab attributes; every shell uses the shared component and no old
+hard-coded “Built by” text remains.
+
+Browser: the link pointed to `https://bloomcoretech.com` on the marketing site,
+admin login and authenticated admin shell, with `target=_blank` and
+`noopener`. **1 passed.**
+
+### Limitations
+
+- No logo or brand identity was changed.
+- The platform console uses the same neutral attribution; its dark styling is
+  inherited from the page background.

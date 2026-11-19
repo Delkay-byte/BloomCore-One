@@ -9,6 +9,7 @@ import type { LucideIcon } from "lucide-react";
 import { selectWorkspace } from "@/lib/actions/auth.actions";
 import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { AppBrand } from "@/components/brand/AppBrand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 interface Selection {
   userId: string;
@@ -148,8 +149,11 @@ export default function SelectWorkspacePage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-8">
-          MaaCash{tenantName ? ` · ${tenantName}` : ""} — Built by BloomCore Technologies
+          MaaCash{tenantName ? ` · ${tenantName}` : ""}
         </p>
+        <div className="mt-1 text-center">
+          <BloomCoreAttribution />
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 import {
   ALL_ACCESS_PATH,
   BUSINESS_LOGIN_PATH,
@@ -92,6 +93,7 @@ export default function MarketingFooter() {
             © {year} {COMPANY_NAME}. {PRODUCT_NAME}™ is a product of{" "}
             {COMPANY_NAME}. All rights reserved.
           </p>
+          <BloomCoreAttribution />
         </div>
       </div>
     </footer>

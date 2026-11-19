@@ -14,6 +14,7 @@ import PasswordPolicyChecklist from "@/components/PasswordPolicyChecklist";
 import { BrandLockup } from "@/components/brand/Brand";
 import { completeTabLogin } from "@/lib/security/tab-session-client";
 import { isRedirectError } from "@/lib/errors";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 export type FirstLoginMode = "staff" | "customer" | "platform";
 export type StaffModule = "admin" | "momo" | "susu";
@@ -233,9 +234,10 @@ export default function FirstLoginPasswordForm({
           </div>
         </div>
 
-        <p className="relative mt-6 text-center text-xs text-ink-faint">
-          MaaCash · Built by BloomCore Technologies
-        </p>
+        <p className="relative mt-6 text-center text-xs text-ink-faint">MaaCash</p>
+        <div className="mt-1 text-center">
+          <BloomCoreAttribution />
+        </div>
       </div>
     </div>
   );
