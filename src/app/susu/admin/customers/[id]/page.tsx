@@ -11,6 +11,8 @@ import { getCollectors } from "@/lib/actions/susu-collector.actions";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import PasswordInput from "@/components/PasswordInput";
+import { buildSusuStatement } from "@/lib/susu-statements";
+import Link from "next/link";
 
 interface CustomerDetail {
   id: string;
@@ -40,23 +42,33 @@ interface CustomerDetail {
       commissionCharged: boolean;
       contributions: Array<{
         id: string;
+        referenceId: string;
         amount: number;
         collectionDate: Date;
-        channel: string;                          allocations: Array<{ cycleDay: number; amount: number }>;
-                          recordedBy?: { fullName: string } | null;
-                          receivedBy?: { fullName: string } | null;
-                          collector?: { user?: { fullName: string } } | null;
-                        }>;
-                        withdrawals: Array<{
-                          id: string;
-                          requestedAmount: number;
-                          commissionAmount: number;
-                          netAmount: number;
-                          remainingBalance: number;
-                          createdAt: Date;
-                          notes?: string | null;
-                        }>;
-                        commissions: Array<{ id: string; amount: number; createdAt: Date }>;
+        channel: string;
+        notes?: string | null;
+        reversedAt?: Date | null;
+        reversalOfId?: string | null;
+        receivedByName?: string | null;
+        allocations: Array<{ cycleDay: number; amount: number }>;
+        recordedBy?: { fullName: string } | null;
+        receivedBy?: { fullName: string } | null;
+        collector?: { user?: { fullName: string } } | null;
+      }>;
+      withdrawals: Array<{
+        id: string;
+        referenceId: string;
+        requestedAmount: number;
+        commissionAmount: number;
+        netAmount: number;
+        remainingBalance: number;
+        createdAt: Date;
+        status: string;
+        reversedAt?: Date | null;
+        reversalOfId?: string | null;
+        notes?: string | null;
+      }>;
+                        commissions: Array<{ id: string; amount: number; createdAt: Date; basis: string }>;
                       }>;
                     }>;
   assignments: Array<{
@@ -282,48 +294,62 @@ export default function SusuCustomerDetailPage() {
   const daysCovered = currentCycleStats?.paidDays || 0;
   const daysOutstanding = Math.max(0, 31 - daysCovered);
 
-  // Build chronological statement entries
+  // Build one chronological statement for the account, with the running
+  // balance calculated in the same order the rows are displayed.
   function buildStatementEntries() {
     if (!account) return [];
-    const entries: Array<{
-      date: Date;
-      type: "contribution" | "withdrawal";
-      amount: number;
-      commission?: number;
-      balance?: number;
-      channel: string;
-      receivedBy?: string;
-      reference?: string;
-      notes?: string;
-      cycleNumber: number;
-    }> = [];
-
-    account.cycles.forEach((cycle) => {
-      cycle.contributions.forEach((c) => {
-        entries.push({
-          date: new Date(c.collectionDate),
-          type: "contribution",
-          amount: Number(c.amount),
+    const statement = buildSusuStatement({
+      contributions: account.cycles.flatMap((cycle) =>
+        cycle.contributions.map((c) => ({
+          id: c.id,
+          referenceId: c.referenceId,
+          amount: c.amount,
+          collectionDate: c.collectionDate,
           channel: c.channel,
-          receivedBy: (c as { receivedByName?: string | null }).receivedByName ?? c.receivedBy?.fullName,
+          receivedByName:
+            c.receivedByName ?? c.receivedBy?.fullName ?? c.collector?.user?.fullName ?? null,
+          notes: c.notes ?? null,
+          reversalOfId: c.reversalOfId ?? null,
+          reversedAt: c.reversedAt ?? null,
           cycleNumber: cycle.cycleNumber,
-        });
-      });
-      cycle.withdrawals.forEach((w) => {
-        entries.push({
-          date: new Date(w.createdAt),
-          type: "withdrawal",
-          amount: Number(w.netAmount),
-          commission: w.commissionAmount > 0 ? Number(w.commissionAmount) : undefined,
-          balance: Number(w.remainingBalance),
-          channel: "withdrawal",
+        }))
+      ),
+      withdrawals: account.cycles.flatMap((cycle) =>
+        cycle.withdrawals.map((w) => ({
+          id: w.id,
+          referenceId: w.referenceId,
+          netAmount: w.netAmount,
+          commissionAmount: w.commissionAmount,
+          createdAt: w.createdAt,
+          notes: w.notes ?? null,
+          status: w.status,
+          reversalOfId: w.reversalOfId ?? null,
+          reversedAt: w.reversedAt ?? null,
           cycleNumber: cycle.cycleNumber,
-          notes: w.notes || undefined,
-        });
-      });
+        }))
+      ),
+      commissions: account.cycles.flatMap((cycle) =>
+        cycle.commissions.map((c) => ({
+          id: c.id,
+          amount: c.amount,
+          createdAt: c.createdAt,
+          basis: c.basis,
+          cycleNumber: cycle.cycleNumber,
+        }))
+      ),
+      cardFees: account.cardFees.map((fee) => ({
+        id: fee.id,
+        amount: fee.amount,
+        createdAt: fee.createdAt,
+        notes: null,
+      })),
     });
-
-    return entries.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return statement.entries.map((entry) => ({
+      ...entry,
+      date: new Date(entry.occurredAt),
+      type: entry.kind,
+      commission: undefined as number | undefined,
+    }));
   }
 
   const statementEntries = buildStatementEntries();
@@ -337,6 +363,12 @@ export default function SusuCustomerDetailPage() {
     return true;
   });
 
+  function csvSafe(value: string): string {
+    const first = value.charAt(0);
+    const dangerous = ["=", "+", "-", "@", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13)].includes(first);
+    return dangerous ? `'${value}` : value;
+  }
+
   function handleExportCSV() {
     if (!account || !customer) return;
     const entriesToExport = viewMode === "statement" ? filteredStatementEntries : statementEntries;
@@ -345,23 +377,35 @@ export default function SusuCustomerDetailPage() {
       "Date",
       "Type",
       "Amount",
-      "Commission",
       "Balance",
       "Channel",
       "Received By",
       "Cycle",
       "Notes",
+      "Receipt reference",
+      "Status",
     ];
+    const label: Record<string, string> = {
+      contribution: "Contribution",
+      withdrawal: "Withdrawal",
+      commission: "Commission",
+      card_fee: "Card fee",
+    };
     const rows = entriesToExport.map((e) => [
       formatDateTime(e.date),
-      e.type === "contribution" ? "Contribution" : "Withdrawal",
-      e.type === "contribution" ? String(e.amount) : String(-e.amount),
-      e.commission ? String(e.commission) : "",
-      e.balance !== undefined ? String(e.balance) : "",
-      e.type === "contribution" ? (e.channel === "collector" ? "Collector" : "Office") : "Withdrawal",
+      `${label[e.type] ?? e.type}${e.isReversal ? " reversal" : ""}`,
+      e.amount.toFixed(2),
+      e.balance.toFixed(2),
+      e.type === "contribution"
+        ? e.channel === "collector"
+          ? "Collector"
+          : "Office"
+        : e.channel,
       e.receivedBy || "",
-      String(e.cycleNumber),
+      e.cycleNumber === null ? "" : String(e.cycleNumber),
       e.notes || "",
+      e.reference || "",
+      e.status,
     ]);
     const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -892,38 +936,52 @@ export default function SusuCustomerDetailPage() {
                     <th>Date</th>
                     <th>Type</th>
                     <th>Amount</th>
-                    <th>Commission</th>
                     <th>Balance</th>
                     <th>Channel / Received By</th>
                     <th>Cycle</th>
                     <th>Notes</th>
+                    <th>Receipt</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredStatementEntries.map((entry) => (
-                    <tr key={`${entry.date.getTime()}-${entry.type}-${entry.amount}`}>
+                    <tr key={`${entry.kind}-${entry.id}`}>
                       <td className="text-sm whitespace-nowrap">{formatDateTime(entry.date)}</td>
                       <td>
-                        <span className={`badge ${entry.type === "contribution" ? "badge-green" : "badge-red"}`}>
-                          {entry.type === "contribution" ? "Contribution" : "Withdrawal"}
+                        <span
+                          className={`badge ${
+                            entry.isReversal
+                              ? "badge-yellow"
+                              : entry.type === "contribution"
+                                ? "badge-green"
+                                : entry.type === "withdrawal"
+                                  ? "badge-red"
+                                  : "badge-gray"
+                          }`}
+                        >
+                          {entry.isReversal
+                            ? "Reversal"
+                            : entry.type === "contribution"
+                              ? "Contribution"
+                              : entry.type === "withdrawal"
+                                ? "Withdrawal"
+                                : entry.type === "commission"
+                                  ? "Commission"
+                                  : "Card fee"}
                         </span>
-                      </td>
-                      <td className="font-mono font-semibold text-right">
-                        {entry.type === "contribution" ? (
-                          <>+<CediAmount amount={entry.amount} /></>
-                        ) : (
-                          <>-<CediAmount amount={entry.amount} /></>
+                        {entry.status === "reversed" && (
+                          <span className="ml-1 text-[11px] text-amber-700">reversed</span>
                         )}
                       </td>
-                      <td className="font-mono text-right">
-                        {entry.commission ? (
-                          <span className="text-purple-600"><CediAmount amount={entry.commission} /></span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                      <td
+                        className={`font-mono font-semibold text-right ${
+                          entry.amount < 0 ? "text-red-700" : "text-emerald-700"
+                        }`}
+                      >
+                        <CediAmount amount={entry.amount} showSign />
                       </td>
                       <td className="font-mono text-right">
-                        {entry.balance !== undefined ? <CediAmount amount={entry.balance} /> : <span className="text-slate-400">—</span>}
+                        <CediAmount amount={entry.balance} />
                       </td>
                       <td className="text-sm">
                         {entry.type === "contribution" ? (
@@ -931,12 +989,30 @@ export default function SusuCustomerDetailPage() {
                             {entry.channel === "collector" ? "Collector" : "Office"}
                             {entry.receivedBy && <span className="ml-1">({entry.receivedBy})</span>}
                           </>
-                        ) : (
+                        ) : entry.type === "withdrawal" ? (
                           "Withdrawal"
+                        ) : entry.type === "commission" ? (
+                          "First-withdrawal commission"
+                        ) : (
+                          "Card fee"
                         )}
                       </td>
-                      <td className="text-sm text-slate-500">Cycle {entry.cycleNumber}</td>
+                      <td className="text-sm text-slate-500">
+                        {entry.cycleNumber === null ? "—" : `Cycle ${entry.cycleNumber}`}
+                      </td>
                       <td className="text-sm text-slate-500 max-w-xs truncate">{entry.notes || "—"}</td>
+                      <td className="text-sm">
+                        {entry.receiptAvailable && entry.reference ? (
+                          <Link
+                            href={`/susu/admin/receipt/${encodeURIComponent(entry.reference)}`}
+                            className="font-semibold text-brand-700 hover:underline"
+                          >
+                            View
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

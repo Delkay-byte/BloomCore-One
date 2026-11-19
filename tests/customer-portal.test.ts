@@ -212,8 +212,8 @@ describe("Office payment accountability", () => {
       receivedByName: "Kwame Osei",
     });
 
-    const entries = (await customerActions.getCustomerStatement()) as any[];
-    const contribution = entries.find((e) => e.type === "contribution");
+    const { statement } = await customerActions.getCustomerStatement();
+    const contribution = statement.entries.find((e) => e.kind === "contribution")!;
     expect(contribution).toBeTruthy();
     expect(contribution.receivedBy).toBe("Kwame Osei");
     expect(contribution.receivedBy).not.toBe("Admin User");
@@ -240,11 +240,59 @@ describe("Customer data isolation", () => {
     const account = await activeAccount(custAId);
     await recordContribution({ accountId: account.id, amount: 50, channel: "direct_office", receivedById: receiverId });
 
-    const entries = (await customerActions.getCustomerStatement()) as any[];
-    const contribution = entries.find((e) => e.type === "contribution");
+    const { statement } = await customerActions.getCustomerStatement();
+    const contribution = statement.entries.find((e) => e.kind === "contribution")!;
     expect(contribution).toBeTruthy();
     expect(contribution.receivedBy).toBe("Ama Mensah");
     expect(contribution.receivedBy).not.toBe("Admin User");
+  });
+
+  it("returns a receipt by the original reference only to the owning customer", async () => {
+    const account = await activeAccount(custAId);
+    const result = await recordContribution({
+      accountId: account.id,
+      amount: 50,
+      channel: "direct_office",
+      receivedByName: "Kwame Osei",
+    });
+    expect(result.success).toBe(true);
+    const stored = await prisma.contribution.findUniqueOrThrow({
+      where: { id: (result.data as any).contributionId },
+    });
+
+    customerSessionId = custAId;
+    const receipt = await customerActions.getCustomerReceipt(stored.referenceId);
+    expect(receipt).toMatchObject({
+      kind: "contribution",
+      reference: stored.referenceId,
+      amount: 50,
+      receivedBy: "Kwame Osei",
+    });
+
+    customerSessionId = custBId;
+    expect(await customerActions.getCustomerReceipt(stored.referenceId)).toBeNull();
+
+    customerSessionId = custAId;
+    const adminReceipt = await customerActions.getAdminSusuReceipt(stored.referenceId);
+    expect(adminReceipt?.reference).toBe(stored.referenceId);
+  });
+
+  it("builds a statement summary whose closing balance matches the last row", async () => {
+    const account = await activeAccount(custAId);
+    await recordContribution({
+      accountId: account.id,
+      amount: 50,
+      channel: "direct_office",
+      receivedByName: "Kwame Osei",
+    });
+
+    customerSessionId = custAId;
+    const { statement } = await customerActions.getCustomerStatement();
+    expect(statement.entries.length).toBeGreaterThanOrEqual(1);
+    expect(statement.summary.credits).toBeGreaterThanOrEqual(50);
+    expect(statement.summary.closingBalance).toBe(
+      statement.entries[statement.entries.length - 1]?.balance
+    );
   });
 });
 

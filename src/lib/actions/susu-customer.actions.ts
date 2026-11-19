@@ -13,6 +13,7 @@ import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
+import { buildSusuReceipt, buildSusuStatement, type SusuReceipt } from "@/lib/susu-statements";
 
 export interface ActionResponse {
   success: boolean;
@@ -763,7 +764,10 @@ export async function getCustomerWithdrawals() {
   });
 }
 
-export async function getCustomerStatement() {
+export async function getCustomerStatement(filters?: {
+  from?: string;
+  to?: string;
+}): Promise<{ statement: ReturnType<typeof buildSusuStatement> }> {
   const ctx = await requireTenantCustomer();
 
   const scope = {
@@ -771,93 +775,259 @@ export async function getCustomerStatement() {
     account: { customerId: ctx.userId, tenantId: ctx.tenantId },
   };
 
-  const contributions = await db.contribution.findMany({
-    where: scope,
+  const [contributions, withdrawals, commissions, cardFees] = await Promise.all([
+    db.contribution.findMany({
+      where: scope,
+      include: {
+        cycle: { select: { cycleNumber: true } },
+        receivedBy: { select: { fullName: true } },
+        account: { select: { accountId: true } },
+      },
+      orderBy: { collectionDate: "asc" },
+    }),
+    db.withdrawal.findMany({
+      where: scope,
+      include: {
+        cycle: { select: { cycleNumber: true } },
+        account: { select: { accountId: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.commission.findMany({
+      where: scope,
+      include: {
+        cycle: { select: { cycleNumber: true } },
+        account: { select: { accountId: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.cardFee.findMany({
+      where: scope,
+      include: { account: { select: { accountId: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  const validFrom = filters?.from && dateOnly.test(filters.from) ? filters.from : undefined;
+  const validTo = filters?.to && dateOnly.test(filters.to) ? filters.to : undefined;
+
+  const statement = buildSusuStatement({
+    contributions: contributions.map((row) => ({
+      id: row.id,
+      referenceId: row.referenceId,
+      amount: row.amount,
+      collectionDate: row.collectionDate,
+      channel: row.channel,
+      receivedByName:
+        (row as { receivedByName?: string | null }).receivedByName ??
+        row.receivedBy?.fullName ??
+        null,
+      recordedByName: (row as { recordedByName?: string | null }).recordedByName ?? null,
+      notes: row.notes,
+      reversalOfId: row.reversalOfId,
+      reversedAt: row.reversedAt,
+      accountNumber: row.account.accountId,
+      cycleNumber: row.cycle.cycleNumber,
+    })),
+    withdrawals: withdrawals.map((row) => ({
+      id: row.id,
+      referenceId: row.referenceId,
+      netAmount: row.netAmount,
+      commissionAmount: row.commissionAmount,
+      createdAt: row.createdAt,
+      notes: row.notes,
+      status: row.status,
+      reversalOfId: row.reversalOfId,
+      reversedAt: row.reversedAt,
+      accountNumber: row.account.accountId,
+      cycleNumber: row.cycle.cycleNumber,
+    })),
+    commissions: commissions.map((row) => ({
+      id: row.id,
+      amount: row.amount,
+      createdAt: row.createdAt,
+      basis: row.basis,
+      accountNumber: row.account.accountId,
+      cycleNumber: row.cycle.cycleNumber,
+    })),
+    cardFees: cardFees.map((row) => ({
+      id: row.id,
+      amount: row.amount,
+      createdAt: row.createdAt,
+      notes: row.notes,
+      accountNumber: row.account.accountId,
+    })),
+    from: validFrom,
+    to: validTo,
+  });
+
+  return { statement };
+}
+
+async function receiptForCustomer(
+  ctx: TenantContext,
+  reference: string
+): Promise<SusuReceipt | null> {
+  if (!reference || reference.length > 120) return null;
+
+  const contribution = await db.contribution.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      referenceId: reference,
+      account: { customerId: ctx.userId, tenantId: ctx.tenantId },
+    },
     include: {
+      account: { include: { customer: true } },
       cycle: { select: { cycleNumber: true } },
       receivedBy: { select: { fullName: true } },
     },
-    orderBy: { collectionDate: "asc" },
   });
 
-  const withdrawals = await db.withdrawal.findMany({
-    where: scope,
-    include: { cycle: { select: { cycleNumber: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const commissions = await db.commission.findMany({
-    where: scope,
-    include: { cycle: { select: { cycleNumber: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const entries: Array<{
-    date: Date;
-    type: "contribution" | "withdrawal" | "commission";
-    amount: number;
-    balance?: number;
-    channel: string;
-    receivedBy?: string;
-    cycleNumber: number;
-    notes?: string;
-  }> = [];
-
-  let runningBalance = 0;
-
-  contributions.forEach((c) => {
-    runningBalance += Number(c.amount);
-    entries.push({
-      date: new Date(c.collectionDate),
-      type: "contribution",
-      amount: Number(c.amount),
-      balance: runningBalance,
-      channel: c.channel,
+  if (contribution) {
+    return buildSusuReceipt({
+      kind: "contribution",
+      reference: contribution.referenceId,
+      status: contribution.reversedAt
+        ? "reversed"
+        : contribution.reversalOfId
+          ? "reversal"
+          : "completed",
+      isReversal: Boolean(contribution.reversalOfId),
+      issuedAt: contribution.collectionDate,
+      businessName: ctx.tenantName,
+      customer: {
+        customerId: contribution.account.customer.customerId,
+        fullName: contribution.account.customer.fullName,
+        phone: contribution.account.customer.phone,
+      },
+      accountNumber: contribution.account.accountId,
+      cycleNumber: contribution.cycle.cycleNumber,
+      channel: contribution.channel,
       receivedBy:
-        (c as { receivedByName?: string | null }).receivedByName ??
-        c.receivedBy?.fullName,
-      cycleNumber: c.cycle.cycleNumber,
+        (contribution as { receivedByName?: string | null }).receivedByName ??
+        contribution.receivedBy?.fullName ??
+        null,
+      notes: contribution.notes,
+      amount: contribution.amount,
     });
+  }
+
+  const withdrawal = await db.withdrawal.findFirst({
+    where: {
+      tenantId: ctx.tenantId,
+      referenceId: reference,
+      account: { customerId: ctx.userId, tenantId: ctx.tenantId },
+    },
+    include: {
+      account: { include: { customer: true } },
+      cycle: { select: { cycleNumber: true } },
+    },
   });
 
-  withdrawals.forEach((w) => {
-    runningBalance -= Number(w.netAmount);
-    entries.push({
-      date: new Date(w.createdAt),
-      type: "withdrawal",
-      amount: Number(w.netAmount),
-      balance: runningBalance,
-      channel: "withdrawal",
-      cycleNumber: w.cycle.cycleNumber,
-      notes: w.notes || undefined,
-    });
+  if (!withdrawal) return null;
 
-    if (Number(w.commissionAmount) > 0) {
-      runningBalance -= Number(w.commissionAmount);
-      entries.push({
-        date: new Date(w.createdAt),
-        type: "commission",
-        amount: Number(w.commissionAmount),
-        balance: runningBalance,
-        channel: "commission",
-        cycleNumber: w.cycle.cycleNumber,
-      });
-    }
+  return buildSusuReceipt({
+    kind: "withdrawal",
+    reference: withdrawal.referenceId,
+    status: withdrawal.status,
+    isReversal: Boolean(withdrawal.reversalOfId),
+    issuedAt: withdrawal.createdAt,
+    businessName: ctx.tenantName,
+    customer: {
+      customerId: withdrawal.account.customer.customerId,
+      fullName: withdrawal.account.customer.fullName,
+      phone: withdrawal.account.customer.phone,
+    },
+    accountNumber: withdrawal.account.accountId,
+    cycleNumber: withdrawal.cycle.cycleNumber,
+    channel: "withdrawal",
+    receivedBy: null,
+    notes: withdrawal.notes,
+    amount: withdrawal.requestedAmount,
+    commissionAmount: withdrawal.commissionAmount,
+    netAmount: withdrawal.netAmount,
   });
+}
 
-  commissions.forEach((c) => {
-    runningBalance -= Number(c.amount);
-    entries.push({
-      date: new Date(c.createdAt),
-      type: "commission",
-      amount: Number(c.amount),
-      balance: runningBalance,
-      channel: "commission",
-      cycleNumber: c.cycle.cycleNumber,
-    });
+/** Customer-scoped receipt lookup. A foreign reference resolves to null. */
+export async function getCustomerReceipt(reference: string): Promise<SusuReceipt | null> {
+  const ctx = await requireTenantCustomer();
+  return receiptForCustomer(ctx, reference);
+}
+
+/** Administrator receipt lookup, restricted to the administrator's tenant. */
+export async function getAdminSusuReceipt(reference: string): Promise<SusuReceipt | null> {
+  const ctx = await requireTenantAdminSusu();
+  if (!reference || reference.length > 120) return null;
+
+  const contribution = await db.contribution.findFirst({
+    where: { tenantId: ctx.tenantId, referenceId: reference },
+    include: {
+      account: { include: { customer: true } },
+      cycle: { select: { cycleNumber: true } },
+      receivedBy: { select: { fullName: true } },
+    },
   });
+  if (contribution) {
+    return buildSusuReceipt({
+      kind: "contribution",
+      reference: contribution.referenceId,
+      status: contribution.reversedAt
+        ? "reversed"
+        : contribution.reversalOfId
+          ? "reversal"
+          : "completed",
+      isReversal: Boolean(contribution.reversalOfId),
+      issuedAt: contribution.collectionDate,
+      businessName: ctx.tenantName,
+      customer: {
+        customerId: contribution.account.customer.customerId,
+        fullName: contribution.account.customer.fullName,
+        phone: contribution.account.customer.phone,
+      },
+      accountNumber: contribution.account.accountId,
+      cycleNumber: contribution.cycle.cycleNumber,
+      channel: contribution.channel,
+      receivedBy:
+        (contribution as { receivedByName?: string | null }).receivedByName ??
+        contribution.receivedBy?.fullName ??
+        null,
+      notes: contribution.notes,
+      amount: contribution.amount,
+    });
+  }
 
-  return entries.sort((a, b) => a.date.getTime() - b.date.getTime());
+  const withdrawal = await db.withdrawal.findFirst({
+    where: { tenantId: ctx.tenantId, referenceId: reference },
+    include: {
+      account: { include: { customer: true } },
+      cycle: { select: { cycleNumber: true } },
+    },
+  });
+  if (!withdrawal) return null;
+
+  return buildSusuReceipt({
+    kind: "withdrawal",
+    reference: withdrawal.referenceId,
+    status: withdrawal.status,
+    isReversal: Boolean(withdrawal.reversalOfId),
+    issuedAt: withdrawal.createdAt,
+    businessName: ctx.tenantName,
+    customer: {
+      customerId: withdrawal.account.customer.customerId,
+      fullName: withdrawal.account.customer.fullName,
+      phone: withdrawal.account.customer.phone,
+    },
+    accountNumber: withdrawal.account.accountId,
+    cycleNumber: withdrawal.cycle.cycleNumber,
+    channel: "withdrawal",
+    receivedBy: null,
+    notes: withdrawal.notes,
+    amount: withdrawal.requestedAmount,
+    commissionAmount: withdrawal.commissionAmount,
+    netAmount: withdrawal.netAmount,
+  });
 }
 
 export async function getCustomerProfile() {
