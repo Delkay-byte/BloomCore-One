@@ -895,3 +895,93 @@ assigned employee, and showed the deterministic/no-model disclosure.
 Workstream 9 — external integration readiness: provider interfaces and
 non-delivering adapters for telco, messaging and payment status, without
 contacting production services.
+
+## Workstream 9 — External integration readiness
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+The receipt-message foundation had a non-delivering mock SMS/WhatsApp adapter.
+There was no single answer to which external integrations exist, which are
+simulated, and which are genuinely unavailable.
+
+### What was implemented
+
+- A **telco provider interface** (`TelcoProvider`) with exactly one
+  implementation, `UnavailableTelcoProvider`. It never contacts an aggregator,
+  never opens a socket and always returns `providerConfirmed: false`.
+- A unified **integration readiness** contract for messaging, telco statement
+  import and customer payment status. Every entry names its status, whether it
+  delivers outside MaaCash, and the approvals required before enabling it.
+- A read-only administrator page at `/admin/integrations`. It has no connect,
+  test-send or credential controls and renders no environment values.
+- An “Integrations” navigation entry.
+- The page states plainly that MoMo entries remain operator-recorded,
+  receipt/statement messages are preview-only, and no third-party payment
+  status is treated as proof of customer money movement.
+
+### Schema and migration
+
+No schema change. No credentials, provider tokens or customer recipients are
+stored.
+
+### Tests and results
+
+- New `tests/integration-readiness.test.ts` proves:
+  - the telco adapter returns `unavailable` and never provider confirmation;
+  - it makes no network call even when `fetch` is replaced with a throwing
+    stub;
+  - the messaging adapter stays in sandbox and returns `simulated`, never
+    `sent`;
+  - every readiness entry is non-delivering;
+  - provider and platform secrets do not appear in the readiness payload.
+- `tests/integration-readiness.test.ts`: **5 passed**.
+- The existing customer-facing branding guard also passes after wording was
+  kept free of provider-identity language.
+- Full regression suite: **119 files, 1,309 tests passed**.
+- TypeScript: clean. ESLint: 0 errors.
+
+### Browser acceptance
+
+The administrator opened `/admin/integrations` and saw all three integrations,
+the “No message is sent…” notice, the “Does not deliver” state and the
+provider-confirmation limitation. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The page requires a tenant administrator; no customer, worker or collector
+  can reach it.
+- No integration row contains a credential, token, recipient or provider
+  balance.
+- No external request is made by the page, the readiness builder or the telco
+  adapter.
+- Provider confirmation cannot be produced through any UI path.
+
+### Known limitations
+
+- No telco, aggregator, SMS, WhatsApp or customer-payment provider is
+  integrated.
+- Readiness is a static capability declaration, not a live health probe.
+- There is no webhook receiver, retry queue, delivery receipt, consent/opt-out
+  store or statement-import worker.
+- Paystack remains limited to MaaCash subscription billing, not customer
+  contribution settlement.
+- Enabling a provider requires replacing an adapter and adding monitoring,
+  secrets management and failure handling.
+
+### External approvals still required
+
+- Telco/aggregator API agreement, statement format and reconciliation
+  ownership.
+- SMS/WhatsApp sender ID, pricing, consent, opt-out and retention rules.
+- A decision on whether customer contributions are collected electronically.
+- Webhook signature, replay-protection and settlement-reconciliation
+  agreements for any payment provider.
+- Data-protection review before any customer transaction data leaves MaaCash.
+
+### Next dependency
+
+Workstream 10 — reporting and business-intelligence hardening: consistent
+definitions, export safety and a review of aggregate-versus-ledger reporting.
