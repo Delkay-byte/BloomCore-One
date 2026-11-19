@@ -1248,7 +1248,7 @@ Browser: the administrator saw the SMS readiness card marked unavailable with
 ## Workstream 14 — BloomCore Technologies attribution
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `732d7c7`
 
 ### What was implemented
 
