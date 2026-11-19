@@ -21,6 +21,7 @@ import {
   getZeliConversation,
   listZeliConversations,
   renameZeliConversation,
+  searchZeliConversations,
   sendZeliMessage,
   setZeliFeedback,
 } from "@/lib/actions/zeli.actions";
@@ -39,6 +40,11 @@ interface ConversationSummary {
   id: string;
   title: string;
   updatedAt: string;
+  createdAt?: string;
+}
+
+interface HistoryResult extends ConversationSummary {
+  snippet: string | null;
 }
 
 interface Usage {
@@ -79,6 +85,11 @@ export default function ZeliPage() {
   const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyResults, setHistoryResults] = useState<HistoryResult[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -148,6 +159,32 @@ export default function ZeliPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
 
+  useEffect(() => {
+    if (!historyOpen) return;
+    let active = true;
+    setHistoryBusy(true);
+    setHistoryError("");
+    const timer = setTimeout(() => {
+      void searchZeliConversations(historyQuery)
+        .then((result) => {
+          if (!active) return;
+          if (!result.success || !result.data) {
+            setHistoryError(result.error ?? "History could not be loaded.");
+            setHistoryResults([]);
+          } else {
+            setHistoryResults(result.data);
+          }
+        })
+        .finally(() => {
+          if (active) setHistoryBusy(false);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [historyOpen, historyQuery]);
+
   async function send(question: string) {
     const text = question.trim();
     if (!text || !selected || sending) return;
@@ -169,6 +206,13 @@ export default function ZeliPage() {
         setError(result.error ?? "Zeli could not answer that question.");
         return;
       }
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === selected && result.data!.title
+            ? { ...conversation, title: result.data!.title, updatedAt: new Date().toISOString() }
+            : conversation
+        )
+      );
       setMessages((current) => [
         ...current,
         {
@@ -289,10 +333,14 @@ export default function ZeliPage() {
           )}
           <button
             type="button"
-            className="btn btn-secondary btn-sm md:hidden"
-            onClick={() => setShowHistory((value) => !value)}
-            aria-expanded={showHistory}
-            aria-controls="zeli-history"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setHistoryOpen(true);
+              setShowHistory(false);
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={historyOpen}
+            aria-controls="zeli-history-dialog"
           >
             History
           </button>
@@ -546,6 +594,111 @@ export default function ZeliPage() {
           </div>
         </main>
       </div>
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setHistoryOpen(false);
+          }}
+        >
+          <div
+            id="zeli-history-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="zeli-history-title"
+            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setHistoryOpen(false);
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="zeli-history-title" className="text-base font-semibold text-slate-900">
+                  Conversation history
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Only your own conversations in this business are shown.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setHistoryOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <label className="mt-3 block text-xs font-medium text-slate-600">
+              Search conversations
+              <input
+                type="search"
+                value={historyQuery}
+                onChange={(event) => setHistoryQuery(event.target.value)}
+                placeholder="Search by title or message content"
+                className="input mt-1 w-full"
+                autoFocus
+              />
+            </label>
+
+            <div className="mt-3 min-h-[10rem] flex-1 overflow-y-auto">
+              {historyBusy ? (
+                <p className="py-8 text-center text-sm text-slate-500" role="status">
+                  Loading conversations…
+                </p>
+              ) : historyError ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+                  {historyError}
+                </p>
+              ) : historyResults.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm font-medium text-slate-700">
+                    {historyQuery ? "No conversations match that search." : "No conversations yet."}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Start a new conversation from the Zeli page.
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {historyResults.map((conversation) => (
+                    <li key={conversation.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void loadConversation(conversation.id);
+                          setHistoryOpen(false);
+                        }}
+                        className={`w-full rounded-lg px-3 py-2 text-left ${
+                          selected === conversation.id ? "bg-brand-50" : "hover:bg-slate-50"
+                        }`}
+                        aria-current={selected === conversation.id ? "true" : undefined}
+                      >
+                        <span className="block truncate text-sm font-medium text-slate-900">
+                          {conversation.title}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">
+                          Last activity {dateLabel(conversation.updatedAt)}
+                          {conversation.createdAt
+                            ? ` · Created ${dateLabel(conversation.createdAt)}`
+                            : ""}
+                        </span>
+                        {conversation.snippet && (
+                          <span className="mt-0.5 block line-clamp-2 text-xs text-slate-600">
+                            {conversation.snippet}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className="mt-6 border-t border-slate-200 pt-3 text-center">
         <BloomCoreAttribution />
       </footer>

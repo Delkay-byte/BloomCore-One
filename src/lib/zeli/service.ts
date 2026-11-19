@@ -45,6 +45,7 @@ export class ZeliUsageError extends Error {
 
 export interface ZeliTurnResult {
   conversationId: string;
+  conversationTitle: string;
   text: string;
   sources: ZeliSource[];
   tools: ZeliToolOutcome[];
@@ -451,19 +452,23 @@ export async function runZeliTurn(params: {
     },
   });
 
+  const conversationTitle =
+    conversation.titleSource !== "manual" && conversation.title === "New conversation"
+      ? generateConversationTitle(question)
+      : conversation.title;
   await db.zeliConversation.update({
     where: { id: conversation.id },
     data: {
       updatedAt: new Date(),
-      ...(conversation.titleSource !== "manual" &&
-      conversation.title === "New conversation"
-        ? { title: generateConversationTitle(question), titleSource: "auto" }
+      ...(conversationTitle !== conversation.title
+        ? { title: conversationTitle, titleSource: "auto" }
         : {}),
     },
   });
 
   return {
     conversationId: conversation.id,
+    conversationTitle,
     text,
     sources,
     tools,
