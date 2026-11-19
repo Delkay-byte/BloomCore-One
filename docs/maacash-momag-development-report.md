@@ -989,7 +989,7 @@ definitions, export safety and a review of aggregate-versus-ledger reporting.
 ## Workstream 10 — Reporting and export hardening
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `6c0ca0b`
 
 ### Existing capability before changes
 
