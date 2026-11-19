@@ -17,7 +17,7 @@ This report starts the new Workstream 0 review and records each feature from her
 |---|---|---|---|
 | 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / FOUNDATION** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Aggregate days remain the default, so an operator can still close a day from totals without individual transactions. Next: 0.5 aggregate-vs-ledger integrity. |
 | 2 | Best-effort audit records leave financial actions without evidence | **RESOLVED for money movements; residual control record** | Successful money changes now write audit evidence in the same transaction. `createAuditLog()` remains for non-financial/security events, and the final `finance.approval_applied` summary is still written after the already-audited reversal. |
-| 3 | Activity History omits meaningful actor identity | **PARTIALLY ADDRESSED** | Customer actors are now resolved in `/api/audit`; staff names and roles are shown. Legacy/orphaned actor IDs and device attribution still need a full pass. Next: 0.2. |
+| 3 | Activity History omits meaningful actor identity | **RESOLVED for actor identity** | Audit rows now snapshot actor name, role and type at write time. Renames and removed accounts do not rewrite history. Device attribution remains part of 0.3. |
 | 4 | Offline shared-device recovery creates attribution and replay risk | **PARTIALLY ADDRESSED / FOUNDATION** | Per-user IndexedDB scope, device ownership checks, server idempotency and revoked-device refusal exist. Device identity is not yet carried onto every financial ledger row, and shared-device recovery needs a dedicated replay test. Next: 0.3. |
 | 5 | Revenue and profit definitions can mislead | **PARTIALLY ADDRESSED** | Performance reporting separates revenue (commission + other income) from principal volume and excludes drafts. Older daily/report screens still use “profit” for net increase. Next: 0.4. |
 
@@ -83,3 +83,58 @@ None for this local feature.
 ### Next dependency
 
 0.2 — complete actor identity and device attribution in Activity History, before offline replay hardening.
+
+## Feature 0.2 — Durable audit actor identity
+
+**Status:** GREEN  
+**Commit:** `b34530a`
+
+### Existing capability before changes
+
+Activity History looked up the actor from the current `User` or `Customer` row by `userId`. Renaming an employee changed the displayed actor on old events; removing an account left legitimate historical events unattributed.
+
+### What was implemented
+
+- `AuditLog` now stores `actorName`, `actorRole` and `actorType` at write time.
+- Both `createAuditLog()` and `createAuditLogTx()` populate the snapshot. The atomic helper fails closed with the financial transaction if the snapshot cannot be written.
+- `/api/audit` prefers the stored snapshot, falls back to the live account for legacy rows, and keeps an explicit unattributed state when neither exists.
+- No client-supplied actor identity is accepted.
+
+### Schema and migrations
+
+- `prisma/schema.prisma` and `prisma/schema-pg.prisma`: nullable `actorName`, `actorRole`, `actorType` columns on `AuditLog`.
+- Additive migration `20261129_audit_actor_snapshot`.
+
+### Tests and results
+
+- New `tests/audit-actor-attribution.test.ts` proves:
+  - rename does not rewrite historical actor name/role;
+  - deleting the actor account preserves the snapshot;
+  - customer portal actions are attributed as `customer`, not staff.
+- Targeted audit suite: **5 files, 28 tests passed**.
+- Full regression suite: **113 files, 1,277 tests passed**.
+- TypeScript and touched-file ESLint: clean.
+
+### Browser acceptance
+
+Admin → Activity History shows a seeded historical actor snapshot (`Historic Actor · Admin`) after the current account was renamed. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Actor lookup remains tenant-scoped through the authenticated session/action context.
+- Audit rows keep the existing tenant column and the API still filters by `ctx.tenantId`.
+- Snapshot fields are written server-side only; they are not accepted from request input.
+- No historical audit rows are updated or deleted.
+
+### Known limitations
+
+- Legacy audit rows created before this migration have no snapshot and still depend on the live account.
+- Device identity is not yet stored on the audit row. That belongs to 0.3 and Workstream 1.
+
+### External approvals still required
+
+None.
+
+### Next dependency
+
+0.3 — offline shared-device attribution and replay hardening.
