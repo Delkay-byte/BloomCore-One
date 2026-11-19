@@ -6,6 +6,7 @@ import {
   getWhatsAppProvider,
   type WhatsAppProvider,
 } from "@/lib/messaging/whatsapp";
+import { getSmsProvider, type SmsProvider } from "@/lib/messaging/sms";
 import {
   buildReceiptContent,
   type ReceiptInput,
@@ -208,16 +209,17 @@ function parsePayload(value: string): OutboxPayload | null {
 }
 
 /**
- * Deliver pending WhatsApp receipts. SMS is added by the SMS provider
- * workstream; until then only WhatsApp rows are claimed.
+ * Deliver pending customer receipts for both channels. WhatsApp uses approved
+ * templates; SMS uses the selected provider (currently a non-delivering mock).
  */
 export async function deliverPendingCustomerMessages(
   limit = 5,
-  provider: WhatsAppProvider = getWhatsAppProvider()
+  provider: WhatsAppProvider = getWhatsAppProvider(),
+  smsProvider: SmsProvider = getSmsProvider()
 ): Promise<number> {
   const rows = await db.customerMessageOutbox.findMany({
     where: {
-      channel: "whatsapp",
+      channel: { in: ["whatsapp", "sms"] },
       status: "pending",
       attempts: { lt: MAX_ATTEMPTS },
       nextAttemptAt: { lte: new Date() },
@@ -248,12 +250,19 @@ export async function deliverPendingCustomerMessages(
       continue;
     }
 
-    const result = await provider.sendTemplate({
-      to: recipient,
-      templateName: payload.templateName ?? "maacash_receipt",
-      languageCode: payload.languageCode ?? "en_US",
-      parameters: payload.parameters ?? [],
-    });
+    const result =
+      row.channel === "sms"
+        ? await smsProvider.sendSms({
+            to: recipient,
+            body: payload.body ?? "",
+            reference: row.reference,
+          })
+        : await provider.sendTemplate({
+            to: recipient,
+            templateName: payload.templateName ?? "maacash_receipt",
+            languageCode: payload.languageCode ?? "en_US",
+            parameters: payload.parameters ?? [],
+          });
 
     if (result.status === "accepted") {
       await db.customerMessageOutbox.update({

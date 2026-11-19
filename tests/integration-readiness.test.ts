@@ -49,6 +49,7 @@ describe("integration readiness", () => {
     expect(rows.every((row) => row.status === "sandbox" || row.status === "unavailable")).toBe(true);
     expect(rows.map((row) => row.id)).toEqual([
       "messaging",
+      "sms",
       "telco_statement",
       "provider_payment_status",
     ]);

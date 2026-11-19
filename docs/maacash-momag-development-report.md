@@ -1196,3 +1196,51 @@ page showed “Currently opted in.” **1 passed.**
 - Reversal notifications are supported by the outbox event type but are not
   yet wired into the correction action.
 - Delivery is a bounded best-effort run, not a scheduler.
+
+## Workstream 13 — SMS provider foundation
+
+**Status:** GREEN for the interface, consent, outbox and mock; **AMBER** for
+real delivery because no SMS provider has been selected.
+
+**Commit:** recorded at commit time
+
+### What was implemented
+
+- A reusable `SmsProvider` interface with `sendSms`, provider message ID,
+  retryable/permanent classification and sanitised errors.
+- A `MockSmsProvider` fixed as the only adapter. It never opens a network
+  connection and always returns `simulated`, never `sent`.
+- SMS uses the same `CustomerMessageOutbox`, consent records, idempotent event
+  key and retry state as WhatsApp.
+- Confirmed contribution and withdrawal receipts include business name,
+  transaction type, amount, reference, date and account reference; no PIN, OTP
+  or internal risk assessment.
+- SMS readiness appears on `/admin/integrations` as **unavailable** until a
+  real provider is contracted.
+- `SMS_PROVIDER`, `SMS_DELIVERY_ENABLED` and `SMS_DELIVERY_ALLOWLIST` are
+  documented, but a provider name alone never makes delivery ready.
+
+### Tests
+
+`tests/sms-messaging.test.ts`: **7 passed** — mock never sends, invalid number
+rejected, configured name still not operational, opt-in queues one SMS, opt-out
+blocks, accepted provider response is recorded, and timeout stays retryable.
+Existing WhatsApp/consent tests continue at **12 passed**.
+
+Browser: the administrator saw the SMS readiness card marked unavailable with
+“Does not deliver”. **1 passed.**
+
+### Configuration required for a real provider
+
+- Selected provider and documented API endpoint.
+- Account ID / API key / sender ID.
+- Approved sender or short code for Ghana.
+- Delivery-report webhook and signature mechanism.
+- Per-message pricing, retry policy, consent/opt-out and retention rules.
+
+### Limitations
+
+- No SMS provider is integrated; no real SMS was sent.
+- No delivery-report webhook exists for SMS until a provider is chosen.
+- SMS messages use the same 320-character receipt body used by the preview.
+- The delivery runner is bounded and on-request, not a scheduler.

@@ -12,6 +12,7 @@
 
 import { getMessageProvider } from "@/lib/messaging/provider";
 import { getWhatsAppConfig } from "@/lib/messaging/whatsapp";
+import { getSmsProvider, getSmsProviderConfig } from "@/lib/messaging/sms";
 
 export type IntegrationReadinessStatus = "sandbox" | "unavailable";
 
@@ -73,6 +74,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
   const messages = getMessageProvider();
   const telco = getTelcoProvider();
   const whatsapp = getWhatsAppConfig();
+  const sms = getSmsProvider();
+  const smsConfig = getSmsProviderConfig();
 
   return [
     {
@@ -91,6 +94,21 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
         "Provider contract, sender ID and pricing",
         "Consent, opt-out and message-retention rules",
         "Delivery monitoring and failure handling",
+      ],
+    },
+    {
+      id: "sms",
+      label: "SMS receipts",
+      capability: "Confirmed contribution and withdrawal receipts by SMS",
+      status: "unavailable",
+      delivers: sms.delivers,
+      detail: smsConfig.provider
+        ? `SMS_PROVIDER is set to "${smsConfig.provider}", but no reviewed adapter for that provider exists. The mock adapter never sends.`
+        : "No SMS provider has been selected. Messages are queued and validated only; nothing is transmitted.",
+      requiredApprovals: [
+        "Selected SMS provider and sender ID",
+        "Per-message pricing and delivery monitoring",
+        "Consent, opt-out and retention rules",
       ],
     },
     {
