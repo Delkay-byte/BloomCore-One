@@ -78,12 +78,13 @@ function changeInsight(params: {
       : Math.abs(params.previous) >= MIN_BASELINE_COUNT;
   if (change == null || Math.abs(change) < CHANGE_THRESHOLD || !baseline) return null;
   const direction = change > 0 ? "increased" : "decreased";
+  const verb = params.metricLabel.endsWith("s") ? "were" : "was";
   const severity: InsightSeverity = Math.abs(change) >= 30 ? "warning" : "attention";
   const formatted = params.unit === "money" ? money : (value: number) => String(value);
   return {
     id: params.id,
     title: `${params.metricLabel} ${direction} by ${Math.abs(change).toFixed(1)}%`,
-    detail: `${params.metricLabel} was ${formatted(params.current)} in ${params.period}, compared with ${formatted(params.previous)} in the preceding period.`,
+    detail: `${params.metricLabel} ${verb} ${formatted(params.current)} in ${inlinePeriod(params.period)}, compared with ${formatted(params.previous)} in the preceding period.`,
     severity,
     category: "trend",
     period: params.period,
@@ -194,9 +195,18 @@ function engagementTrend(snapshot: AnalyticsSnapshot): Insight | null {
 }
 
 /** Run every detector and return a stable, severity-ordered list. */
+function count(value: number, singular: string, plural = `${singular}s`): string {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function inlinePeriod(label: string): string {
+  return label.length ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+}
+
 export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
   const insights: Insight[] = [];
   const period = snapshot.period.label;
+  const periodText = inlinePeriod(period);
   const source = snapshot.freshness.source;
   const freshness = snapshot.freshness.refreshedAt;
 
@@ -268,7 +278,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     insights.push({
       id: "remittance-variance",
       title: "Remittance variance needs review",
-      detail: `Collector remittances in ${period} show a net variance of ${money(snapshot.totals.remittanceVariance)} across ${snapshot.totals.remittanceCount} remittance records.`,
+      detail: `Collector remittances in ${periodText} show a net variance of ${money(snapshot.totals.remittanceVariance)} across ${count(snapshot.totals.remittanceCount, "remittance record")}.`,
       severity: Math.abs(snapshot.totals.remittanceVariance) >= 50 ? "warning" : "attention",
       category: "exception",
       period,
@@ -294,7 +304,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     insights.push({
       id: "collectors-without-remittance",
       title: "Some collectors have no remittance in this period",
-      detail: `${snapshot.exceptions.collectorsWithoutRemittance} collector(s) recorded contributions in ${period} without a matching remittance record in the same period.`,
+      detail: `${count(snapshot.exceptions.collectorsWithoutRemittance, "collector")} recorded contributions in ${periodText} without a matching remittance record in the same period.`,
       severity: "warning",
       category: "exception",
       period,
@@ -318,7 +328,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     insights.push({
       id: "daily-accounts-awaiting-review",
       title: "Daily accounts are waiting for review",
-      detail: `${snapshot.exceptions.dailyAccountsAwaitingReview} submitted daily account(s) have not been reviewed.`,
+      detail: `${count(snapshot.exceptions.dailyAccountsAwaitingReview, "submitted daily account")} ${snapshot.exceptions.dailyAccountsAwaitingReview === 1 ? "has" : "have"} not been reviewed.`,
       severity: snapshot.exceptions.dailyAccountsAwaitingReview >= 5 ? "warning" : "attention",
       category: "exception",
       period: `Current state at ${new Date(snapshot.freshness.refreshedAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
@@ -340,7 +350,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     insights.push({
       id: "pending-withdrawals",
       title: "Withdrawal requests are pending",
-      detail: `${snapshot.exceptions.pendingWithdrawals} withdrawal request(s) are still pending in the selected scope.`,
+      detail: `${count(snapshot.exceptions.pendingWithdrawals, "withdrawal request")} ${snapshot.exceptions.pendingWithdrawals === 1 ? "is" : "are"} still pending in the selected scope.`,
       severity: "attention",
       category: "exception",
       period: "Current state",
@@ -369,7 +379,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
       insights.push({
         id: "dormant-accounts",
         title: "Some active accounts had no contribution",
-        detail: `${snapshot.customer.dormantAccounts} of ${snapshot.customer.totalActiveAccounts} active accounts recorded no contribution in ${period}. This is a count of accounts, not a judgement about customers.`,
+        detail: `${snapshot.customer.dormantAccounts} of ${snapshot.customer.totalActiveAccounts} active accounts recorded no contribution in ${periodText}. This is a count of accounts, not a judgement about customers.`,
         severity: share >= 40 ? "attention" : "info",
         category: "customer",
         period,
@@ -398,7 +408,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
       insights.push({
         id: "contribution-consistency",
         title: "Most contributing accounts paid only once",
-        detail: `${Math.round(share)}% of contributing accounts recorded a single contribution in ${period}. Contribution consistency is a service indicator, not an employee-performance conclusion.`,
+        detail: `${Math.round(share)}% of contributing accounts recorded a single contribution in ${periodText}. Contribution consistency is a service indicator, not an employee-performance conclusion.`,
         severity: "attention",
         category: "customer",
         period,
@@ -418,19 +428,23 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     }
   }
 
-  if (snapshot.period.days >= 7 && snapshot.series.length > 0) {
-    const zeroDays = snapshot.series.filter((point) => point.transactionCount === 0).length;
-    const share = (zeroDays / snapshot.series.length) * 100;
+  // A current month includes future dates in the reporting period. They are
+  // not missing trading days and must not inflate a completeness warning.
+  const today = new Date().toISOString().slice(0, 10);
+  const observedSeries = snapshot.series.filter((point) => point.date <= today);
+  if (snapshot.period.days >= 7 && observedSeries.length > 0) {
+    const zeroDays = observedSeries.filter((point) => point.transactionCount === 0).length;
+    const share = (zeroDays / observedSeries.length) * 100;
     if (share >= 30) {
       insights.push({
         id: "reporting-gaps",
         title: "Several days have no recorded transactions",
-        detail: `${zeroDays} of ${snapshot.series.length} days in ${period} have no contributions, withdrawals or remittances. Zero can mean no activity or missing records.`,
+        detail: `${zeroDays} of ${observedSeries.length} elapsed days in ${periodText} have no contributions, withdrawals or remittances. Zero can mean no activity or missing records.`,
         severity: share >= 60 ? "warning" : "attention",
         category: "data_quality",
         period,
         metric: "Reporting completeness",
-        calculation: "Days with zero transactions divided by total days in the period",
+        calculation: "Days with zero transactions divided by elapsed days in the period",
         source: snapshot.freshness.source,
         freshness,
         confidence: "medium",
@@ -451,7 +465,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
       insights.push({
         id: "collector-concentration",
         title: "Collection activity is concentrated in one collector",
-        detail: `One collector accounts for ${share.toFixed(0)}% of recorded collector contributions in ${period}. Workload can legitimately differ by route size.`,
+        detail: `One collector accounts for ${share.toFixed(0)}% of recorded collector contributions in ${periodText}. Workload can legitimately differ by route size.`,
         severity: "info",
         category: "branch",
         period,
@@ -496,7 +510,7 @@ export function detectInsights(snapshot: AnalyticsSnapshot): Insight[] {
     insights.push({
       id: "no-activity",
       title: "No financial activity in this period",
-      detail: `No contributions, withdrawals or remittances were recorded in ${period} for the selected scope.`,
+      detail: `No contributions, withdrawals or remittances were recorded in ${periodText} for the selected scope.`,
       severity: "info",
       category: "data_quality",
       period,

@@ -319,11 +319,13 @@ describe("grounding, roles and history", () => {
 
   it("persists history with intent, period and mode metadata", async () => {
     const { conversation, identity } = await adminConversation();
-    await runZeliTurn({
+    const first = await runZeliTurn({
       identity,
       conversationId: conversation.id,
       question: "Summarise this month's activity",
     });
+    expect(first.text).toContain("For this month");
+    expect(first.text).not.toContain("For This month");
     await runZeliTurn({
       identity,
       conversationId: conversation.id,

@@ -52,6 +52,14 @@ function money(value: number): string {
   })}`;
 }
 
+function count(value: number, singular: string, plural = `${singular}s`): string {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function inlinePeriod(label: string): string {
+  return label.length ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+}
+
 function signedPct(value: number | null): string {
   if (value == null) return "not comparable (no meaningful previous-period base)";
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
@@ -81,15 +89,15 @@ function overview(snapshot: AnalyticsSnapshot): ComposedAnswer {
   const statements: ComposedStatement[] = [
     statement(
       "calculated_fact",
-      `For ${snapshot.period.label}, contributions were ${money(snapshot.totals.contributions)} across ${snapshot.totals.contributionCount} records. Withdrawals were ${money(snapshot.totals.withdrawals)} across ${snapshot.totals.withdrawalCount} completed records. Remittances were ${money(snapshot.totals.remittances)} with net variance ${money(snapshot.totals.remittanceVariance)}. Expenses were ${money(snapshot.totals.expenses)}.`
+      `For ${inlinePeriod(snapshot.period.label)}, contributions were ${money(snapshot.totals.contributions)} across ${count(snapshot.totals.contributionCount, "record")}. Withdrawals were ${money(snapshot.totals.withdrawals)} across ${count(snapshot.totals.withdrawalCount, "completed record")}. Remittances were ${money(snapshot.totals.remittances)} with net variance ${money(snapshot.totals.remittanceVariance)}. Expenses were ${money(snapshot.totals.expenses)}.`
     ),
     statement(
       "calculated_fact",
-      `Calculated net cash flow is ${money(snapshot.totals.netCashFlow)}: contributions plus cash income, minus withdrawals and expenses. ${snapshot.totals.activeAccounts} distinct accounts contributed in the period, and ${snapshot.totals.newCustomers} customers registered.`
+      `Calculated net cash flow is ${money(snapshot.totals.netCashFlow)}: contributions plus cash income, minus withdrawals and expenses. ${count(snapshot.totals.activeAccounts, "distinct account")} contributed in the period, and ${count(snapshot.totals.newCustomers, "customer")} registered.`
     ),
     statement(
       "calculated_fact",
-      `Compared with ${snapshot.previousPeriod.label}: contributions ${signedPct(snapshot.comparison.contributionsPct)}, withdrawals ${signedPct(snapshot.comparison.withdrawalsPct)}, expenses ${signedPct(snapshot.comparison.expensesPct)}, transaction volume ${signedPct(snapshot.comparison.transactionVolumePct)}.`
+      `Compared with ${inlinePeriod(snapshot.previousPeriod.label)}: contributions ${signedPct(snapshot.comparison.contributionsPct)}, withdrawals ${signedPct(snapshot.comparison.withdrawalsPct)}, expenses ${signedPct(snapshot.comparison.expensesPct)}, transaction volume ${signedPct(snapshot.comparison.transactionVolumePct)}.`
     ),
   ];
 
@@ -154,11 +162,11 @@ function contributionsAndWithdrawals(snapshot: AnalyticsSnapshot): ComposedAnswe
   const statements: ComposedStatement[] = [
     statement(
       "calculated_fact",
-      `Contributions: ${money(snapshot.totals.contributions)} from ${snapshot.totals.contributionCount} non-reversed records. Previous period: ${money(snapshot.previousTotals.contributions)}. Change: ${signedPct(snapshot.comparison.contributionsPct)}.`
+      `Contributions: ${money(snapshot.totals.contributions)} from ${count(snapshot.totals.contributionCount, "non-reversed record")}. Previous period: ${money(snapshot.previousTotals.contributions)}. Change: ${signedPct(snapshot.comparison.contributionsPct)}.`
     ),
     statement(
       "calculated_fact",
-      `Withdrawals: ${money(snapshot.totals.withdrawals)} net paid across ${snapshot.totals.withdrawalCount} completed records. Previous period: ${money(snapshot.previousTotals.withdrawals)}. Change: ${signedPct(snapshot.comparison.withdrawalsPct)}.`
+      `Withdrawals: ${money(snapshot.totals.withdrawals)} net paid across ${count(snapshot.totals.withdrawalCount, "completed record")}. Previous period: ${money(snapshot.previousTotals.withdrawals)}. Change: ${signedPct(snapshot.comparison.withdrawalsPct)}.`
     ),
     statement(
       "calculated_fact",
@@ -217,11 +225,11 @@ function incomeAndExpenses(snapshot: AnalyticsSnapshot): ComposedAnswer {
     statements: [
       statement(
         "calculated_fact",
-        `Recorded cash income for ${snapshot.period.label}: ${money(income)} across ${snapshot.totals.transactionCount} transaction records. Previous period: ${money(previousIncome)}. Change: ${signedPct(changePct(income, previousIncome))}.`
+        `Recorded cash income for ${inlinePeriod(snapshot.period.label)}: ${money(income)} across ${count(snapshot.totals.transactionCount, "transaction record")}. Previous period: ${money(previousIncome)}. Change: ${signedPct(changePct(income, previousIncome))}.`
       ),
       statement(
         "calculated_fact",
-        `Recorded expenses: ${money(snapshot.totals.expenses)} across ${snapshot.totals.expenseCount} expense records. Previous period: ${money(snapshot.previousTotals.expenses)}. Change: ${signedPct(snapshot.comparison.expensesPct)}.`
+        `Recorded expenses: ${money(snapshot.totals.expenses)} across ${count(snapshot.totals.expenseCount, "expense record")}. Previous period: ${money(snapshot.previousTotals.expenses)}. Change: ${signedPct(snapshot.comparison.expensesPct)}.`
       ),
       statement(
         "calculated_fact",
@@ -257,11 +265,11 @@ function remittances(snapshot: AnalyticsSnapshot): ComposedAnswer {
     statements: [
       statement(
         "calculated_fact",
-        `In ${snapshot.period.label}, ${snapshot.totals.remittanceCount} active remittance record(s) totalled ${money(snapshot.totals.remittances)}. Net variance (expected minus remitted) was ${money(snapshot.totals.remittanceVariance)}.`
+        `In ${inlinePeriod(snapshot.period.label)}, ${count(snapshot.totals.remittanceCount, "active remittance record")} totalled ${money(snapshot.totals.remittances)}. Net variance (expected minus remitted) was ${money(snapshot.totals.remittanceVariance)}.`
       ),
       statement(
         "calculated_fact",
-        `${snapshot.exceptions.collectorsWithoutRemittance} collector(s) recorded contributions without a remittance in the same period. ${snapshot.exceptions.remittanceDiscrepancies} remittance record(s) are marked as a discrepancy.`
+        `${count(snapshot.exceptions.collectorsWithoutRemittance, "collector")} recorded contributions without a remittance in the same period. ${count(snapshot.exceptions.remittanceDiscrepancies, "remittance record")} are marked as a discrepancy.`
       ),
       statement(
         "detected_pattern",
@@ -296,11 +304,11 @@ function exceptions(snapshot: AnalyticsSnapshot): ComposedAnswer {
     statements: [
       statement(
         "calculated_fact",
-        `Open exceptions in scope: ${snapshot.exceptions.pendingWithdrawals} pending withdrawal(s), ${snapshot.exceptions.remittanceDiscrepancies} remittance discrepancy record(s), ${snapshot.exceptions.dailyAccountsAwaitingReview} daily account(s) awaiting review, and ${snapshot.exceptions.collectorsWithoutRemittance} collector(s) without a remittance in the period.`
+        `Open exceptions in scope: ${count(snapshot.exceptions.pendingWithdrawals, "pending withdrawal")}, ${count(snapshot.exceptions.remittanceDiscrepancies, "remittance discrepancy record")}, ${count(snapshot.exceptions.dailyAccountsAwaitingReview, "daily account")} awaiting review, and ${count(snapshot.exceptions.collectorsWithoutRemittance, "collector")} without a remittance in the period.`
       ),
       statement(
         "calculated_fact",
-        `${snapshot.exceptions.incompleteDailyAccounts} daily account(s) are still draft or submitted in the selected scope.`
+        `${count(snapshot.exceptions.incompleteDailyAccounts, "daily account")} ${snapshot.exceptions.incompleteDailyAccounts === 1 ? "is" : "are"} still draft or submitted in the selected scope.`
       ),
       statement(
         "automated_interpretation",
@@ -423,7 +431,7 @@ export function explainChart(
   const statements: ComposedStatement[] = [
     statement(
       "calculated_fact",
-      `${label} for ${snapshot.period.label} is built from ${points.length} daily bucket(s). The highest point is ${peak.date} at ${peak.value}.`
+      `${label} for ${inlinePeriod(snapshot.period.label)} is built from ${count(points.length, "daily bucket")}. The highest point is ${peak.date} at ${peak.value}.`
     ),
     statement(
       "calculated_fact",
