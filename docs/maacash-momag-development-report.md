@@ -719,7 +719,7 @@ Workstream 7 — BloomCore Identity OIDC readiness review against the existing p
 ## Workstream 7 — BloomCore Identity OIDC readiness review
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `e762eb3`
 
 ### Existing capability before changes
 
