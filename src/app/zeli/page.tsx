@@ -6,7 +6,6 @@ import {
   BarChart3,
   Check,
   Copy,
-  Loader2,
   MessageSquarePlus,
   Send,
   Sparkles,
@@ -27,6 +26,7 @@ import {
 } from "@/lib/actions/zeli.actions";
 import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 import ZeliAnswerView from "@/components/zeli/ZeliAnswerView";
+import ZeliThinkingIndicator from "@/components/zeli/ZeliThinkingIndicator";
 
 interface Message {
   id: string;
@@ -100,8 +100,11 @@ export default function ZeliPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const localIdRef = useRef(0);
+  const sendTokenRef = useRef(0);
 
   const loadConversation = useCallback(async (id: string) => {
+    sendTokenRef.current += 1;
+    setSending(false);
     setLoadingThread(true);
     setError("");
     try {
@@ -119,6 +122,8 @@ export default function ZeliPage() {
   }, []);
 
   const newConversation = useCallback(async () => {
+    sendTokenRef.current += 1;
+    setSending(false);
     const result = await createZeliConversation();
     if (!result.success || !result.data) {
       setError(result.error ?? "A new conversation could not be started.");
@@ -195,6 +200,8 @@ export default function ZeliPage() {
       setError(usage.blocked.message);
       return;
     }
+    const token = sendTokenRef.current + 1;
+    sendTokenRef.current = token;
     setSending(true);
     setError("");
     setLastQuestion(text);
@@ -205,6 +212,7 @@ export default function ZeliPage() {
 
     try {
       const result = await sendZeliMessage({ conversationId: selected, message: text });
+      if (token !== sendTokenRef.current) return;
       if (!result.success || !result.data) {
         setError(result.error ?? "Zeli could not answer that question.");
         return;
@@ -230,10 +238,14 @@ export default function ZeliPage() {
       ]);
       setLastQuestion(null);
     } catch {
-      setError("Zeli could not answer that question. Please try again.");
+      if (token === sendTokenRef.current) {
+        setError("Zeli could not answer that question. Please try again.");
+      }
     } finally {
-      setSending(false);
-      composerRef.current?.focus();
+      if (token === sendTokenRef.current) {
+        setSending(false);
+        composerRef.current?.focus();
+      }
     }
   }
 
@@ -542,11 +554,7 @@ export default function ZeliPage() {
               })
             )}
 
-            {sending && (
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600" role="status">
-                <Loader2 size={14} className="animate-spin" aria-hidden /> Working through your records…
-              </div>
-            )}
+            {sending && <ZeliThinkingIndicator />}
           </div>
 
           <div className="border-t border-slate-200 p-3 sm:p-4">
@@ -597,7 +605,7 @@ export default function ZeliPage() {
                 className="btn btn-primary"
                 disabled={sending || !input.trim() || Boolean(usage?.blocked)}
               >
-                {sending ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Send size={15} aria-hidden />}
+                <Send size={15} aria-hidden />
                 <span className="sr-only">Send question</span>
               </button>
             </form>
