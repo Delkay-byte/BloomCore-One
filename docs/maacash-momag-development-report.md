@@ -379,7 +379,7 @@ Workstream 2 — extend the existing branch cash and float transfer lifecycle wi
 ## Workstream 2 — Branch cash and float transfer lifecycle
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `3c2a47e`
 
 ### Existing capability before changes
 
