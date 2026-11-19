@@ -38,11 +38,11 @@ export interface ComposedAnswer {
 }
 
 const LABELS: Record<StatementKind, string> = {
-  calculated_fact: "CALCULATED FACT",
-  detected_pattern: "DETECTED PATTERN",
-  automated_interpretation: "AUTOMATED INTERPRETATION",
-  suggested_action: "SUGGESTED ACTION",
-  unverified_hypothesis: "UNVERIFIED HYPOTHESIS",
+  calculated_fact: "Key figures",
+  detected_pattern: "What changed",
+  automated_interpretation: "How to read this",
+  suggested_action: "Recommended next step",
+  unverified_hypothesis: "Not established",
 };
 
 function money(value: number): string {
@@ -63,7 +63,7 @@ function statement(kind: StatementKind, text: string): ComposedStatement {
 
 function render(answer: Omit<ComposedAnswer, "text">): ComposedAnswer {
   const text = answer.statements
-    .map((item) => `[${item.label}] ${item.text}`)
+    .map((item) => `${item.label}\n${item.text}`)
     .join("\n\n");
   return { ...answer, text };
 }

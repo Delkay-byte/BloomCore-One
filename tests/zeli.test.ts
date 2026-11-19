@@ -71,7 +71,7 @@ describe("Zeli grounding and isolation", () => {
     expect(result.providerAvailable).toBe(true);
     expect(result.provider).toBe("internal");
     expect(result.deterministic).toBe(true);
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
     expect(result.text).toContain("Contributions:");
     expect(result.sources.length).toBeGreaterThan(0);
 
@@ -166,7 +166,7 @@ describe("Zeli grounding and isolation", () => {
     });
     expect(result.providerAvailable).toBe(true);
     expect(result.provider).toBe("internal");
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
     expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllEnvs();
@@ -197,7 +197,7 @@ describe("Zeli grounding and isolation", () => {
     expect(result.providerAvailable).toBe(true);
     expect(result.provider).toBe("internal");
     expect(result.deterministic).toBe(true);
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
     expect(fetchMock).not.toHaveBeenCalled();
 
     vi.unstubAllEnvs();

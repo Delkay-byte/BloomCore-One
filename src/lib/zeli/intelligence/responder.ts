@@ -63,7 +63,7 @@ export const SUPPORTED_QUESTIONS = [
 
 export function unsupportedAnswer(analyticsAvailable: boolean): ZeliStructuredAnswer {
   const text = [
-    "[AUTOMATED INTERPRETATION] This request is outside the set of business questions that Zeli can answer from your authorized records without an external AI provider.",
+    "This request is outside the set of business questions that Zeli can answer from your authorized records without an external AI provider.",
     "",
     "Zeli can currently answer:",
     ...SUPPORTED_QUESTIONS.map((question) => `• ${question}`),
@@ -201,7 +201,7 @@ export async function answerAdminBusinessQuestion(params: {
   if (!tenant || tenant.status !== "ACTIVE") {
     return {
       text:
-        "[AUTOMATED INTERPRETATION] The business record is not currently available, so Zeli cannot read financial records. No data was changed.",
+        "The business record is not currently available, so Zeli cannot read financial records. No data was changed.",
       sources: [],
       intent: classified.intent,
       focus: null,
@@ -230,7 +230,7 @@ export async function answerAdminBusinessQuestion(params: {
   } catch (error) {
     return {
       text:
-        "[AUTOMATED INTERPRETATION] Zeli could not read the financial records for that request. No business data was changed. Open the matching report or try a narrower question.",
+        "Zeli could not read the financial records for that request. No business data was changed. Open the matching report or try a narrower question.",
       sources: [{ label: "Susu reports", href: "/susu/admin/reports" }],
       intent: classified.intent,
       focus: null,
@@ -292,7 +292,7 @@ export async function answerAdminBusinessQuestion(params: {
 ${enhancement.text}` : "";
   const sources = sourcesForIntent(classified.intent, snapshot);
   return {
-    text: `${answer.text}${externalText}\n\n[PERIOD] ${answer.period} · [SOURCE] ${answer.source} · [FRESHNESS] ${answer.freshness}\n\n[LIMITATIONS] ${answer.limitations.join(" ")}`,
+    text: `${answer.text}${externalText}\n\nPeriod: ${answer.period}\nSource: ${answer.source}\nFreshness: ${answer.freshness}\n\nLimitations: ${answer.limitations.join(" ")}`,
     sources,
     intent: classified.intent,
     focus: answer.focus,

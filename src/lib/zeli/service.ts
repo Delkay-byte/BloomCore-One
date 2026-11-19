@@ -35,6 +35,11 @@ import { getConversationPolicy } from "./providers/conversation-policy";
 import { consumeZeliQuota, ZeliAccessError } from "./usage";
 import { runToolConversation } from "./providers/tool-orchestrator";
 import { generateConversationTitle } from "./title";
+import {
+  normaliseSections,
+  type ZeliAnswerMeta,
+  type ZeliAnswerSection,
+} from "./response-format";
 
 export class ZeliUsageError extends Error {
   constructor(message: string) {
@@ -52,6 +57,8 @@ export interface ZeliTurnResult {
   provider: string;
   model: string;
   providerAvailable: boolean;
+  sections: ZeliAnswerSection[];
+  answerMeta: ZeliAnswerMeta | null;
   intent: string;
   deterministic: boolean;
   conversationMode: "local" | "external";
@@ -229,6 +236,8 @@ export async function runZeliTurn(params: {
   let periodLabel: string | null = null;
   let askedFor: string | null = null;
   let numericIntegrity: "verified" | "no_figures" | null = null;
+  let sections: ZeliAnswerSection[] = [];
+  let answerMeta: ZeliAnswerMeta | null = null;
 
   let teamHandled = false;
 
@@ -338,6 +347,13 @@ export async function runZeliTurn(params: {
         period = classified.period ?? "this_month";
         periodLabel = analyticAnswer.period ?? null;
         deterministic = true;
+        sections = normaliseSections(analyticAnswer.statements);
+        answerMeta = {
+          period: analyticAnswer.period,
+          source: analyticAnswer.sources[0]?.label ?? null,
+          freshness: analyticAnswer.freshness,
+          limitations: analyticAnswer.limitations,
+        };
       } else if (
         params.identity.role === "admin" &&
         (classified.intent === "unsupported" ||
@@ -446,6 +462,8 @@ export async function runZeliTurn(params: {
           ok: tool.ok,
           durationMs: tool.durationMs,
         })),
+        sections,
+        answerMeta,
       }),
       provider: providerName,
       model,
@@ -475,6 +493,8 @@ export async function runZeliTurn(params: {
     provider: providerName,
     model,
     providerAvailable: true,
+    sections,
+    answerMeta,
     intent,
     deterministic,
     conversationMode,

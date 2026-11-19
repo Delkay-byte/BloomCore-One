@@ -26,12 +26,15 @@ import {
   setZeliFeedback,
 } from "@/lib/actions/zeli.actions";
 import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
+import ZeliAnswerView from "@/components/zeli/ZeliAnswerView";
 
 interface Message {
   id: string;
   role: string;
   content: string;
   sources?: { label?: string; href?: string }[];
+  sections?: unknown;
+  answerMeta?: unknown;
   feedback?: string | null;
   createdAt?: string;
 }
@@ -220,6 +223,8 @@ export default function ZeliPage() {
           role: "assistant",
           content: result.data!.text,
           sources: (result.data!.sources as Message["sources"]) ?? [],
+          sections: result.data!.sections,
+          answerMeta: result.data!.answerMeta,
           feedback: null,
         },
       ]);
@@ -473,7 +478,15 @@ export default function ZeliPage() {
                         : "ml-auto bg-brand-700 text-white"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    {assistant ? (
+                      <ZeliAnswerView
+                        content={message.content}
+                        sections={message.sections}
+                        answerMeta={message.answerMeta}
+                      />
+                    ) : (
+                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    )}
 
                     {assistant && Boolean(message.sources?.length) && (
                       <ul className="mt-2 space-y-1 border-t border-slate-200 pt-2 text-xs text-slate-600">

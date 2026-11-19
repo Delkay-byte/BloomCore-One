@@ -219,17 +219,27 @@ export async function getZeliConversation(conversationId: string) {
     data: {
       id: conversation.id,
       title: conversation.title,
-      messages: messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        sources: message.sources ? JSON.parse(message.sources) : [],
-        feedback: message.feedback,
-        provider: message.provider,
-        model: message.model,
-        deterministic: message.provider === "internal",
-        createdAt: message.createdAt.toISOString(),
-      })),
+      messages: messages.map((message) => {
+        let meta: Record<string, unknown> | null = null;
+        try {
+          meta = message.toolCalls ? JSON.parse(message.toolCalls) : null;
+        } catch {
+          meta = null;
+        }
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          sources: message.sources ? JSON.parse(message.sources) : [],
+          feedback: message.feedback,
+          provider: message.provider,
+          model: message.model,
+          deterministic: message.provider === "internal",
+          sections: meta?.sections ?? null,
+          answerMeta: meta?.answerMeta ?? null,
+          createdAt: message.createdAt.toISOString(),
+        };
+      }),
     },
   };
 }
@@ -274,6 +284,8 @@ export async function sendZeliMessage(params: {
     intent: string;
     deterministic: boolean;
     title: string;
+    sections: import("@/lib/zeli/response-format").ZeliAnswerSection[];
+    answerMeta: import("@/lib/zeli/response-format").ZeliAnswerMeta | null;
   }>
 > {
   const identity = await resolveIdentity();
@@ -292,6 +304,8 @@ export async function sendZeliMessage(params: {
         intent: result.intent,
         deterministic: result.deterministic,
         title: result.conversationTitle,
+        sections: result.sections,
+        answerMeta: result.answerMeta,
       },
     };
   } catch (error) {

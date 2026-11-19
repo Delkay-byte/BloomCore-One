@@ -71,7 +71,7 @@ describe("Zeli providerless answers", () => {
     });
 
     expect(result.intent).toBe("compare_periods");
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
     expect(result.text).toContain("Compared with");
     expect(result.text).toContain("PERIOD");
     expect(result.text).toContain("SOURCE");

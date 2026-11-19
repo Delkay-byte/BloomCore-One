@@ -159,7 +159,7 @@ describe("Enhanced AI tool orchestration", () => {
     expect(result.tools.map((tool) => tool.tool)).toContain("business_summary");
     expect(result.text).toContain("1,234.50");
     expect(result.text).toContain("[AUTHORITATIVE LOCAL CALCULATION]");
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
 
     const secondRequest = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
     const serialized = JSON.stringify(secondRequest);
@@ -239,7 +239,7 @@ describe("Enhanced AI tool orchestration", () => {
     expect(result.externalAi).toBe(false);
     expect(result.provider).toBe("internal");
     expect(result.text).not.toContain("9,999.99");
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
 
     const usage = await prisma.zeliProviderUsage.findMany();
     expect(usage[0].decision).toBe("error");
