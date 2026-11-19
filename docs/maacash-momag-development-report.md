@@ -298,7 +298,7 @@ Workstream 1 — strengthen the independent transaction ledger to cover the rema
 ## Workstream 1 — Independent transaction ledger hardening
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `29de177`
 
 ### Existing capability before changes
 
