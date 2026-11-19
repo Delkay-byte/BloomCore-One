@@ -73,6 +73,9 @@ model Location {
   users         User[]
   dailyAccounts DailyAccount[]
   momoTransactions MomoTransaction[]
+  assetBalances BranchAssetBalance[]
+  outgoingTransfers BranchTransfer[] @relation("TransferSource")
+  incomingTransfers BranchTransfer[] @relation("TransferDestination")
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -225,6 +228,107 @@ model MomoTransaction {
   @@index([dailyAccountId, status])
   @@index([type, status])
   @@index([createdAt])
+}
+
+/// Declared internal balance for one asset at one location.
+///
+/// This is an operator declaration, never a provider-confirmed balance.
+/// `declaredAt` is the baseline timestamp: transfer movements are applied only
+/// when they happened after it, so a newly declared snapshot is not reduced
+/// twice by transfers the operator already counted.
+model BranchAssetBalance {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  locationId      String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType       String
+  declaredBalance Decimal  @default(0)
+  declaredAt      DateTime @default(now())
+  declaredById    String?
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location Location        @relation(fields: [locationId], references: [id])
+
+  @@unique([tenantId, locationId, assetType])
+  @@index([tenantId, assetType])
+  @@index([locationId])
+}
+
+/// Internal branch-to-branch transfer of physical cash or declared network
+/// float. The lifecycle is append-only: each transition writes an immutable
+/// event row, and the transfer row carries the current state plus the actor of
+/// every completed step.
+model BranchTransfer {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  reference         String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType         String
+  /// mtn | telecel | at_money | none (derived from the asset type)
+  network           String    @default("none")
+  sourceLocationId  String
+  destinationLocationId String
+  amount            Decimal
+  /// draft | requested | approved | dispatched | received | completed |
+  /// rejected | cancelled | disputed | variance_investigation
+  status            String    @default("requested")
+  purpose           String?
+  notes             String?
+  initiatedById     String
+  requestedAt       DateTime?
+  approvedById      String?
+  approvedAt        DateTime?
+  dispatchedById    String?
+  dispatchedAt      DateTime?
+  receivedById      String?
+  receivedAt        DateTime?
+  actualAmountReceived Decimal?
+  variance          Decimal?
+  varianceReason    String?
+  rejectedById      String?
+  rejectedAt        DateTime?
+  rejectionReason   String?
+  cancelledById     String?
+  cancelledAt       DateTime?
+  cancellationReason String?
+  resolvedById      String?
+  resolvedAt        DateTime?
+  resolutionNote    String?
+  idempotencyKey    String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  source      Location        @relation("TransferSource", fields: [sourceLocationId], references: [id])
+  destination Location        @relation("TransferDestination", fields: [destinationLocationId], references: [id])
+  events      BranchTransferEvent[]
+
+  @@unique([tenantId, reference])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([sourceLocationId, assetType])
+  @@index([destinationLocationId, assetType])
+  @@index([status])
+}
+
+/// Immutable lifecycle history for a branch transfer.
+model BranchTransferEvent {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  transferId String
+  action     String
+  actorId    String
+  actorName  String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  transfer BranchTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model Expense {
@@ -708,6 +812,8 @@ model BusinessTenant {
   locations                    Location[]
   dailyAccounts                DailyAccount[]
   momoTransactions             MomoTransaction[]
+  branchAssetBalances          BranchAssetBalance[]
+  branchTransfers              BranchTransfer[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]

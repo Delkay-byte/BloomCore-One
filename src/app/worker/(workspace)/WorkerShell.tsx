@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { ArrowRightLeft, LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
@@ -83,6 +83,14 @@ export default function WorkerShell({
                     className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
                   >
                     <LayoutDashboard size={15} aria-hidden /> Dashboard
+                  </Link>
+                  <Link
+                    href="/worker/transfers"
+                    role="menuitem"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <ArrowRightLeft size={15} aria-hidden /> Cash &amp; Float
                   </Link>
                   {zeliEnabled && (
                     <Link

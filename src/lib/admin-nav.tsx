@@ -47,6 +47,7 @@ export const navSections: NavSection[] = [
       { href: "/admin/locations", label: "Locations", icon: MapPin },
       { href: "/admin/workers", label: "Workers", icon: Users },
       { href: "/admin/ledger", label: "Transaction Ledger", icon: BookText },
+      { href: "/admin/transfers", label: "Cash & Float", icon: Vault },
       { href: "/admin/history", label: "Money & History", icon: BookText },
       { href: "/admin/reports", label: "Reports", icon: ClipboardList },
     ],
