@@ -23,8 +23,8 @@ test.describe("Zeli Business Intelligence workspace", () => {
 
     await page.getByRole("button", { name: /Explain Contributions and withdrawals/ }).click();
     await expect(page.getByTestId("zeli-explanation")).toBeVisible();
-    await expect(page.getByTestId("zeli-explanation").getByText("CALCULATED FACT").first()).toBeVisible();
-    await expect(page.getByTestId("zeli-explanation").getByText("UNVERIFIED HYPOTHESIS").first()).toBeVisible();
+    await expect(page.getByTestId("zeli-explanation").getByText("Key figures").first()).toBeVisible();
+    await expect(page.getByTestId("zeli-explanation").getByText("Not established").first()).toBeVisible();
   });
 
   test("filters the reporting period and branch, and exports aggregates", async ({ page }) => {
