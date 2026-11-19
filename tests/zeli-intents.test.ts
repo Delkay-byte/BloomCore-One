@@ -73,9 +73,9 @@ describe("Zeli providerless answers", () => {
     expect(result.intent).toBe("compare_periods");
     expect(result.text).toContain("Key figures");
     expect(result.text).toContain("Compared with");
-    expect(result.text).toContain("PERIOD");
-    expect(result.text).toContain("SOURCE");
-    expect(result.text).toContain("FRESHNESS");
+    expect(result.text).toContain("Period:");
+    expect(result.text).toContain("Source:");
+    expect(result.text).toContain("Freshness:");
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
