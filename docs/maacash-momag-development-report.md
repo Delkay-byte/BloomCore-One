@@ -899,7 +899,7 @@ contacting production services.
 ## Workstream 9 — External integration readiness
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `30ca735`
 
 ### Existing capability before changes
 
