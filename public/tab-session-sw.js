@@ -397,34 +397,45 @@ self.addEventListener("activate", (event) => {
     (async () => {
       await self.clients.claim();
       await pruneMappings();
-      // A login tab opened before this worker version is running old chunks
-      // whose Server Action ids no longer exist. Reload only login tabs once,
-      // so a stale bundle cannot trap the owner on "unexpected error". Other
-      // tabs (including an open checkout) are left untouched.
+      let names = [];
       try {
-        const loginPaths = ["/login", "/admin/login", "/platform/login", "/customer/login"];
-        const windows = await self.clients.matchAll({
-          type: "window",
-          includeUncontrolled: true,
-        });
-        await Promise.all(
-          windows.map(async (client) => {
-            try {
-              const url = new URL(client.url);
-              const isLogin = loginPaths.some(
-                (path) => url.pathname === path || url.pathname.startsWith(`${path}/`)
-              );
-              if (isLogin) await client.navigate(client.url);
-            } catch {
-              // A closing or cross-origin client is not reloadable.
-            }
-          })
-        );
+        names = await caches.keys();
       } catch {
-        // Reloading stale login tabs is best effort.
+        // Cache inspection is best effort.
+      }
+      // Only an upgrade from a previous static cache can leave an already-open
+      // login tab running chunks whose Server Action ids no longer exist.
+      // Reload those tabs once. A first install has no old cache and must not
+      // navigate a page that is still being hydrated (this raced the mobile
+      // browser tests). Other tabs, including an open checkout, are untouched.
+      const upgradingStaticCache = names.some(
+        (name) => name === "maacash-static-v2" || name === "maacash-static-v3"
+      );
+      if (upgradingStaticCache) {
+        try {
+          const loginPaths = ["/login", "/admin/login", "/platform/login", "/customer/login"];
+          const windows = await self.clients.matchAll({
+            type: "window",
+            includeUncontrolled: true,
+          });
+          await Promise.all(
+            windows.map(async (client) => {
+              try {
+                const url = new URL(client.url);
+                const isLogin = loginPaths.some(
+                  (path) => url.pathname === path || url.pathname.startsWith(`${path}/`)
+                );
+                if (isLogin) await client.navigate(client.url);
+              } catch {
+                // A closing or cross-origin client is not reloadable.
+              }
+            })
+          );
+        } catch {
+          // Reloading stale login tabs is best effort.
+        }
       }
       try {
-        const names = await caches.keys();
         await Promise.all(
           names
             .filter(

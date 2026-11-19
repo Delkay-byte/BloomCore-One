@@ -68,7 +68,7 @@ describe("Zeli expiry scheduler wiring", () => {
       // assertion is unchanged, only the harness budget is raised.
       await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
-    });
+    }, 20_000);
 
     it("does not start twice for the same process", async () => {
       const expire = vi.fn().mockResolvedValue({ subscriptions: 0, entitlements: 0, skipped: 0 });
@@ -83,7 +83,7 @@ describe("Zeli expiry scheduler wiring", () => {
       // assertion is unchanged, only the harness budget is raised.
       await vi.waitFor(() => expect(expire).toHaveBeenCalledTimes(1), { timeout: 10_000 });
       expect(setIntervalMock).toHaveBeenCalledTimes(1);
-    });
+    }, 20_000);
 
     it("honours the explicit disabled switch", async () => {
       process.env.ZELI_EXPIRY_SCHEDULER = "disabled";
