@@ -34,6 +34,7 @@ import {
 import { getConversationPolicy } from "./providers/conversation-policy";
 import { consumeZeliQuota, ZeliAccessError } from "./usage";
 import { runToolConversation } from "./providers/tool-orchestrator";
+import { generateConversationTitle } from "./title";
 
 export class ZeliUsageError extends Error {
   constructor(message: string) {
@@ -454,8 +455,9 @@ export async function runZeliTurn(params: {
     where: { id: conversation.id },
     data: {
       updatedAt: new Date(),
-      ...(conversation.title === "New conversation"
-        ? { title: question.slice(0, 70) }
+      ...(conversation.titleSource !== "manual" &&
+      conversation.title === "New conversation"
+        ? { title: generateConversationTitle(question), titleSource: "auto" }
         : {}),
     },
   });

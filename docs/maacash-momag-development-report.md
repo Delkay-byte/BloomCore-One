@@ -1278,3 +1278,43 @@ admin login and authenticated admin shell, with `target=_blank` and
 - No logo or brand identity was changed.
 - The platform console uses the same neutral attribution; its dark styling is
   inherited from the page background.
+
+## Workstream 15 — Automatic Zeli conversation titles
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### What was implemented
+
+- A deterministic title generator that maps the first meaningful request to a
+  concise topic, with an optional month prefix (for example “November Business
+  Summary”).
+- No external model is called. Titles contain no customer names, phone/wallet
+  numbers, amounts or full financial questions.
+- Generation happens server-side after the first user message and only while
+  the conversation is still `New conversation` and its title source is `auto`.
+- `ZeliConversation.titleSource` distinguishes `auto` from `manual`.
+- `renameZeliConversation` now marks a title `manual`, so it is never replaced.
+- Short greetings and unclear messages receive the safe fallback
+  “Business Question”.
+
+### Schema and migration
+
+`prisma/migrations/20261208_zeli_conversation_title_source/migration.sql` adds
+`ZeliConversation.titleSource` with default `auto`. Existing rows keep their
+current title; a title that is not exactly `New conversation` is never changed.
+
+### Tests
+
+`tests/zeli-conversation-titles.test.ts`: **5 passed** — topic/month mapping,
+privacy stripping, one-time generation, manual-title preservation and greeting
+fallback. All turns ran against the deterministic local engine with no external
+fetch.
+
+### Limitations
+
+- The title is topic-based, not a full summary of a complex multi-topic
+  conversation.
+- A manually renamed conversation keeps its manual title even if the topic
+  changes, by design.
+- Existing rows are not back-filled.

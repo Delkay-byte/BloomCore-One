@@ -1429,6 +1429,8 @@ model ZeliConversation {
   userId    String
   userType  String        @default("user") // user | customer | platform
   title     String        @default("New conversation")
+  /// auto | manual. A manual rename is never overwritten by title generation.
+  titleSource String      @default("auto")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   deletedAt DateTime?

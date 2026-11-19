@@ -183,7 +183,7 @@ export async function renameZeliConversation(
   if (!conversation) return { success: false, error: "Conversation not found" };
   await db.zeliConversation.update({
     where: { id: conversation.id },
-    data: { title: clean },
+    data: { title: clean, titleSource: "manual" },
   });
   return { success: true };
 }
