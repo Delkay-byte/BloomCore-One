@@ -184,6 +184,7 @@ describe("receipt document", () => {
   it("preserves the original reference and the paid amounts", () => {
     const receipt = buildSusuReceipt({
       kind: "withdrawal",
+      subjectId: "w-123",
       reference: "REF-W-123",
       status: "completed",
       isReversal: false,

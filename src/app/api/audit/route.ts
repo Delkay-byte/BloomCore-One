@@ -354,6 +354,16 @@ export async function GET(request: NextRequest) {
     actorsById = new Map(
       actors.map((actor) => [actor.id, { fullName: actor.fullName, role: actor.role }])
     );
+    const missing = actorIds.filter((id) => !actorsById.has(id));
+    if (missing.length > 0) {
+      const customers = await db.customer.findMany({
+        where: { tenantId: ctx.tenantId, id: { in: missing } },
+        select: { id: true, fullName: true },
+      });
+      for (const customer of customers) {
+        actorsById.set(customer.id, { fullName: customer.fullName, role: "customer" });
+      }
+    }
   } catch {
     actorsById = new Map();
   }

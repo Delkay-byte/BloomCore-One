@@ -28,6 +28,8 @@ export async function cleanDatabase() {
     prisma.collectorRemittance.deleteMany(),
     prisma.susuCycle.deleteMany(),
     prisma.susuAccount.deleteMany(),
+    prisma.customerDisputeEvent.deleteMany(),
+    prisma.customerDispute.deleteMany(),
     prisma.customer.deleteMany(),
     prisma.collector.deleteMany(),
     prisma.expense.deleteMany(),

@@ -541,6 +541,7 @@ model Customer {
 
   accounts    SusuAccount[]
   assignments CollectorCustomerAssignment[]
+  disputes    CustomerDispute[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -569,6 +570,7 @@ model SusuAccount {
   commissions   Commission[]
   cardFees      CardFee[]
   assignments   CollectorCustomerAssignment[]
+  disputes      CustomerDispute[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -603,6 +605,70 @@ model SusuCycle {
   @@index([status])
   @@index([startDate])
   @@index([tenantId])
+}
+
+/// A customer's dispute about one recorded contribution or withdrawal.
+///
+/// The dispute is a review record, not a money movement. Resolving it never
+/// edits or reverses the financial row silently; an upheld outcome must be
+/// carried out through the existing correction/reversal control and referenced
+/// in `outcomeReference`.
+model CustomerDispute {
+  id               String   @id @default(cuid())
+  tenantId         String?
+  reference        String
+  customerId       String
+  accountId        String?
+  /// contribution | withdrawal
+  subjectType      String
+  subjectId        String
+  /// Snapshot of the transaction reference at the time of the dispute.
+  subjectReference String
+  subjectAmount    Decimal
+  /// not_received | wrong_amount | duplicate_charge | unauthorised | other
+  category         String
+  details          String
+  /// open | under_review | awaiting_customer | resolved_upheld |
+  /// resolved_declined | cancelled
+  status           String   @default("open")
+  openedByType     String   @default("customer")
+  openedById       String
+  resolutionNote   String?
+  resolutionById   String?
+  resolvedAt       DateTime?
+  /// Optional correction/reversal reference recorded when an outcome is upheld.
+  outcomeReference String?
+  createdAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  account  SusuAccount?    @relation(fields: [accountId], references: [id])
+  events   CustomerDisputeEvent[]
+
+  @@unique([tenantId, reference])
+  @@unique([tenantId, subjectType, subjectId])
+  @@index([tenantId, status])
+  @@index([customerId, createdAt])
+  @@index([accountId])
+}
+
+model CustomerDisputeEvent {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  disputeId String
+  /// customer | admin | system
+  actorType String
+  actorId   String?
+  action    String
+  note      String?
+  createdAt DateTime @default(now())
+
+  tenant  BusinessTenant? @relation(fields: [tenantId], references: [id])
+  dispute CustomerDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model Contribution {
@@ -959,6 +1025,8 @@ model BusinessTenant {
   shifts                       Shift[]
   shiftHandovers               ShiftHandover[]
   operationalAnomalies         OperationalAnomaly[]
+  customerDisputes             CustomerDispute[]
+  customerDisputeEvents        CustomerDisputeEvent[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]

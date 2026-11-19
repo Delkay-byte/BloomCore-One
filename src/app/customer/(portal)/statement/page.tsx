@@ -296,12 +296,22 @@ export default function CustomerStatementPage() {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2">
                           {entry.receiptAvailable && entry.reference ? (
-                            <Link
-                              href={`/customer/receipt/${encodeURIComponent(entry.reference)}`}
-                              className="text-xs font-semibold text-brand-700 hover:underline"
-                            >
-                              View receipt
-                            </Link>
+                            <span className="flex flex-col gap-1">
+                              <Link
+                                href={`/customer/receipt/${encodeURIComponent(entry.reference)}`}
+                                className="text-xs font-semibold text-brand-700 hover:underline"
+                              >
+                                View receipt
+                              </Link>
+                              <Link
+                                href={`/customer/disputes/new?type=${
+                                  entry.kind === "withdrawal" ? "withdrawal" : "contribution"
+                                }&id=${encodeURIComponent(entry.id)}`}
+                                className="text-[11px] font-semibold text-amber-800 hover:underline"
+                              >
+                                Dispute
+                              </Link>
+                            </span>
                           ) : (
                             <span className="text-xs text-slate-400">—</span>
                           )}

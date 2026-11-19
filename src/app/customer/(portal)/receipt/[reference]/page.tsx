@@ -47,5 +47,13 @@ export default function CustomerReceiptPage() {
     );
   }
 
-  return <SusuReceiptDocument receipt={receipt} backHref="/customer/statement" />;
+  return (
+    <SusuReceiptDocument
+      receipt={receipt}
+      backHref="/customer/statement"
+      disputeHref={`/customer/disputes/new?type=${receipt.kind}&id=${encodeURIComponent(
+        receipt.subjectId
+      )}`}
+    />
+  );
 }

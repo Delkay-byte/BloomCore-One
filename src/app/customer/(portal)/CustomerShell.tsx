@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Landmark,
   Loader2,
+  MessageSquareWarning,
   LogOut,
   Settings,
   ShieldCheck,
@@ -25,6 +26,7 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/customer/payments", label: "My Payments", icon: Banknote },
   { href: "/customer/withdrawals", label: "My Withdrawals", icon: Landmark },
   { href: "/customer/statement", label: "My Statement", icon: ClipboardList },
+  { href: "/customer/disputes", label: "My Disputes", icon: MessageSquareWarning },
   { href: "/customer/profile", label: "My Profile", icon: UserRound },
   { href: "/customer/settings", label: "Settings", icon: Settings },
 ];

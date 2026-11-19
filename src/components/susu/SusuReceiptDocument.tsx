@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Printer, ShieldCheck } from "lucide-react";
+import { ArrowLeft, MessageSquareWarning, Printer, ShieldCheck } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import type { SusuReceipt } from "@/lib/susu-statements";
 
@@ -23,9 +23,11 @@ function fmt(value: string): string {
 export default function SusuReceiptDocument({
   receipt,
   backHref,
+  disputeHref,
 }: {
   receipt: SusuReceipt;
   backHref?: string;
+  disputeHref?: string;
 }) {
   const isContribution = receipt.kind === "contribution";
   return (
@@ -140,7 +142,7 @@ export default function SusuReceiptDocument({
         </div>
       </article>
 
-      <div className="print:hidden">
+      <div className="flex flex-wrap gap-2 print:hidden">
         <button
           type="button"
           className="btn btn-secondary"
@@ -148,6 +150,11 @@ export default function SusuReceiptDocument({
         >
           <Printer className="h-4 w-4" aria-hidden /> Print or save as PDF
         </button>
+        {disputeHref && (
+          <Link href={disputeHref} className="btn btn-secondary">
+            <MessageSquareWarning className="h-4 w-4" aria-hidden /> Dispute this record
+          </Link>
+        )}
       </div>
     </div>
   );

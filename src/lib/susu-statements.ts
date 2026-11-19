@@ -311,6 +311,7 @@ export function buildSusuStatement(input: {
 export type SusuReceiptKind = "contribution" | "withdrawal";
 
 export interface SusuReceipt {
+  subjectId: string;
   reference: string;
   kind: SusuReceiptKind;
   status: string;
@@ -334,6 +335,7 @@ export interface SusuReceipt {
 
 export function buildSusuReceipt(input: {
   kind: SusuReceiptKind;
+  subjectId: string;
   reference: string;
   status: string;
   isReversal: boolean;
@@ -351,6 +353,7 @@ export function buildSusuReceipt(input: {
 }): SusuReceipt {
   const amount = money(input.amount);
   return {
+    subjectId: input.subjectId,
     reference: input.reference,
     kind: input.kind,
     status: input.status,

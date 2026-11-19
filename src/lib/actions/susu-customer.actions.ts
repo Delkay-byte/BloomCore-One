@@ -887,6 +887,7 @@ async function receiptForCustomer(
   if (contribution) {
     return buildSusuReceipt({
       kind: "contribution",
+      subjectId: contribution.id,
       reference: contribution.referenceId,
       status: contribution.reversedAt
         ? "reversed"
@@ -929,6 +930,7 @@ async function receiptForCustomer(
 
   return buildSusuReceipt({
     kind: "withdrawal",
+    subjectId: withdrawal.id,
     reference: withdrawal.referenceId,
     status: withdrawal.status,
     isReversal: Boolean(withdrawal.reversalOfId),
@@ -972,6 +974,7 @@ export async function getAdminSusuReceipt(reference: string): Promise<SusuReceip
   if (contribution) {
     return buildSusuReceipt({
       kind: "contribution",
+      subjectId: contribution.id,
       reference: contribution.referenceId,
       status: contribution.reversedAt
         ? "reversed"
@@ -1009,6 +1012,7 @@ export async function getAdminSusuReceipt(reference: string): Promise<SusuReceip
 
   return buildSusuReceipt({
     kind: "withdrawal",
+    subjectId: withdrawal.id,
     reference: withdrawal.referenceId,
     status: withdrawal.status,
     isReversal: Boolean(withdrawal.reversalOfId),
