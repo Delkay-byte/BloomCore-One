@@ -35,6 +35,7 @@ export async function cleanDatabase() {
     prisma.branchTransferEvent.deleteMany(),
     prisma.branchTransfer.deleteMany(),
     prisma.branchAssetBalance.deleteMany(),
+    prisma.operationalAnomaly.deleteMany(),
     prisma.shiftHandover.deleteMany(),
     prisma.shift.deleteMany(),
     prisma.dailyAccountRevision.deleteMany(),

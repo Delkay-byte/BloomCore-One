@@ -424,6 +424,55 @@ model ShiftHandover {
   @@index([incomingUserId])
 }
 
+/// Deterministic operational finding produced by a named threshold rule.
+///
+/// No probabilistic or AI classification is used. Each finding carries the
+/// rule, the measured value, the threshold and the supporting record so an
+/// administrator can check it. The unique fingerprint prevents a repeated scan
+/// from duplicating the same finding.
+model OperationalAnomaly {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  fingerprint     String
+  /// daily_shortage | daily_overage | repeated_shortage | unreviewed_account |
+  /// missing_account | large_transaction | repeated_reversal | expense_spike |
+  /// transfer_variance | stale_transfer | shift_variance |
+  /// repeated_shift_variance | unconfirmed_handover
+  ruleKey         String
+  /// high | medium | low
+  severity        String
+  /// open | acknowledged | resolved
+  status          String   @default("open")
+  title           String
+  summary         String
+  entityType      String
+  entityId        String
+  locationId      String?
+  workerId        String?
+  businessDate    DateTime?
+  metricValue     Decimal?
+  thresholdValue  Decimal?
+  evidence        String?
+  detectedAt      DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  acknowledgedById String?
+  acknowledgedAt  DateTime?
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, fingerprint])
+  @@index([tenantId, status, severity])
+  @@index([tenantId, ruleKey])
+  @@index([tenantId, businessDate])
+  @@index([locationId])
+  @@index([workerId])
+}
+
 model Expense {
   id             String   @id @default(cuid())
   tenantId       String?
@@ -909,6 +958,7 @@ model BusinessTenant {
   branchTransfers              BranchTransfer[]
   shifts                       Shift[]
   shiftHandovers               ShiftHandover[]
+  operationalAnomalies         OperationalAnomaly[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]
