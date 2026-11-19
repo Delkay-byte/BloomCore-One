@@ -646,7 +646,7 @@ Workstream 6 — association foundation: membership, sponsored subscriptions and
 ## Workstream 6 — Association membership, sponsorship and training foundation
 
 **Status:** GREEN  
-**Commit:** recorded at commit time
+**Commit:** `9662595`
 
 ### Existing capability before changes
 
