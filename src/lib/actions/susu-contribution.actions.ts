@@ -7,7 +7,7 @@ import {
   assertTenantEntity,
   type TenantContext,
 } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLogTx } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -325,6 +325,30 @@ export async function recordContribution(params: {
       })),
     });
 
+    // Audit evidence is part of the same transaction. A contribution can never
+    // commit without its attributable record.
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "susu.contribution_recorded",
+      entityType: "contribution",
+      entityId: contribution.id,
+      details: {
+        accountId,
+        amount,
+        channel,
+        collectorId: effectiveCollectorId,
+        receivedById: effectiveReceivedById,
+        receivedByName: effectiveReceivedByName,
+        recordedById,
+        recordedByName: effectiveRecordedByName,
+        authenticatedActorId: ctx.userId,
+        daysAllocated: daysToAllocate.length,
+        allocatedAmount,
+        referenceId,
+      },
+    });
+
     return {
       contribution,
       daysAllocated: daysToAllocate.length,
@@ -352,28 +376,6 @@ export async function recordContribution(params: {
     };
   }
   const result = outcome.value;
-
-  // ── 9. Audit ────────────────────────────────────────────────────────
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.contribution_recorded",
-    entityType: "contribution",
-    entityId: result.contribution.id,
-    details: {
-      accountId,
-      amount,
-      channel,
-      collectorId: effectiveCollectorId,
-      receivedById: effectiveReceivedById,
-      receivedByName: effectiveReceivedByName,
-      recordedById,
-      recordedByName: effectiveRecordedByName,
-      authenticatedActorId: ctx.userId,
-      daysAllocated: result.daysAllocated,
-      allocatedAmount: result.allocatedAmount,
-      referenceId,
-    },
-  });
 
   revalidatePath("/susu/admin/contributions");
   revalidatePath("/susu/admin/customers");

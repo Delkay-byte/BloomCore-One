@@ -8,7 +8,7 @@ import {
   assertTenantEntity,
   type TenantContext,
 } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
@@ -151,6 +151,15 @@ export async function createCustomer(
           },
         });
 
+        await createAuditLogTx(tx, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          action: "susu.customer_created",
+          entityType: "customer",
+          entityId: customer.id,
+          details: { customerId, fullName, dailyContribution, cardFee },
+        });
+
         return { customer, susuAccount };
       }, { timeout: 20000, maxWait: 10000 });
     } catch (error) {
@@ -218,14 +227,6 @@ export async function createCustomer(
       },
     });
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.customer_created",
-    entityType: "customer",
-    entityId: created.customer.id,
-    details: { customerId, fullName, dailyContribution },
-  });
 
   revalidatePath("/susu/admin/customers");
   return {

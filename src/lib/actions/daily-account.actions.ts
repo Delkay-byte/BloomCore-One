@@ -25,7 +25,7 @@ import {
   encodeReconciliationStatus,
   resolveStoredDifference,
 } from "@/lib/momo-reconciliation";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLogTx } from "@/lib/audit";
 import {
   ledgerSummaryForAccount,
   latestPriorDailyAccount,
@@ -140,32 +140,37 @@ export async function createDailyAccount(
     businessDate: dateObj,
   });
 
-  const account = await db.dailyAccount.create({
-    data: {
-      tenantId: ctx.tenantId,
-      locationId,
-      workerId: ctx.userId,
-      businessDate: dateObj,
-      status: "draft",
-      openingCash: carry.openingCash ?? 0,
-      openingMomoFloat: carry.openingMomoFloat ?? 0,
-      openingBalanceSource: carry.available ? "carried" : "manual",
-      carriedFromAccountId: carry.sourceAccountId,
-    },
-  });
+  const account = await db.$transaction(async (tx) => {
+    const created = await tx.dailyAccount.create({
+      data: {
+        tenantId: ctx.tenantId,
+        locationId,
+        workerId: ctx.userId,
+        businessDate: dateObj,
+        status: "draft",
+        openingCash: carry.openingCash ?? 0,
+        openingMomoFloat: carry.openingMomoFloat ?? 0,
+        openingBalanceSource: carry.available ? "carried" : "manual",
+        carriedFromAccountId: carry.sourceAccountId,
+      },
+    });
 
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "daily_account.created",
-    entityType: "daily_account",
-    entityId: account.id,
-    details: {
-      locationId,
-      businessDate,
-      openingBalanceSource: account.openingBalanceSource,
-      carriedFromAccountId: carry.sourceAccountId,
-      carryReason: carry.reason,
-    },
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "daily_account.created",
+      entityType: "daily_account",
+      entityId: created.id,
+      details: {
+        locationId,
+        businessDate,
+        openingBalanceSource: created.openingBalanceSource,
+        carriedFromAccountId: carry.sourceAccountId,
+        carryReason: carry.reason,
+      },
+    });
+
+    return created;
   });
 
   revalidatePath("/worker/dashboard");
@@ -373,6 +378,27 @@ export async function saveDailyAccount(
         })),
       });
     }
+
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "daily_account.updated",
+      entityType: "dailyAccount",
+      entityId: accountId,
+      details: {
+        totalExpenses,
+        airtimeSold: effective.airtimeSold,
+        commission: effective.commission,
+        debtsCollected: effective.debtsCollected,
+        otherIncome: effective.otherIncome,
+        difference: reconciled.difference,
+        differenceStatus: reconciled.differenceStatus,
+        expenseCount: effectiveExpenses.length,
+        ledgerMode: account.ledgerMode,
+        openingBalanceSource,
+        openingAdjusted: materialOpeningDifference,
+      },
+    });
   });
 
   if (!persisted) {
@@ -381,27 +407,6 @@ export async function saveDailyAccount(
       error: "This account has already been submitted. Reopen it to review the saved figures.",
     };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    tenantId: ctx.tenantId,
-    action: "daily_account.updated",
-    entityType: "dailyAccount",
-    entityId: accountId,
-    details: {
-      totalExpenses,
-      airtimeSold: effective.airtimeSold,
-      commission: effective.commission,
-      debtsCollected: effective.debtsCollected,
-      otherIncome: effective.otherIncome,
-      difference: reconciled.difference,
-      differenceStatus: reconciled.differenceStatus,
-      expenseCount: effectiveExpenses.length,
-      ledgerMode: account.ledgerMode,
-      openingBalanceSource,
-      openingAdjusted: materialOpeningDifference,
-    },
-  });
 
   revalidatePath(`/worker/daily/${accountId}`);
   return { success: true };
@@ -612,6 +617,23 @@ export async function correctDailyAccount(
           })),
         });
       }
+
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "daily_account.corrected",
+        entityType: "dailyAccount",
+        entityId: accountId,
+        details: {
+          reason,
+          version,
+          totalExpenses,
+          airtimeSold: parsed.totalAirtimeSold,
+          difference: reconciled.difference,
+          differenceStatus: reconciled.differenceStatus,
+          previousSnapshotVersion: version,
+        },
+      });
     });
   } catch (error) {
     if (error instanceof StepUpDeniedError) {
@@ -631,23 +653,6 @@ export async function correctDailyAccount(
     }
     return { success: false, error: "The correction could not be saved." };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    tenantId: ctx.tenantId,
-    action: "daily_account.corrected",
-    entityType: "dailyAccount",
-    entityId: accountId,
-    details: {
-      reason,
-      version,
-      totalExpenses,
-      airtimeSold: parsed.totalAirtimeSold,
-      difference: reconciled.difference,
-      differenceStatus: reconciled.differenceStatus,
-      previousSnapshotVersion: version,
-    },
-  });
 
   revalidatePath(`/worker/daily/${accountId}`);
   revalidatePath("/admin/history");
@@ -753,46 +758,65 @@ export async function submitDailyAccount(
     };
   }
 
-  const submitted = await db.dailyAccount.updateMany({
-    where: { id: accountId, tenantId: ctx.tenantId, workerId: ctx.userId, status: "draft" },
-    data: {
-      status: "submitted",
-      submittedAt: new Date(),
-      totalExpenses,
-      commission,
-      debtsCollected,
-      otherIncome,
-      totalAirtimeSold: airtimeSold,
-      calculatedDifference: reconciled.difference,
-      differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
-      ...legacyVarianceColumns(reconciled.difference),
-    },
-  });
+  let submitted: { count: number };
+  try {
+    submitted = await db.$transaction(async (tx) => {
+      const updated = await tx.dailyAccount.updateMany({
+        where: {
+          id: accountId,
+          tenantId: ctx.tenantId,
+          workerId: ctx.userId,
+          status: "draft",
+        },
+        data: {
+          status: "submitted",
+          submittedAt: new Date(),
+          totalExpenses,
+          commission,
+          debtsCollected,
+          otherIncome,
+          totalAirtimeSold: airtimeSold,
+          calculatedDifference: reconciled.difference,
+          differenceStatus: encodeReconciliationStatus(reconciled.differenceStatus),
+          ...legacyVarianceColumns(reconciled.difference),
+        },
+      });
+      if (updated.count === 1) {
+        await createAuditLogTx(tx, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          action: "daily_account.submitted",
+          entityType: "daily_account",
+          entityId: accountId,
+          details: {
+            businessDate: account.businessDate,
+            locationId: account.locationId,
+            difference: reconciled.difference,
+            differenceStatus: reconciled.differenceStatus,
+            ledgerMode: account.ledgerMode,
+            ledgerEntryCount,
+            commission,
+            debtsCollected,
+            otherIncome,
+            totalExpenses,
+          },
+        });
+      }
+      return updated;
+    });
+  } catch {
+    return {
+      success: false,
+      error:
+        "The daily account could not be submitted. No changes were saved. Please try again.",
+    };
+  }
   if (submitted.count !== 1) {
     return {
       success: false,
       error: "This account has already been submitted. Reopen it to review the saved figures.",
     };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "daily_account.submitted",
-    entityType: "daily_account",
-    entityId: accountId,
-    details: {
-      businessDate: account.businessDate,
-      locationId: account.locationId,
-      difference: reconciled.difference,
-      differenceStatus: reconciled.differenceStatus,
-      ledgerMode: account.ledgerMode,
-      ledgerEntryCount,
-      commission,
-      debtsCollected,
-      otherIncome,
-      totalExpenses,
-    },
-  });
 
   revalidatePath("/worker/dashboard");
   revalidatePath("/admin/dashboard");
@@ -813,17 +837,28 @@ export async function reviewDailyAccount(
     return { success: false, error: "Only submitted accounts can be reviewed" };
   }
 
-  await db.dailyAccount.update({
-    where: { id: accountId },
-    data: { status: "reviewed", reviewedAt: new Date(), reviewedBy: ctx.userId },
+  const reviewed = await db.$transaction(async (tx) => {
+    const updated = await tx.dailyAccount.updateMany({
+      where: { id: accountId, tenantId: ctx.tenantId, status: "submitted" },
+      data: { status: "reviewed", reviewedAt: new Date(), reviewedBy: ctx.userId },
+    });
+    if (updated.count === 1) {
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "daily_account.reviewed",
+        entityType: "daily_account",
+        entityId: accountId,
+      });
+    }
+    return updated;
   });
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "daily_account.reviewed",
-    entityType: "daily_account",
-    entityId: accountId,
-  });
+  if (reviewed.count !== 1) {
+    return {
+      success: false,
+      error: "This account changed while you were reviewing it. Reload and try again.",
+    };
+  }
 
   revalidatePath("/admin/reports");
   revalidatePath(`/admin/reports/${accountId}`);
@@ -911,19 +946,37 @@ export async function confirmDailyHandover(
     return { success: false, error: "Handover note must be 500 characters or fewer." };
   }
 
-  const updated = await db.dailyAccount.updateMany({
-    where: {
-      id: accountId,
-      tenantId: ctx.tenantId,
-      handoverConfirmedAt: null,
-    },
-    data: {
-      actualAmountReceived: actual,
-      handoverDifference: difference,
-      handoverNote: note,
-      handoverConfirmedAt: new Date(),
-      handoverConfirmedBy: ctx.userId,
-    },
+  const updated = await db.$transaction(async (tx) => {
+    const row = await tx.dailyAccount.updateMany({
+      where: {
+        id: accountId,
+        tenantId: ctx.tenantId,
+        handoverConfirmedAt: null,
+      },
+      data: {
+        actualAmountReceived: actual,
+        handoverDifference: difference,
+        handoverNote: note,
+        handoverConfirmedAt: new Date(),
+        handoverConfirmedBy: ctx.userId,
+      },
+    });
+    if (row.count === 1) {
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "daily_account.handover_confirmed",
+        entityType: "dailyAccount",
+        entityId: accountId,
+        details: {
+          actualAmountReceived: actual,
+          expectedAmount: expected,
+          difference,
+          handoverNote: note,
+        },
+      });
+    }
+    return row;
   });
   if (updated.count !== 1) {
     return {
@@ -931,20 +984,6 @@ export async function confirmDailyHandover(
       error: "This handover was already confirmed. Reload to review it.",
     };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    tenantId: ctx.tenantId,
-    action: "daily_account.handover_confirmed",
-    entityType: "dailyAccount",
-    entityId: accountId,
-    details: {
-      actualAmountReceived: actual,
-      expectedAmount: expected,
-      difference,
-      handoverNote: note,
-    },
-  });
 
   revalidatePath("/admin/reports");
   revalidatePath(`/admin/reports/${accountId}`);

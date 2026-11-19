@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLogTx } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { lockAccountForUpdate } from "@/lib/db-lock";
@@ -186,22 +186,22 @@ export async function reverseWithdrawal(input: {
         data: { reversedAt: new Date(), status: "reversed" },
       });
 
-      return reversal;
-    });
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.withdrawal_reversed",
+        entityType: "withdrawal",
+        entityId: original.id,
+        details: {
+          reversalId: reversal.id,
+          reason,
+          netAmount: Number(original.netAmount),
+          commissionAmount: Number(original.commissionAmount),
+          referenceId: reversal.referenceId,
+        },
+      });
 
-    await createAuditLog({
-      userId: ctx.userId,
-      tenantId: ctx.tenantId,
-      action: "susu.withdrawal_reversed",
-      entityType: "withdrawal",
-      entityId: original.id,
-      details: {
-        reversalId: result.id,
-        reason,
-        netAmount: Number(original.netAmount),
-        commissionAmount: Number(original.commissionAmount),
-        referenceId: result.referenceId,
-      },
+      return reversal;
     });
 
     if (dual.exceptionUsed) {
@@ -360,21 +360,21 @@ export async function reverseContribution(input: {
         data: { reversedAt: new Date() },
       });
 
-      return row;
-    });
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.contribution_reversed",
+        entityType: "contribution",
+        entityId: original.id,
+        details: {
+          reversalId: row.id,
+          reason,
+          amount: Number(original.amount),
+          referenceId: row.referenceId,
+        },
+      });
 
-    await createAuditLog({
-      userId: ctx.userId,
-      tenantId: ctx.tenantId,
-      action: "susu.contribution_reversed",
-      entityType: "contribution",
-      entityId: original.id,
-      details: {
-        reversalId: reversal.id,
-        reason,
-        amount: Number(original.amount),
-        referenceId: reversal.referenceId,
-      },
+      return row;
     });
 
     if (dual.exceptionUsed) {

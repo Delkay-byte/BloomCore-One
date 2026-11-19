@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLogTx } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { formatCedi } from "@/lib/utils";
@@ -234,27 +234,28 @@ export async function processWithdrawal(params: {
         },
       });
 
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.withdrawal_processed",
+        entityType: "withdrawal",
+        entityId: withdrawal.id,
+        details: {
+          accountId,
+          requestedAmount: Number(withdrawal.requestedAmount),
+          commissionAmount: Number(withdrawal.commissionAmount),
+          netAmount: Number(withdrawal.netAmount),
+          remainingBalance: Number(withdrawal.remainingBalance),
+          referenceId,
+        },
+      });
+
       return {
         withdrawal,
         commissionAmount,
         netAmount: amount,
         commissionClaimed,
       };
-    });
-
-    await createAuditLog({
-      userId: ctx.userId,
-      action: "susu.withdrawal_processed",
-      entityType: "withdrawal",
-      entityId: result.withdrawal.id,
-      details: {
-        accountId,
-        requestedAmount: result.withdrawal.requestedAmount,
-        commissionAmount: result.withdrawal.commissionAmount,
-        netAmount: result.withdrawal.netAmount,
-        remainingBalance: result.withdrawal.remainingBalance,
-        referenceId,
-      },
     });
 
     revalidatePath("/susu/admin/withdrawals");

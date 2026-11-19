@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { raiseSecurityAlert, recordSecurityEvent } from "@/lib/security/events";
 
 /**
@@ -78,32 +78,36 @@ export type DualControlDecision =
 export async function requestFinancialApproval(
   ctx: ApprovalContext
 ): Promise<string> {
-  const request = await db.financialApproval.create({
-    data: {
-      tenantId: ctx.tenantId,
-      action: ctx.action,
-      targetType: ctx.targetType,
-      targetId: ctx.targetId,
-      amountMinor: ctx.amountMinor ?? null,
-      reason: ctx.reason,
-      requestedBy: ctx.requesterId,
-      expiresAt: new Date(Date.now() + FINANCIAL_APPROVAL_TTL_MS),
-    },
-    select: { id: true },
-  });
+  const request = await db.$transaction(async (tx) => {
+    const created = await tx.financialApproval.create({
+      data: {
+        tenantId: ctx.tenantId,
+        action: ctx.action,
+        targetType: ctx.targetType,
+        targetId: ctx.targetId,
+        amountMinor: ctx.amountMinor ?? null,
+        reason: ctx.reason,
+        requestedBy: ctx.requesterId,
+        expiresAt: new Date(Date.now() + FINANCIAL_APPROVAL_TTL_MS),
+      },
+      select: { id: true },
+    });
 
-  await createAuditLog({
-    userId: ctx.requesterId,
-    tenantId: ctx.tenantId,
-    action: "finance.approval_requested",
-    entityType: ctx.targetType,
-    entityId: ctx.targetId,
-    details: {
-      approvalId: request.id,
-      operation: ctx.action,
-      amountMinor: ctx.amountMinor ?? null,
-      reason: ctx.reason,
-    },
+    await createAuditLogTx(tx, {
+      userId: ctx.requesterId,
+      tenantId: ctx.tenantId,
+      action: "finance.approval_requested",
+      entityType: ctx.targetType,
+      entityId: ctx.targetId,
+      details: {
+        approvalId: created.id,
+        operation: ctx.action,
+        amountMinor: ctx.amountMinor ?? null,
+        reason: ctx.reason,
+      },
+    });
+
+    return created;
   });
 
   recordSecurityEvent({

@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { recordSecurityEvent } from "@/lib/security/events";
 import {
   listFinancialApprovals as listRows,
@@ -167,26 +167,31 @@ export async function rejectFinancialApproval(
   if (approval.requestedBy === ctx.userId) {
     return { success: false, error: "A different administrator must decide this request." };
   }
-  const updated = await db.financialApproval.updateMany({
-    where: { id: approval.id, tenantId: ctx.tenantId, status: "pending" },
-    data: {
-      status: "rejected",
-      approvedBy: ctx.userId,
-      decidedAt: new Date(),
-      reason: `${approval.reason} | rejected: ${reason}`,
-    },
+  const updated = await db.$transaction(async (tx) => {
+    const row = await tx.financialApproval.updateMany({
+      where: { id: approval.id, tenantId: ctx.tenantId, status: "pending" },
+      data: {
+        status: "rejected",
+        approvedBy: ctx.userId,
+        decidedAt: new Date(),
+        reason: `${approval.reason} | rejected: ${reason}`,
+      },
+    });
+    if (row.count === 1) {
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "finance.approval_rejected",
+        entityType: approval.targetType,
+        entityId: approval.targetId,
+        details: { approvalId: approval.id, note: reason },
+      });
+    }
+    return row;
   });
   if (updated.count !== 1) {
     return { success: false, error: "This request is no longer pending." };
   }
-  await createAuditLog({
-    userId: ctx.userId,
-    tenantId: ctx.tenantId,
-    action: "finance.approval_rejected",
-    entityType: approval.targetType,
-    entityId: approval.targetId,
-    details: { approvalId: approval.id, note: reason },
-  });
   recordSecurityEvent({
     event: "finance.approval_rejected",
     outcome: "blocked",
