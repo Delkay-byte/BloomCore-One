@@ -43,6 +43,7 @@ export default function WorkerShiftsPage() {
   const [form, setForm] = useState({
     businessDate: todayIso(),
     name: "morning" as ShiftName,
+    customLabel: "",
     openingCash: "",
     openingMomoFloat: "",
     openingAdjustmentReason: "",
@@ -54,6 +55,7 @@ export default function WorkerShiftsPage() {
     handoverToUserId: "",
     outstandingOperations: "",
     outgoingNotes: "",
+    outgoingEvidence: "",
   });
   const [confirmForm, setConfirmForm] = useState({
     handoverId: "",
@@ -61,6 +63,7 @@ export default function WorkerShiftsPage() {
     incomingMomoFloat: "",
     operationsAccepted: false,
     incomingNotes: "",
+    incomingEvidence: "",
   });
 
   const load = useCallback(async () => {
@@ -113,7 +116,10 @@ export default function WorkerShiftsPage() {
       createShift({
         businessDate: form.businessDate,
         name: form.name,
-        label: form.name === "custom" ? "Custom shift" : SHIFT_NAME_LABELS[form.name],
+        label:
+          form.name === "custom"
+            ? form.customLabel.trim() || "Custom shift"
+            : SHIFT_NAME_LABELS[form.name],
         locationId: board?.locationId ?? "",
         assignedUserId: myUserId ?? "",
         openingCash: Number(form.openingCash || 0),
@@ -130,6 +136,7 @@ export default function WorkerShiftsPage() {
       }
       setForm((current) => ({
         ...current,
+        customLabel: "",
         openingCash: "",
         openingMomoFloat: "",
         openingAdjustmentReason: "",
@@ -146,6 +153,7 @@ export default function WorkerShiftsPage() {
         handoverToUserId: closeForm.handoverToUserId,
         outstandingOperations: closeForm.outstandingOperations || undefined,
         outgoingNotes: closeForm.outgoingNotes || undefined,
+        outgoingEvidence: closeForm.outgoingEvidence || undefined,
       })
     );
     setCloseForm({
@@ -155,6 +163,7 @@ export default function WorkerShiftsPage() {
       handoverToUserId: "",
       outstandingOperations: "",
       outgoingNotes: "",
+      outgoingEvidence: "",
     });
   }
 
@@ -166,6 +175,7 @@ export default function WorkerShiftsPage() {
         incomingMomoFloat: Number(confirmForm.incomingMomoFloat || 0),
         operationsAccepted: confirmForm.operationsAccepted,
         incomingNotes: confirmForm.incomingNotes || undefined,
+        incomingEvidence: confirmForm.incomingEvidence || undefined,
       })
     );
     setConfirmForm({
@@ -174,6 +184,7 @@ export default function WorkerShiftsPage() {
       incomingMomoFloat: "",
       operationsAccepted: false,
       incomingNotes: "",
+      incomingEvidence: "",
     });
   }
 
@@ -185,6 +196,7 @@ export default function WorkerShiftsPage() {
       handoverToUserId: colleagues[0]?.id ?? "",
       outstandingOperations: "",
       outgoingNotes: "",
+      outgoingEvidence: "",
     });
   }
 
@@ -195,6 +207,7 @@ export default function WorkerShiftsPage() {
       incomingMomoFloat: "",
       operationsAccepted: false,
       incomingNotes: "",
+      incomingEvidence: "",
     });
   }
 
@@ -266,6 +279,24 @@ export default function WorkerShiftsPage() {
                   ))}
                 </select>
               </label>
+              {form.name === "custom" && (
+                <label className="text-xs font-medium text-slate-600">
+                  Custom shift name
+                  <input
+                    type="text"
+                    value={form.customLabel}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        customLabel: event.target.value,
+                      }))
+                    }
+                    maxLength={60}
+                    placeholder="For example School run"
+                    className="input mt-1 w-full"
+                  />
+                </label>
+              )}
               <label className="text-xs font-medium text-slate-600">
                 Opening cash
                 <input
@@ -350,6 +381,11 @@ export default function WorkerShiftsPage() {
                         Notes: {handover.outgoingNotes}
                       </p>
                     )}
+                    {handover.outgoingEvidence && (
+                      <p className="mt-1 text-xs text-slate-600">
+                        Outgoing evidence: {handover.outgoingEvidence}
+                      </p>
+                    )}
                     {confirmForm.handoverId === handover.id ? (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <label className="text-xs font-medium text-slate-600">
@@ -411,6 +447,22 @@ export default function WorkerShiftsPage() {
                               }))
                             }
                             maxLength={500}
+                            className="input mt-1 w-full"
+                          />
+                        </label>
+                        <label className="text-xs font-medium text-slate-600 sm:col-span-2">
+                          Receipt / count evidence (optional)
+                          <input
+                            type="text"
+                            value={confirmForm.incomingEvidence}
+                            onChange={(event) =>
+                              setConfirmForm((current) => ({
+                                ...current,
+                                incomingEvidence: event.target.value,
+                              }))
+                            }
+                            maxLength={300}
+                            placeholder="Count sheet, receipt number or other evidence held"
                             className="input mt-1 w-full"
                           />
                         </label>
@@ -576,6 +628,22 @@ export default function WorkerShiftsPage() {
                                 }))
                               }
                               maxLength={500}
+                              className="input mt-1 w-full"
+                            />
+                          </label>
+                          <label className="text-xs font-medium text-slate-600 sm:col-span-2">
+                            Count sheet / handover evidence (optional)
+                            <input
+                              type="text"
+                              value={closeForm.outgoingEvidence}
+                              onChange={(event) =>
+                                setCloseForm((current) => ({
+                                  ...current,
+                                  outgoingEvidence: event.target.value,
+                                }))
+                              }
+                              maxLength={300}
+                              placeholder="Till slip, count sheet or other evidence held"
                               className="input mt-1 w-full"
                             />
                           </label>

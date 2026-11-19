@@ -410,11 +410,15 @@ model ShiftHandover {
   outgoingMomoFloat   Decimal
   outstandingOperations String?
   outgoingNotes       String?
+  /// Count sheet, till slip or other evidence held for the outgoing count.
+  outgoingEvidence    String?
   incomingUserId      String?
   incomingCash        Decimal?
   incomingMomoFloat   Decimal?
   operationsAccepted  Boolean?
   incomingNotes       String?
+  /// Count sheet, receipt or other evidence held for the receiving count.
+  incomingEvidence    String?
   cashVariance        Decimal?
   floatVariance       Decimal?
   varianceReason      String?

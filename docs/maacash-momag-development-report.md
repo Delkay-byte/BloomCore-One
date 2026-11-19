@@ -444,3 +444,71 @@ An approved transfer was opened as an administrator. Dispatch was confirmed with
 ### Next dependency
 
 Workstream 3 — extend shift accountability and handover with the remaining coverage and reporting requirements.
+
+## Workstream 3 — Shift accountability and two-sided handover
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+Shifts were already optional sub-day accountability records with opening carry-forward, an assigned employee, two-sided handover, separate receiver confirmation, variance investigation with step-up, cancellation and a daily-account summary that is deliberately excluded from financial totals. Shift names supported morning, afternoon, evening and a custom option.
+
+### What was implemented
+
+- The outgoing count can only be submitted by the employee assigned to the shift. An administrator can no longer submit a physical count in that employee's name.
+- The receiving employee must still be the named receiver and must still be active at confirmation.
+- Both sides can record an evidence reference:
+  - outgoing: till slip, count sheet or handover evidence;
+  - incoming: count sheet, receipt or other evidence held.
+- Evidence is stored on the handover, written into the audit event and shown on the worker and administrator views.
+- A custom shift can now carry a tenant-defined name in the worker UI instead of always being labelled “Custom shift”. Scheduled start and end remain supported by the action and schema.
+- Shift figures remain excluded from daily-account totals, so the same cash is never counted twice.
+
+### Schema and migration
+
+`prisma/migrations/20261203_shift_handover_evidence/migration.sql` adds, additively:
+
+- `ShiftHandover.outgoingEvidence`;
+- `ShiftHandover.incomingEvidence`.
+
+Existing handovers keep `NULL`, read as “no evidence recorded”. Both Prisma schemas were updated and validated; SQLite test and E2E databases were pushed successfully.
+
+### Tests and results
+
+- Handover lifecycle now records and returns both evidence references.
+- New test proves an administrator cannot submit the outgoing count for an assigned employee.
+- New test proves a custom shift name and scheduled window are accepted.
+- Existing coverage still proves one person cannot be both sides, the receiver must belong to the branch, the receiver alone confirms, variances need an explanation, step-up is required to resolve, and tenant isolation holds.
+- `tests/shift-handover.test.ts`: **15 passed**.
+- Full regression suite: **115 files, 1,287 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+The outgoing worker closed an open shift with GH₵140 cash, GH₵610 float and `Till slip TS-W03`, handing over to a colleague. The receiving employee counted the same amounts, accepted the outstanding operations, recorded `Count sheet CS-W03`, and the shift closed. The administrator detail showed both evidence references. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Shift and handover access remains tenant-scoped and location-scoped.
+- The outgoing side is now personally attributed to the assigned employee; an administrator cannot impersonate that count.
+- The receiver check is enforced server-side and re-checks that the receiver is active.
+- A user cannot be both outgoing and incoming, and cannot confirm a handover assigned to someone else.
+- Evidence is bounded free text and is not treated as a provider or bank confirmation.
+
+### Known limitations
+
+- Shifts are optional but there is no tenant-level on/off switch or shift-template scheduler. A business can create zero, one or many shifts; nothing forces a shift to exist.
+- Shift names remain a fixed set plus a free-text custom label, not a fully managed per-tenant shift catalogue.
+- Evidence is a reference, not an uploaded document.
+- Shift balances are accountability snapshots and are intentionally not posted into the daily financial close.
+- PostgreSQL behaviour was schema-validated and reasoned, not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+None for the local accountability flow. A future document-storage or biometric/device-attestation feature would need separate retention and privacy approval.
+
+### Next dependency
+
+Workstream 4 — customer receipts, statements and the external messaging foundation.

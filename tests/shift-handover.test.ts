@@ -150,6 +150,7 @@ async function submitHandover(f: Fixture, shiftId: string) {
     handoverToUserId: f.incoming.id,
     outstandingOperations: "Two pending cash-outs",
     outgoingNotes: "Till counted with the receiver present",
+    outgoingEvidence: "Till slip TS-1042",
   });
   expect(closed.success).toBe(true);
   return (closed.data as { handoverId: string }).handoverId;
@@ -239,6 +240,7 @@ describe("shift lifecycle and two-sided handover", () => {
       incomingCash: 140,
       incomingMomoFloat: 610,
       operationsAccepted: true,
+      incomingEvidence: "Count sheet CS-77 signed by the receiver",
     });
     expect(confirmed.success).toBe(true);
     expect(confirmed.data).toMatchObject({ status: "confirmed", cashVariance: 0 });
@@ -250,6 +252,10 @@ describe("shift lifecycle and two-sided handover", () => {
     expect(handover?.incomingCash).toBe(140);
     expect(handover?.outgoingUserName).toBe("Ama Outgoing");
     expect(handover?.incomingUserName).toBe("Kofi Incoming");
+    expect(handover?.outgoingEvidence).toBe("Till slip TS-1042");
+    expect(handover?.incomingEvidence).toBe(
+      "Count sheet CS-77 signed by the receiver"
+    );
 
     // A second confirmation cannot change the preserved figures.
     const again = await confirmShiftHandover({
@@ -387,6 +393,21 @@ describe("shift lifecycle and two-sided handover", () => {
     expect(result.error).toContain("Explain");
   });
 
+  it("refuses an administrator submitting the outgoing count for an employee", async () => {
+    const f = await fixture();
+    const shiftId = await createAndOpen(f);
+
+    await setSession("admin", f.admin);
+    const close = await closeShift({
+      shiftId,
+      closingCash: 140,
+      closingMomoFloat: 610,
+      handoverToUserId: f.incoming.id,
+    });
+    expect(close.success).toBe(false);
+    expect(close.error).toContain("assigned to this shift");
+  });
+
   it("refuses one employee as both sides and refuses a receiver from another branch", async () => {
     const f = await fixture();
     const shiftId = await createAndOpen(f);
@@ -476,6 +497,19 @@ describe("tenant, role and duplicate protection", () => {
       handoverToUserId: otherAdmin.id,
     });
     expect(close.success).toBe(false);
+  });
+
+  it("accepts a tenant-defined custom shift label", async () => {
+    const f = await fixture();
+    const shiftId = await createAndOpen(f, {
+      name: "custom",
+      label: "School run",
+      scheduledStart: "2026-11-26T06:00:00.000Z",
+      scheduledEnd: "2026-11-26T09:00:00.000Z",
+    });
+    const detail = await getShiftDetail(shiftId);
+    expect(detail?.shift.name).toBe("custom");
+    expect(detail?.shift.label).toBe("School run");
   });
 
   it("refuses duplicate shift names at the same branch and day", async () => {

@@ -234,6 +234,11 @@ export default function AdminShiftDetailPage() {
                         Notes: {handover.outgoingNotes}
                       </p>
                     )}
+                    {handover.outgoingEvidence && (
+                      <p className="mt-1 text-xs text-slate-600">
+                        Outgoing evidence: {handover.outgoingEvidence}
+                      </p>
+                    )}
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-white p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -255,6 +260,11 @@ export default function AdminShiftDetailPage() {
                         {handover.incomingNotes && (
                           <p className="mt-1 text-xs text-slate-600">
                             Notes: {handover.incomingNotes}
+                          </p>
+                        )}
+                        {handover.incomingEvidence && (
+                          <p className="mt-1 text-xs text-slate-600">
+                            Receipt evidence: {handover.incomingEvidence}
                           </p>
                         )}
                       </>

@@ -288,6 +288,7 @@ export async function closeShift(input: {
   handoverToUserId: string;
   outstandingOperations?: string;
   outgoingNotes?: string;
+  outgoingEvidence?: string;
 }): Promise<ShiftActionResponse> {
   const ctx = await requireShiftActor();
   const parsed = closeShiftSchema.safeParse(input);
@@ -300,8 +301,17 @@ export async function closeShift(input: {
     where: { id: values.shiftId, tenantId: ctx.tenantId },
   });
   if (!shift) return { success: false, error: DENIED };
-  if (ctx.role !== "admin" && shift.assignedUserId !== ctx.userId) {
-    return { success: false, error: DENIED };
+  // The outgoing count is personal accountability. An administrator cannot
+  // submit it on the assigned employee's behalf, because that would attribute
+  // a physical count to someone who did not make it.
+  if (shift.assignedUserId !== ctx.userId) {
+    return {
+      success: false,
+      error:
+        ctx.role === "admin"
+          ? "Only the employee assigned to this shift can submit the outgoing count."
+          : DENIED,
+    };
   }
   if (shift.status !== "open") {
     return { success: false, error: "Only an open shift can be closed." };
@@ -350,6 +360,7 @@ export async function closeShift(input: {
           outgoingMomoFloat: values.closingMomoFloat,
           outstandingOperations: values.outstandingOperations?.trim() || null,
           outgoingNotes: values.outgoingNotes?.trim() || null,
+          outgoingEvidence: values.outgoingEvidence?.trim() || null,
           incomingUserId: values.handoverToUserId,
           status: "awaiting_receipt",
         },
@@ -367,6 +378,7 @@ export async function closeShift(input: {
           outgoingCash: values.closingCash,
           outgoingMomoFloat: values.closingMomoFloat,
           handoverToUserId: values.handoverToUserId,
+          outgoingEvidence: values.outgoingEvidence?.trim() || null,
         },
       });
       return row;
@@ -396,6 +408,7 @@ export async function confirmShiftHandover(input: {
   incomingMomoFloat: number;
   operationsAccepted: boolean;
   incomingNotes?: string;
+  incomingEvidence?: string;
 }): Promise<ShiftActionResponse> {
   const ctx = await requireShiftActor();
   const parsed = confirmHandoverSchema.safeParse(input);
@@ -416,6 +429,10 @@ export async function confirmShiftHandover(input: {
       success: false,
       error: "Only the employee named as the receiver can confirm this handover.",
     };
+  }
+  const receiver = await currentUser(ctx.tenantId, ctx.userId);
+  if (!receiver || receiver.status !== "active") {
+    return { success: false, error: "The receiving employee is no longer active." };
   }
   if (handover.status !== "awaiting_receipt") {
     return { success: false, error: "This handover has already been confirmed." };
@@ -453,6 +470,7 @@ export async function confirmShiftHandover(input: {
           incomingMomoFloat: values.incomingMomoFloat,
           operationsAccepted: true,
           incomingNotes: note,
+          incomingEvidence: values.incomingEvidence?.trim() || null,
           cashVariance: variance.cashVariance,
           floatVariance: variance.floatVariance,
           varianceReason: variance.balanced ? null : note,
@@ -484,6 +502,7 @@ export async function confirmShiftHandover(input: {
           cashVariance: variance.cashVariance,
           floatVariance: variance.floatVariance,
           reason: note,
+          incomingEvidence: values.incomingEvidence?.trim() || null,
         },
       });
     });
@@ -660,12 +679,14 @@ export interface ShiftHandoverView {
   outgoingMomoFloat: number;
   outstandingOperations: string | null;
   outgoingNotes: string | null;
+  outgoingEvidence: string | null;
   incomingUserId: string | null;
   incomingUserName: string | null;
   incomingCash: number | null;
   incomingMomoFloat: number | null;
   operationsAccepted: boolean | null;
   incomingNotes: string | null;
+  incomingEvidence: string | null;
   cashVariance: number | null;
   floatVariance: number | null;
   varianceReason: string | null;
@@ -723,11 +744,13 @@ function handoverView(
     outgoingMomoFloat: unknown;
     outstandingOperations: string | null;
     outgoingNotes: string | null;
+    outgoingEvidence: string | null;
     incomingUserId: string | null;
     incomingCash: unknown;
     incomingMomoFloat: unknown;
     operationsAccepted: boolean | null;
     incomingNotes: string | null;
+    incomingEvidence: string | null;
     cashVariance: unknown;
     floatVariance: unknown;
     varianceReason: string | null;
@@ -748,6 +771,7 @@ function handoverView(
     outgoingMomoFloat: money(row.outgoingMomoFloat),
     outstandingOperations: row.outstandingOperations,
     outgoingNotes: row.outgoingNotes,
+    outgoingEvidence: row.outgoingEvidence,
     incomingUserId: row.incomingUserId,
     incomingUserName: row.incomingUserId ? names.get(row.incomingUserId) ?? null : null,
     incomingCash: row.incomingCash === null ? null : money(row.incomingCash),
@@ -755,6 +779,7 @@ function handoverView(
       row.incomingMomoFloat === null ? null : money(row.incomingMomoFloat),
     operationsAccepted: row.operationsAccepted,
     incomingNotes: row.incomingNotes,
+    incomingEvidence: row.incomingEvidence,
     cashVariance: row.cashVariance === null ? null : money(row.cashVariance),
     floatVariance: row.floatVariance === null ? null : money(row.floatVariance),
     varianceReason: row.varianceReason,

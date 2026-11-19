@@ -206,6 +206,7 @@ export const closeShiftSchema = z.object({
   handoverToUserId: z.string().min(1, "Choose the employee receiving the handover."),
   outstandingOperations: z.string().trim().max(1000).optional(),
   outgoingNotes: z.string().trim().max(500).optional(),
+  outgoingEvidence: z.string().trim().max(300, "Outgoing evidence must be 300 characters or fewer.").optional(),
 });
 
 export const confirmHandoverSchema = z.object({
@@ -214,6 +215,7 @@ export const confirmHandoverSchema = z.object({
   incomingMomoFloat: amount("Counted E-cash"),
   operationsAccepted: z.boolean(),
   incomingNotes: z.string().trim().max(500).optional(),
+  incomingEvidence: z.string().trim().max(300, "Incoming evidence must be 300 characters or fewer.").optional(),
 });
 
 export const resolveHandoverSchema = z.object({
