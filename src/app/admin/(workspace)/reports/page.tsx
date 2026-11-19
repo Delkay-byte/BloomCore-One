@@ -61,7 +61,7 @@ export default function ReportsPage() {
     if (accounts.length === 0) return;
     // Simplified closing fields. Historical records keep their stored
     // difference; no historical row is recalculated during export.
-    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Net Daily Profit/Increase","Closing Physical Cash","Closing E-cash","Actual Closing Total","Difference","Difference status"];
+    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Net Accountability Increase","Closing Physical Cash","Closing E-cash","Actual Closing Total","Difference","Difference status"];
     const rows = accounts.map((a) => {
       const stored = resolveStoredDifference(a);
       const actual = Number(a.closingCash) + Number(a.closingMomoFloat);

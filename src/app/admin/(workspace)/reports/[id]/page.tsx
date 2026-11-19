@@ -116,11 +116,11 @@ export default function ReportDetailPage() {
   const expectedClosing = stored.netModel
     ? openingTotal + netIncrease
     : actualClosing - difference;
-  const profitRetained = stored.netModel
+  const increaseRetained = stored.netModel
     ? Math.max(0, Math.min(actualClosing - openingTotal, netIncrease))
     : 0;
-  const profitNotRetained = stored.netModel
-    ? Math.max(0, netIncrease - profitRetained)
+  const increaseNotRetained = stored.netModel
+    ? Math.max(0, netIncrease - increaseRetained)
     : 0;
   const hasLegacyActivity =
     Number(account.totalCashIn) !== 0 ||
@@ -194,7 +194,7 @@ export default function ReportDetailPage() {
               <span className="font-mono text-sm text-amber-950"><CediAmount amount={account.totalAirtimeSold} /></span>
             </div>
             <div className="flex justify-between border-t border-slate-200 pt-2">
-              <span className="text-sm font-semibold text-slate-700">Net daily profit / increase</span>
+              <span className="text-sm font-semibold text-slate-700">Net accountability increase</span>
               <span className="font-mono text-sm font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></span>
             </div>
             {hasLegacyActivity && (
@@ -217,14 +217,17 @@ export default function ReportDetailPage() {
           <h3 className="font-semibold mb-4">Account Check</h3>
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-200 p-3">
-              <div className="text-sm text-slate-600">Net daily profit / increase</div>
+              <div className="text-sm text-slate-600">Net accountability increase</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></div>
-              <div className="text-xs text-slate-500 mt-1">Commission + debts collected − expenses</div>
+              <div className="text-xs text-slate-500 mt-1">
+                Commission + debt recovery + other income − approved expenses.
+                This is an accountability figure, not accounting profit or revenue.
+              </div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Expected closing accountability</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={expectedClosing} /></div>
-              <div className="text-xs text-slate-500 mt-1">Opening total + net daily profit / increase</div>
+              <div className="text-xs text-slate-500 mt-1">Opening total + net accountability increase</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Actual closing accountability</div>
@@ -233,9 +236,9 @@ export default function ReportDetailPage() {
             </div>
             {stored.netModel && (
               <div className="rounded-lg border border-slate-200 p-3 text-sm">
-                <div className="flex justify-between"><span className="text-slate-600">Profit retained</span><span className="font-semibold"><CediAmount amount={profitRetained} /></span></div>
-                <div className="mt-1 flex justify-between"><span className="text-slate-600">Profit withdrawn / not retained</span><span className="font-semibold"><CediAmount amount={profitNotRetained} /></span></div>
-                <p className="mt-2 text-xs text-slate-500">Withdrawn profit is not a loss. A shortage is reported only below the opening capital floor.</p>
+                <div className="flex justify-between"><span className="text-slate-600">Increase retained at closing</span><span className="font-semibold"><CediAmount amount={increaseRetained} /></span></div>
+                <div className="mt-1 flex justify-between"><span className="text-slate-600">Increase withdrawn / not retained</span><span className="font-semibold"><CediAmount amount={increaseNotRetained} /></span></div>
+                <p className="mt-2 text-xs text-slate-500">An increase withdrawn is not a loss. A shortage is reported only below the opening capital floor.</p>
               </div>
             )}
             <div className="border-t pt-3">

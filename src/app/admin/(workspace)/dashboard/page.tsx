@@ -244,7 +244,12 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">
-                <span className="font-medium text-slate-700">Net daily profit / increase today</span>
+                <span className="font-medium text-slate-700">
+                  Net accountability increase today
+                  <span className="block text-[11px] font-normal text-slate-500">
+                    Commission + debt recovery − expenses. Not revenue or accounting profit.
+                  </span>
+                </span>
                 <span className="font-bold tnum text-emerald-700">
                   <CediAmount amount={momoStats.totalNetIncrease} showSign />
                 </span>

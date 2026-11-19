@@ -449,7 +449,7 @@ export default function DailyAccountFormPage() {
               amount={Number(account.totalAirtimeSold)}
               icon={<Smartphone />}
             />
-            <SummaryTile label="Net daily profit / increase" amount={netIncrease} icon={<Receipt />} />
+            <SummaryTile label="Net accountability increase" amount={netIncrease} icon={<Receipt />} />
             <SummaryTile label="Actual closing accountability" amount={actualClosing} icon={<Landmark />} />
           </div>
           <p className="mx-5 -mt-1 mb-4 text-xs text-slate-500 sm:mx-7 sm:mb-5">
@@ -494,7 +494,7 @@ export default function DailyAccountFormPage() {
                       : "POSITIVE SURPLUS"}
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Opening <CediAmount amount={openingTotal} /> · Net profit{" "}
+                  Opening <CediAmount amount={openingTotal} /> · Net accountability increase{" "}
                   <CediAmount amount={netIncrease} showSign /> · Expected{" "}
                   <CediAmount amount={expectedClosing} /> · Actual{" "}
                   <CediAmount amount={actualClosing} /> · Difference{" "}
@@ -502,9 +502,9 @@ export default function DailyAccountFormPage() {
                 </p>
                 {stored.netModel && (
                   <p className="mt-2 text-sm text-slate-600">
-                    Profit retained <CediAmount amount={profitRetained} /> · Profit withdrawn
+                    Increase retained <CediAmount amount={profitRetained} /> · Increase withdrawn
                     / not retained <CediAmount amount={profitNotRetained} />. Withdrawn
-                    profit is not a loss.
+                    increase is not a loss.
                   </p>
                 )}
                 {account.reconciliationNote && (
@@ -876,7 +876,7 @@ export default function DailyAccountFormPage() {
                   <p className="mt-1 max-w-md text-sm text-slate-600">
                     {isBalanced
                       ? result.profitNotRetained > 0
-                        ? "The counted money is within the expected range. Profit not retained is shown separately. It is not a loss."
+                        ? "The counted money is within the expected range. Increase not retained is shown separately. It is not a loss."
                         : "Actual closing is within the expected accountability range."
                       : isPositive
                         ? "Actual money is above the full expected closing total. This is a positive surplus, not a shortage."
@@ -891,10 +891,10 @@ export default function DailyAccountFormPage() {
 
             {hasWithdrawnProfit && (
               <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-950" role="status">
-                <p className="font-semibold">Profit withdrawn, not a loss</p>
+                <p className="font-semibold">Increase withdrawn, not a loss</p>
                 <p className="mt-1">
                   <CediAmount amount={result.profitNotRetained} /> of today&apos;s
-                  profit is not in the counted closing total. This is the owner&apos;s
+                  increase is not in the counted closing total. This is the owner&apos;s
                   withdrawal or money not retained in the business. It is not a shortage.
                   A shortage is reported only when the counted money is below the opening
                   capital floor of <CediAmount amount={result.capitalFloor} />.
@@ -920,7 +920,7 @@ export default function DailyAccountFormPage() {
                 <CediAmount amount={effectiveExpenses} className="font-semibold text-red-700" />
               </div>
               <div className="flex justify-between gap-3 border-t border-white/70 pt-2">
-                <span className="font-semibold text-slate-700">= Net Daily Profit / Increase</span>
+                <span className="font-semibold text-slate-700">= Net Accountability Increase</span>
                 <CediAmount
                   amount={result.netIncrease}
                   showSign
@@ -929,7 +929,7 @@ export default function DailyAccountFormPage() {
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-slate-600">Opening Total + Net Increase</span>
-                <span className="text-xs text-slate-500">Expected Closing Total (if all profit is retained)</span>
+                <span className="text-xs text-slate-500">Expected Closing Total (if all increase is retained)</span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="font-semibold text-slate-700">Expected Closing Total</span>
@@ -940,11 +940,11 @@ export default function DailyAccountFormPage() {
                 <CediAmount amount={result.actualClosing} className="font-bold" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Profit retained at closing</span>
+                <span className="text-slate-600">Increase retained at closing</span>
                 <CediAmount amount={result.profitRetained} className="font-semibold text-emerald-800" />
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-slate-600">Profit withdrawn / not retained</span>
+                <span className="text-slate-600">Increase withdrawn / not retained</span>
                 <CediAmount amount={result.profitNotRetained} className="font-semibold text-slate-700" />
               </div>
               <div className="flex justify-between gap-3">
@@ -957,8 +957,8 @@ export default function DailyAccountFormPage() {
               </div>
               <p className="text-xs text-slate-500">
                 A shortage is reported only when counted money is below the opening capital
-                floor of <CediAmount amount={result.capitalFloor} />. Withdrawn profit is
-                never treated as a loss.
+                floor of <CediAmount amount={result.capitalFloor} />. Withdrawn increase
+                is never treated as a loss.
               </p>
             </div>
 
@@ -1038,7 +1038,7 @@ export default function DailyAccountFormPage() {
               )}
               <div className="border-t border-slate-100 pt-2.5">
                 <SummaryRow
-                  label="Net daily profit / increase"
+                  label="Net accountability increase"
                   amount={result.netIncrease}
                   tone={result.netIncrease < 0 ? "negative" : "positive"}
                   strong
@@ -1048,8 +1048,8 @@ export default function DailyAccountFormPage() {
                 <SummaryRow label="Expected closing" amount={result.expectedClosing} strong />
               </div>
               <SummaryRow label="Actual closing" amount={result.actualClosing} strong />
-              <SummaryRow label="Profit retained" amount={result.profitRetained} tone="positive" />
-              <SummaryRow label="Profit withdrawn / not retained" amount={result.profitNotRetained} />
+              <SummaryRow label="Increase retained" amount={result.profitRetained} tone="positive" />
+              <SummaryRow label="Increase withdrawn / not retained" amount={result.profitNotRetained} />
               <div className={`mt-2 rounded-xl border p-3 ${statusBg}`}>
                 <p className="text-xs font-medium text-slate-500">Accountability difference</p>
                 <p className={`mt-1 text-xl font-bold tnum ${statusClass}`}>
@@ -1101,13 +1101,13 @@ export default function DailyAccountFormPage() {
             </summary>
             <div className="mt-3 space-y-2 text-xs text-slate-600">
               <p>
-                Net daily profit / increase = commission + debts collected − expenses.
-                Expected closing = opening total + net daily profit / increase.
+                Net accountability increase = commission + debts collected − expenses.
+                Expected closing = opening total + net accountability increase.
               </p>
               <p>
                 Actual closing = closing physical cash + closing E-cash. A shortage is
                 reported only when the actual closing is below the opening capital floor.
-                Profit withdrawn or not retained is shown separately and is never a loss.
+                Increase withdrawn or not retained is shown separately and is never a loss.
               </p>
               <p>
                 Customer deposits, withdrawals and airtime move money between cash and
@@ -1156,7 +1156,7 @@ export default function DailyAccountFormPage() {
             <dd className="font-semibold tnum"><CediAmount amount={result.openingTotal} /></dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-slate-500">Net daily profit / increase</dt>
+            <dt className="text-slate-500">Net accountability increase</dt>
             <dd className="font-semibold tnum"><CediAmount amount={result.netIncrease} showSign /></dd>
           </div>
           <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
@@ -1168,11 +1168,11 @@ export default function DailyAccountFormPage() {
             <dd className="font-semibold tnum"><CediAmount amount={result.actualClosing} /></dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-slate-500">Profit retained</dt>
+            <dt className="text-slate-500">Increase retained</dt>
             <dd className="font-semibold tnum"><CediAmount amount={result.profitRetained} /></dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-slate-500">Profit withdrawn / not retained</dt>
+            <dt className="text-slate-500">Increase withdrawn / not retained</dt>
             <dd className="font-semibold tnum"><CediAmount amount={result.profitNotRetained} /></dd>
           </div>
           <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">

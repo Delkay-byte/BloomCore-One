@@ -142,6 +142,12 @@ export interface PerformanceReport {
     financial: string;
     operational: string;
     confirmedStatuses: string[];
+    definitions: {
+      revenue: string;
+      expenses: string;
+      netOperating: string;
+      cashMovement: string;
+    };
   };
 }
 
@@ -439,10 +445,19 @@ export function buildPerformanceReport(input: PerformanceInput): PerformanceRepo
       ),
     },
     source: {
-      financial: "Daily accounts with status submitted or reviewed",
+      financial:
+        "Commission plus other income from daily accounts with status submitted or reviewed. Debt recovery and principal volume are excluded.",
       operational:
         "Recorded MoMo ledger entries, branch transfers and shifts (counts only; not added to revenue)",
       confirmedStatuses: ["submitted", "reviewed"],
+      definitions: {
+        revenue:
+          "Operating revenue = commission + other income. Debts collected is recovery of an earlier receivable, not new revenue.",
+        expenses: "Approved business expenses recorded for confirmed daily accounts.",
+        netOperating: "Net operating = operating revenue - expenses.",
+        cashMovement:
+          "Cash and E-cash movement is principal transaction volume. It is not income, revenue or profit.",
+      },
     },
   };
 }

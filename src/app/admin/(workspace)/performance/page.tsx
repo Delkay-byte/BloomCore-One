@@ -66,7 +66,7 @@ function csvSafe(value: string): string {
 }
 
 const DELTA_LABEL: Record<PerformanceDelta["metric"], string> = {
-  revenue: "Revenue",
+  revenue: "Operating revenue",
   expenses: "Expenses",
   netOperating: "Net operating",
   cashIn: "Cash in (principal)",
@@ -122,7 +122,7 @@ export default function AdminPerformancePage() {
       ["Period", `${report.period.from} to ${report.period.to}`],
       ["Basis", report.source.financial],
       [],
-      ["Location", "Revenue", "Expenses", "Net operating", "Debts collected", "Cash in", "Cash out", "Submitted days", "Draft days", "Shortage days"],
+      ["Location", "Operating revenue", "Expenses", "Net operating", "Debts collected", "Cash in", "Cash out", "Submitted days", "Draft days", "Shortage days"],
       ...report.byLocation.map((row) => [
         row.locationName,
         row.revenue.toFixed(2),
@@ -136,7 +136,7 @@ export default function AdminPerformancePage() {
         String(row.shortageDays),
       ]),
       [],
-      ["Day", "Revenue", "Expenses", "Net operating", "Cash in", "Cash out"],
+      ["Day", "Operating revenue", "Expenses", "Net operating", "Cash in", "Cash out"],
       ...report.byDay.map((row) => [
         row.date,
         row.revenue.toFixed(2),
@@ -256,18 +256,43 @@ export default function AdminPerformancePage() {
         <p className="text-sm text-slate-500">Building the performance report…</p>
       ) : data ? (
         <>
-          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <strong>Basis:</strong> {data.current.source.financial}. Principal
-            cash-in and cash-out are shown as volume, not revenue. Draft accounts
-            and ledger-only entries are disclosed separately and never added to the
-            confirmed figures.
-          </p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <p>
+              <strong>Basis:</strong> {data.current.source.financial}. Principal
+              cash-in, cash-out and airtime are shown as volume. Draft accounts
+              and ledger-only entries are disclosed separately and never added to
+              the confirmed figures.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold text-slate-700">
+                How each metric is defined
+              </summary>
+              <dl className="mt-2 space-y-1">
+                <div>
+                  <dt className="inline font-semibold">Operating revenue: </dt>
+                  <dd className="inline">{data.current.source.definitions.revenue}</dd>
+                </div>
+                <div>
+                  <dt className="inline font-semibold">Expenses: </dt>
+                  <dd className="inline">{data.current.source.definitions.expenses}</dd>
+                </div>
+                <div>
+                  <dt className="inline font-semibold">Net operating: </dt>
+                  <dd className="inline">{data.current.source.definitions.netOperating}</dd>
+                </div>
+                <div>
+                  <dt className="inline font-semibold">Cash movement: </dt>
+                  <dd className="inline">{data.current.source.definitions.cashMovement}</dd>
+                </div>
+              </dl>
+            </details>
+          </div>
 
           <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
-              label="Revenue"
+              label="Operating revenue"
               value={<CediAmount amount={data.current.totals.revenue} />}
-              hint="Commission + other income"
+              hint="Commission + other income; excludes debt recovery and principal"
               tone="positive"
               icon={<TrendingUp />}
             />
@@ -279,7 +304,7 @@ export default function AdminPerformancePage() {
             <StatCard
               label="Net operating"
               value={<CediAmount amount={data.current.totals.netOperating} />}
-              hint="Revenue − expenses"
+              hint="Operating revenue − expenses"
               tone={data.current.totals.netOperating >= 0 ? "positive" : "negative"}
             />
             <StatCard
@@ -394,7 +419,7 @@ export default function AdminPerformancePage() {
                   <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-2">Branch</th>
-                      <th className="px-4 py-2 text-right">Revenue</th>
+                      <th className="px-4 py-2 text-right">Operating revenue</th>
                       <th className="px-4 py-2 text-right">Expenses</th>
                       <th className="px-4 py-2 text-right">Net</th>
                       <th className="px-4 py-2 text-right">Debts collected</th>
@@ -480,7 +505,7 @@ export default function AdminPerformancePage() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h2 className="text-sm font-bold text-slate-900">Daily trend</h2>
               <p className="text-xs text-slate-500">
-                Green = revenue, red = expenses. Bars scale to the highest day.
+                Green = operating revenue, red = expenses. Bars scale to the highest day.
               </p>
             </div>
             {data.current.byDay.every(
@@ -499,7 +524,7 @@ export default function AdminPerformancePage() {
                         <div
                           className="h-2 rounded bg-emerald-500"
                           style={{ width: `${Math.min(100, (day.revenue / maxDaily) * 100)}%` }}
-                          title={`Revenue ${day.revenue.toFixed(2)}`}
+                          title={`Operating revenue ${day.revenue.toFixed(2)}`}
                         />
                       </div>
                       <div className="h-1 rounded bg-slate-100">
@@ -547,9 +572,9 @@ export default function AdminPerformancePage() {
               />
             </dl>
             <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
-              {data.current.source.operational}. Revenue and expenses are taken
-              once from the daily account, so a ledger transaction cannot increase
-              reported revenue a second time.
+              {data.current.source.operational}. Operating revenue and expenses
+              are taken once from the daily account, so a ledger transaction cannot
+              increase reported revenue a second time.
             </p>
           </section>
         </>

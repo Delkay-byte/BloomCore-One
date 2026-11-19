@@ -208,6 +208,11 @@ describe("performance report rules", () => {
       shiftVarianceAmount: -20,
     });
     expect(report.source.confirmedStatuses).toEqual(["submitted", "reviewed"]);
+    expect(report.source.definitions.revenue).toContain("recovery");
+    expect(report.source.definitions.cashMovement).toContain("not income");
+    expect(report.source.definitions.netOperating).toBe(
+      "Net operating = operating revenue - expenses."
+    );
   });
 
   it("does not treat principal or ledger rows as revenue", () => {
