@@ -1774,6 +1774,8 @@ model ZeliChargeAttempt {
   provider           String    @default("paystack")
   method             String    // mobile_money | hosted
   network            String?   // mtn | atl | vod
+  /// Hosted checkout method bound at initialisation: mobile_money | card | bank_transfer.
+  checkoutChannel    String?
   amount             Decimal
   currency           String
   /// initiating | pending | rejected | failed | unresolved | succeeded | abandoned

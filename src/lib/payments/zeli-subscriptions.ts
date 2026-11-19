@@ -36,9 +36,14 @@ import {
 import { sanitizeProviderMessage } from "./paystack";
 import { liveBlockedExplanation } from "./live-readiness";
 import {
-  HOSTED_CHECKOUT_CHANNELS,
+  DEFAULT_HOSTED_CHECKOUT_CHANNEL,
   isTrustedCheckoutUrl,
+  type HostedCheckoutChannel,
 } from "./checkout-url";
+import {
+  CheckoutChannelError,
+  resolveCheckoutChannel,
+} from "./checkout-channels";
 import {
   queuePlatformPaymentEmailDelivery,
   recordPlatformPaymentNotification,
@@ -428,11 +433,16 @@ async function failPendingCheckout(id: string, reason: string): Promise<void> {
 /** Start a hosted-checkout payment for a tenant administrator. */
 export async function createZeliCheckout(
   ctx: TenantContext,
-  planCode: string
+  planCode: string,
+  channel: HostedCheckoutChannel = DEFAULT_HOSTED_CHECKOUT_CHANNEL
 ): Promise<HostedCheckout> {
   const { plan, email, reference, createdId, amount } = await preparePendingSubscription(ctx, planCode);
 
   try {
+    const resolved = resolveCheckoutChannel({
+      requested: channel,
+      currency: plan.currency,
+    });
     return await initializeHostedCheckout({
       subscription: {
         id: createdId,
@@ -444,6 +454,7 @@ export async function createZeliCheckout(
       tenantId: ctx.tenantId,
       email,
       amount,
+      channel: resolved,
     });
   } catch (error) {
     // Only retire the payable row when no provider attempt is still open. An
@@ -460,6 +471,9 @@ export async function createZeliCheckout(
       );
     }
     if (error instanceof SubscriptionError) throw error;
+    if (error instanceof CheckoutChannelError) {
+      throw new SubscriptionError(error.message, error.code);
+    }
     throw new SubscriptionError(
       "Payment checkout could not be started. Please try again.",
       "initialization_failed"
@@ -473,6 +487,8 @@ export interface HostedCheckout {
   status: "pending";
   requiredAction: "checkout";
   message: string;
+  /** The single method this checkout was initialised with. */
+  channel: HostedCheckoutChannel | null;
 }
 
 const HOSTED_CHECKOUT_MESSAGE =
@@ -491,6 +507,7 @@ function reusableHostedCheckout(attempt: {
   state: string;
   requiredAction: string | null;
   checkoutUrl: string | null;
+  checkoutChannel?: string | null;
 }): HostedCheckout | null {
   if (
     attempt.state === "pending" &&
@@ -504,6 +521,7 @@ function reusableHostedCheckout(attempt: {
       status: "pending",
       requiredAction: "checkout",
       message: HOSTED_CHECKOUT_MESSAGE,
+      channel: (attempt.checkoutChannel as HostedCheckoutChannel | null | undefined) ?? null,
     };
   }
   return null;
@@ -529,6 +547,7 @@ async function initializeHostedCheckout(input: {
   tenantId: string;
   email: string;
   amount: number;
+  channel: HostedCheckoutChannel;
 }): Promise<HostedCheckout> {
   let reference = input.subscription.providerReference;
   const existing = await findChargeAttempt(reference);
@@ -537,7 +556,15 @@ async function initializeHostedCheckout(input: {
       throw new SubscriptionError("This payment is already confirmed.", "already_active");
     }
     const reusable = reusableHostedCheckout(existing);
-    if (reusable) return reusable;
+    if (reusable) {
+      if (existing.checkoutChannel && existing.checkoutChannel !== input.channel) {
+        throw new SubscriptionError(
+          `A Paystack checkout for this payment is already open with ${existing.checkoutChannel.replace("_", " ")}. Continue that checkout; changing the method would create a second payment.`,
+          "checkout_method_locked"
+        );
+      }
+      return reusable;
+    }
     if (!canReplaceReference(existing.state)) {
       // `pending` here is a legacy direct-charge attempt (OTP or phone prompt).
       // It is never re-initialised as hosted; the owner finishes or reconciles
@@ -573,10 +600,22 @@ async function initializeHostedCheckout(input: {
     amount: input.amount,
     currency: input.subscription.currency,
     requiredAction: "checkout",
+    checkoutChannel: input.channel,
   });
   if (!claim.claimed) {
     const reuse = reusableHostedCheckout(claim.attempt);
-    if (reuse) return reuse;
+    if (reuse) {
+      if (
+        claim.attempt.checkoutChannel &&
+        claim.attempt.checkoutChannel !== input.channel
+      ) {
+        throw new SubscriptionError(
+          `A Paystack checkout for this payment is already open with ${claim.attempt.checkoutChannel.replace("_", " ")}. Continue that checkout; changing the method would create a second payment.`,
+          "checkout_method_locked"
+        );
+      }
+      return reuse;
+    }
     throw new SubscriptionError(attemptMessage(claim.attempt), "charge_unresolved");
   }
 
@@ -587,7 +626,7 @@ async function initializeHostedCheckout(input: {
       currency: input.subscription.currency,
       reference,
       callbackUrl: `${baseUrl()}/checkout/return?reference=${encodeURIComponent(reference)}`,
-      channels: [...HOSTED_CHECKOUT_CHANNELS],
+      channels: [input.channel],
       metadata: {
         zeli_subscription_id: input.subscription.id,
         plan_code: input.subscription.plan.code,
@@ -616,6 +655,7 @@ async function initializeHostedCheckout(input: {
       status: "pending",
       requiredAction: "checkout",
       message: HOSTED_CHECKOUT_MESSAGE,
+      channel: input.channel,
     };
   } catch (error) {
     if (error instanceof SubscriptionError) throw error;
@@ -967,7 +1007,7 @@ export async function payProvisionedSubscription(
   ctx: TenantContext,
   subscriptionId: string,
   input:
-    | { method: "hosted" }
+    | { method: "hosted"; channel?: HostedCheckoutChannel }
     | { method: "mobile_money"; phone: string; provider: MobileMoneyProvider }
 ): Promise<{
   reference: string;
@@ -976,6 +1016,7 @@ export async function payProvisionedSubscription(
   displayText?: string | null;
   message?: string | null;
   requiredAction?: ChargeRequiredAction | null;
+  channel?: HostedCheckoutChannel | null;
 }> {
   if (ctx.role !== "admin") {
     throw new SubscriptionError("Only a business administrator can pay for a subscription.", "forbidden");
@@ -1018,13 +1059,26 @@ export async function payProvisionedSubscription(
   const amount = Number(subscription.amount);
 
   if (input.method === "hosted") {
-    // The only new customer checkout path: Paystack's hosted page owns the
-    // method choice, the mobile-money number, OTP/PIN and card/bank transfer.
+    // Paystack's hosted page owns the wallet number, OTP/PIN and card details.
+    // MaaCash binds only the payment method the customer selected.
+    let channel: HostedCheckoutChannel;
+    try {
+      channel = resolveCheckoutChannel({
+        requested: input.channel ?? DEFAULT_HOSTED_CHECKOUT_CHANNEL,
+        currency: subscription.currency,
+      });
+    } catch (error) {
+      if (error instanceof CheckoutChannelError) {
+        throw new SubscriptionError(error.message, error.code);
+      }
+      throw error;
+    }
     return initializeHostedCheckout({
       subscription,
       tenantId: ctx.tenantId,
       email,
       amount,
+      channel,
     });
   }
 

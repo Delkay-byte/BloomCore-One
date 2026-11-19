@@ -26,6 +26,8 @@ import {
   describePaymentStatus,
 } from "@/lib/billing/feedback";
 import Modal, { ConfirmDialog } from "@/components/ui/Modal";
+import PaymentMethodSelector from "@/components/billing/PaymentMethodSelector";
+import type { HostedCheckoutChannel } from "@/lib/payments/checkout-url";
 import {
   navigateCheckoutTab,
   openBlankCheckoutTab,
@@ -95,6 +97,9 @@ export default function BillingClient({
     overview.payableAction?.requiredAction === "checkout"
       ? overview.payableAction.checkoutUrl
       : null
+  );
+  const [checkoutChannel, setCheckoutChannel] = useState<HostedCheckoutChannel>(
+    overview.payableAction?.channel ?? "mobile_money"
   );
 
   const [term, setTerm] = useState<"monthly" | "annual">(
@@ -422,7 +427,11 @@ export default function BillingClient({
       const response = await fetch("/api/billing/pay", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subscriptionId: pendingSubscriptionId, method: "hosted" }),
+        body: JSON.stringify({
+          subscriptionId: pendingSubscriptionId,
+          method: "hosted",
+          channel: checkoutChannel,
+        }),
       });
       const result = (await response.json().catch(() => null)) as
         | {
@@ -1017,9 +1026,17 @@ export default function BillingClient({
             <div className="mt-4 space-y-4">
               <div className="rounded-xl border border-brand-200 bg-brand-50/50 p-4">
                 <p className="text-sm font-medium text-slate-900">Pay securely with Paystack</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  Choose Mobile Money, Card or Bank Transfer on Paystack&apos;s secure checkout.
-                </p>
+                <PaymentMethodSelector
+                  channels={overview.checkoutChannels}
+                  value={checkoutChannel}
+                  onChange={setCheckoutChannel}
+                  disabled={busy !== null || Boolean(checkoutUrl)}
+                  lockedReason={
+                    checkoutUrl
+                      ? "A Paystack checkout is already open for this payment. Continue it with the method already chosen; changing the method would create a second payment."
+                      : null
+                  }
+                />
                 <button
                   type="button"
                   className="btn btn-primary mt-3 w-full sm:w-auto"

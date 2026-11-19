@@ -26,7 +26,12 @@ import {
   customerPaymentMessage,
   liveCheckoutReadiness,
 } from "@/lib/payments/live-readiness";
-import { isTrustedCheckoutUrl } from "@/lib/payments/checkout-url";
+import {
+  isHostedCheckoutChannel,
+  isTrustedCheckoutUrl,
+  type HostedCheckoutChannel,
+} from "@/lib/payments/checkout-url";
+import { supportedCheckoutChannels } from "@/lib/payments/checkout-channels";
 
 /**
  * Business owner subscription and billing.
@@ -105,7 +110,11 @@ export interface BillingOverview {
     displayText: string | null;
     /** Trusted Paystack URL for reopening an open hosted checkout. */
     checkoutUrl: string | null;
+    /** Method bound when the open checkout was initialised, when known. */
+    channel: HostedCheckoutChannel | null;
   } | null;
+  /** Methods this account and currency may request from Paystack. */
+  checkoutChannels: HostedCheckoutChannel[];
   availablePlans: {
     code: string;
     name: string;
@@ -229,6 +238,9 @@ export async function getBillingOverview(): Promise<BillingOverview> {
             isTrustedCheckoutUrl(payableAttempt.checkoutUrl)
               ? payableAttempt.checkoutUrl
               : null,
+          channel: isHostedCheckoutChannel(payableAttempt.checkoutChannel)
+            ? payableAttempt.checkoutChannel
+            : null,
         }
       : null;
 
@@ -277,6 +289,9 @@ export async function getBillingOverview(): Promise<BillingOverview> {
       (readiness.enabled || readiness.keyMode === "test"),
     payableReference: payable?.providerReference ?? null,
     payableAction,
+    checkoutChannels: supportedCheckoutChannels(
+      String(payable?.currency ?? current?.currency ?? plan?.currency ?? "GHS")
+    ),
     availablePlans: plans.map((row) => ({
       ...row,
       price: Number(row.price),
@@ -315,7 +330,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
 }
 
 export type BillingPaymentResult =
-  | { ok: true; reference: string; authorizationUrl?: string; status?: string; displayText?: string | null; message?: string | null }
+  | { ok: true; reference: string; authorizationUrl?: string; status?: string; displayText?: string | null; message?: string | null; channel?: string | null }
   | {
       ok: false;
       error: string;
@@ -324,9 +339,9 @@ export type BillingPaymentResult =
     };
 
 export async function startBillingPaymentAction(input:
-  | { subscriptionId: string; method: "hosted" }
+  | { subscriptionId: string; method: "hosted"; channel?: HostedCheckoutChannel }
   | { subscriptionId: string; method: "mobile_money"; phone: string; provider: MobileMoneyProvider }
-  | { planCode: string; method: "hosted" }
+  | { planCode: string; method: "hosted"; channel?: HostedCheckoutChannel }
   | { planCode: string; method: "mobile_money"; phone: string; provider: MobileMoneyProvider }
 ): Promise<BillingPaymentResult> {
   const ctx = await requireTenantAdmin();
@@ -337,7 +352,7 @@ export async function startBillingPaymentAction(input:
       return { ok: true, ...result };
     }
     if (input.method === "hosted") {
-      const result = await createZeliCheckout(ctx, input.planCode);
+      const result = await createZeliCheckout(ctx, input.planCode, input.channel);
       revalidatePath("/admin/billing");
       return { ok: true, ...result };
     }

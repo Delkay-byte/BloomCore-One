@@ -1085,3 +1085,44 @@ separators and difference-status column were verified. **1 passed.**
 All ten workstreams are complete. Remaining work is meeting preparation,
 operator training and a controlled production rollout decision; production
 stays at the untouched baseline until that decision is made.
+
+## Workstream 11 — Mobile Money-first Paystack checkout
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Gap found
+
+The hosted checkout sent `channels: ["mobile_money", "card", "bank_transfer"]`.
+Paystack's documented `channels` parameter limits the available methods but does
+not guarantee a default when several are supplied, so the hosted page could
+open on Card.
+
+### What was implemented
+
+- A pre-checkout selector: **Mobile Money (default)**, Card, and Bank Transfer
+  only when explicitly enabled for the account/currency.
+- The server initialises Paystack with exactly one channel, never the full set.
+- The selected channel is stored on `ZeliChargeAttempt.checkoutChannel`.
+- If an open checkout already exists, the selector is locked and the server
+  refuses a different method with `checkout_method_locked`; no second
+  reference or transaction is created.
+- Bank Transfer requires `PAYSTACK_CHECKOUT_BANK_TRANSFER=true` and GHS.
+- The UI states that authorisation happens on Paystack and never collects a
+  wallet number, PIN or OTP.
+
+### Schema and migration
+
+`prisma/migrations/20261206_paystack_checkout_channel/migration.sql` adds the
+nullable `ZeliChargeAttempt.checkoutChannel`; existing attempts stay NULL
+because their method cannot be proven.
+
+### Verification
+
+- `tests/paystack-hosted-checkout.test.ts`: **23 passed**, including default
+  Mobile Money, Card-only, Bank Transfer refusal/opt-in, method lock, existing
+  exactly-once webhook/callback tests and overview channel exposure.
+- Related subscription suites: **56 passed**.
+- Browser: Billing opened with Mobile Money selected, Card selectable, Bank
+  Transfer absent, URL unchanged and no payment started. **1 passed.**
+- TypeScript clean; ESLint 0 errors.

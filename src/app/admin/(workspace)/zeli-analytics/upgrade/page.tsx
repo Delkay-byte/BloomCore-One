@@ -13,6 +13,7 @@ import {
   paymentProviderStatus,
 } from "@/lib/payments/zeli-subscriptions";
 import CheckoutPlans from "./CheckoutPlans";
+import { supportedCheckoutChannels } from "@/lib/payments/checkout-channels";
 import { getZeliAvailability } from "@/lib/zeli/availability";
 import ZeliUnavailable from "@/components/zeli/ZeliUnavailable";
 
@@ -92,6 +93,7 @@ export default async function ZeliAnalyticsUpgradePage({
               plans={plans}
               paymentConfigured={payment.configured}
               providerMessage={payment.message}
+              channels={supportedCheckoutChannels("GHS")}
             />
           </div>
         )}

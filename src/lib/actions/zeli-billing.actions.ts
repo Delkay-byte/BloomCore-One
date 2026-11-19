@@ -97,8 +97,9 @@ export async function checkZeliMobileMoneyPayment(
 }
 
 export async function startZeliCheckout(
-  planCode: string
-): Promise<BillingActionResponse<{ authorizationUrl: string }>> {
+  planCode: string,
+  channel?: string
+): Promise<BillingActionResponse<{ authorizationUrl: string; channel: string | null }>> {
   try {
     await assertZeliAvailable();
     const ctx = await requireTenantAdmin();
@@ -106,8 +107,14 @@ export async function startZeliCheckout(
     if (!/^[a-z0-9][a-z0-9_-]{2,60}$/i.test(code)) {
       return { success: false, error: "Choose a valid package." };
     }
-    const checkout = await createZeliCheckout(ctx, code);
-    return { success: true, data: { authorizationUrl: checkout.authorizationUrl } };
+    const checkout = await createZeliCheckout(ctx, code, channel as never);
+    return {
+      success: true,
+      data: {
+        authorizationUrl: checkout.authorizationUrl,
+        channel: checkout.channel,
+      },
+    };
   } catch (error) {
     if (error instanceof SubscriptionError) {
       return { success: false, error: customerPaymentMessage(error) };

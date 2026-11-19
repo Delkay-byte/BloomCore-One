@@ -17,6 +17,20 @@ export const HOSTED_CHECKOUT_CHANNELS = [
 
 export type HostedCheckoutChannel = (typeof HOSTED_CHECKOUT_CHANNELS)[number];
 
+export const DEFAULT_HOSTED_CHECKOUT_CHANNEL: HostedCheckoutChannel = "mobile_money";
+
+export const HOSTED_CHECKOUT_CHANNEL_LABELS: Record<HostedCheckoutChannel, string> = {
+  mobile_money: "Mobile Money",
+  card: "Card",
+  bank_transfer: "Bank Transfer",
+};
+
+export function checkoutChannelLabel(value: string | null | undefined): string {
+  return isHostedCheckoutChannel(value)
+    ? HOSTED_CHECKOUT_CHANNEL_LABELS[value]
+    : "Payment method chosen on Paystack";
+}
+
 /** Channel lists supplied by code are checked against this allowlist. */
 export function isHostedCheckoutChannel(value: unknown): value is HostedCheckoutChannel {
   return (
