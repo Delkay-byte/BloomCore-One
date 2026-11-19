@@ -642,3 +642,76 @@ None for the local review flow. A future evidence-upload feature would need stor
 ### Next dependency
 
 Workstream 6 — association foundation: membership, sponsored subscriptions and training records.
+
+## Workstream 6 — Association membership, sponsorship and training foundation
+
+**Status:** GREEN  
+**Commit:** recorded at commit time
+
+### Existing capability before changes
+
+There was no association register. Membership, sponsored packages and training records were not represented anywhere in MaaCash.
+
+### What was implemented
+
+- A tenant-scoped **member register** with member code, business name, contact, phone, email, region, join date and status. Member codes and phone numbers are unique inside a tenant, not globally.
+- **Sponsored package records**: sponsor, plan code, amount, currency, period, reference and status. A sponsorship is an agreement record only. It never charges, pays out, activates a Zeli subscription or writes a financial ledger row.
+- **Training records**: title, provider, status, completion, expiry, certificate reference and notes. The dashboard counts completed training and certificates expiring within 90 days.
+- Status changes for members and sponsorships are audited. Every association audit entry declares `financialMutation: false`.
+- A new administrator page at `/admin/association` with summary cards, member registration, sponsorship entry, training entry and the three registers.
+- A new “Association” navigation section.
+
+### Schema and migration
+
+`prisma/migrations/20261205_association_foundation/migration.sql` adds:
+
+- `AssociationMember`;
+- `AssociationSponsorship`;
+- `AssociationTrainingRecord`.
+
+All three are tenant-owned, with member children cascading from the member. Both Prisma schemas were validated; SQLite test and E2E databases were pushed. No existing table or financial row is changed.
+
+### Tests and results
+
+- New `tests/association-foundation.test.ts` proves:
+  - member creation and dashboard listing;
+  - duplicate member code refused inside a tenant but allowed in another tenant;
+  - sponsorship recording leaves MoMo transactions, contributions and Zeli subscriptions untouched;
+  - a sponsorship cannot reference another tenant's member;
+  - date-order validation and status transitions;
+  - training completion/expiry counting and invalid expiry refusal.
+- `tests/association-foundation.test.ts`: **6 passed**.
+- Full regression suite: **117 files, 1,296 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; one existing data-loading effect warning.
+
+### Browser acceptance
+
+The administrator registered `E2E Agents Association`, recorded a GH₵500 sponsorship from `MoMAG Support Fund`, and recorded `Float and fraud awareness` training. All three appeared in their registers. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Every action resolves the tenant from the administrator session; no tenant or creator ID is accepted from the client.
+- Member, sponsorship and training reads are tenant-scoped.
+- A sponsorship or training cannot attach to a member outside the caller's tenant.
+- Association records create no money movement, no subscription and no worker/customer access.
+- All writes are audited atomically with `createAuditLogTx`.
+
+### Known limitations
+
+- There is no cross-business association dashboard or platform-level association identity. Each tenant sees its own register.
+- Membership dues, invoicing, receipts and payment collection are not implemented.
+- Bulk import, member self-service, document upload and certificate files are not implemented.
+- A training record is not a regulatory certification and does not verify a provider.
+- Sponsorship amounts are records of an agreement, not proof of payment.
+- PostgreSQL migration SQL was schema-validated but not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- Agreement on whether the association is a separate legal tenant or a cross-tenant platform capability.
+- Dues/payment rules and receipts if membership becomes chargeable.
+- Training-provider and certificate-verification agreements before training is presented as accredited.
+
+### Next dependency
+
+Workstream 7 — BloomCore Identity OIDC readiness review against the existing platform SSO implementation.

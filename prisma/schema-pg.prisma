@@ -1029,6 +1029,87 @@ model OfflineTransaction {
 /// A single enrolled business on the platform. Every tenant-owned record
 /// carries a tenantId pointing here; all tenant data access resolves this
 /// record from the authenticated server session (never from browser input).
+/// A member of an association (for example a MoMo agents' association).
+/// Records are tenant-scoped and do not grant access to another business.
+model AssociationMember {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  memberCode    String
+  businessName  String
+  contactName   String
+  phone         String?
+  email         String?
+  region        String?
+  /// invited | active | suspended | withdrawn
+  status        String    @default("active")
+  joinedAt      DateTime?
+  notes         String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant      BusinessTenant?            @relation(fields: [tenantId], references: [id])
+  sponsorships AssociationSponsorship[]
+  trainings    AssociationTrainingRecord[]
+
+  @@unique([tenantId, memberCode])
+  @@unique([tenantId, phone])
+  @@index([tenantId, status])
+  @@index([tenantId, businessName])
+}
+
+/// Sponsorship of one association member. This is a record of an agreed
+/// sponsorship only. It never charges, pays out or changes a subscription.
+model AssociationSponsorship {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  memberId     String
+  sponsorName  String
+  planCode     String?
+  amount       Decimal   @default(0)
+  currency     String    @default("GHS")
+  /// pledged | active | ended | cancelled
+  status       String    @default("pledged")
+  startDate    DateTime?
+  endDate      DateTime?
+  reference    String?
+  notes        String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+  @@index([memberId, createdAt])
+}
+
+/// Training completed or scheduled by an association member.
+model AssociationTrainingRecord {
+  id                   String    @id @default(cuid())
+  tenantId             String?
+  memberId             String
+  title                String
+  provider             String?
+  /// scheduled | completed | expired | cancelled
+  status               String    @default("completed")
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  certificateReference String?
+  notes                String?
+  createdById          String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([memberId, completedAt])
+}
+
 model BusinessTenant {
   id                 String    @id @default(cuid())
   code               String    @unique // server-generated, e.g. BIK-A1B2C3
@@ -1060,6 +1141,9 @@ model BusinessTenant {
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerDisputeEvents        CustomerDisputeEvent[]
+  associationMembers           AssociationMember[]
+  associationSponsorships      AssociationSponsorship[]
+  associationTrainingRecords   AssociationTrainingRecord[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]

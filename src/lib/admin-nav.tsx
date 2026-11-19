@@ -7,6 +7,7 @@ import {
   Clock3,
   FileBarChart,
   Footprints,
+  Handshake,
   Landmark,
   MessageSquareWarning,
   LayoutDashboard,
@@ -72,6 +73,12 @@ export const navSections: NavSection[] = [
       { href: "/susu/admin/disputes", label: "Disputes", icon: MessageSquareWarning },
       { href: "/susu/admin/history", label: "Money & History", icon: BookText },
       { href: "/susu/admin/reports", label: "Reports", icon: FileBarChart },
+    ],
+  },
+  {
+    title: "Association",
+    items: [
+      { href: "/admin/association", label: "Membership & Training", icon: Handshake },
     ],
   },
   {
