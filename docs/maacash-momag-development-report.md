@@ -15,11 +15,11 @@ This report starts the new Workstream 0 review and records each feature from her
 
 | # | Risk | Current classification | Evidence and remaining gap |
 |---|---|---|---|
-| 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / FOUNDATION** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Aggregate days remain the default, so an operator can still close a day from totals without individual transactions. Next: 0.5 aggregate-vs-ledger integrity. |
+| 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / DISCLOSED** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Aggregate days remain supported, but reports now label them as operator-declared and not transaction-proven. Performance counts ledger-backed versus aggregate days, and a new anomaly rule flags aggregate closes that have ledger activity. Forcing every business onto the ledger remains a product decision. |
 | 2 | Best-effort audit records leave financial actions without evidence | **RESOLVED for money movements; residual control record** | Successful money changes now write audit evidence in the same transaction. `createAuditLog()` remains for non-financial/security events, and the final `finance.approval_applied` summary is still written after the already-audited reversal. |
 | 3 | Activity History omits meaningful actor identity | **RESOLVED for actor identity** | Audit rows now snapshot actor name, role and type at write time. Renames and removed accounts do not rewrite history. Device attribution remains part of 0.3. |
 | 4 | Offline shared-device recovery creates attribution and replay risk | **RESOLVED for attribution and replay; device trust remains a foundation** | Per-user IndexedDB scope, device ownership checks, global payload-bound idempotency and revoked-device refusal exist. Synced collections now store the verified device and commit with audit evidence. Device attestation/hardware binding is not claimed. |
-| 5 | Revenue and profit definitions can mislead | **PARTIALLY ADDRESSED** | Performance reporting separates revenue (commission + other income) from principal volume and excludes drafts. Older daily/report screens still use “profit” for net increase. Next: 0.4. |
+| 5 | Revenue and profit definitions can mislead | **RESOLVED** | Performance reporting uses operating revenue = commission + other income, discloses every headline definition, and continues to exclude debt recovery and principal volume. Daily screens now call the accountability figure an increase, not profit. |
 
 ## Feature 0.1 — Atomic financial audit evidence
 
@@ -199,3 +199,98 @@ None for local implementation.
 ### Next dependency
 
 0.4 — revenue/profit definitions and misleading report language.
+
+## Feature 0.4 — Revenue, recovery and accountability definitions
+
+**Status:** GREEN  
+**Commit:** `ef19ca7`
+
+### Existing capability before changes
+
+The performance report already calculated operating revenue as commission plus other income and excluded drafts, debt recovery and principal volume. However, the worker daily closing, correction form, admin dashboard, report detail and CSV still labelled the accountability increase as “profit”. That invited readers to treat debt recovery and accountability movement as accounting profit.
+
+### What was implemented
+
+- Daily screens now use **net accountability increase**, **increase retained** and **increase withdrawn / not retained**.
+- The daily report and correction form state the formula and that it is not accounting profit or revenue.
+- The report CSV header is now **Net Accountability Increase**.
+- Performance uses **Operating revenue**, with an expandable definition for revenue, expenses, net operating and cash movement.
+- `PerformanceReport.source` now carries those definitions so exports and screens share one explanation.
+- Internal compatibility fields such as `profitRetained` remain in the calculation API but are no longer user-facing labels.
+
+### Schema and migrations
+
+None.
+
+### Tests and results
+
+- `tests/financial-definitions.test.ts` guards the terminology across five screens and the CSV header.
+- Performance tests assert the disclosed definitions.
+- Targeted reports suite passed; full suite: **115 files, 1,282 tests**.
+- TypeScript and touched-file ESLint: 0 errors; existing effect warnings only.
+
+### Browser acceptance
+
+Daily report shows the accountability language and the “not accounting profit or revenue” explanation. Performance shows Operating revenue and opens “How each metric is defined”. **1 passed.**
+
+### Known limitations
+
+- Zeli’s conversational intent still recognises the word “profit”; its answer source correctly states that contributions are not profit.
+- Accounting profit cannot be calculated from this operational dataset alone because liabilities, receivables and full cost accounts are not present. The UI does not claim it.
+
+### External approvals still required
+
+None.
+
+### Next dependency
+
+0.5 — aggregate-vs-ledger integrity and disclosure.
+
+## Feature 0.5 — Aggregate close disclosure and mixed-source detection
+
+**Status:** GREEN  
+**Commit:** `1b7ddba`
+
+### Existing capability before changes
+
+Ledger mode existed per day, but an aggregate day looked the same as a transaction-backed day in reports. Performance did not distinguish the two bases, and an aggregate close with same-day ledger rows had no dedicated finding.
+
+### What was implemented
+
+- Daily report has a **Closing basis** card:
+  - Transaction ledger — derived from individual rows;
+  - Operator-declared aggregate — only day totals, with an explicit statement that it cannot prove every customer transaction was captured.
+- Report CSV includes a **Closing basis** column.
+- Performance report counts `ledgerDays` and `aggregateDays` in totals and per branch, displayed and exported.
+- New deterministic anomaly `mixed_aggregate_ledger` fires when a confirmed aggregate account has recorded ledger transactions for the same branch and date, including references as evidence.
+- No historical aggregate row is converted or back-filled.
+
+### Schema and migrations
+
+None.
+
+### Tests and results
+
+- Performance tests assert ledger/aggregate day counts.
+- Anomaly tests assert the mixed-source finding and that a ledger-backed account does not trigger it.
+- Terminology tests guard the aggregate disclosure text.
+- Full suite: **115 files, 1,283 tests**.
+- TypeScript and touched-file ESLint: 0 errors.
+
+### Browser acceptance
+
+Daily report shows the operator-declared aggregate warning; performance shows Aggregate days and the “no transaction-level proof” hint. **1 passed.**
+
+### Known limitations
+
+- Aggregate closing remains available. A business can still choose aggregate mode, so transaction-level completeness is not guaranteed for those days.
+- The anomaly identifies mixed sources; it does not decide which source is correct.
+- There is no automatic conversion of an aggregate day to ledger mode. Conversion would invent transaction detail and is deliberately prohibited.
+
+### External approvals still required
+
+A product decision is still required on whether new businesses should default to ledger mode and whether aggregate mode should eventually be retired.
+
+### Next dependency
+
+Workstream 1 — strengthen the independent transaction ledger to cover the remaining attribution, verification-state, statement and export requirements.
