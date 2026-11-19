@@ -1406,3 +1406,44 @@ with no `[CALCULATED FACT]` or `[PERIOD]` text.
   they render as prose so nothing is fabricated.
 - The section labels describe the evidence type (figure, comparison,
   interpretation, next step, unknown); they are not a confidence score.
+
+## Workstream 18 — Zeli thinking indicator
+
+**Status:** GREEN  
+**Commit:** `d4543eb`
+
+### What was implemented
+
+- The spinner in the conversation, composer button and inline status is gone.
+- A dedicated thinking indicator shows “Zeli is reading your records…” with
+  three dots. It is a `role="status"` live region with hidden explanatory text,
+  so screen readers announce the wait once rather than reading the animation.
+- The dots use `motion-safe` animation. When the operating system requests
+  reduced motion, the dots have no animation and the text still communicates
+  progress.
+- The indicator is removed on success, on a handled failure, and when the user
+  opens a different conversation or starts a new one.
+- A send token prevents a late server reply from appearing in a conversation
+  the user navigated to while it was pending. Navigation stops the visible
+  indicator immediately; the server action still completes safely but its
+  result is ignored.
+
+### Tests
+
+Browser: **2 passed**
+
+1. With reduced motion enabled, the indicator is announced, its dots have
+   `animation-name: none`, the answer renders and the status disappears.
+2. While the reply is deliberately delayed, starting a new conversation removes
+   the indicator immediately, and the delayed answer does not appear in the new
+   conversation.
+
+`npx tsc --noEmit` is clean and ESLint reports no errors (the existing
+`react-hooks/set-state-in-effect` warning in the history search effect remains).
+
+### Limitations
+
+- Server actions cannot be aborted mid-flight. Leaving a conversation hides the
+  indicator and discards the result, but the server may still finish computing
+  and recording the assistant message in the original conversation.
+- There is no elapsed-time or queue-position display.
