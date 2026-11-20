@@ -440,6 +440,66 @@ export async function getStatementImportDetail(
   };
 }
 
+/** A candidate internal record a statement line could correspond to. */
+export interface StatementCandidateView {
+  id: string;
+  reference: string;
+  transactionAt: string;
+  direction: string;
+  amount: number;
+}
+
+/**
+ * Internal records that could correspond to one statement line.
+ *
+ * The window is centred on the line itself and restricted to the same provider
+ * network, so a line can only ever be paired with a movement of the network that
+ * produced the statement. Nothing is written; this is a read for the operator.
+ */
+export async function getStatementRowCandidates(
+  rowId: string
+): Promise<StatementCandidateView[]> {
+  const ctx = await requireTenantAdminMomo();
+  const row = await db.providerStatementRow.findFirst({
+    where: { id: rowId, tenantId: ctx.tenantId },
+    include: { import: { select: { provider: true } } },
+  });
+  if (!row || !row.transactionAt) return [];
+  const provider = row.import.provider as StatementProvider;
+  if (!isStatementProvider(provider)) return [];
+
+  const windowMs = MATCH_WINDOW_MINUTES * 60 * 1000;
+  const candidates = await db.momoTransaction.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      network: provider,
+      occurredAt: {
+        gte: new Date(row.transactionAt.getTime() - windowMs),
+        lte: new Date(row.transactionAt.getTime() + windowMs),
+      },
+      status: { in: ["recorded", "corrected", "reversal"] },
+    },
+    orderBy: { occurredAt: "asc" },
+    take: 50,
+    select: {
+      id: true,
+      reference: true,
+      externalReference: true,
+      occurredAt: true,
+      direction: true,
+      amount: true,
+    },
+  });
+
+  return candidates.map((candidate) => ({
+    id: candidate.id,
+    reference: candidate.externalReference ?? candidate.reference,
+    transactionAt: candidate.occurredAt.toISOString(),
+    direction: candidate.direction,
+    amount: money(candidate.amount),
+  }));
+}
+
 /**
  * Record a manual match between a statement line and an internal record.
  *

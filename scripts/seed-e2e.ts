@@ -380,6 +380,51 @@ async function main() {
     },
   });
 
+  // Two recorded MTN movements on a fixed past day, so the provider-statement
+  // reconciliation screens can be exercised against real internal records: one
+  // that a statement line should match and one that should stay unmatched.
+  const statementDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 3));
+  const statementAt = (minutes: number) =>
+    new Date(statementDay.getTime() + 9 * 3_600_000 + minutes * 60_000);
+  await prisma.momoTransaction.createMany({
+    data: [
+      {
+        id: "e2e-momo-in",
+        tenantId: tenantA.id,
+        locationId: locationA.id,
+        workerId: workerUser.id,
+        type: "cash_in",
+        network: "mtn",
+        direction: "inflow",
+        amount: 250,
+        businessDate: statementDay,
+        occurredAt: statementAt(10),
+        reference: "E2E-MOMO-IN-1",
+        externalReference: "MP240103.0910.A10001",
+        status: "recorded",
+        idempotencyKey: "e2e-momo-in-key",
+        recordedById: workerUser.id,
+      },
+      {
+        id: "e2e-momo-out",
+        tenantId: tenantA.id,
+        locationId: locationA.id,
+        workerId: workerUser.id,
+        type: "cash_out",
+        network: "mtn",
+        direction: "outflow",
+        amount: 120,
+        businessDate: statementDay,
+        occurredAt: statementAt(25),
+        reference: "E2E-MOMO-OUT-1",
+        externalReference: "MP240103.0925.A10002",
+        status: "recorded",
+        idempotencyKey: "e2e-momo-out-key",
+        recordedById: workerUser.id,
+      },
+    ],
+  });
+
   // Two untouched drafts on their own business dates. The worker can open one
   // and submit a positive or shortage reconciliation without fighting the
   // one-account-per-location-per-day rule.

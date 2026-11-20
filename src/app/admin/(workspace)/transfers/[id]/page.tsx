@@ -26,6 +26,7 @@ import {
   receiveBranchTransfer,
   rejectBranchTransfer,
   resolveBranchTransfer,
+  settlePartialTransfer,
   type BranchTransferView,
 } from "@/lib/actions/branch-transfer.actions";
 import {
@@ -56,6 +57,12 @@ export default function BranchTransferDetailPage() {
   const [actualAmount, setActualAmount] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [reauthOpen, setReauthOpen] = useState(false);
+  const [settleReauth, setSettleReauth] = useState(false);
+  const [settlement, setSettlement] = useState({
+    acceptedAmount: "",
+    resolution: "follow_up_transfer" as "follow_up_transfer" | "write_back",
+    note: "",
+  });
 
   const load = useCallback(async () => {
     const id = window.location.pathname.split("/").filter(Boolean).pop() ?? "";
@@ -173,6 +180,37 @@ export default function BranchTransferDetailPage() {
     }
   }
 
+  async function settle(token?: string) {
+    if (!transfer || busy) return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await settlePartialTransfer({
+        id: transfer.id,
+        settledAmount: Number(settlement.acceptedAmount),
+        resolution: settlement.resolution,
+        note: settlement.note,
+        stepUpToken: token,
+      });
+      if (!result.success) {
+        setError(result.error ?? "The partial settlement could not be recorded.");
+        setSettleReauth(false);
+        return;
+      }
+      setSuccess(
+        settlement.resolution === "follow_up_transfer"
+          ? "Partial settlement recorded. A draft transfer now carries the outstanding balance."
+          : "Partial settlement recorded and the shortfall written back."
+      );
+      setSettlement({ acceptedAmount: "", resolution: "follow_up_transfer", note: "" });
+      setSettleReauth(false);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <p className="p-6 text-sm text-slate-500">Loading transfer…</p>;
   if (!transfer) {
     return (
@@ -186,6 +224,9 @@ export default function BranchTransferDetailPage() {
   }
 
   const status = transfer.status as BranchTransferStatus;
+  // GH₵1,000 (100_000 pesewa) is the same threshold the server uses for a
+  // high-value approval, so the browser asks for the password the server needs.
+  const settleNeedsStepUp = Math.round(transfer.amount * 100) >= 100_000;
   const needsReauth = status === "requested" || status === "variance_investigation" || status === "disputed";
 
   return (
@@ -313,6 +354,149 @@ export default function BranchTransferDetailPage() {
         )}
       </div>
 
+      {(status === "variance_investigation" || status === "disputed") &&
+        !transfer.settlementStatus && (
+          <div className="card p-4">
+            <h2 className="text-sm font-bold text-slate-900">Partial settlement</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Accept the money that did arrive and decide what happens to the rest. The accepted
+              amount must be below the {" "}
+              <CediAmount amount={transfer.amount} /> that was dispatched. A follow-up transfer
+              starts as a draft and still needs its own approval and dispatch.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <label className="text-xs font-semibold text-slate-700">
+                Accepted amount (GH₵)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={settlement.acceptedAmount}
+                  onChange={(event) =>
+                    setSettlement((current) => ({ ...current, acceptedAmount: event.target.value }))
+                  }
+                  className="input mt-1 block w-full"
+                />
+              </label>
+              <label className="text-xs font-semibold text-slate-700">
+                Outstanding balance
+                <select
+                  value={settlement.resolution}
+                  onChange={(event) =>
+                    setSettlement((current) => ({
+                      ...current,
+                      resolution: event.target.value as "follow_up_transfer" | "write_back",
+                    }))
+                  }
+                  className="input mt-1 block w-full"
+                >
+                  <option value="follow_up_transfer">Carry forward as a follow-up transfer</option>
+                  <option value="write_back">Write back the difference</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-slate-700">
+                Reason (at least 10 characters)
+                <input
+                  type="text"
+                  maxLength={500}
+                  value={settlement.note}
+                  onChange={(event) =>
+                    setSettlement((current) => ({ ...current, note: event.target.value }))
+                  }
+                  className="input mt-1 block w-full"
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (settleNeedsStepUp) setSettleReauth(true);
+                  else void settle();
+                }}
+                disabled={busy || settlement.note.trim().length < 10}
+                className="btn btn-primary btn-sm"
+              >
+                Record partial settlement
+              </button>
+              <span className="text-[11px] text-slate-500">
+                {settleNeedsStepUp
+                  ? "This is a high-value transfer, so your password is requested again."
+                  : "The accepted amount must be below what was dispatched."}
+              </span>
+            </div>
+          </div>
+        )}
+
+      {transfer.settlementStatus && (
+        <div className="card p-4">
+          <h2 className="text-sm font-bold text-slate-900">Settlement</h2>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <Detail
+              label="Settled amount"
+              value={
+                transfer.settledAmount === null ? "—" : <CediAmount amount={transfer.settledAmount} />
+              }
+            />
+            <Detail
+              label="Outstanding balance"
+              value={
+                transfer.outstandingAmount === null ? (
+                  "—"
+                ) : (
+                  <CediAmount amount={transfer.outstandingAmount} />
+                )
+              }
+            />
+            <Detail
+              label="Outcome"
+              value={
+                transfer.settlementStatus === "follow_up_transfer"
+                  ? "Carried forward"
+                  : transfer.settlementStatus === "partial_settled"
+                    ? "Partially settled"
+                    : transfer.settlementStatus === "written_back"
+                      ? "Written back"
+                      : transfer.settlementStatus
+              }
+            />
+            <Detail label="Settled by" value={transfer.settledByName ?? "—"} />
+            <Detail
+              label="Settled at"
+              value={transfer.settledAt ? new Date(transfer.settledAt).toLocaleString("en-GB") : "—"}
+            />
+            <Detail
+              label="Follow-up transfer"
+              value={
+                transfer.followUpTransferId ? (
+                  <Link
+                    href={`/admin/transfers/${transfer.followUpTransferId}`}
+                    className="text-brand-700 hover:underline"
+                  >
+                    Open the follow-up
+                  </Link>
+                ) : (
+                  "None"
+                )
+              }
+            />
+          </div>
+          {transfer.parentTransferId && (
+            <p className="mt-2 text-xs text-slate-600">
+              This transfer carries the outstanding balance of{" "}
+              <Link
+                href={`/admin/transfers/${transfer.parentTransferId}`}
+                className="font-semibold text-brand-700 hover:underline"
+              >
+                the original transfer
+              </Link>
+              .
+            </p>
+          )}
+        </div>
+      )}
+
       {pending && !["approve", "complete"].includes(pending) && (
         <div className="card p-4">
           <h2 className="text-sm font-bold text-slate-900">
@@ -435,6 +619,20 @@ export default function BranchTransferDetailPage() {
           earlier event.
         </p>
       </div>
+
+      <ReauthDialog
+        open={settleReauth}
+        onClose={() => setSettleReauth(false)}
+        onConfirmed={(token) => void settle(token)}
+        title="Authorise the partial settlement"
+        description="This settlement moves a material amount out of the original transfer. Enter your administrator password to authorise it."
+        actionLabel="Record settlement"
+        module="admin"
+        purpose="finance.branch_transfer.resolve"
+        targetType="branchTransfer"
+        targetId={transfer.id}
+        context={{ amountMinor: Math.round(transfer.amount * 100) }}
+      />
 
       <ReauthDialog
         open={reauthOpen}

@@ -249,6 +249,13 @@ input[type="number"] {
   font-size: 0.8125rem;
 }
 
+/* Used inside dense tables, where a full button would dominate the row. */
+.btn-xs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  gap: 0.25rem;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

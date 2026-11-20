@@ -5,7 +5,6 @@ import { db } from "@/lib/db";
 import { requireTenantAdminMomo } from "@/lib/tenant";
 import { createAuditLogTx } from "@/lib/audit";
 import {
-  BRANCH_ASSET_DEFINITIONS,
   BRANCH_ASSET_TYPES,
   isInboundEffective,
   isOutboundEffective,
@@ -15,7 +14,6 @@ import {
   LIQUIDITY_DISCLAIMER,
   LIQUIDITY_STATUS_LABELS,
   branchLiquiditySnapshotSchema,
-  cediToMinor,
   computeLiquidityLine,
   minorToCedi,
   summariseLiquidity,
@@ -553,11 +551,3 @@ export async function getLiquidityLocationOptions(): Promise<
   });
 }
 
-export const LIQUIDITY_ASSET_LABELS = Object.fromEntries(
-  BRANCH_ASSET_TYPES.map((asset) => [asset, BRANCH_ASSET_DEFINITIONS[asset].label])
-) as Record<BranchAssetType, string>;
-
-/** Convert a cedi entry to pesewa for the client form, matching the server rule. */
-export async function liquidityMinorFromCedi(value: number): Promise<number> {
-  return cediToMinor(value);
-}

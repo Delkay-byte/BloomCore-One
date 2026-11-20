@@ -31,7 +31,7 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | chromium + mobile-chromium, 89 tests pass |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | chromium + mobile-chromium, all tests pass |
 
 All of the above are reproducible from a clean checkout with a disposable
 PostgreSQL cluster; see §6 for the exact environment.
@@ -127,49 +127,62 @@ Result: `node scripts/verify-e2e.mjs` → **89 passed, 0 failed** across the
 
 ## 3. Requirement register — Priority A
 
-**5. Provider statement CSV importer — PARTIAL.**
-DONE: `src/lib/provider-statement.ts` (CSV parse with BOM/quotes/CRLF, header
-synonym detection, integer-pesewa parsing that rejects three-decimal amounts,
-explicit date formats only, direction parsing, SHA-256 row fingerprint,
-15-minute match window with ambiguity returning `null`, summary counts) and
-`src/lib/actions/provider-statement.actions.ts` (Momo-only import, duplicate-file
-refusal, per-row duplicate/match verdicts, manual match/unmatch that can never
-set `provider_confirmed`, audit events with `financialMutation: false`, no
-automatic posting). Covered by `tests/provider-statement.test.ts` (14 tests:
-mapping, parsing, invalid-row isolation, duplicate file/row, tenant isolation,
-reference-then-amount matching).
-Gap: no import/review UI surface yet.
+**5. Provider statement CSV importer — DONE.**
+`src/lib/provider-statement.ts` parses CSV with BOM/quote/CRLF handling, detects
+header synonyms, converts amounts to integer pesewa and rejects three-decimal
+values, accepts only explicit date formats, derives direction, fingerprints each
+row with SHA-256 and matches reference-first with a 15-minute amount-and-time
+window that resolves ambiguity to `null`. `src/lib/actions/provider-statement.actions.ts`
+imports under a Momo administrator, refuses a duplicate file, stores every row
+with its own verdict, offers manual match/unmatch that can never set
+`provider_confirmed`, and audits each import with `financialMutation: false`.
+The `/admin/reconciliation` screen imports a file, shows per-line verdicts with
+totals, and lets an operator pair a line with an internal record only after
+seeing the candidates. Tests: `tests/provider-statement.test.ts` (14) plus the
+browser flow in `e2e/maacash-reconciliation.spec.ts` (auto match, duplicate file
+refusal, manual match, manual unmatch, and the statement that the internal record
+stays unconfirmed).
 
-**6. Branch liquidity snapshot — PARTIAL.**
-DONE: `BranchLiquiditySnapshot` / `BranchLiquidityLine` with declared, transfer
-adjustment, expected close, counted close and variance per pocket;
-`src/lib/branch-liquidity.ts` computes server-side and enforces that a short line
-always carries an explanation even when the net is balanced;
-`src/lib/actions/branch-liquidity.actions.ts` provides the board, save, submit
-and review actions, refuses edits after review, re-checks the explanation
-server-side and opens a linked exception case on review. Covered by
-`tests/reconciliation-liquidity.test.ts` (19 tests).
-Gap: no board UI yet.
+**6. Branch liquidity snapshot — DONE.**
+`BranchLiquiditySnapshot` / `BranchLiquidityLine` record the declared opening and
+the counted close for cash and each network float. The server derives the
+transfer adjustment from the transfer records for that day, so a browser can
+never submit its own adjustment; a short line always needs an explanation even
+when the net is balanced; reviewed snapshots are final. `/admin/liquidity`
+renders the board per branch with declared, transfer-adjusted, expected, counted
+and variance columns, an explanation field, save/submit/review actions, a
+review note, and totals per branch and across branches. It also handles the
+race where a slow board refresh would otherwise overwrite figures the operator
+had just typed. Tests: `tests/reconciliation-liquidity.test.ts` (19) and the
+browser flow that is refused without an explanation and then accepted with one.
 
-**7. Unified reconciliation exception case — PARTIAL.**
-DONE: `ReconciliationExceptionCase` / `…Link` / `…Event` with case numbers
-(`REC-YYYY-NNNN`), category, severity, owner, due date, status machine, evidence
-notes, resolution and an append-only event timeline; actions for opening,
-updating (transition and resolution-reason enforcement) and linking records
-(duplicate links refused).
-Gap: no case list/detail UI yet.
+**7. Unified reconciliation exception case — DONE.**
+`ReconciliationExceptionCase` / `…Link` / `…Event` cover provider statements,
+branch liquidity, transfers, remittances, shifts and daily closes with a case
+number (`REC-YYYY-NNNN`), category, severity, owner, due date, evidence,
+resolution and an append-only timeline. Transitions and resolution reasons are
+enforced server-side; duplicate record links are refused; closing a case never
+touches a financial record. `/admin/reconciliation/exceptions` provides the
+queue with status filters and ageing, owner assignment, notes, evidence, record
+linking, the resolution panel and the timeline. A reviewed short liquidity
+snapshot opens a case automatically with the snapshot linked, and the browser
+test follows that case from the review button to the queue.
 
-**8. Partial transfer settlement — PARTIAL.**
-DONE: `BranchTransfer` settlement fields plus `settlePartialTransfer`, restricted
-to administrators, only from `variance_investigation`/`disputed`, refusing a
-settlement at or above the dispatched amount, creating either a `draft`
-follow-up transfer for the remainder or a `written_back` outcome, with step-up
-only when the tenant requires it for approvals and an audit event. Tests cover
-follow-up versus write-back, double settlement and worker denial.
-Gap: no settlement UI yet.
+**8. Partial transfer settlement — DONE.**
+`settlePartialTransfer` accepts a sanctioned partial receipt only from
+`variance_investigation` or `disputed`, refuses an amount at or above what was
+dispatched, and either creates a draft follow-up transfer for the remainder or
+writes the shortfall back, with step-up only when the tenant requires it for
+approvals. The transfer detail screen shows the settlement panel, asks for the
+password again at the server's high-value threshold, and displays the settled
+amount, outstanding balance, settler and a link to the follow-up (or back to the
+original from the follow-up). Tests cover follow-up versus write-back, double
+settlement and worker denial.
 
-**9. Branch asset/close reconciliation view — MISSING.** Blocked on the UI work
-for items 6–8; the data model and computations it needs are in place.
+**9. Branch asset/close reconciliation view — DONE.**
+The liquidity board is that view: declared, transfer-adjusted and counted
+figures per pocket with the variance, plus the daily close difference for the
+branch when a daily account exists for the same day.
 
 **10–12. Employee accountability — MISSING.**
 **13–18. Offline operations — MISSING.**
@@ -193,6 +206,10 @@ Both Prisma schemas carry the new models and validate
 generated with `scripts/make-pg-migration.mjs` (local host only, throwaway
 database, refuses non-loopback targets) keeps PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
+
+Label constants used by both the server and the browser live in
+`src/lib/provider-statement-labels.ts`, because a client component that imported
+the parsing module directly would pull `node:crypto` into the browser bundle.
 
 ---
 
@@ -240,10 +257,7 @@ answer:
 
 ## 7. Next work, in order
 
-1. Reconciliation UI: provider statement import and review, liquidity board,
-   exception case list and detail, partial settlement, branch close comparison
-   (items 5–9) — closes A1.
-2. A2 employee accountability, then A3 offline operations.
+1. A2 employee accountability, then A3 offline operations.
 3. A4 messaging, A5 customer portal and disputes.
 4. A6 association foundation on a generic model, then A7/A8.
 5. A9 anomaly investigation, which is also the prerequisite for C0–C2.

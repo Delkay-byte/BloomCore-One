@@ -1309,6 +1309,13 @@ export interface BranchTransferView {
   cancellationReason: string | null;
   resolutionNote: string | null;
   resolvedAt: string | null;
+  settlementStatus: string | null;
+  settledAmount: number | null;
+  outstandingAmount: number | null;
+  settledByName: string | null;
+  settledAt: string | null;
+  followUpTransferId: string | null;
+  parentTransferId: string | null;
   createdAt: string;
   events: Array<{
     id: string;
@@ -1359,6 +1366,13 @@ function transferView(
     cancellationReason: string | null;
     resolutionNote: string | null;
     resolvedAt: Date | null;
+    settlementStatus: string | null;
+    settledAmount: unknown;
+    outstandingAmount: unknown;
+    settledById: string | null;
+    settledAt: Date | null;
+    followUpTransferId: string | null;
+    parentTransferId: string | null;
     createdAt: Date;
     source: { name: string };
     destination: { name: string };
@@ -1410,6 +1424,13 @@ function transferView(
     cancellationReason: row.cancellationReason,
     resolutionNote: row.resolutionNote,
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    settlementStatus: row.settlementStatus,
+    settledAmount: row.settledAmount === null ? null : money(row.settledAmount),
+    outstandingAmount: row.outstandingAmount === null ? null : money(row.outstandingAmount),
+    settledByName: row.settledById ? names.get(row.settledById) ?? null : null,
+    settledAt: row.settledAt?.toISOString() ?? null,
+    followUpTransferId: row.followUpTransferId,
+    parentTransferId: row.parentTransferId,
     createdAt: row.createdAt.toISOString(),
     events: row.events.map((event) => ({
       id: event.id,
@@ -1524,6 +1545,7 @@ export async function getBranchTransferDetail(
     row.approvedById,
     row.dispatchedById,
     row.receivedById,
+    ...(row.settledById ? [row.settledById] : []),
     ...row.events.map((event) => event.actorId),
   ]);
   return transferView(row, names);
