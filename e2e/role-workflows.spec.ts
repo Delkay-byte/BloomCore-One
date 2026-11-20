@@ -36,7 +36,7 @@ test.describe("Susu collector workflow", () => {
     await dialog.locator("#collect-amount").fill("20");
     await dialog.getByRole("button", { name: "Record Contribution" }).click();
 
-    await expect(page.getByRole("status").filter({ hasText: "E2E Customer B" })).toContainText(
+    await expect(page.getByRole("status").filter({ hasText: "E2E Customer B" }).first()).toContainText(
       "1 day(s) covered"
     );
     await expect(page.getByRole("dialog", { name: "Record Collection" })).toBeHidden();
@@ -70,7 +70,9 @@ test.describe("customer portal workflow", () => {
     await expect(
       page.getByRole("heading", { name: "My Account Statement" })
     ).toBeVisible();
-    await expect(page.getByText("Payment").first()).toBeVisible();
+    // Statement rows are labelled by their kind. The current label for a Susu
+    // deposit is "Contribution"; the older "Payment" wording no longer exists.
+    await expect(page.getByText("Contribution").first()).toBeVisible();
 
     await menu.click();
     await page.getByRole("menuitem", { name: "My Withdrawals" }).click();
@@ -94,9 +96,19 @@ test.describe("customer portal workflow", () => {
   }) => {
     await loginCustomer(page);
     const menu = page.getByRole("button", { name: "Open menu" });
+    const signOutItem = page.getByRole("menuitem", { name: "Sign Out" });
 
-    await menu.click();
-    await page.getByRole("menuitem", { name: "Sign Out" }).click();
+    // The navigation drawer can still be open behind a dismissed dialog, so the
+    // item is only looked for after the drawer is known to be closed.
+    async function openSignOutMenu() {
+      if (!(await signOutItem.isVisible().catch(() => false))) {
+        await menu.click();
+      }
+      await expect(signOutItem).toBeVisible();
+    }
+
+    await openSignOutMenu();
+    await signOutItem.click();
     const dialog = page.getByRole("dialog", { name: "Sign out of MaaCash?" });
     await expect(dialog).toBeVisible();
 
@@ -105,8 +117,8 @@ test.describe("customer portal workflow", () => {
     await expect(dialog).toBeHidden();
     await expect(page).toHaveURL(/\/customer\/dashboard/);
 
-    await menu.click();
-    await page.getByRole("menuitem", { name: "Sign Out" }).click();
+    await openSignOutMenu();
+    await signOutItem.click();
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.waitForURL(/\/login\?role=customer/, { timeout: 30_000 });
   });
@@ -154,8 +166,10 @@ test.describe("tenant administrator workflow", () => {
     // ...and the administrator's own password completes the withdrawal.
     await dialog.locator("#reauth-password").fill(PASSWORD);
     await dialog.getByRole("button", { name: "Confirm Withdrawal" }).click();
+    // The confirmation appears both in the page banner and in the notification
+    // toast; both are role=status, so the page-level one is asserted directly.
     await expect(
-      page.getByRole("status").filter({ hasText: "Withdrawal processed" })
+      page.getByRole("main").getByRole("status").filter({ hasText: "Withdrawal processed" }).first()
     ).toBeVisible({ timeout: 30_000 });
     await expect(dialog).toBeHidden();
   });

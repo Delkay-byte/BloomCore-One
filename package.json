@@ -24,7 +24,11 @@
     "test:e2e": "node scripts/prepare-e2e.mjs && playwright test",
     "test:e2e:ui": "node scripts/prepare-e2e.mjs && playwright test --ui",
     "db:generate:pg": "prisma generate --schema=prisma/schema-pg.prisma",
-    "db:migrate:status": "prisma migrate status --config prisma.pg.config.ts"
+    "db:migrate:status": "prisma migrate status --config prisma.pg.config.ts",
+    "test:prepare": "node scripts/prepare-unit-db.mjs",
+    "pretest": "node scripts/prepare-unit-db.mjs",
+    "test:pg": "node scripts/prepare-pg-db.mjs && vitest run --config vitest.pg.config.ts",
+    "test:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.1",
