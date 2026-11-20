@@ -23,15 +23,15 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 108 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 111 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 139 files / 1529 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 140 files / 1552 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
+| ESLint | `npx eslint .` | 0 errors, 112 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | chromium + mobile-chromium, all tests pass |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 101 passed (chromium + mobile-chromium) |
 
 All of the above are reproducible from a clean checkout with a disposable
 PostgreSQL cluster; see §6 for the exact environment.
@@ -436,7 +436,51 @@ Required competencies, who may act as an assessor and the certificate format are
 association decisions. The model stores what an assessor records and who issued
 what; it does not invent a competency framework.
 
-**43–48. Sponsored subscriptions — MISSING.**
+**43. Sponsor entity and eligibility — DONE.**
+`Sponsor` is an entity (name, kind, contact, optional tax id, optional own
+business, optional yearly cap) unique by name inside the business, so a
+sponsorship is a link between two identities rather than free text. Creating an
+agreement refuses an inactive sponsor, an inactive member, a sponsor funding its
+own business and a duplicate live arrangement for the same member and plan.
+
+**44. Funding allocation and limits — DONE.**
+`SponsorshipFunding` is an append-only ledger of integer pesewa: an `allocation`
+adds, a `release` subtracts, and one movement is one row that is never edited.
+Each movement is checked against the sponsorship cap, the sponsor's yearly cap,
+the funded-so-far total and, for a release, that the money was actually funded. A
+fractional pesewa is refused.
+
+**45. Link to subscription entitlement — DONE.**
+`SponsorshipCoverage` assigns funded money to a covered business and a period
+(1–36 months), and only up to what is funded but unassigned.
+`getSubscriptionSponsorshipCoverage(businessId)` is the read the billing
+lifecycle uses; it returns cover state, end date and amount and never the
+sponsor's identity.
+
+**46. Expiry, renewal and release — DONE (refund accounting is a decision).**
+Coverage is live only while active and inside its period, so cover expires
+without a job that could silently extend it; renewing means recording a new
+period. Money returned to a sponsor is a `release` row with a reason-carrying
+reference. Tax treatment and credit notes are not invented here.
+
+**47. Abuse controls — DONE.**
+Duplicate sponsor names, self-sponsorship, ineligible members, duplicate live
+arrangements, over-cap funding, over-yearly-cap funding, releases larger than what
+was funded and reused funding references are each refused with a sentence naming
+the control. Every decision is re-checked against the database inside the action,
+not trusted from the form.
+
+**48. Ownership separation and reporting — DONE.**
+The sponsorship belongs to the association's business; the covered business keeps
+ownership of its own subscription and data, and the coverage row is the only link.
+The screen reports agreed, funded, released, covered-until and unassigned as
+separate figures, per sponsor and per sponsorship, so an agreement can never read
+as paid cover.
+
+**Sponsorship funding policy (audit 9.13) — PENDING_ASSOCIATION_DECISION.**
+Sponsor eligibility criteria, refund rules, caps and who bears liability are
+association decisions. The register enforces the limits it is given and records
+what happened; it does not set policy.
 **49–53. Anomaly investigation — MISSING.**
 **54–57. Business intelligence — MISSING.**
 
@@ -452,7 +496,8 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261212_tenant_messaging_config/migration.sql`,
 `prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`,
 `prisma/migrations/20261214_association_governance/migration.sql`,
-`prisma/migrations/20261215_training_certification/migration.sql`, generated with
+`prisma/migrations/20261215_training_certification/migration.sql`,
+`prisma/migrations/20261216_sponsored_subscriptions/migration.sql`, generated with
 `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.

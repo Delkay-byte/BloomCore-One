@@ -1465,6 +1465,94 @@ model AssociationConsentRecord {
   @@index([expiresAt])
 }
 
+/// A sponsor: the party that funds an association member's subscription.
+///
+/// A sponsor is its own entity so eligibility, limits and reporting can be
+/// answered by identity rather than by a free-text name.
+model Sponsor {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  /// The sponsor's own business, when it has one. Used to refuse self-sponsorship.
+  subjectTenantId String?
+  name            String
+  /// individual | business | association
+  kind            String   @default("business")
+  contactName     String?
+  email           String?
+  phone           String?
+  taxId           String?
+  /// active | inactive
+  status          String   @default("active")
+  /// Most a sponsor may commit in one calendar year, in integer pesewa.
+  annualCapPesewa Int?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant        BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorships  AssociationSponsorship[]
+  fundings      SponsorshipFunding[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+}
+
+/// One movement of sponsor money against an agreed sponsorship.
+///
+/// Amounts are integer pesewa and every entry is append-only: a release is a new
+/// row, never an edit of an earlier one.
+model SponsorshipFunding {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  sponsorshipId String
+  sponsorId     String
+  /// allocation | release
+  kind          String   @default("allocation")
+  amountPesewa  Int
+  fundedAt      DateTime @default(now())
+  reference     String
+  note          String?
+  recordedById  String
+  createdAt     DateTime @default(now())
+
+  tenant      BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorship AssociationSponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+  sponsor     Sponsor                @relation(fields: [sponsorId], references: [id])
+
+  @@unique([tenantId, reference])
+  @@index([sponsorshipId, fundedAt])
+  @@index([sponsorId, fundedAt])
+}
+
+/// What sponsor money covers, and for which business.
+///
+/// The covered business keeps ownership of its own subscription and data; the
+/// sponsor funds it and gains no entitlement. This record is the only place the
+/// two are linked, which keeps the boundary visible.
+model SponsorshipCoverage {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  sponsorshipId  String
+  /// The member business whose subscription is covered.
+  subjectTenantId String
+  subscriptionId String?
+  periodStart    DateTime
+  periodEnd      DateTime
+  amountPesewa   Int
+  /// active | ended
+  status         String   @default("active")
+  note           String?
+  recordedById   String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant      BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorship AssociationSponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sponsorshipId, periodEnd])
+  @@index([subjectTenantId, periodEnd])
+}
+
 /// Sponsorship of one association member. This is a record of an agreed
 /// sponsorship only. It never charges, pays out or changes a subscription.
 model AssociationSponsorship {
@@ -1472,6 +1560,12 @@ model AssociationSponsorship {
   tenantId     String?
   memberId     String
   sponsorName  String
+  /// The sponsor entity, when one has been registered.
+  sponsorId    String?
+  /// The member business this sponsorship covers, when it is a tenant here.
+  subjectTenantId String?
+  /// Most this sponsorship may be funded with, in integer pesewa.
+  fundedCapPesewa Int?
   planCode     String?
   amount       Decimal   @default(0)
   currency     String    @default("GHS")
@@ -1487,10 +1581,14 @@ model AssociationSponsorship {
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sponsor Sponsor? @relation(fields: [sponsorId], references: [id])
+  fundings SponsorshipFunding[]
+  coverages SponsorshipCoverage[]
 
   @@unique([tenantId, reference])
   @@index([tenantId, status])
   @@index([memberId, createdAt])
+  @@index([sponsorId])
 }
 
 /// Training completed or scheduled by an association member.
@@ -1555,6 +1653,9 @@ model BusinessTenant {
   customerDisputeEvents        CustomerDisputeEvent[]
   associationMembers           AssociationMember[]
   associations                 Association[]
+  sponsors                     Sponsor[]
+  sponsorshipFundings          SponsorshipFunding[]
+  sponsorshipCoverages         SponsorshipCoverage[]
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]

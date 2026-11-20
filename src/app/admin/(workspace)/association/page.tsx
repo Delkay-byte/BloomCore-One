@@ -5,6 +5,7 @@ import { Building2, GraduationCap, Handshake, Plus, RefreshCw } from "lucide-rea
 import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import AssociationGovernancePanel from "@/components/AssociationGovernancePanel";
+import { SponsorshipPanel } from "@/components/SponsorshipPanel";
 import TrainingPanel from "@/components/TrainingPanel";
 import { StatCard } from "@/components/ui/DataDisplay";
 import {
@@ -454,6 +455,13 @@ export default function AssociationPage() {
       )}
 
       <AssociationGovernancePanel />
+
+      <SponsorshipPanel
+        members={(data?.members ?? []).map((row) => ({
+          id: row.id,
+          label: `${row.businessName} (${row.memberCode})`,
+        }))}
+      />
 
       <TrainingPanel />
 
