@@ -50,6 +50,14 @@ export async function cleanDatabase() {
   await prisma.customerMessagingPreference.deleteMany();
   await prisma.dailyAccountRevision.deleteMany();
   await prisma.dailyAccount.deleteMany();
+  await prisma.trainingCertificate.deleteMany();
+  await prisma.trainingAssessmentAttempt.deleteMany();
+  await prisma.trainingAttendance.deleteMany();
+  await prisma.trainingAssessment.deleteMany();
+  await prisma.trainingSession.deleteMany();
+  await prisma.trainingEnrolment.deleteMany();
+  await prisma.trainingModule.deleteMany();
+  await prisma.trainingCourse.deleteMany();
   await prisma.associationTrainingRecord.deleteMany();
   await prisma.associationSponsorship.deleteMany();
   await prisma.associationConsentRecord.deleteMany();

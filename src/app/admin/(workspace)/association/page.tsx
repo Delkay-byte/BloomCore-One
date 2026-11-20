@@ -5,6 +5,7 @@ import { Building2, GraduationCap, Handshake, Plus, RefreshCw } from "lucide-rea
 import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import AssociationGovernancePanel from "@/components/AssociationGovernancePanel";
+import TrainingPanel from "@/components/TrainingPanel";
 import { StatCard } from "@/components/ui/DataDisplay";
 import {
   createAssociationMember,
@@ -453,6 +454,8 @@ export default function AssociationPage() {
       )}
 
       <AssociationGovernancePanel />
+
+      <TrainingPanel />
 
       <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
         Association records are internal. A sponsorship is not a payment, a

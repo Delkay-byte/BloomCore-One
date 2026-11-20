@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 100 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 108 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 138 files / 1508 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 139 files / 1529 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -391,7 +391,51 @@ The data and controls exist; the shape of the MoMAG/MMAAG pilot dashboard (which
 roles see which reports, and the regional roll-up they expect) is a client
 decision. It is recorded as pending rather than guessed.
 
-**37–42. Training and certification — MISSING.**
+**37. Courses, modules and learning materials — DONE.**
+`TrainingCourse` carries the completion criteria (pass mark, required attendance,
+certificate validity, evidence retention) and `TrainingModule` holds the ordered
+learning units with optional written content and an https-only resource link. A
+course cannot be published without at least one module.
+
+**38. Enrolment and attendance — DONE.**
+`TrainingEnrolment` binds a learner (an association member contact or a staff
+user, never both and never neither) to a published course. `TrainingSession` is a
+scheduled, held or cancelled session and `TrainingAttendance` records the minutes
+each learner actually attended, unique per session and learner. Attendance is
+measured against **sessions that were held**, so a cancelled session cannot lower
+anyone's percentage.
+
+**39. Assessment, attempts and pass criteria — DONE.**
+`TrainingAssessment` holds the maximum and pass marks; every
+`TrainingAssessmentAttempt` is stored with its computed `passed` flag. A learner
+is completed only when the attendance percentage and the best attempt both meet
+the course criteria, and the blocking reasons are returned in words. Nothing in
+the API lets a caller assert "completed".
+
+**40. Certificate issue, expiry, revocation and verification — DONE.**
+A certificate is issued only from a completed enrolment, carries a readable
+serial, a random verification token, an expiry derived from the course validity
+and a retention date. Revocation requires a reason and is audited. The public page
+`/verify/certificate/[token]` reports issued, expired, revoked or unknown and
+shows only the course, serial, dates and a **masked** holder name — no contact
+details.
+
+**41. Learner transcript and association reporting — DONE.**
+`getLearnerTranscript` returns every course, attendance percentage, best score and
+certificate state for one learner, and the training desk shows the same figures
+per enrolment with the blockers that remain.
+
+**42. Retention and evidence policy — DONE.**
+The course defines how many years of learner evidence are kept; a certificate's
+`retainUntil` is set from it at issue. Evidence files for a learner reuse the
+`EvidenceAttachment` store from A5 (private directory, SHA-256, retention,
+authorised download), so there is one retention rule rather than two.
+
+**Certification standards (audit 10.13) — PENDING_ASSOCIATION_DECISION.**
+Required competencies, who may act as an assessor and the certificate format are
+association decisions. The model stores what an assessor records and who issued
+what; it does not invent a competency framework.
+
 **43–48. Sponsored subscriptions — MISSING.**
 **49–53. Anomaly investigation — MISSING.**
 **54–57. Business intelligence — MISSING.**
@@ -407,7 +451,8 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261211_offline_action_requests/migration.sql`,
 `prisma/migrations/20261212_tenant_messaging_config/migration.sql`,
 `prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`,
-`prisma/migrations/20261214_association_governance/migration.sql`, generated with
+`prisma/migrations/20261214_association_governance/migration.sql`,
+`prisma/migrations/20261215_training_certification/migration.sql`, generated with
 `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
@@ -462,7 +507,7 @@ answer:
 
 ## 7. Next work, in order
 
-1. A7 training and certification, then A8 sponsored subscriptions.
+1. A8 sponsored subscriptions.
 2. A9 anomaly investigation, which is also the prerequisite for C0–C2.
 3. A10 BI completion.
 4. Final release gate: full suites, production-build browser acceptance, security

@@ -1155,6 +1155,7 @@ model AssociationMember {
   zone        AssociationZone?           @relation(fields: [zoneId], references: [id])
   sponsorships AssociationSponsorship[]
   trainings    AssociationTrainingRecord[]
+  trainingEnrolments TrainingEnrolment[]
 
   @@unique([tenantId, memberCode])
   @@unique([tenantId, phone])
@@ -1187,6 +1188,7 @@ model Association {
   zones  AssociationZone[]
   members AssociationMember[]
   roles  AssociationRoleAssignment[]
+  courses TrainingCourse[]
   consents AssociationConsentRecord[]
 
   @@unique([tenantId, code])
@@ -1242,6 +1244,201 @@ model AssociationRoleAssignment {
   @@unique([associationId, userId, role])
   @@index([tenantId, role])
   @@index([userId, revokedAt])
+}
+
+/// A course an association delivers.
+///
+/// `passingScore` and `requiredAttendancePct` are the completion criteria: a
+/// learner is completed by the rules, not by somebody choosing a status.
+model TrainingCourse {
+  id                    String   @id @default(cuid())
+  tenantId              String?
+  associationId         String
+  code                  String
+  title                 String
+  version               String   @default("1")
+  description           String?
+  /// draft | published | retired
+  status                String   @default("draft")
+  passingScore          Int      @default(70)
+  requiredAttendancePct Int      @default(80)
+  /// How long an issued certificate stays valid.
+  validityMonths        Int      @default(12)
+  /// How long learner evidence is kept after the certificate expires.
+  retentionYears        Int      @default(5)
+  createdById           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  modules     TrainingModule[]
+  sessions    TrainingSession[]
+  assessments TrainingAssessment[]
+  enrolments  TrainingEnrolment[]
+
+  @@unique([associationId, code, version])
+  @@index([tenantId, status])
+}
+
+/// One learning unit inside a course, in order.
+model TrainingModule {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  courseId    String
+  position    Int
+  title       String
+  content     String?
+  resourceUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, position])
+  @@index([courseId])
+}
+
+/// A scheduled session a learner can attend.
+model TrainingSession {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  courseId        String
+  title           String
+  scheduledAt     DateTime
+  durationMinutes Int      @default(60)
+  location        String?
+  trainerName     String?
+  /// scheduled | held | cancelled
+  status          String   @default("scheduled")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant     BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course     TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  attendance TrainingAttendance[]
+
+  @@index([tenantId, courseId, scheduledAt])
+}
+
+/// A learner on a course.
+///
+/// The learner is either an association member contact or a staff user; both are
+/// optional so a record is never orphaned silently.
+model TrainingEnrolment {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  courseId    String
+  memberId    String?
+  userId      String?
+  learnerName String
+  /// enrolled | in_progress | completed | failed | withdrawn
+  status      String    @default("enrolled")
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  course      TrainingCourse       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  member      AssociationMember?   @relation(fields: [memberId], references: [id])
+  attendance  TrainingAttendance[]
+  attempts    TrainingAssessmentAttempt[]
+  certificate TrainingCertificate?
+
+  @@unique([courseId, memberId, userId])
+  @@index([tenantId, status])
+  @@index([courseId, learnerName])
+}
+
+/// Attendance at one session. Minutes are recorded so a partial attendance is
+/// visible rather than counted as a full one.
+model TrainingAttendance {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  sessionId   String
+  enrolmentId String
+  minutes     Int      @default(0)
+  attendedAt  DateTime @default(now())
+  markedById  String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  tenant    BusinessTenant?  @relation(fields: [tenantId], references: [id])
+  session   TrainingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enrolment TrainingEnrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, enrolmentId])
+  @@index([enrolmentId])
+}
+
+/// An assessment a course uses, with its pass mark.
+model TrainingAssessment {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  courseId     String
+  title        String
+  maxScore     Int      @default(100)
+  passingScore Int      @default(70)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course   TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  attempts TrainingAssessmentAttempt[]
+
+  @@index([courseId])
+}
+
+/// One attempt at an assessment. The pass result is computed on write.
+model TrainingAssessmentAttempt {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  assessmentId String
+  enrolmentId  String
+  score        Int
+  passed       Boolean
+  attemptedAt  DateTime @default(now())
+  assessorName String?
+  note         String?
+
+  tenant     BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  assessment TrainingAssessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  enrolment  TrainingEnrolment    @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrolmentId, attemptedAt])
+  @@index([assessmentId])
+}
+
+/// An issued certificate.
+///
+/// The serial is the human reference and the token is what a third party uses to
+/// verify it; neither exposes contact details.
+model TrainingCertificate {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  enrolmentId       String    @unique
+  serial            String
+  verificationToken String    @unique
+  /// issued | revoked
+  status            String    @default("issued")
+  issuedAt          DateTime  @default(now())
+  expiresAt         DateTime
+  /// How long the certificate row itself is kept after expiry.
+  retainUntil       DateTime
+  revokedAt         DateTime?
+  revokedById       String?
+  revokedReason     String?
+  issuedById        String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant    BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  enrolment TrainingEnrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, serial])
+  @@index([tenantId, status, expiresAt])
 }
 
 /// A governance record: a membership agreement, a data-sharing consent or an
@@ -1361,6 +1558,14 @@ model BusinessTenant {
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]
+  trainingCourses              TrainingCourse[]
+  trainingModules              TrainingModule[]
+  trainingSessions             TrainingSession[]
+  trainingEnrolments           TrainingEnrolment[]
+  trainingAttendance           TrainingAttendance[]
+  trainingAssessments          TrainingAssessment[]
+  trainingAttempts             TrainingAssessmentAttempt[]
+  trainingCertificates         TrainingCertificate[]
   associationSponsorships      AssociationSponsorship[]
   associationTrainingRecords   AssociationTrainingRecord[]
   customerMessagingPreferences CustomerMessagingPreference[]
