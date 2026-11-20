@@ -15,6 +15,7 @@ import {
   getSmsProviderConfig,
   type SmsProvider,
 } from "@/lib/messaging/sms";
+import { enableMessagingForTenant } from "./messaging-fixtures";
 
 let tenantId: string;
 let customerId: string;
@@ -42,6 +43,7 @@ async function seed() {
     },
   });
   customerId = customer.id;
+  await enableMessagingForTenant(prisma, tenantId, ["sms"]);
   await prisma.customerMessagingPreference.create({
     data: {
       customerId,

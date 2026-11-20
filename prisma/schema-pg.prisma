@@ -587,6 +587,7 @@ model Customer {
   disputes    CustomerDispute[]
   messagingPreference CustomerMessagingPreference?
   customerMessages    CustomerMessageOutbox[]
+  messagingConsentChallenges MessagingConsentChallenge[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1170,6 +1171,9 @@ model BusinessTenant {
   associationSponsorships      AssociationSponsorship[]
   associationTrainingRecords   AssociationTrainingRecord[]
   customerMessagingPreferences CustomerMessagingPreference[]
+  messagingConfig              TenantMessagingConfig?
+  messagingTemplates           MessagingTemplate[]
+  messagingConsentChallenges   MessagingConsentChallenge[]
   customerMessages             CustomerMessageOutbox[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
@@ -2275,12 +2279,20 @@ model CustomerMessagingPreference {
   whatsappStatus     String    @default("unverified")
   whatsappOptInAt    DateTime?
   whatsappOptInSource String?
+  /// Proof the customer controls the number. Only set after a verified code or
+  /// an operator decision; never by self-assertion in the portal.
+  whatsappVerifiedAt DateTime?
+  /// otp | operator_assertion
+  whatsappVerificationMethod String?
   whatsappOptOutAt   DateTime?
   smsNumber          String?
   /// unverified | verified
   smsStatus          String    @default("unverified")
   smsOptInAt         DateTime?
   smsOptInSource     String?
+  smsVerifiedAt      DateTime?
+  /// otp | operator_assertion
+  smsVerificationMethod String?
   smsOptOutAt        DateTime?
   /// sms | whatsapp | null (no receipt channel)
   preferredChannel   String?
@@ -2292,6 +2304,81 @@ model CustomerMessagingPreference {
 
   @@index([tenantId])
   @@index([preferredChannel])
+}
+
+/// A business's own messaging decisions. Environment values remain the platform
+/// ceiling: a business switch can only narrow what the platform allows, never
+/// widen it, and delivery stays off until a provider and template are approved.
+model TenantMessagingConfig {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @unique
+  whatsappEnabled          Boolean  @default(false)
+  smsEnabled               Boolean  @default(false)
+  /// The approved template this business sends receipts with.
+  whatsappTemplateName     String?
+  whatsappTemplateLanguage String?
+  smsSenderId              String?
+  /// Why the business chose these settings, shown in the audit trail.
+  note                     String?
+  updatedById              String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+}
+
+/// One template a business has registered, with the provider's approval state.
+/// A message is only sent with a template marked approved: the queue refuses the
+/// alternative rather than sending free text under an unapproved identity.
+model MessagingTemplate {
+  id           String    @id @default(cuid())
+  tenantId     String
+  /// whatsapp | sms
+  channel      String
+  /// receipt | statement | dispute_update
+  purpose      String    @default("receipt")
+  name         String
+  language     String    @default("en_US")
+  /// draft | approved | rejected
+  status       String    @default("draft")
+  approvedAt   DateTime?
+  approvedById String?
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, channel, purpose, language])
+  @@index([tenantId, channel, status])
+}
+
+/// Proof that the customer controls the number they opted in with. The code is
+/// stored hashed, expires, is single-use and has a bounded attempt count, so a
+/// leaked row cannot be used to opt anyone in.
+model MessagingConsentChallenge {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  customerId   String
+  /// whatsapp | sms
+  channel      String
+  numberHash   String
+  numberMasked String
+  codeHash     String
+  /// pending | verified | superseded
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([customerId, channel, status])
+  @@index([expiresAt])
 }
 
 /// Durable outbound customer-message queue. One row per receipt event and

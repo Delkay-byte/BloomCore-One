@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import { prisma, cleanDatabase } from "./setup";
+import { enableMessagingForTenant } from "./messaging-fixtures";
 
 const { ctxHolder } = vi.hoisted(() => ({
   ctxHolder: { current: null as null | Record<string, unknown> },
@@ -31,8 +32,10 @@ vi.mock("@/lib/tenant", () => ({
 
 import { recordContribution } from "@/lib/actions/susu-contribution.actions";
 import {
+  confirmMessagingVerification,
   saveMyMessagingPreference,
 } from "@/lib/actions/customer-messaging.actions";
+import { issueConsentChallenge } from "@/lib/messaging/consent";
 import {
   deliverPendingCustomerMessages,
   enqueueReceiptForTransactionTx,
@@ -143,6 +146,9 @@ beforeEach(async () => {
   });
   tenantId = tenant.id;
   otherTenantId = other.id;
+  // Delivery requires the business to switch the channels on, so every test in
+  // this file starts from that real configuration.
+  await enableMessagingForTenant(prisma, tenantId, ["whatsapp", "sms"]);
   const seeded = await seedCustomer(tenantId, "ONE");
   adminId = seeded.admin.id;
   customerId = seeded.customer.id;
@@ -385,7 +391,7 @@ describe("status webhook", () => {
 
 
 describe("customer preference management", () => {
-  it("records opt-in and opt-out timestamps from the customer portal", async () => {
+  it("records opt-in only after the number is confirmed, then records opt-out", async () => {
     ctxHolder.current = {
       tenantId,
       tenantName: "Messaging Tenant",
@@ -401,10 +407,29 @@ describe("customer preference management", () => {
       preferredChannel: "whatsapp",
     });
     expect(saved.success).toBe(true);
-    expect(saved.data?.whatsappOptedIn).toBe(true);
+    // The portal saves the claim; ownership still has to be proven.
+    expect(saved.data?.whatsappOptedIn).toBe(false);
+    expect(saved.data?.whatsappVerified).toBe(false);
     expect(saved.data?.whatsappNumber).toBe("+233200000111");
-    expect(saved.data?.smsOptedIn).toBe(true);
     expect(saved.data?.preferredChannel).toBe("whatsapp");
+
+    // Confirm the WhatsApp number the way the customer would, with a code only
+    // the number's owner receives.
+    let code = "";
+    await issueConsentChallenge({
+      tenantId,
+      customerId,
+      channel: "whatsapp",
+      number: "+233200000111",
+      businessName: "Messaging Tenant",
+      deliver: async (sent) => {
+        code = sent;
+      },
+    });
+    const confirmed = await confirmMessagingVerification({ channel: "whatsapp", code });
+    expect(confirmed.success, confirmed.error).toBe(true);
+    expect(confirmed.data?.whatsappOptedIn).toBe(true);
+    expect(confirmed.data?.whatsappVerified).toBe(true);
 
     const optedOut = await saveMyMessagingPreference({
       whatsappNumber: "+233200000111",

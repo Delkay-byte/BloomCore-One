@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Notice from "@/components/ui/Notice";
 import {
+  confirmMessagingVerification,
   getMyMessagingPreference,
+  requestMessagingVerification,
   saveMyMessagingPreference,
   type MessagingPreferenceView,
 } from "@/lib/actions/customer-messaging.actions";
@@ -26,18 +28,27 @@ export default function MessagingPreferencesCard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [codeChannel, setCodeChannel] = useState<"whatsapp" | "sms" | null>(null);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  function applyPref(next: MessagingPreferenceView, notice?: string | null) {
+    setPref(next);
+    setWhatsappNumber(next.whatsappNumber ?? "");
+    setWhatsappOptIn(next.whatsappOptedIn);
+    setSmsNumber(next.smsNumber ?? "");
+    setSmsOptIn(next.smsOptedIn);
+    setPreferred(next.preferredChannel ?? "none");
+    setCodeChannel(next.awaitingCode[0] ?? null);
+    if (notice) setSuccess(notice);
+  }
 
   useEffect(() => {
     let active = true;
     void getMyMessagingPreference()
       .then((result) => {
         if (!active || !result.success || !result.data) return;
-        setPref(result.data);
-        setWhatsappNumber(result.data.whatsappNumber ?? "");
-        setWhatsappOptIn(result.data.whatsappOptedIn);
-        setSmsNumber(result.data.smsNumber ?? "");
-        setSmsOptIn(result.data.smsOptedIn);
-        setPreferred(result.data.preferredChannel ?? "none");
+        applyPref(result.data);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -61,10 +72,42 @@ export default function MessagingPreferencesCard() {
     if (!result.success || !result.data) {
       setError(result.error ?? "Your receipt preferences could not be saved.");
     } else {
-      setPref(result.data);
-      setSuccess("Receipt preferences saved.");
+      applyPref(result.data, result.notice ?? "Receipt preferences saved.");
     }
     setSaving(false);
+  }
+
+  async function confirmCode() {
+    if (!codeChannel) return;
+    setVerifying(true);
+    setError("");
+    setSuccess("");
+    const result = await confirmMessagingVerification({
+      channel: codeChannel,
+      code: code.trim(),
+    });
+    if (!result.success || !result.data) {
+      setError(result.error ?? "That code could not be verified.");
+    } else {
+      setCode("");
+      applyPref(result.data, result.notice ?? "Number confirmed.");
+    }
+    setVerifying(false);
+  }
+
+  async function resendCode() {
+    if (!codeChannel) return;
+    setError("");
+    const result = await requestMessagingVerification(codeChannel);
+    if (!result.success) {
+      setError(result.error ?? "The code could not be sent.");
+      return;
+    }
+    setSuccess(
+      result.delivery === "simulated"
+        ? "A code was generated, but this deployment cannot deliver messages yet."
+        : `A new code was sent to ${result.masked ?? "your number"}.`
+    );
   }
 
   if (loading) {
@@ -87,6 +130,48 @@ export default function MessagingPreferencesCard() {
 
       {error && <Notice type="error" className="mt-3">{error}</Notice>}
       {success && <Notice type="success" className="mt-3">{success}</Notice>}
+
+      {codeChannel && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <p className="text-sm font-medium text-amber-900">
+            Confirm your {codeChannel === "whatsapp" ? "WhatsApp" : "SMS"} number
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            Enter the six-digit code we sent. Receipts are not sent to this number until it
+            is confirmed.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-xs font-medium text-amber-900">
+              Confirmation code
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                className="input mt-1 block w-32 tracking-[0.3em]"
+                aria-label="Confirmation code"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void confirmCode()}
+              disabled={verifying || code.trim().length !== 6}
+              className="btn btn-primary btn-sm"
+            >
+              {verifying ? "Checking…" : "Confirm number"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void resendCode()}
+              className="btn btn-secondary btn-sm"
+            >
+              Send a new code
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 space-y-4">
         <fieldset className="rounded-lg border border-slate-200 p-3">
@@ -123,6 +208,11 @@ export default function MessagingPreferencesCard() {
           {pref?.whatsappOptedIn && (
             <p className="mt-2 text-xs text-emerald-700">Currently opted in.</p>
           )}
+          {pref?.whatsappNumber && !pref.whatsappVerified && (
+            <p className="mt-1 text-xs text-amber-700">
+              Not confirmed yet, so no WhatsApp receipt will be sent.
+            </p>
+          )}
           {!pref?.whatsappOptedIn && pref?.whatsappOptOutAt && (
             <p className="mt-2 text-xs text-slate-500">
               Opted out on {new Date(pref.whatsappOptOutAt).toLocaleDateString("en-GB")}.
@@ -157,6 +247,11 @@ export default function MessagingPreferencesCard() {
           </label>
           {pref?.smsOptedIn && (
             <p className="mt-2 text-xs text-emerald-700">Currently opted in.</p>
+          )}
+          {pref?.smsNumber && !pref.smsVerified && (
+            <p className="mt-1 text-xs text-amber-700">
+              Not confirmed yet, so no SMS receipt will be sent.
+            </p>
           )}
           {!pref?.smsOptedIn && pref?.smsOptOutAt && (
             <p className="mt-2 text-xs text-slate-500">

@@ -39,6 +39,13 @@ export async function cleanDatabase() {
   await prisma.shiftHandover.deleteMany();
   await prisma.shift.deleteMany();
   await prisma.tenantOperationalPolicy.deleteMany();
+  await prisma.offlineActionRequest.deleteMany();
+  await prisma.messagingConsentChallenge.deleteMany();
+  await prisma.messagingTemplate.deleteMany();
+  await prisma.tenantMessagingConfig.deleteMany();
+  await prisma.customerMessageStatusEvent.deleteMany();
+  await prisma.customerMessageOutbox.deleteMany();
+  await prisma.customerMessagingPreference.deleteMany();
   await prisma.dailyAccountRevision.deleteMany();
   await prisma.dailyAccount.deleteMany();
   await prisma.auditLog.deleteMany();

@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 91 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 94 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 132 files / 1430 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 135 files / 1457 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -254,7 +254,58 @@ device holds any data. The background lock stays at five minutes regardless, and
 a different user's scope cannot reuse an unlocked key. The read is deliberately
 non-redirecting: a background refresh must never navigate the tab.
 
-**19–24. Messaging — MISSING.**
+**19. WhatsApp consent management — DONE.**
+Consent is per channel, per number, with opt-in and opt-out timestamps and an
+audit entry. Opting in from the portal is no longer enough on its own: the
+channel stays `unverified` until a six-digit code sent to that number comes back.
+
+**20. WhatsApp templates — DONE.**
+`MessagingTemplate` holds a business's templates with a provider approval state
+(`draft`, `approved`, `rejected`) per channel and purpose. `/admin/messaging`
+registers them and records who approved one and when. The queue only sends with
+an approved template and refuses otherwise rather than falling back to free text.
+
+**21. Durable outbox — DONE.**
+Unchanged in shape and strengthened in use: a row is written in the same
+transaction as the financial event, the recipient is encrypted, the event key is
+unique, and a business refusal stops the row with a reason instead of retrying
+something only a person can change.
+
+**22. Message generation — DONE.**
+Receipts carry amount, currency, reference, account and status, and never a PIN,
+OTP or balance disclosure. Proof codes are sent through the provider adapter
+directly, are stored only as a hash, and are deliberately not written to the
+outbox.
+
+**23. Provider abstraction and live delivery — DONE in code, BLOCKED_EXTERNAL in
+production.** No credentials exist in this environment and
+`PRODUCTION_PROVIDER_APPROVED` remains false, so nothing is sent. A provider that
+cannot deliver reports `simulated`, never `delivered`; the outbox, the status
+ledger and the browser suite all keep that distinction.
+
+**24. Delivery status, retries and scheduling — DONE.**
+Signed, idempotent status callbacks exist for both channels
+(`/api/webhooks/whatsapp` and `/api/webhooks/sms`), and a failed status now also
+records its reason on the row. `runMessagingDispatch()` makes one bounded pass
+over due rows across businesses and is triggered by
+`/api/internal/messaging/dispatch`, which refuses to run without its shared
+secret. Its summary reports `accepted` and `simulated` separately, because a
+message that was never really delivered must not be counted as delivered.
+
+**Consent proof (audit 5.17) — DONE.** `MessagingConsentChallenge` stores a
+hashed six-digit code with a ten-minute expiry, a five-attempt cap and single
+use. Re-requesting supersedes the old code, changing the number invalidates a
+code already sent, and an undeliverable code is discarded rather than left
+usable. `whatsappVerifiedAt`/`smsVerifiedAt` and the verification method are
+recorded, and only a verified number can receive a receipt.
+
+**Tenant configuration (audit 5.11) — DONE.** `TenantMessagingConfig` holds the
+per-business switches, template name and language, and SMS sender ID.
+`decideMessagingDelivery` is the single decision point used by both the delivery
+worker and the settings screen, so the screen cannot promise delivery the queue
+would refuse. The platform gate stays in the provider adapter, which still
+requires credentials, the explicit delivery switch and the allowlist.
+
 **25–30. Customer portal and disputes — MISSING.**
 **31–36. Association foundation — MISSING** (item 36 is
 PENDING_ASSOCIATION_DECISION).
@@ -272,7 +323,8 @@ Both Prisma schemas carry the new models and validate
 `BranchTransfer` settlement fields and follow-up relation).
 `prisma/migrations/20261209_phase1_reconciliation_foundation/migration.sql` and
 `prisma/migrations/20261210_employee_accountability/migration.sql`,
-`prisma/migrations/20261211_offline_action_requests/migration.sql`, generated with
+`prisma/migrations/20261211_offline_action_requests/migration.sql`,
+`prisma/migrations/20261212_tenant_messaging_config/migration.sql`, generated with
 `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
@@ -327,10 +379,9 @@ answer:
 
 ## 7. Next work, in order
 
-1. A4 messaging.
-3. A4 messaging, A5 customer portal and disputes.
-4. A6 association foundation on a generic model, then A7/A8.
-5. A9 anomaly investigation, which is also the prerequisite for C0–C2.
-6. A10 BI completion.
-7. Final release gate: full suites, production-build browser acceptance, security
+1. A5 customer portal and disputes.
+2. A6 association foundation on a generic model, then A7/A8.
+3. A9 anomaly investigation, which is also the prerequisite for C0–C2.
+4. A10 BI completion.
+5. Final release gate: full suites, production-build browser acceptance, security
    and tenant review, then — and only then — discuss push/PR/deploy.

@@ -11,6 +11,11 @@ import {
   buildReceiptContent,
   type ReceiptInput,
 } from "@/lib/messaging/receipts";
+import {
+  decideMessagingDelivery,
+  resolveTenantMessagingConfig,
+  type MessagingPurpose,
+} from "@/lib/messaging/config";
 
 /**
  * Durable customer receipt outbox.
@@ -198,6 +203,10 @@ interface OutboxPayload {
   languageCode?: string;
 }
 
+function purposeOf(value: string): MessagingPurpose {
+  return value === "statement" || value === "dispute_update" ? value : "receipt";
+}
+
 function parsePayload(value: string): OutboxPayload | null {
   try {
     const parsed = JSON.parse(value) as OutboxPayload;
@@ -228,6 +237,20 @@ export async function deliverPendingCustomerMessages(
     take: Math.min(Math.max(limit, 1), 20),
   });
 
+  // One config read per business, reused across that business's rows.
+  const configCache = new Map<
+    string,
+    Awaited<ReturnType<typeof resolveTenantMessagingConfig>>
+  >();
+  async function configFor(tenantId: string | null) {
+    const key = tenantId ?? "";
+    const cached = configCache.get(key);
+    if (cached) return cached;
+    const resolved = await resolveTenantMessagingConfig(tenantId);
+    configCache.set(key, resolved);
+    return resolved;
+  }
+
   let delivered = 0;
   for (const row of rows) {
     const claimed = await db.customerMessageOutbox.updateMany({
@@ -250,6 +273,29 @@ export async function deliverPendingCustomerMessages(
       continue;
     }
 
+    const config = await configFor(row.tenantId ?? null);
+    const decision = decideMessagingDelivery({
+      channel: row.channel === "sms" ? "sms" : "whatsapp",
+      purpose: purposeOf(row.purpose),
+      config: config.values,
+      templates: config.templates,
+      fallbackTemplateName: payload.templateName ?? null,
+      fallbackLanguage: payload.languageCode ?? null,
+    });
+    if (!decision.allowed) {
+      // A business decision is not a transient failure: retrying cannot help, so
+      // the row stops here with the reason instead of looping until exhausted.
+      await db.customerMessageOutbox.update({
+        where: { id: row.id },
+        data: {
+          status: "rejected",
+          lastError: decision.reason,
+          failedAt: new Date(),
+        },
+      });
+      continue;
+    }
+
     const result =
       row.channel === "sms"
         ? await smsProvider.sendSms({
@@ -259,8 +305,8 @@ export async function deliverPendingCustomerMessages(
           })
         : await provider.sendTemplate({
             to: recipient,
-            templateName: payload.templateName ?? "maacash_receipt",
-            languageCode: payload.languageCode ?? "en_US",
+            templateName: decision.templateName ?? "maacash_receipt",
+            languageCode: decision.languageCode ?? "en_US",
             parameters: payload.parameters ?? [],
           });
 
@@ -362,7 +408,7 @@ export async function recordCustomerMessageStatus(input: {
           ...(input.status === "delivered" ? { deliveredAt: input.occurredAt } : {}),
           ...(input.status === "read" ? { readAt: input.occurredAt } : {}),
           ...(input.status === "failed" || input.status === "rejected"
-            ? { failedAt: input.occurredAt }
+            ? { failedAt: input.occurredAt, lastError: input.reason ?? "delivery_failed" }
             : {}),
         },
       });
