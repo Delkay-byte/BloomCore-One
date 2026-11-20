@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 90 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 91 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 131 files / 1415 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 132 files / 1430 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -211,7 +211,49 @@ the server refuses, so the browser never decides the rule. Tests prove the
 refusal, the acceptance with a bound grant, and that replaying the same grant
 against another record is refused.
 
-**13–18. Offline operations — MISSING.**
+**13. Offline withdrawal request — DONE.**
+A withdrawal captured while offline is stored on the device as a request and
+sent to `/api/offline/sync-request` on reconnect. That route posts **nothing**: it
+validates the capture, scopes it to the session's business and the enrolled
+device, binds it to the exact normalized payload through its idempotency key, and
+stores an `OfflineActionRequest`. Only an administrator decision on
+`/susu/admin/offline-requests` runs the real withdrawal action.
+
+**14. Offline remittance capture — DONE.**
+A collector can record the cash they are handing in while offline. It syncs as a
+request for the same reason: the office confirms the amount, so the ledger only
+changes when an administrator records the handover. That recording goes through
+the existing `recordRemittance` action, including its idempotency key, request
+hash, ledger lock and variance rules.
+
+**15. Offline reversal/correction request — DONE.**
+A reversal request carries the record type and id and a written reason of at
+least ten characters, and never an amount. Authorising it runs
+`reverseWithdrawal` or `reverseContribution`, which keeps their own step-up and
+dual-control requirements; when those refuse (for example because a second
+approver is required), the request moves to `needs_review` with the server's own
+reason rather than being retried blindly.
+
+**16. Offline MoMo daily-account draft — resolved by removal.**
+`daily_account_draft` was a queue type with no sync route and no UI, so it could
+only accumulate unreachable records. It is removed and the queue type list now
+names exactly what can happen: a contribution that posts, or a request that waits
+for authorisation.
+
+**17. Conflict-review queue — DONE (server-side).**
+Every refused authorisation becomes `needs_review` with the domain action's own
+message, and the queue has a dedicated view for it. A replayed key with a
+different payload cannot rewrite the stored request: the digest is part of the
+stored key. The device-side classification of a queue entry that a person must
+resolve already exists and is reused unchanged.
+
+**18. Shared-device lock policy — DONE.**
+`TenantOperationalPolicy.offlineIdleLockMinutes` (1–120, default 15) is saved from
+`/admin/policy` and applied to the offline workspace by the bootstrap before the
+device holds any data. The background lock stays at five minutes regardless, and
+a different user's scope cannot reuse an unlocked key. The read is deliberately
+non-redirecting: a background refresh must never navigate the tab.
+
 **19–24. Messaging — MISSING.**
 **25–30. Customer portal and disputes — MISSING.**
 **31–36. Association foundation — MISSING** (item 36 is
@@ -229,8 +271,9 @@ Both Prisma schemas carry the new models and validate
 `BranchLiquidityLine`, `ReconciliationExceptionCase`, `…Link`, `…Event`, plus the
 `BranchTransfer` settlement fields and follow-up relation).
 `prisma/migrations/20261209_phase1_reconciliation_foundation/migration.sql` and
-`prisma/migrations/20261210_employee_accountability/migration.sql`, generated
-with `scripts/make-pg-migration.mjs` (local host only, throwaway database,
+`prisma/migrations/20261210_employee_accountability/migration.sql`,
+`prisma/migrations/20261211_offline_action_requests/migration.sql`, generated with
+`scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
 
@@ -284,7 +327,7 @@ answer:
 
 ## 7. Next work, in order
 
-1. A3 offline operations.
+1. A4 messaging.
 3. A4 messaging, A5 customer portal and disputes.
 4. A6 association foundation on a generic model, then A7/A8.
 5. A9 anomaly investigation, which is also the prerequisite for C0–C2.

@@ -32,6 +32,7 @@ import {
 import { syncPendingTransactions, checkConnectivity, startAutoSync, stopAutoSync, hydrateOfflineAuthorization, isOfflineAuthExpired, secondsUntilOfflineAuthExpiry, setOfflineAuthorizedAt, summarizeSyncOutcome, type SyncResult } from "@/lib/offline/sync";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import OfflineSyncStatus from "@/components/OfflineSyncStatus";
+import OfflineRequestPanel from "@/components/OfflineRequestPanel";
 import OfflineUnlockGate from "@/components/OfflineUnlockGate";
 import {
   OfflineLockedError,
@@ -73,6 +74,8 @@ interface RemittanceEntry {
 }
 
 interface DashboardData {
+  /** Needed to file an offline cash-handover request for the right collector. */
+  collectorId: string;
   assignedCustomers: number;
   todayCollected: number;
   todayCollectionCount: number;
@@ -602,7 +605,10 @@ export default function CollectorDashboardPage({
       (sum, customer) => sum + Number(customer.expectedAmount || 0),
       0
     );
-    setData({
+    setData((current) => ({
+      // The collector id comes from the last server answer; without it an offline
+      // handover request cannot name the collector, so it stays null-safe.
+      collectorId: current?.collectorId ?? "",
       assignedCustomers: customers.length,
       todayCollected: 0,
       todayCollectionCount: 0,
@@ -622,7 +628,7 @@ export default function CollectorDashboardPage({
       difference: expectedTotal,
       customersCollected: 0,
       customersRemaining: customers.length,
-    });
+    }));
     setCachedAt(customers[0]?.lastSynced ?? null);
     setUsingCachedData(true);
   }
@@ -1023,6 +1029,17 @@ export default function CollectorDashboardPage({
       )}
 
       <OfflineSyncStatus module="susu" />
+
+      {!isOnline && offlineEnabled && deviceId && (
+        <OfflineRequestPanel
+          deviceId={deviceId}
+          userId={userId}
+          collectorId={data?.collectorId ?? null}
+          onQueued={() => {
+            void refreshPendingTxs();
+          }}
+        />
+      )}
 
       {/* Pending Sync Banner */}
       {pendingTxs.length > 0 && (

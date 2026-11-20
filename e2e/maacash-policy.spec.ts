@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { loginAdmin } from "./helpers";
+import { restoreOperationalPolicy } from "./policy-restore";
 
 /**
  * Operations policy acceptance: the switches a business administrator can set,
@@ -10,6 +11,12 @@ import { loginAdmin } from "./helpers";
  * still in force after a reload.
  */
 test.describe("Operations policy", () => {
+  // These switches are business-wide, so leaving one on would refuse every later
+  // daily close in the shared fixture. Restore the defaults even on failure.
+  test.afterAll(() => {
+    restoreOperationalPolicy();
+  });
+
   test.beforeEach(async ({ page }) => {
     await loginAdmin(page);
   });
@@ -35,6 +42,11 @@ test.describe("Operations policy", () => {
     await proofSwitch.check();
     await expect(page.getByText("Unsaved changes")).toBeVisible();
 
+    // The idle lock is part of the same policy: a shared device locks sooner.
+    const idleLock = page.getByLabel(/Minutes \(blank uses the product default/);
+    await expect(idleLock).toBeVisible();
+    await idleLock.fill("5");
+
     await page
       .getByPlaceholder(/three branches share one till/i)
       .fill("E2E policy: two branches share one tablet at the counter.");
@@ -55,5 +67,8 @@ test.describe("Operations policy", () => {
       page.getByLabel("Require the actor's own password for sensitive counts")
     ).toBeChecked();
     await expect(page.getByText(/Last saved/)).toBeVisible();
+    await expect(
+      page.getByLabel(/Minutes \(blank uses the product default/)
+    ).toHaveValue("5");
   });
 });

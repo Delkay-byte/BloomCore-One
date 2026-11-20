@@ -9,6 +9,8 @@ import {
   type OperationalPolicyView,
 } from "@/lib/actions/tenant-policy.actions";
 import {
+  MAX_OFFLINE_IDLE_LOCK_MINUTES,
+  MIN_OFFLINE_IDLE_LOCK_MINUTES,
   actorProofSummary,
   shiftPolicySummary,
 } from "@/lib/tenant-policy";
@@ -17,6 +19,7 @@ export default function OperationsPolicyPage() {
   const [policy, setPolicy] = useState<OperationalPolicyView | null>(null);
   const [shiftsRequired, setShiftsRequired] = useState(false);
   const [actorProof, setActorProof] = useState(false);
+  const [idleLock, setIdleLock] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -31,6 +34,9 @@ export default function OperationsPolicyPage() {
       setPolicy(next);
       setShiftsRequired(next.shiftsRequired);
       setActorProof(next.actorProofForSensitiveCounts);
+      setIdleLock(
+        next.offlineIdleLockMinutes === null ? "" : String(next.offlineIdleLockMinutes)
+      );
       setNote(next.note ?? "");
     } catch {
       setError("The policy could not be loaded. Try again.");
@@ -51,6 +57,7 @@ export default function OperationsPolicyPage() {
       const result = await saveOperationalPolicy({
         shiftsRequired,
         actorProofForSensitiveCounts: actorProof,
+        offlineIdleLockMinutes: idleLock.trim() === "" ? null : Number(idleLock),
         note,
       });
       if (!result.success) {
@@ -68,7 +75,8 @@ export default function OperationsPolicyPage() {
     policy !== null &&
     (policy.shiftsRequired !== shiftsRequired ||
       policy.actorProofForSensitiveCounts !== actorProof ||
-      (policy.note ?? "") !== note);
+      (policy.note ?? "") !== note ||
+      String(policy.offlineIdleLockMinutes ?? "") !== idleLock.trim());
 
   return (
     <div className="space-y-5">
@@ -146,6 +154,37 @@ export default function OperationsPolicyPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   Applies to the outgoing shift count and to the daily close. The proof is a
                   single-use grant bound to that record, so it cannot be reused for another one.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="card space-y-3 p-4">
+            <div className="flex items-start gap-3">
+              <Fingerprint size={18} className="mt-0.5 shrink-0 text-brand-700" aria-hidden />
+              <div className="flex-1">
+                <h2 className="font-semibold text-slate-900">Offline idle lock</h2>
+                <p className="mt-1 text-xs text-slate-600">
+                  How long an unlocked offline workspace stays open without activity before it
+                  locks itself. A shared device should lock sooner than a personal one.
+                </p>
+                <label className="mt-2 block text-xs font-medium text-slate-600">
+                  Minutes (blank uses the product default of {policy.effectiveIdleLockMinutes})
+                  <input
+                    type="number"
+                    min={MIN_OFFLINE_IDLE_LOCK_MINUTES}
+                    max={MAX_OFFLINE_IDLE_LOCK_MINUTES}
+                    step="1"
+                    value={idleLock}
+                    onChange={(event) => setIdleLock(event.target.value)}
+                    className="input mt-1 block w-32"
+                    placeholder={String(policy.effectiveIdleLockMinutes)}
+                  />
+                </label>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Allowed range: {MIN_OFFLINE_IDLE_LOCK_MINUTES}–
+                  {MAX_OFFLINE_IDLE_LOCK_MINUTES} minutes. Going to the background still locks
+                  after five minutes, whatever this says.
                 </p>
               </div>
             </div>

@@ -1162,6 +1162,7 @@ model BusinessTenant {
   shiftHandovers               ShiftHandover[]
   shiftRevisions               ShiftRevision[]
   operationalPolicy            TenantOperationalPolicy?
+  offlineActionRequests        OfflineActionRequest[]
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerDisputeEvents        CustomerDisputeEvent[]
@@ -1930,6 +1931,43 @@ model ZeliAvailability {
 }
 
 
+// A3: an offline capture that must not post money by itself.
+//
+// Only a Susu contribution posts directly when it syncs. A withdrawal,
+// remittance or reversal captured offline becomes a request that an
+// administrator authorises online, because the decision to move money needs a
+// live session, fresh proof of identity and a reviewer.
+model OfflineActionRequest {
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  /// withdrawal | remittance | reversal
+  kind                String
+  /// Normalized JSON payload as captured on the device.
+  payloadJson         String
+  /// pending | needs_review | authorised | rejected | cancelled
+  status              String   @default("pending")
+  /// Why the request could not be posted when it was authorised, or why the
+  /// device flagged a conflict. Shown verbatim to the reviewer.
+  conflictReason      String?
+  deviceId            String?
+  requestedById       String
+  requestedAt         DateTime @default(now())
+  idempotencyKey      String
+  decidedById         String?
+  decidedAt           DateTime?
+  decisionNote        String?
+  resultingEntityType String?
+  resultingEntityId   String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, requestedAt])
+  @@index([requestedById, requestedAt])
+}
+
 // A2: tenant operational policy. One row per business, written only by an
 // administrator and audited. Absent row = product defaults (shifts optional,
 // no per-action actor proof).
@@ -1943,6 +1981,9 @@ model TenantOperationalPolicy {
   /// sensitive count is submitted on a shared device: a shift count or a daily
   /// close. The proof is a single-use step-up grant bound to that record.
   actorProofForSensitiveCounts Boolean  @default(false)
+  /// Minutes of inactivity before the offline workspace locks itself. Null uses
+  /// the product default. Bounded 1..120 by the server.
+  offlineIdleLockMinutes       Int?
   note                         String?
   updatedById                  String?
   createdAt                    DateTime @default(now())

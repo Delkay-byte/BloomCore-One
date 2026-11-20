@@ -481,6 +481,51 @@ describe("correcting a closed shift", () => {
   });
 });
 
+describe("offline idle lock policy", () => {
+  it("bounds the configured minutes and falls back to the default", async () => {
+    const { effectiveIdleLockMinutes, DEFAULT_OFFLINE_IDLE_LOCK_MINUTES } = await import(
+      "@/lib/tenant-policy"
+    );
+    expect(effectiveIdleLockMinutes(null)).toBe(DEFAULT_OFFLINE_IDLE_LOCK_MINUTES);
+    expect(effectiveIdleLockMinutes(5)).toBe(5);
+    expect(effectiveIdleLockMinutes(0)).toBe(1);
+    expect(effectiveIdleLockMinutes(-10)).toBe(1);
+    expect(effectiveIdleLockMinutes(10_000)).toBe(120);
+  });
+
+  it("stores the minutes, audits them and rejects an out-of-range value", async () => {
+    const f = await fixture();
+    await setSession("admin", f.admin);
+    const saved = await saveOperationalPolicy({
+      shiftsRequired: false,
+      actorProofForSensitiveCounts: false,
+      offlineIdleLockMinutes: 5,
+    });
+    expect(saved.success, saved.error).toBe(true);
+
+    const policy = await getOperationalPolicy();
+    expect(policy.offlineIdleLockMinutes).toBe(5);
+    expect(policy.effectiveIdleLockMinutes).toBe(5);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { tenantId: f.tenantId, action: "tenant.operational_policy_changed" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(JSON.parse(String(audit?.details)).offlineIdleLockMinutes).toEqual({
+      from: null,
+      to: 5,
+    });
+
+    const refused = await saveOperationalPolicy({
+      shiftsRequired: false,
+      actorProofForSensitiveCounts: false,
+      offlineIdleLockMinutes: 600,
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.error).toMatch(/between 1 and 120/i);
+  });
+});
+
 describe("business day bounds", () => {
   it("covers exactly one UTC day", () => {
     const { start, end } = businessDayBounds(new Date("2026-11-12T15:45:00.000Z"));

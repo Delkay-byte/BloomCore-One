@@ -2,11 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireTenantAdmin, type TenantContext } from "@/lib/tenant";
+import {
+  getTenantContext,
+  requireTenantAdmin,
+  type TenantContext,
+} from "@/lib/tenant";
 import { createAuditLogTx } from "@/lib/audit";
 import {
   DEFAULT_OPERATIONAL_POLICY,
   actorProofSummary,
+  effectiveIdleLockMinutes,
   shiftPolicySummary,
   tenantPolicySchema,
   type TenantOperationalPolicyValues,
@@ -18,6 +23,8 @@ export interface PolicyActionResponse {
 }
 
 export interface OperationalPolicyView extends TenantOperationalPolicyValues {
+  /** Minutes the offline workspace stays unlocked when idle. */
+  effectiveIdleLockMinutes: number;
   shiftSummary: string;
   actorProofSummary: string;
   updatedAt: string | null;
@@ -44,6 +51,9 @@ async function loadPolicy(ctx: TenantContext): Promise<OperationalPolicyView> {
   if (!row) {
     return {
       ...DEFAULT_OPERATIONAL_POLICY,
+      effectiveIdleLockMinutes: effectiveIdleLockMinutes(
+        DEFAULT_OPERATIONAL_POLICY.offlineIdleLockMinutes
+      ),
       shiftSummary: shiftPolicySummary(DEFAULT_OPERATIONAL_POLICY.shiftsRequired),
       actorProofSummary: actorProofSummary(DEFAULT_OPERATIONAL_POLICY.actorProofForSensitiveCounts),
       updatedAt: null,
@@ -60,6 +70,8 @@ async function loadPolicy(ctx: TenantContext): Promise<OperationalPolicyView> {
   return {
     shiftsRequired: row.shiftsRequired,
     actorProofForSensitiveCounts: row.actorProofForSensitiveCounts,
+    offlineIdleLockMinutes: row.offlineIdleLockMinutes,
+    effectiveIdleLockMinutes: effectiveIdleLockMinutes(row.offlineIdleLockMinutes),
     note: row.note,
     shiftSummary: shiftPolicySummary(row.shiftsRequired),
     actorProofSummary: actorProofSummary(row.actorProofForSensitiveCounts),
@@ -94,6 +106,7 @@ export async function saveOperationalPolicy(input: unknown): Promise<PolicyActio
           data: {
             shiftsRequired: data.shiftsRequired,
             actorProofForSensitiveCounts: data.actorProofForSensitiveCounts,
+            offlineIdleLockMinutes: data.offlineIdleLockMinutes ?? null,
             note: data.note?.trim() || null,
             updatedById: ctx.userId,
           },
@@ -104,6 +117,7 @@ export async function saveOperationalPolicy(input: unknown): Promise<PolicyActio
             tenantId: ctx.tenantId,
             shiftsRequired: data.shiftsRequired,
             actorProofForSensitiveCounts: data.actorProofForSensitiveCounts,
+            offlineIdleLockMinutes: data.offlineIdleLockMinutes ?? null,
             note: data.note?.trim() || null,
             updatedById: ctx.userId,
           },
@@ -126,6 +140,10 @@ export async function saveOperationalPolicy(input: unknown): Promise<PolicyActio
               existing?.actorProofForSensitiveCounts ??
               DEFAULT_OPERATIONAL_POLICY.actorProofForSensitiveCounts,
             to: data.actorProofForSensitiveCounts,
+          },
+          offlineIdleLockMinutes: {
+            from: existing?.offlineIdleLockMinutes ?? null,
+            to: data.offlineIdleLockMinutes ?? null,
           },
           note: data.note?.trim() || null,
           financialMutation: false,
@@ -152,6 +170,26 @@ export async function readTenantPolicy(
   return {
     shiftsRequired: row.shiftsRequired,
     actorProofForSensitiveCounts: row.actorProofForSensitiveCounts,
+    offlineIdleLockMinutes: row.offlineIdleLockMinutes,
     note: row.note,
   };
+}
+
+/**
+ * The idle-lock minutes for the signed-in user's business.
+ *
+ * Any authenticated module may read this: it is a lock duration, not a secret,
+ * and the device needs it before it can hold customer data. It never redirects —
+ * a background bootstrap must not navigate the tab — so a missing session simply
+ * leaves the product default in force.
+ */
+export async function getOfflineIdleLockMinutes(): Promise<number> {
+  const ctx =
+    (await getTenantContext("susu", "susu")) ??
+    (await getTenantContext("momo", "momo")) ??
+    (await getTenantContext("admin", "momo")) ??
+    (await getTenantContext("admin", "susu"));
+  if (!ctx) return effectiveIdleLockMinutes(null);
+  const policy = await readTenantPolicy(ctx.tenantId);
+  return effectiveIdleLockMinutes(policy.offlineIdleLockMinutes);
 }

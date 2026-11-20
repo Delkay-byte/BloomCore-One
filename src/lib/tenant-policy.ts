@@ -13,18 +13,37 @@ import { z } from "zod";
 export interface TenantOperationalPolicyValues {
   shiftsRequired: boolean;
   actorProofForSensitiveCounts: boolean;
+  offlineIdleLockMinutes: number | null;
   note: string | null;
 }
+
+/** Product default for the offline idle lock, matching the unlock module. */
+export const DEFAULT_OFFLINE_IDLE_LOCK_MINUTES = 15;
+export const MIN_OFFLINE_IDLE_LOCK_MINUTES = 1;
+export const MAX_OFFLINE_IDLE_LOCK_MINUTES = 120;
 
 export const DEFAULT_OPERATIONAL_POLICY: TenantOperationalPolicyValues = {
   shiftsRequired: false,
   actorProofForSensitiveCounts: false,
+  offlineIdleLockMinutes: null,
   note: null,
 };
 
 export const tenantPolicySchema = z.object({
   shiftsRequired: z.boolean(),
   actorProofForSensitiveCounts: z.boolean(),
+  offlineIdleLockMinutes: z
+    .union([z.number().int(), z.null()])
+    .optional()
+    .refine(
+      (value) =>
+        value === undefined ||
+        value === null ||
+        (value >= MIN_OFFLINE_IDLE_LOCK_MINUTES && value <= MAX_OFFLINE_IDLE_LOCK_MINUTES),
+      {
+        message: `Choose between ${MIN_OFFLINE_IDLE_LOCK_MINUTES} and ${MAX_OFFLINE_IDLE_LOCK_MINUTES} minutes.`,
+      }
+    ),
   note: z.string().trim().max(500).optional(),
 });
 
@@ -44,6 +63,17 @@ export const ACTOR_PROOF_SUMMARY = {
 
 export function shiftPolicySummary(required: boolean): string {
   return required ? SHIFT_POLICY_SUMMARY.required : SHIFT_POLICY_SUMMARY.optional;
+}
+
+/** Minutes actually enforced, resolving the product default. */
+export function effectiveIdleLockMinutes(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_OFFLINE_IDLE_LOCK_MINUTES;
+  }
+  return Math.min(
+    MAX_OFFLINE_IDLE_LOCK_MINUTES,
+    Math.max(MIN_OFFLINE_IDLE_LOCK_MINUTES, Math.round(value))
+  );
 }
 
 export function actorProofSummary(enabled: boolean): string {

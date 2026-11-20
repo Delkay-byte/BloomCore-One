@@ -10,6 +10,8 @@ import {
   activeWorkspaceModule,
   isOfflineModule,
 } from "@/lib/offline/active-module";
+import { getOfflineIdleLockMinutes } from "@/lib/actions/tenant-policy.actions";
+import { setOfflineIdleLockMs } from "@/lib/offline/unlock";
 
 const REFRESH_AFTER_MS = 6 * 60 * 60 * 1000;
 let lastAttemptAt = 0;
@@ -47,6 +49,16 @@ export default function OfflineBootstrap() {
         if (!me.userId || !me.tenant?.id) return;
         if (me.module !== workspace) return;
         if (me.role !== "worker" && me.role !== "collector") return;
+
+        // Apply the business's idle-lock rule before this device holds any
+        // offline data. The server decides the value; the browser only enforces it.
+        await getOfflineIdleLockMinutes()
+          .then((minutes) => {
+            if (!cancelled) setOfflineIdleLockMs(minutes * 60 * 1000);
+          })
+          .catch(() => {
+            /* Non-fatal: the product default stays in force. */
+          });
 
         const current = await getCurrentOfflineContext();
         const sameIdentity =

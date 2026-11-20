@@ -37,6 +37,7 @@ const CUT_OFF_MIGRATIONS = new Set([
   "20261208_zeli_conversation_title_source",
   "20261209_phase1_reconciliation_foundation",
   "20261210_employee_accountability",
+  "20261211_offline_action_requests",
 ]);
 
 const MIGRATIONS_DIR = path.join(repoRoot, "prisma", "migrations");

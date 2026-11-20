@@ -23,6 +23,30 @@ import {
 export const OFFLINE_IDLE_LOCK_MS = 15 * 60 * 1000;
 export const OFFLINE_BACKGROUND_LOCK_MS = 5 * 60 * 1000;
 
+/** The business may choose a shorter or longer idle lock than the default. */
+let configuredIdleLockMs = OFFLINE_IDLE_LOCK_MS;
+
+/**
+ * Apply the business's idle-lock policy.
+ *
+ * Bounded so a bad value can never leave a shared device unlocked for a day or
+ * lock it out every few seconds. Zero or a missing value restores the default.
+ */
+export function setOfflineIdleLockMs(ms: number | null | undefined): number {
+  const MIN = 60 * 1000;
+  const MAX = 120 * 60 * 1000;
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) {
+    configuredIdleLockMs = OFFLINE_IDLE_LOCK_MS;
+    return configuredIdleLockMs;
+  }
+  configuredIdleLockMs = Math.min(MAX, Math.max(MIN, Math.round(ms)));
+  return configuredIdleLockMs;
+}
+
+export function currentOfflineIdleLockMs(): number {
+  return configuredIdleLockMs;
+}
+
 export type OfflineUnlockState = "unconfigured" | "locked" | "unlocked";
 
 let activeKey: CryptoKey | null = null;
@@ -91,7 +115,7 @@ export function markOfflineForeground(now = Date.now()): boolean {
     return true;
   }
   backgroundedAt = null;
-  if (lastActivityAt && now - lastActivityAt >= OFFLINE_IDLE_LOCK_MS) {
+  if (lastActivityAt && now - lastActivityAt >= configuredIdleLockMs) {
     lockOfflineWorkspace();
     return true;
   }
@@ -100,7 +124,7 @@ export function markOfflineForeground(now = Date.now()): boolean {
 
 export function checkOfflineIdleLock(now = Date.now()): boolean {
   if (!activeKey) return false;
-  if (lastActivityAt && now - lastActivityAt >= OFFLINE_IDLE_LOCK_MS) {
+  if (lastActivityAt && now - lastActivityAt >= configuredIdleLockMs) {
     lockOfflineWorkspace();
     return true;
   }

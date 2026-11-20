@@ -55,7 +55,14 @@ export const LEGACY_BACKUP_STORES = {
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type TransactionType = "contribution" | "daily_account_draft";
+/**
+ * Only a contribution posts directly when it syncs. Everything else that moves
+ * money is queued as a request and authorised online.
+ *
+ * `daily_account_draft` was removed: it was a queue type with no sync route and
+ * no UI, so it could only ever accumulate unreachable records.
+ */
+export type TransactionType = "contribution" | "offline_request";
 export type SyncStatus = "pending_sync" | "syncing" | "synced" | "failed";
 
 export interface OfflineTransaction {

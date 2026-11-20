@@ -302,6 +302,7 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
   });
 
   return {
+    collectorId: collector.id,
     assignedCustomers: assignments.length,
     todayCollected: totalCollectedToday,
     todayCollectionCount: collectedToday.length,
