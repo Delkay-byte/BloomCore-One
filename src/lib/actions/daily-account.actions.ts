@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { getAdminSession } from "@/lib/auth";
+import { getAdminSession, getMomoSession } from "@/lib/auth";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import {
   listNotifications,
@@ -15,6 +15,12 @@ import {
   assertTenantEntity,
 } from "@/lib/tenant";
 import { dailyAccountSchema } from "@/lib/validations";
+import {
+  ACTOR_PROOF_REQUIRED,
+  SHIFT_REQUIRED_REFUSAL,
+  businessDayBounds,
+} from "@/lib/tenant-policy";
+import { readTenantPolicy } from "@/lib/actions/tenant-policy.actions";
 import {
   hasCurrencyPrecision,
   parseExpenseLines,
@@ -662,7 +668,8 @@ export async function correctDailyAccount(
 }
 
 export async function submitDailyAccount(
-  accountId: string
+  accountId: string,
+  actorProofToken?: string
 ): Promise<ActionResponse> {
   const ctx = await requireTenantWorker();
 
@@ -736,6 +743,27 @@ export async function submitDailyAccount(
     };
   }
 
+  // A2: the business decides whether a day can close without a shift, and
+  // whether a shared device must prove the actor again. Both rules are checked
+  // here, on the server, immediately before the state change.
+  const policy = await readTenantPolicy(ctx.tenantId);
+  if (policy.shiftsRequired) {
+    const day = businessDayBounds(account.businessDate);
+    const closedShift = await db.shift.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        locationId: account.locationId,
+        assignedUserId: account.workerId,
+        businessDate: { gte: day.start, lt: day.end },
+        status: "closed",
+      },
+      select: { id: true },
+    });
+    if (!closedShift) {
+      return { success: false, error: SHIFT_REQUIRED_REFUSAL };
+    }
+  }
+
   const reconciled = reconcileDailyAccount({
     openingMomoFloat: Number(account.openingMomoFloat),
     openingCash: Number(account.openingCash),
@@ -758,9 +786,23 @@ export async function submitDailyAccount(
     };
   }
 
+  const actorSession = await getMomoSession();
   let submitted: { count: number };
   try {
     submitted = await db.$transaction(async (tx) => {
+      if (policy.actorProofForSensitiveCounts) {
+        const grant = await claimStepUpGrant(tx, {
+          token: actorProofToken,
+          subjectType: "user",
+          subjectId: ctx.userId,
+          sessionId: stepUpSessionBinding(actorSession, ctx.userId),
+          purpose: "finance.daily_close.submit",
+          targetType: "dailyAccount",
+          targetId: accountId,
+          context: {},
+        });
+        if (!grant.ok) throw new StepUpDeniedError(grant.error);
+      }
       const updated = await tx.dailyAccount.updateMany({
         where: {
           id: accountId,
@@ -804,7 +846,10 @@ export async function submitDailyAccount(
       }
       return updated;
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: ACTOR_PROOF_REQUIRED };
+    }
     return {
       success: false,
       error:

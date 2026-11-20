@@ -207,6 +207,9 @@ export const closeShiftSchema = z.object({
   outstandingOperations: z.string().trim().max(1000).optional(),
   outgoingNotes: z.string().trim().max(500).optional(),
   outgoingEvidence: z.string().trim().max(300, "Outgoing evidence must be 300 characters or fewer.").optional(),
+  // A single-use proof of the actor's own identity, required only when the
+  // business enforces shared-device actor proof.
+  actorProofToken: z.string().trim().max(512).optional(),
 });
 
 export const confirmHandoverSchema = z.object({

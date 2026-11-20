@@ -33,6 +33,10 @@ export const STEP_UP_PURPOSES = [
   "finance.branch_transfer.approve",
   "finance.branch_transfer.resolve",
   "finance.shift_handover.resolve",
+  // A2: a shared-device actor proves their own identity before a sensitive count
+  // is submitted. Bound to the shift or daily account being submitted.
+  "finance.shift_count.submit",
+  "finance.daily_close.submit",
   "staff.password_reset",
   "worker.password_reset",
   "collector.password_reset",

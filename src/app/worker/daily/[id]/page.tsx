@@ -38,6 +38,8 @@ import MomoLedgerPanel from "@/components/momo/MomoLedgerPanel";
 import type { LedgerSummary } from "@/lib/momo-ledger";
 import { SuccessTick } from "@/components/ui/SuccessTick";
 import Notice from "@/components/ui/Notice";
+import ReauthDialog from "@/components/ReauthDialog";
+import { ACTOR_PROOF_REQUIRED } from "@/lib/tenant-policy";
 
 interface Expense {
   description: string;
@@ -323,7 +325,9 @@ export default function DailyAccountFormPage() {
     }
   }
 
-  async function handleSubmit() {
+  const [actorProofOpen, setActorProofOpen] = useState(false);
+
+  async function handleSubmit(actorProofToken?: string) {
     if (submitting) return;
     setSubmitting(true);
     setError("");
@@ -346,13 +350,18 @@ export default function DailyAccountFormPage() {
         return;
       }
       const submitResult = await withTimeout(
-        submitDailyAccount(params.id as string),
+        submitDailyAccount(params.id as string, actorProofToken),
         20_000
       );
       if (submitResult.success) {
         setSubmitted(true);
         await dailyDraft.clearDraft();
         window.setTimeout(() => router.push("/worker/dashboard"), 900);
+      } else if (submitResult.error === ACTOR_PROOF_REQUIRED) {
+        // The business runs shared devices: the actor proves identity again
+        // before the day is closed. The server refused, so ask for the password.
+        setActorProofOpen(true);
+        setError("");
       } else {
         setError(submitResult.error || "Failed to submit");
       }
@@ -1140,7 +1149,7 @@ export default function DailyAccountFormPage() {
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               className="btn btn-primary"
               disabled={submitting || (explanationRequired && !reconciliationNote.trim())}
               aria-busy={submitting}
@@ -1197,6 +1206,23 @@ export default function DailyAccountFormPage() {
           </p>
         )}
       </Modal>
+
+      <ReauthDialog
+        open={actorProofOpen}
+        onClose={() => setActorProofOpen(false)}
+        onConfirmed={async (token) => {
+          setActorProofOpen(false);
+          await handleSubmit(token);
+        }}
+        title="Confirm your identity"
+        description="This business requires your own password before a daily close is submitted from a shared device."
+        actionLabel="Submit account"
+        module="momo"
+        purpose="finance.daily_close.submit"
+        targetType="dailyAccount"
+        targetId={typeof params.id === "string" ? params.id : undefined}
+        context={{}}
+      />
 
       <Modal
         open={submitted}

@@ -406,6 +406,7 @@ model Shift {
   location     Location        @relation(fields: [locationId], references: [id])
   dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
   handovers    ShiftHandover[]
+  revisions    ShiftRevision[]
 
   @@unique([tenantId, locationId, businessDate, name])
   @@unique([tenantId, reference])
@@ -1159,6 +1160,8 @@ model BusinessTenant {
   branchTransfers              BranchTransfer[]
   shifts                       Shift[]
   shiftHandovers               ShiftHandover[]
+  shiftRevisions               ShiftRevision[]
+  operationalPolicy            TenantOperationalPolicy?
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerDisputeEvents        CustomerDisputeEvent[]
@@ -1926,6 +1929,51 @@ model ZeliAvailability {
   updatedAt   DateTime @updatedAt
 }
 
+
+// A2: tenant operational policy. One row per business, written only by an
+// administrator and audited. Absent row = product defaults (shifts optional,
+// no per-action actor proof).
+model TenantOperationalPolicy {
+  id                           String   @id @default(cuid())
+  tenantId                     String   @unique
+  /// When true a worker cannot submit a daily close without a closed shift for
+  /// the same employee, branch and business day.
+  shiftsRequired               Boolean  @default(false)
+  /// When true the actor must prove identity again (their own password) before a
+  /// sensitive count is submitted on a shared device: a shift count or a daily
+  /// close. The proof is a single-use step-up grant bound to that record.
+  actorProofForSensitiveCounts Boolean  @default(false)
+  note                         String?
+  updatedById                  String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// A2: audited revision of a closed shift. The original figures are preserved in
+// this revision's snapshot; a shift is never silently rewritten.
+model ShiftRevision {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  shiftId       String
+  /// JSON snapshot of the shift figures before the revision.
+  beforeJson    String
+  /// JSON snapshot of the shift figures after the revision.
+  afterJson     String
+  /// cash | momo_float | both
+  fields        String
+  reason        String
+  requestedById String
+  approvedById  String
+  createdAt     DateTime  @default(now())
+
+  shift  Shift          @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, shiftId])
+  @@index([shiftId, createdAt])
+}
 
 // SEC-04: server-side, single-use step-up authorization grant.
 // Only a SHA-256 hash of the opaque bearer token is stored.

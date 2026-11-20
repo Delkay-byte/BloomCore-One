@@ -15,6 +15,8 @@ import {
   type WorkerShiftBoard,
 } from "@/lib/actions/shift.actions";
 import { SHIFT_NAMES, SHIFT_NAME_LABELS, type ShiftName } from "@/lib/shifts";
+import { ACTOR_PROOF_REQUIRED } from "@/lib/tenant-policy";
+import ReauthDialog from "@/components/ReauthDialog";
 
 function todayIso(): string {
   const now = new Date();
@@ -37,6 +39,7 @@ export default function WorkerShiftsPage() {
   const [board, setBoard] = useState<WorkerShiftBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -144,18 +147,28 @@ export default function WorkerShiftsPage() {
     }
   }
 
+  async function submitClose(actorProofToken?: string) {
+    return closeShift({
+      shiftId: closeForm.shiftId,
+      closingCash: Number(closeForm.closingCash || 0),
+      closingMomoFloat: Number(closeForm.closingMomoFloat || 0),
+      handoverToUserId: closeForm.handoverToUserId,
+      outstandingOperations: closeForm.outstandingOperations || undefined,
+      outgoingNotes: closeForm.outgoingNotes || undefined,
+      outgoingEvidence: closeForm.outgoingEvidence || undefined,
+      actorProofToken,
+    });
+  }
+
   async function handleClose() {
-    await run("close", () =>
-      closeShift({
-        shiftId: closeForm.shiftId,
-        closingCash: Number(closeForm.closingCash || 0),
-        closingMomoFloat: Number(closeForm.closingMomoFloat || 0),
-        handoverToUserId: closeForm.handoverToUserId,
-        outstandingOperations: closeForm.outstandingOperations || undefined,
-        outgoingNotes: closeForm.outgoingNotes || undefined,
-        outgoingEvidence: closeForm.outgoingEvidence || undefined,
-      })
-    );
+    const result = await run("close", () => submitClose());
+    // The business may require the actor to prove their own identity again
+    // before a counted handover is submitted on a shared device. The server
+    // decides; the browser only asks for the password it was refused for.
+    if (!result.success && result.error === ACTOR_PROOF_REQUIRED) {
+      setProofOpen(true);
+      return;
+    }
     setCloseForm({
       shiftId: "",
       closingCash: "",
@@ -728,6 +741,23 @@ export default function WorkerShiftsPage() {
           )}
         </>
       )}
+
+      <ReauthDialog
+        open={proofOpen}
+        onClose={() => setProofOpen(false)}
+        onConfirmed={async (token) => {
+          setProofOpen(false);
+          await run("close", () => submitClose(token));
+        }}
+        title="Confirm your identity"
+        description="This business requires your own password before a counted handover is submitted from a shared device."
+        actionLabel="Submit count"
+        module="momo"
+        purpose="finance.shift_count.submit"
+        targetType="shift"
+        targetId={closeForm.shiftId || undefined}
+        context={{}}
+      />
     </div>
   );
 }

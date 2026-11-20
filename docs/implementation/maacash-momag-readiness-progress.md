@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 88 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 90 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 130 files / 1405 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 131 files / 1415 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -184,7 +184,33 @@ The liquidity board is that view: declared, transfer-adjusted and counted
 figures per pocket with the variance, plus the daily close difference for the
 branch when a daily account exists for the same day.
 
-**10–12. Employee accountability — MISSING.**
+**10. Tenant shift policy — DONE.**
+`TenantOperationalPolicy` holds the business's own rule, written only by an
+administrator through `/admin/policy` and audited with the previous and new
+values. When shifts are required, `submitDailyAccount` refuses with a plain
+explanation unless the same employee has a **closed** shift for the same branch
+and business day; another employee's closed shift does not satisfy it.
+`tests/employee-accountability.test.ts` covers the refusal, the acceptance, the
+wrong-employee case and the administrator-only write.
+
+**11. Shift revision/correction — DONE.**
+`ShiftRevision` records the figures before and after, the fields changed, the
+reason, the requester and the approver. `correctClosedShift` works only on a
+closed shift with no open handover variance, refuses an unchanged count, requires
+a reason of at least ten characters and fresh proof of identity, and keeps the
+shift closed. The shift detail screen shows the correction panel and the revision
+history. Tests cover the successful correction, the preserved original, the audit
+event and the three refusals.
+
+**12. Shared-device actor proof — DONE.**
+When the policy is on, submitting the outgoing shift count or the daily close
+requires the actor's own password, presented as a single-use step-up grant bound
+to that shift or daily account (`finance.shift_count.submit`,
+`finance.daily_close.submit`). The worker screens ask for the password only after
+the server refuses, so the browser never decides the rule. Tests prove the
+refusal, the acceptance with a bound grant, and that replaying the same grant
+against another record is refused.
+
 **13–18. Offline operations — MISSING.**
 **19–24. Messaging — MISSING.**
 **25–30. Customer portal and disputes — MISSING.**
@@ -202,9 +228,10 @@ Both Prisma schemas carry the new models and validate
 (`ProviderStatementImport`, `ProviderStatementRow`, `BranchLiquiditySnapshot`,
 `BranchLiquidityLine`, `ReconciliationExceptionCase`, `…Link`, `…Event`, plus the
 `BranchTransfer` settlement fields and follow-up relation).
-`prisma/migrations/20261209_phase1_reconciliation_foundation/migration.sql`
-generated with `scripts/make-pg-migration.mjs` (local host only, throwaway
-database, refuses non-loopback targets) keeps PostgreSQL deployments, which use
+`prisma/migrations/20261209_phase1_reconciliation_foundation/migration.sql` and
+`prisma/migrations/20261210_employee_accountability/migration.sql`, generated
+with `scripts/make-pg-migration.mjs` (local host only, throwaway database,
+refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
 
 Label constants used by both the server and the browser live in
@@ -257,7 +284,7 @@ answer:
 
 ## 7. Next work, in order
 
-1. A2 employee accountability, then A3 offline operations.
+1. A3 offline operations.
 3. A4 messaging, A5 customer portal and disputes.
 4. A6 association foundation on a generic model, then A7/A8.
 5. A9 anomaly investigation, which is also the prerequisite for C0–C2.

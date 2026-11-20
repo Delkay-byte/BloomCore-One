@@ -9,6 +9,7 @@ import Notice from "@/components/ui/Notice";
 import ReauthDialog from "@/components/ReauthDialog";
 import ShiftStatusBadge from "@/components/momo/ShiftStatusBadge";
 import {
+  correctClosedShift,
   getShiftDetail,
   resolveShiftHandover,
   type ShiftDetailView,
@@ -35,6 +36,8 @@ export default function AdminShiftDetailPage() {
   const [resolutionNote, setResolutionNote] = useState("");
   const [reauthOpen, setReauthOpen] = useState(false);
   const [pendingHandover, setPendingHandover] = useState<string | null>(null);
+  const [correction, setCorrection] = useState({ cash: "", momoFloat: "", reason: "" });
+  const [correctReauth, setCorrectReauth] = useState(false);
 
   const load = useCallback(async () => {
     if (!shiftId) return;
@@ -74,6 +77,27 @@ export default function AdminShiftDetailPage() {
     setSuccess("Investigation outcome recorded. The shift is closed.");
     setResolutionNote("");
     setPendingHandover(null);
+    await load();
+  }
+
+  async function correct(token: string) {
+    if (!data) return;
+    setError("");
+    setSuccess("");
+    const result = await correctClosedShift({
+      shiftId: data.shift.id,
+      closingCash: Number(correction.cash),
+      closingMomoFloat: Number(correction.momoFloat),
+      reason: correction.reason,
+      stepUpToken: token,
+    });
+    setCorrectReauth(false);
+    if (!result.success) {
+      setError(result.error ?? "The correction could not be recorded.");
+      return;
+    }
+    setSuccess("Correction recorded. The original figures are kept in the revision history.");
+    setCorrection({ cash: "", momoFloat: "", reason: "" });
     await load();
   }
 
@@ -333,6 +357,122 @@ export default function AdminShiftDetailPage() {
           })
         )}
       </section>
+
+      {shift.status === "closed" && (
+        <section className="card space-y-3 p-4">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Correct the counted figures</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              A closed count is what the named employee handed over, so it is never edited
+              silently. A correction keeps the original figures, records who approved it, and
+              needs your administrator password.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="text-xs font-semibold text-slate-700">
+              Closing cash (GH₵)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={correction.cash}
+                onChange={(event) =>
+                  setCorrection((current) => ({ ...current, cash: event.target.value }))
+                }
+                placeholder={shift.closingCash === null ? "" : String(shift.closingCash)}
+                className="input mt-1 block w-full"
+              />
+            </label>
+            <label className="text-xs font-semibold text-slate-700">
+              Closing E-cash (GH₵)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={correction.momoFloat}
+                onChange={(event) =>
+                  setCorrection((current) => ({ ...current, momoFloat: event.target.value }))
+                }
+                placeholder={
+                  shift.closingMomoFloat === null ? "" : String(shift.closingMomoFloat)
+                }
+                className="input mt-1 block w-full"
+              />
+            </label>
+            <label className="text-xs font-semibold text-slate-700">
+              Reason (at least 10 characters)
+              <input
+                type="text"
+                maxLength={500}
+                value={correction.reason}
+                onChange={(event) =>
+                  setCorrection((current) => ({ ...current, reason: event.target.value }))
+                }
+                className="input mt-1 block w-full"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={
+              correction.reason.trim().length < 10 ||
+              correction.cash.trim() === "" ||
+              correction.momoFloat.trim() === ""
+            }
+            onClick={() => setCorrectReauth(true)}
+          >
+            <ShieldCheck size={14} aria-hidden /> Record correction
+          </button>
+        </section>
+      )}
+
+      {shift.revisions.length > 0 && (
+        <section className="card space-y-3 p-4">
+          <h2 className="text-sm font-bold text-slate-900">Corrections after closure</h2>
+          <ol className="space-y-2">
+            {shift.revisions.map((revision) => (
+              <li key={revision.id} className="border-l-2 border-slate-200 pl-3">
+                <p className="text-xs font-semibold text-slate-800">
+                  {new Date(revision.createdAt).toLocaleString("en-GB")}
+                  {revision.approvedByName ? ` · ${revision.approvedByName}` : ""}
+                </p>
+                <p className="text-xs text-slate-700">
+                  {revision.fields === "both"
+                    ? "Cash and E-cash"
+                    : revision.fields === "cash"
+                      ? "Cash"
+                      : "E-cash"}{" "}
+                  corrected from{" "}
+                  {revision.before.cash === null ? "not recorded" : revision.before.cash.toFixed(2)}{" "}
+                  /{" "}
+                  {revision.before.momoFloat === null
+                    ? "not recorded"
+                    : revision.before.momoFloat.toFixed(2)}{" "}
+                  to {revision.after.cash?.toFixed(2)} / {revision.after.momoFloat?.toFixed(2)}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">{revision.reason}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      <ReauthDialog
+        open={correctReauth}
+        onClose={() => setCorrectReauth(false)}
+        onConfirmed={(token) => void correct(token)}
+        title="Authorise the shift correction"
+        description="This changes a recorded physical count. Enter your administrator password to authorise it."
+        actionLabel="Record correction"
+        module="admin"
+        purpose="finance.shift_handover.resolve"
+        targetType="shift"
+        targetId={shift.id}
+        context={{}}
+      />
 
       <ReauthDialog
         open={reauthOpen}

@@ -28,6 +28,11 @@ import {
   type ShiftStatus,
 } from "@/lib/shifts";
 import {
+  ACTOR_PROOF_REQUIRED,
+  businessDayBounds,
+} from "@/lib/tenant-policy";
+import { readTenantPolicy } from "@/lib/actions/tenant-policy.actions";
+import {
   resolveShiftOpeningCarry,
   shiftAggregateForDailyAccount,
   type DailyAccountShiftAggregate,
@@ -76,6 +81,35 @@ async function currentUser(tenantId: string, userId: string) {
     where: { id: userId, tenantId },
     select: { id: true, fullName: true, role: true, locationId: true, status: true },
   });
+}
+
+/**
+ * Enforce the business's shared-device rule for a sensitive count.
+ *
+ * When the policy is on, the actor's own password must have produced a
+ * single-use grant bound to this exact record. When it is off, nothing extra is
+ * required and the signed-in session is the only identity.
+ */
+async function claimActorProof(
+  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  ctx: TenantContext,
+  action: "finance.shift_count.submit" | "finance.daily_close.submit",
+  targetType: "shift" | "dailyAccount",
+  targetId: string,
+  token: string | undefined
+): Promise<void> {
+  const session = await actorSession();
+  const grant = await claimStepUpGrant(tx, {
+    token,
+    subjectType: "user",
+    subjectId: ctx.userId,
+    sessionId: stepUpSessionBinding(session, ctx.userId),
+    purpose: action,
+    targetType,
+    targetId,
+    context: {},
+  });
+  if (!grant.ok) throw new StepUpDeniedError(grant.error);
 }
 
 function revalidateShifts() {
@@ -289,6 +323,8 @@ export async function closeShift(input: {
   outstandingOperations?: string;
   outgoingNotes?: string;
   outgoingEvidence?: string;
+  /** Required when the business requires shared-device actor proof. */
+  actorProofToken?: string;
 }): Promise<ShiftActionResponse> {
   const ctx = await requireShiftActor();
   const parsed = closeShiftSchema.safeParse(input);
@@ -334,9 +370,21 @@ export async function closeShift(input: {
     };
   }
 
+  const policy = await readTenantPolicy(ctx.tenantId);
+
   const now = new Date();
   try {
     const handover = await db.$transaction(async (tx) => {
+      if (policy.actorProofForSensitiveCounts) {
+        await claimActorProof(
+          tx,
+          ctx,
+          "finance.shift_count.submit",
+          "shift",
+          shift.id,
+          values.actorProofToken
+        );
+      }
       const updated = await tx.shift.updateMany({
         where: { id: shift.id, tenantId: ctx.tenantId, status: "open" },
         data: {
@@ -397,7 +445,10 @@ export async function closeShift(input: {
 
     revalidateShifts();
     return { success: true, data: { handoverId: handover.id, reference: handover.reference } };
-  } catch {
+  } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: ACTOR_PROOF_REQUIRED };
+    }
     return { success: false, error: "The handover could not be submitted." };
   }
 }
@@ -618,6 +669,132 @@ export async function resolveShiftHandover(input: {
   return { success: true };
 }
 
+/**
+ * Correct the counted figures of a closed shift.
+ *
+ * A shift count is a physical count made by a named employee, so it is never
+ * silently rewritten. An administrator may correct it after closure only with a
+ * written reason and fresh proof of identity; the original figures stay in the
+ * revision record and in the audit log, and the shift keeps its closed status.
+ */
+export async function correctClosedShift(input: {
+  shiftId: string;
+  closingCash: number;
+  closingMomoFloat: number;
+  reason: string;
+  stepUpToken?: string;
+}): Promise<ShiftActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+  const reason = input.reason?.trim() ?? "";
+  if (reason.length < 10 || reason.length > 500) {
+    return { success: false, error: "Record a correction reason of at least 10 characters." };
+  }
+  for (const value of [input.closingCash, input.closingMomoFloat]) {
+    if (!Number.isFinite(value) || value < 0) {
+      return { success: false, error: "Counted figures must be zero or more." };
+    }
+    if (Math.abs(Math.round(value * 100) / 100 - value) > 1e-9) {
+      return { success: false, error: "Use no more than two decimal places." };
+    }
+  }
+
+  const shift = await db.shift.findFirst({
+    where: { id: input.shiftId, tenantId: ctx.tenantId },
+    include: { handovers: { orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+  if (!shift) return { success: false, error: DENIED };
+  if (shift.status !== "closed") {
+    return {
+      success: false,
+      error: "Only a closed shift can be corrected. An open shift is changed by its own handover.",
+    };
+  }
+  const latestHandover = shift.handovers[0];
+  if (latestHandover && latestHandover.status === "variance_open") {
+    return {
+      success: false,
+      error: "Resolve the open handover variance before correcting the figures.",
+    };
+  }
+
+  const before = {
+    cash: shift.closingCash === null ? null : money(shift.closingCash),
+    momoFloat: shift.closingMomoFloat === null ? null : money(shift.closingMomoFloat),
+  };
+  const after = { cash: input.closingCash, momoFloat: input.closingMomoFloat };
+  if (before.cash === after.cash && before.momoFloat === after.momoFloat) {
+    return { success: false, error: "Those figures already match the closed shift." };
+  }
+  const fields =
+    before.cash !== after.cash && before.momoFloat !== after.momoFloat
+      ? "both"
+      : before.cash !== after.cash
+        ? "cash"
+        : "momo_float";
+
+  const session = await actorSession();
+  try {
+    await db.$transaction(async (tx) => {
+      const grant = await claimStepUpGrant(tx, {
+        token: input.stepUpToken,
+        subjectType: "user",
+        subjectId: ctx.userId,
+        sessionId: stepUpSessionBinding(session, ctx.userId),
+        purpose: "finance.shift_handover.resolve",
+        targetType: "shift",
+        targetId: shift.id,
+        context: { fields },
+      });
+      if (!grant.ok) throw new StepUpDeniedError(grant.error);
+
+      const updated = await tx.shift.updateMany({
+        where: { id: shift.id, tenantId: ctx.tenantId, status: "closed" },
+        data: { closingCash: after.cash, closingMomoFloat: after.momoFloat },
+      });
+      if (updated.count !== 1) throw new Error("SHIFT_CONFLICT");
+
+      const revision = await tx.shiftRevision.create({
+        data: {
+          tenantId: ctx.tenantId,
+          shiftId: shift.id,
+          beforeJson: JSON.stringify(before),
+          afterJson: JSON.stringify(after),
+          fields,
+          reason,
+          requestedById: ctx.userId,
+          approvedById: ctx.userId,
+        },
+      });
+
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "shift.corrected",
+        entityType: "shift",
+        entityId: shift.id,
+        details: {
+          revisionId: revision.id,
+          reference: shift.reference,
+          before,
+          after,
+          fields,
+          reason,
+          financialMutation: false,
+          note: "Corrects the recorded count only; no money movement is created.",
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: "Confirm your password to correct a closed shift." };
+    }
+    return { success: false, error: "The correction could not be recorded." };
+  }
+
+  revalidateShifts();
+  return { success: true };
+}
+
 export async function cancelShift(input: {
   shiftId: string;
   reason: string;
@@ -719,6 +896,18 @@ export interface ShiftView {
   openedAt: string | null;
   closedAt: string | null;
   handovers: ShiftHandoverView[];
+  /** Audited corrections applied to this shift after it closed. */
+  revisions: ShiftRevisionView[];
+}
+
+export interface ShiftRevisionView {
+  id: string;
+  createdAt: string;
+  reason: string;
+  fields: string;
+  before: { cash: number | null; momoFloat: number | null };
+  after: { cash: number | null; momoFloat: number | null };
+  approvedByName: string | null;
 }
 
 async function namesFor(
@@ -812,6 +1001,15 @@ function shiftView(
     closedAt: Date | null;
     location: { name: string };
     handovers: Array<Parameters<typeof handoverView>[0]>;
+    revisions?: Array<{
+      id: string;
+      createdAt: Date;
+      reason: string;
+      fields: string;
+      beforeJson: string;
+      afterJson: string;
+      approvedById: string;
+    }>;
   },
   names: Map<string, string>
 ): ShiftView {
@@ -839,13 +1037,43 @@ function shiftView(
     openedAt: row.openedAt?.toISOString() ?? null,
     closedAt: row.closedAt?.toISOString() ?? null,
     handovers: row.handovers.map((handover) => handoverView(handover, names)),
+    revisions: (row.revisions ?? []).map((revision) => {
+      const before = safeSnapshot(revision.beforeJson);
+      const after = safeSnapshot(revision.afterJson);
+      return {
+        id: revision.id,
+        createdAt: revision.createdAt.toISOString(),
+        reason: revision.reason,
+        fields: revision.fields,
+        before,
+        after,
+        approvedByName: names.get(revision.approvedById) ?? null,
+      };
+    }),
   };
+}
+
+/** A revision snapshot is JSON text; a malformed one must never crash a page. */
+function safeSnapshot(raw: string): { cash: number | null; momoFloat: number | null } {
+  try {
+    const parsed = JSON.parse(raw) as { cash?: unknown; momoFloat?: unknown };
+    return {
+      cash: parsed.cash === null || parsed.cash === undefined ? null : money(parsed.cash),
+      momoFloat:
+        parsed.momoFloat === null || parsed.momoFloat === undefined
+          ? null
+          : money(parsed.momoFloat),
+    };
+  } catch {
+    return { cash: null, momoFloat: null };
+  }
 }
 
 function shiftInclude() {
   return {
     location: { select: { name: true } },
     handovers: { orderBy: { createdAt: "desc" as const } },
+    revisions: { orderBy: { createdAt: "desc" as const } },
   };
 }
 

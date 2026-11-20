@@ -20,6 +20,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   UserCog,
   UserRound,
@@ -91,6 +92,7 @@ export const navSections: NavSection[] = [
     items: [
       { href: "/admin/billing", label: "Billing & Plan", icon: CreditCard },
       { href: "/admin/staff", label: "Staff", icon: UserCog },
+      { href: "/admin/policy", label: "Operations Policy", icon: SlidersHorizontal },
       { href: "/admin/audit", label: "Activity History", icon: ScrollText },
       { href: "/admin/integrations", label: "Integrations", icon: Plug },
       { href: "/admin/settings", label: "Settings", icon: Settings },
