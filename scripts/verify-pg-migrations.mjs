@@ -40,6 +40,7 @@ const CUT_OFF_MIGRATIONS = new Set([
   "20261211_offline_action_requests",
   "20261212_tenant_messaging_config",
   "20261213_portal_withdrawals_evidence",
+  "20261214_association_governance",
 ]);
 
 const MIGRATIONS_DIR = path.join(repoRoot, "prisma", "migrations");

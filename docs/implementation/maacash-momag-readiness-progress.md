@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 96 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 100 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 137 files / 1492 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 138 files / 1508 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -353,8 +353,43 @@ that appears on the timeline and in the notification feed. An upheld outcome is
 now refused unless its correction reference matches a real reversal row for the
 same subject, so a dispute cannot be closed on an invented reference.
 
-**31–36. Association foundation — MISSING** (item 36 is
-PENDING_ASSOCIATION_DECISION).
+**31. Association entity and membership link — DONE.**
+`Association` is a first-class entity with its own code, name, region, status and
+charter version, and `AssociationMember` now carries `associationId` and `zoneId`
+as nullable links. Existing tenant-wide register rows keep working unchanged, and
+a business can host more than one association.
+
+**32. Zones, chapters and hierarchy — DONE.**
+`AssociationZone` belongs to one association and can point at a parent zone, so a
+region can contain districts without a new table. A zone code is unique inside its
+association, and a parent must belong to the same association.
+
+**33. Association roles and permissions — DONE.**
+`AssociationRoleAssignment` grants `association_admin`, `zone_officer`,
+`member_viewer` or `auditor`, and the capability table is enforced server-side:
+a zone officer may manage members but not governance or roles, an auditor and a
+member viewer may only read. Revoking the last association administrator is
+refused so the role can always be granted again. Creating the first association is
+the one bootstrap step a business administrator may take, because that is how the
+roles come to exist; after that only an association administrator can manage it.
+
+**34. Consent and governance records — DONE.**
+`AssociationConsentRecord` covers a membership agreement, a data-sharing consent
+or an access review, with expiry and withdrawal as first-class state. A consent
+counts only while it is granted, unexpired and not withdrawn, evaluated at read
+time so a lapsed consent stops counting without a job. Withdrawal requires a
+written reason and is audited.
+
+**35. Association reports and exports — DONE.**
+Members, zones, sponsorships, training and consent export as CSV from
+`/api/association/export?type=…`, built by the same tenant-scoped action the screen
+calls. The export cannot carry another business's rows, and consent exports show
+each record's live state.
+
+**36. Association pilot dashboard — PENDING_ASSOCIATION_DECISION.**
+The data and controls exist; the shape of the MoMAG/MMAAG pilot dashboard (which
+roles see which reports, and the regional roll-up they expect) is a client
+decision. It is recorded as pending rather than guessed.
 
 **37–42. Training and certification — MISSING.**
 **43–48. Sponsored subscriptions — MISSING.**
@@ -371,8 +406,9 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261210_employee_accountability/migration.sql`,
 `prisma/migrations/20261211_offline_action_requests/migration.sql`,
 `prisma/migrations/20261212_tenant_messaging_config/migration.sql`,
-`prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`, generated
-with `scripts/make-pg-migration.mjs` (local host only, throwaway database,
+`prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`,
+`prisma/migrations/20261214_association_governance/migration.sql`, generated with
+`scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
 
@@ -426,7 +462,7 @@ answer:
 
 ## 7. Next work, in order
 
-1. A6 association foundation on a generic model, then A7/A8.
+1. A7 training and certification, then A8 sponsored subscriptions.
 2. A9 anomaly investigation, which is also the prerequisite for C0–C2.
 3. A10 BI completion.
 4. Final release gate: full suites, production-build browser acceptance, security

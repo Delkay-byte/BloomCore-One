@@ -1142,11 +1142,17 @@ model AssociationMember {
   status        String    @default("active")
   joinedAt      DateTime?
   notes         String?
+  /// Which association and zone own this membership. Nullable so the existing
+  /// tenant-wide register keeps working unchanged.
+  associationId String?
+  zoneId        String?
   createdById   String
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   tenant      BusinessTenant?            @relation(fields: [tenantId], references: [id])
+  association Association?               @relation(fields: [associationId], references: [id])
+  zone        AssociationZone?           @relation(fields: [zoneId], references: [id])
   sponsorships AssociationSponsorship[]
   trainings    AssociationTrainingRecord[]
 
@@ -1154,6 +1160,112 @@ model AssociationMember {
   @@unique([tenantId, phone])
   @@index([tenantId, status])
   @@index([tenantId, businessName])
+}
+
+/// An association that can span many member businesses.
+///
+/// The register rows below keep their own tenant for row-level scoping, while
+/// `associationId` says which association owns them. A business may operate the
+/// register for one association during the pilot; the entity exists so the model
+/// does not have to pretend a single business is an association.
+model Association {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  code           String
+  name           String
+  region         String?
+  /// active | inactive
+  status         String   @default("active")
+  charterVersion String?
+  contactEmail   String?
+  contactPhone   String?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  zones  AssociationZone[]
+  members AssociationMember[]
+  roles  AssociationRoleAssignment[]
+  consents AssociationConsentRecord[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+/// A zone or chapter inside an association. `parentZoneId` allows a region to
+/// contain districts without a new table.
+model AssociationZone {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  associationId String
+  parentZoneId  String?
+  code          String
+  name          String
+  region        String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  parent      AssociationZone?  @relation("ZoneHierarchy", fields: [parentZoneId], references: [id])
+  children    AssociationZone[] @relation("ZoneHierarchy")
+  members     AssociationMember[]
+  roles       AssociationRoleAssignment[]
+
+  @@unique([associationId, code])
+  @@index([associationId, parentZoneId])
+}
+
+/// What a person may do inside an association.
+///
+/// Deliberately separate from the business role: an association auditor should
+/// not inherit authority over a member business's money.
+model AssociationRoleAssignment {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  associationId String
+  zoneId        String?
+  userId        String
+  /// association_admin | zone_officer | member_viewer | auditor
+  role          String
+  grantedById   String
+  grantedAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  note          String?
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  zone        AssociationZone? @relation(fields: [zoneId], references: [id])
+
+  @@unique([associationId, userId, role])
+  @@index([tenantId, role])
+  @@index([userId, revokedAt])
+}
+
+/// A governance record: a membership agreement, a data-sharing consent or an
+/// access review. Expiry and withdrawal are first-class so an expired consent
+/// stops counting without deleting history.
+model AssociationConsentRecord {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  associationId String
+  memberId      String?
+  /// membership_agreement | data_sharing | access_review
+  subjectType   String
+  grantedById   String
+  grantedAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  withdrawnAt   DateTime?
+  documentRef   String?
+  note          String?
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, associationId, subjectType])
+  @@index([expiresAt])
 }
 
 /// Sponsorship of one association member. This is a record of an agreed
@@ -1245,6 +1357,10 @@ model BusinessTenant {
   evidenceAttachments          EvidenceAttachment[]
   customerDisputeEvents        CustomerDisputeEvent[]
   associationMembers           AssociationMember[]
+  associations                 Association[]
+  associationZones             AssociationZone[]
+  associationRoles             AssociationRoleAssignment[]
+  associationConsents          AssociationConsentRecord[]
   associationSponsorships      AssociationSponsorship[]
   associationTrainingRecords   AssociationTrainingRecord[]
   customerMessagingPreferences CustomerMessagingPreference[]
