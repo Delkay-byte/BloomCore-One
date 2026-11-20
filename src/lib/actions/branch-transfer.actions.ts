@@ -24,6 +24,8 @@ import {
   generateTransferReference,
   isBranchAssetType,
   networkForAsset,
+  minorToCedi,
+  planPartialSettlement,
   requiresStepUpForApproval,
   TRANSFER_STATUS_LABELS,
   type BranchAssetType,
@@ -1075,6 +1077,197 @@ export async function resolveBranchTransfer(input: {
 
   revalidateTransfers();
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Partial settlement
+// ---------------------------------------------------------------------------
+
+/**
+ * Settle a short receipt.
+ *
+ * A dispatcher sends GH₵1,000, the destination counts GH₵900. The correct
+ * treatment is not a silent reduction: the original transfer keeps its
+ * dispatched amount, GH₵900 is recorded as the accepted value, and the remaining
+ * GH₵100 is either carried into a follow-up transfer or explicitly written back
+ * with a reason. Only an administrator may settle, and a high-value settlement
+ * requires a fresh step-up grant.
+ */
+export async function settlePartialTransfer(input: {
+  id: string;
+  settledAmount: number;
+  resolution: "follow_up_transfer" | "write_back";
+  note: string;
+  stepUpToken?: string;
+}): Promise<TransferActionResponse> {
+  const ctx = await requireTenantAdminMomo();
+  const note = input.note?.trim() ?? "";
+  if (note.length < 10 || note.length > 500) {
+    return { success: false, error: "Record a settlement reason of at least 10 characters." };
+  }
+  if (input.resolution !== "follow_up_transfer" && input.resolution !== "write_back") {
+    return { success: false, error: "Choose how the outstanding balance is settled." };
+  }
+
+  const transfer = await db.branchTransfer.findFirst({
+    where: { id: input.id, tenantId: ctx.tenantId },
+  });
+  if (!transfer) return { success: false, error: DENIED };
+  if (transfer.status !== "variance_investigation" && transfer.status !== "disputed") {
+    return {
+      success: false,
+      error: "Only a transfer under variance investigation can be partially settled.",
+    };
+  }
+  if (
+    transfer.settlementStatus === "partial_settled" ||
+    transfer.settlementStatus === "written_back"
+  ) {
+    return { success: false, error: "This transfer has already been settled." };
+  }
+
+  const dispatchedMinor = Math.round(money(transfer.amount) * 100);
+  const receivedValue =
+    input.settledAmount === undefined || input.settledAmount === null
+      ? money(transfer.actualAmountReceived ?? 0)
+      : input.settledAmount;
+  if (!Number.isFinite(receivedValue) || receivedValue < 0) {
+    return { success: false, error: "Enter a valid accepted amount." };
+  }
+  const receivedMinor = Math.round(receivedValue * 100);
+  if (Math.abs(receivedMinor / 100 - receivedValue) > 1e-9) {
+    return { success: false, error: "Use no more than two decimal places." };
+  }
+  if (receivedMinor >= dispatchedMinor) {
+    return {
+      success: false,
+      error: "A partial settlement must be below the dispatched amount. Resolve a full receipt instead.",
+    };
+  }
+
+  const plan = planPartialSettlement({ dispatchedMinor, receivedMinor });
+  const now = new Date();
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      // A high-value settlement moves material value out of the original
+      // transfer, so it needs the same fresh proof as a high-value approval.
+      if (requiresStepUpForApproval(dispatchedMinor)) {
+        await claimTransferStepUp(
+          tx,
+          ctx,
+          input.stepUpToken,
+          "finance.branch_transfer.resolve",
+          transfer.id,
+          dispatchedMinor
+        );
+      }
+
+      let followUpId: string | null = null;
+      if (input.resolution === "follow_up_transfer" && plan.outstandingMinor > 0) {
+        // The follow-up is a NEW transfer for the remainder. It inherits the same
+        // asset and route and starts as a draft, so it must still be requested,
+        // approved and dispatched through the normal controls.
+        const reference = generateTransferReference(
+          now,
+          randomBytes(4).toString("hex").toUpperCase()
+        );
+        const created = await tx.branchTransfer.create({
+          data: {
+            tenantId: ctx.tenantId,
+            reference,
+            assetType: transfer.assetType,
+            network: transfer.network,
+            sourceLocationId: transfer.sourceLocationId,
+            destinationLocationId: transfer.destinationLocationId,
+            amount: minorToCedi(plan.outstandingMinor),
+            status: "draft",
+            purpose: `Outstanding balance of ${transfer.reference}`,
+            notes: note,
+            initiatedById: ctx.userId,
+            idempotencyKey: `followup:${transfer.id}`,
+            parentTransferId: transfer.id,
+          },
+          select: { id: true, reference: true },
+        });
+        followUpId = created.id;
+        await appendEvent(tx, {
+          tenantId: ctx.tenantId,
+          transferId: created.id,
+          action: "created_follow_up",
+          actorId: ctx.userId,
+          note: `Settles the outstanding balance of ${transfer.reference}`,
+        });
+      }
+
+      const updated = await tx.branchTransfer.updateMany({
+        where: { id: transfer.id, tenantId: ctx.tenantId, status: transfer.status },
+        data: {
+          status: input.resolution === "follow_up_transfer" ? "received" : "completed",
+          actualAmountReceived: minorToCedi(receivedMinor),
+          variance: minorToCedi(plan.varianceMinor),
+          settlementStatus:
+            input.resolution === "follow_up_transfer" ? "partial_settled" : "written_back",
+          settledAmount: minorToCedi(plan.settledMinor),
+          outstandingAmount: minorToCedi(plan.outstandingMinor),
+          followUpTransferId: followUpId,
+          settledById: ctx.userId,
+          settledAt: now,
+          resolvedById: ctx.userId,
+          resolvedAt: now,
+          resolutionNote: note,
+        },
+      });
+      if (updated.count !== 1) throw new Error("TRANSFER_CONFLICT");
+
+      await appendEvent(tx, {
+        tenantId: ctx.tenantId,
+        transferId: transfer.id,
+        action:
+          input.resolution === "follow_up_transfer"
+            ? "partial_settlement_follow_up"
+            : "partial_settlement_written_back",
+        actorId: ctx.userId,
+        note: `${minorToCedi(plan.settledMinor).toFixed(2)} accepted, ${minorToCedi(
+          plan.outstandingMinor
+        ).toFixed(2)} outstanding. ${note}`,
+      });
+
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "branch_transfer.partial_settlement",
+        entityType: "branchTransfer",
+        entityId: transfer.id,
+        details: {
+          reference: transfer.reference,
+          dispatchedAmount: minorToCedi(dispatchedMinor),
+          settledAmount: minorToCedi(plan.settledMinor),
+          outstandingAmount: minorToCedi(plan.outstandingMinor),
+          resolution: input.resolution,
+          followUpTransferId: followUpId,
+          note,
+        },
+      });
+
+      return { followUpId, plan };
+    });
+
+    revalidateTransfers();
+    return {
+      success: true,
+      data: {
+        settled: minorToCedi(result.plan.settledMinor),
+        outstanding: minorToCedi(result.plan.outstandingMinor),
+        followUpTransferId: result.followUpId,
+      },
+    };
+  } catch (error) {
+    if (error instanceof StepUpDeniedError) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "The partial settlement could not be recorded." };
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -160,6 +160,15 @@ const INBOUND_EFFECTIVE = new Set([
   "variance_investigation",
 ]);
 
+/** Exposed for the daily liquidity snapshot, which must use the same rules. */
+export function isOutboundEffective(status: string): boolean {
+  return OUTBOUND_EFFECTIVE.has(status);
+}
+
+export function isInboundEffective(status: string): boolean {
+  return INBOUND_EFFECTIVE.has(status);
+}
+
 export interface TransferBalanceRow {
   id: string;
   assetType: string;
@@ -306,6 +315,54 @@ export function assetPosition(input: {
     effective: money(declared + adjustment.net),
     source: adjustment.net === 0 ? "manual_declaration" : "declaration_plus_transfers",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Partial settlement
+// ---------------------------------------------------------------------------
+
+export const SETTLEMENT_STATUSES = ["full", "partial_open", "partial_settled", "written_back"] as const;
+export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
+
+export const SETTLEMENT_STATUS_LABELS: Record<SettlementStatus, string> = {
+  full: "Full receipt",
+  partial_open: "Partial receipt — balance outstanding",
+  partial_settled: "Partial receipt — balance settled by follow-up",
+  written_back: "Partial receipt — balance written back",
+};
+
+/**
+ * Decide how a short receipt is settled.
+ *
+ * A partial receipt never silently reduces the transfer. The original
+ * dispatched `amount` stays unchanged, the accepted value is recorded as
+ * `settledAmount`, and the remainder is either carried into a follow-up
+ * transfer or explicitly written back with a reason. Integer pesewa only.
+ */
+export function planPartialSettlement(input: {
+  dispatchedMinor: number;
+  receivedMinor: number;
+}): {
+  settledMinor: number;
+  outstandingMinor: number;
+  varianceMinor: number;
+  status: SettlementStatus;
+} {
+  const dispatched = Math.max(0, Math.trunc(input.dispatchedMinor));
+  const received = Math.max(0, Math.trunc(input.receivedMinor));
+  const settled = Math.min(received, dispatched);
+  const outstanding = dispatched - settled;
+  return {
+    settledMinor: settled,
+    outstandingMinor: outstanding,
+    varianceMinor: received - dispatched,
+    status: outstanding === 0 ? "full" : "partial_open",
+  };
+}
+
+/** Convert integer pesewa to a cedi value for persistence as a Decimal. */
+export function minorToCedi(minor: number): number {
+  return Math.round(minor) / 100;
 }
 
 export function computeVariance(amount: unknown, actualReceived: unknown): number {

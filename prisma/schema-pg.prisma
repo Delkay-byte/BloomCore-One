@@ -77,6 +77,7 @@ model Location {
   outgoingTransfers BranchTransfer[] @relation("TransferSource")
   incomingTransfers BranchTransfer[] @relation("TransferDestination")
   shifts Shift[]
+  liquiditySnapshots BranchLiquiditySnapshot[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -151,6 +152,7 @@ model DailyAccount {
   worker    User                   @relation(fields: [workerId], references: [id])
   expenses  Expense[]
   revisions DailyAccountRevision[]
+  liquiditySnapshots BranchLiquiditySnapshot[]
   momoTransactions MomoTransaction[]
   shifts Shift[]
 
@@ -303,6 +305,23 @@ model BranchTransfer {
   receiptEvidence   String?
   variance          Decimal?
   varianceReason    String?
+  /// Sanctioned partial settlement. `settledAmount` is the value finally
+  /// accepted at the destination; `outstandingAmount` is the remainder that the
+  /// follow-up transfer or a write-back resolution must cover. This is never a
+  /// silent reduction of the dispatched amount: the original `amount` stays.
+  settlementStatus  String?
+  settledAmount     Decimal?
+  outstandingAmount Decimal?
+  followUpTransferId String?
+  parentTransferId   String?
+  settledById       String?
+  settledAt         DateTime?
+
+  /// The transfer that settles the remaining balance of this one (many
+  /// follow-ups may settle one original, so this side is not unique).
+  followUps      BranchTransfer[] @relation("TransferFollowUp")
+  /// Set when this transfer was created to settle an earlier partial receipt.
+  parentTransfer BranchTransfer?  @relation("TransferFollowUp", fields: [parentTransferId], references: [id])
   rejectedById      String?
   rejectedAt        DateTime?
   rejectionReason   String?
@@ -1175,6 +1194,13 @@ model BusinessTenant {
   zeliPaymentEvents            ZeliPaymentEvent[]
   zeliAiAuthorizations         ZeliAiTenantAuthorization[]
   zeliEntitlementEvents        ZeliEntitlementEvent[]
+  providerStatementImports      ProviderStatementImport[]
+  providerStatementRows         ProviderStatementRow[]
+  branchLiquiditySnapshots      BranchLiquiditySnapshot[]
+  branchLiquidityLines          BranchLiquidityLine[]
+  reconciliationCases           ReconciliationExceptionCase[]
+  reconciliationCaseLinks       ReconciliationExceptionLink[]
+  reconciliationCaseEvents      ReconciliationExceptionEvent[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -2234,4 +2260,237 @@ model CustomerMessageStatusEvent {
   outbox CustomerMessageOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
 
   @@index([outboxId, occurredAt])
+}
+
+// ============================================================================
+// PRIORITY A1 — RECONCILIATION, CASH AND FLOAT
+// ============================================================================
+
+/// One imported provider statement file.
+///
+/// An import is EVIDENCE ONLY. Nothing in this model or its rows is ever posted
+/// to the MoMo ledger, a daily account or any other financial record. A matched
+/// row links to an existing internal record for comparison; it never creates or
+/// edits one.
+model ProviderStatementImport {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  /// mtn | telecel | at_money
+  provider      String
+  fileName      String
+  /// SHA-256 of the uploaded bytes. A tenant can import a file once.
+  fileHash      String
+  fileSizeBytes Int?
+  /// JSON: provider header -> accepted column. Kept so a re-read is reproducible.
+  columnMapping String?
+  /// parsed | validated | rejected | reconciled
+  status        String    @default("parsed")
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  rowCount      Int       @default(0)
+  validRows     Int       @default(0)
+  invalidRows   Int       @default(0)
+  duplicateRows Int       @default(0)
+  matchedRows   Int       @default(0)
+  unmatchedRows Int       @default(0)
+  currency      String    @default("GHS")
+  note          String?
+  importedById  String
+  importedAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rows   ProviderStatementRow[]
+
+  @@unique([tenantId, fileHash])
+  @@index([tenantId, provider, createdAt])
+  @@index([tenantId, status])
+}
+
+/// One line of an imported provider statement, exactly as received.
+///
+/// `fingerprint` is a deterministic hash of provider, reference, timestamp,
+/// direction and amount. It is how a repeated line is detected across imports
+/// without discarding the evidence: the row is stored with status `duplicate`
+/// and points at the row it duplicates.
+model ProviderStatementRow {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  importId          String
+  rowNumber         Int
+  fingerprint       String
+  externalReference String?
+  transactionAt     DateTime?
+  /// in | out
+  direction         String?
+  amount            Decimal?
+  fee               Decimal?
+  balanceAfter      Decimal?
+  description       String?
+  /// The original line, truncated for evidence. Never rendered as HTML.
+  rawRow            String?
+  /// valid | invalid | duplicate | matched | unmatched | ignored
+  status            String    @default("valid")
+  validationError   String?
+  duplicateOfId     String?
+  /// momoTransaction | none
+  matchedEntityType String?
+  matchedEntityId   String?
+  /// exact_reference | amount_and_time | manual
+  matchType         String?
+  matchedAt         DateTime?
+  matchedById       String?
+  createdAt         DateTime  @default(now())
+
+  tenant BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  import ProviderStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@unique([importId, rowNumber])
+  @@index([tenantId, fingerprint])
+  @@index([importId, status])
+  @@index([tenantId, matchedEntityId])
+}
+
+/// A formal opening/closing liquidity snapshot for one branch and business day.
+///
+/// The three figures per asset are kept separate and are never collapsed:
+///   declared  — what the operator declared at the start of the day,
+///   adjusted  — declared plus transfers that moved value during the day,
+///   counted   — what was physically counted / observed at close.
+/// `variance` is counted minus adjusted and is the number an investigator works
+/// from. A snapshot is an INTERNAL record. No figure here is provider-confirmed.
+model BranchLiquiditySnapshot {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  locationId     String
+  businessDate   DateTime
+  dailyAccountId String?
+  /// draft | submitted | reviewed
+  status         String    @default("draft")
+  note           String?
+  recordedById   String
+  submittedById  String?
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant       BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location     Location                @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?           @relation(fields: [dailyAccountId], references: [id])
+  lines        BranchLiquidityLine[]
+
+  @@unique([tenantId, locationId, businessDate])
+  @@index([tenantId, businessDate])
+  @@index([tenantId, status])
+}
+
+/// One asset line of a branch liquidity snapshot.
+model BranchLiquidityLine {
+  id                 String   @id @default(cuid())
+  tenantId           String?
+  snapshotId         String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType          String
+  openingDeclared    Decimal  @default(0)
+  /// Net movement from branch transfers during the day (may be negative).
+  transferAdjustment Decimal  @default(0)
+  expectedClose      Decimal  @default(0)
+  countedClose       Decimal  @default(0)
+  variance           Decimal  @default(0)
+  note               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant   BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  snapshot BranchLiquiditySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, assetType])
+  @@index([tenantId, assetType])
+}
+
+/// Unified reconciliation exception case.
+///
+/// One queue for every unresolved discrepancy: provider statement lines, branch
+/// liquidity variances, transfer variances, remittance differences and shift
+/// variances all link here. A case carries an owner, an age, evidence and a
+/// resolution. Resolving a case NEVER changes a financial record; the linked
+/// correction is recorded by its own authorised workflow and referenced here.
+model ReconciliationExceptionCase {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  caseNumber     String
+  /// provider_statement | branch_liquidity | branch_transfer | remittance | shift | daily_close | other
+  category       String
+  /// high | medium | low
+  severity       String    @default("medium")
+  /// open | investigating | awaiting_evidence | resolved | dismissed
+  status         String    @default("open")
+  title          String
+  description    String?
+  ownerId        String?
+  assignedAt     DateTime?
+  dueAt          DateTime?
+  evidence       String?
+  resolutionType String?
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  openedById     String
+  openedAt       DateTime  @default(now())
+  lastActivityAt DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant?               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  links  ReconciliationExceptionLink[]
+  events ReconciliationExceptionEvent[]
+
+  @@unique([tenantId, caseNumber])
+  @@index([tenantId, status, severity])
+  @@index([tenantId, category])
+  @@index([tenantId, ownerId])
+}
+
+/// A source record linked to an exception case. Polymorphic by design: a case
+/// can link to a provider statement row, a transfer, a daily account, a shift or
+/// a remittance without a nullable column per type.
+model ReconciliationExceptionLink {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  caseId      String
+  entityType  String
+  entityId    String
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  tenant BusinessTenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   ReconciliationExceptionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([caseId, createdAt])
+}
+
+/// Append-only case timeline. Every state change writes one row.
+model ReconciliationExceptionEvent {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  caseId    String
+  /// opened | assigned | status_changed | note | evidence | resolved | reopened | link_added
+  type      String
+  actorId   String
+  actorRole String?
+  note      String?
+  payload   String?
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   ReconciliationExceptionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@index([tenantId, type])
 }
