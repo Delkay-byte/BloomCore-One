@@ -7,8 +7,13 @@ import { createAuditLogTx } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/notifications";
 import { revalidatePath } from "next/cache";
 import {
+  assignDisputeSchema,
   canTransitionDispute,
+  disputeDueAt,
+  disputeIsOverdue,
+  escalateDisputeSchema,
   generateDisputeReference,
+  isDisputePriority,
   isDisputeSubjectType,
   openDisputeSchema,
   outcomeStatus,
@@ -17,6 +22,7 @@ import {
   respondToDisputeSchema,
   subjectLabel,
   type DisputeCategory,
+  type DisputePriority,
   type DisputeStatus,
   type DisputeSubjectType,
 } from "@/lib/customer-disputes";
@@ -71,6 +77,14 @@ export interface CustomerDisputeView {
   outcomeReference: string | null;
   customerName: string | null;
   customerNumber: string | null;
+  /** Who owns the review, how urgent it is and when it is due. */
+  assignedToId: string | null;
+  assignedToName: string | null;
+  priority: DisputePriority;
+  dueAt: string | null;
+  overdue: boolean;
+  escalatedAt: string | null;
+  escalationNote: string | null;
   events: DisputeEventView[];
 }
 
@@ -312,6 +326,8 @@ export async function openCustomerDispute(input: {
           details: values.details,
           customerEvidence: values.evidenceReference?.trim() || null,
           status: "open",
+          priority: "normal",
+          dueAt: disputeDueAt(new Date(), "normal"),
           openedByType: "customer",
           openedById: ctx.userId,
           events: {
@@ -409,6 +425,13 @@ function mapCustomerDispute(
     outcomeReference: row.outcomeReference,
     customerName: row.customer.fullName,
     customerNumber: row.customer.customerId,
+    assignedToId: row.assignedToId ?? null,
+    assignedToName: row.assignedToId ? adminNames.get(row.assignedToId) ?? null : null,
+    priority: isDisputePriority(row.priority) ? row.priority : "normal",
+    dueAt: row.dueAt?.toISOString() ?? null,
+    overdue: disputeIsOverdue(row.dueAt ?? null, row.status),
+    escalatedAt: row.escalatedAt?.toISOString() ?? null,
+    escalationNote: row.escalationNote ?? null,
     events: row.events.map((event) => ({
       id: event.id,
       actorType: event.actorType,
@@ -575,6 +598,195 @@ async function adminDisputeRow(id: string, tenantId: string) {
       events: { orderBy: { createdAt: "asc" } },
     },
   });
+}
+
+/**
+ * Give the review an owner and an urgency.
+ *
+ * The due date is recalculated from the priority so the queue can show what is
+ * late instead of relying on memory. An assignee must be an administrator in
+ * this business: a dispute cannot be handed to another tenant's staff.
+ */
+export async function assignDispute(input: {
+  disputeId: string;
+  assignedToId: string | null;
+  priority: string;
+}): Promise<DisputeActionResponse> {
+  const ctx = await requireTenantAdminSusu();
+  const parsed = assignDisputeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Check the values." };
+  }
+  const dispute = await adminDisputeRow(parsed.data.disputeId, ctx.tenantId);
+  if (!dispute) return { success: false, error: "Dispute not found." };
+  if (!["open", "under_review", "awaiting_customer"].includes(dispute.status)) {
+    return { success: false, error: "This dispute is already closed." };
+  }
+
+  let assigneeName: string | null = null;
+  if (parsed.data.assignedToId) {
+    const assignee = await db.user.findFirst({
+      where: { id: parsed.data.assignedToId, tenantId: ctx.tenantId, status: "active" },
+      select: { id: true, fullName: true },
+    });
+    if (!assignee) {
+      return { success: false, error: "That person is not an active administrator here." };
+    }
+    assigneeName = assignee.fullName;
+  }
+
+  const priority = parsed.data.priority as DisputePriority;
+  const dueAt = disputeDueAt(dispute.createdAt, priority);
+  await db.$transaction(async (tx) => {
+    await tx.customerDispute.update({
+      where: { id: dispute.id },
+      data: {
+        assignedToId: parsed.data.assignedToId || null,
+        priority,
+        dueAt,
+      },
+    });
+    await tx.customerDisputeEvent.create({
+      data: {
+        tenantId: ctx.tenantId,
+        disputeId: dispute.id,
+        actorType: "admin",
+        actorId: ctx.userId,
+        action: "assigned",
+        note: assigneeName
+          ? `Assigned to ${assigneeName}; priority ${priority}.`
+          : `Unassigned; priority ${priority}.`,
+      },
+    });
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "customer_dispute.assigned",
+      entityType: "customerDispute",
+      entityId: dispute.id,
+      details: {
+        reference: dispute.reference,
+        assignedToId: parsed.data.assignedToId || null,
+        priority,
+        dueAt: dueAt.toISOString(),
+        financialMutation: false,
+      },
+    });
+  });
+  revalidateDisputes();
+  return { success: true, data: { assignedToId: parsed.data.assignedToId, priority } };
+}
+
+/** Raise a dispute above the normal queue and say why. */
+export async function escalateDispute(input: {
+  disputeId: string;
+  note: string;
+}): Promise<DisputeActionResponse> {
+  const ctx = await requireTenantAdminSusu();
+  const parsed = escalateDisputeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Say why." };
+  }
+  const dispute = await adminDisputeRow(parsed.data.disputeId, ctx.tenantId);
+  if (!dispute) return { success: false, error: "Dispute not found." };
+  if (!["open", "under_review", "awaiting_customer"].includes(dispute.status)) {
+    return { success: false, error: "This dispute is already closed." };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.customerDispute.update({
+      where: { id: dispute.id },
+      data: {
+        escalatedAt: new Date(),
+        escalationNote: parsed.data.note,
+        priority: "urgent",
+        dueAt: disputeDueAt(new Date(), "urgent"),
+      },
+    });
+    await tx.customerDisputeEvent.create({
+      data: {
+        tenantId: ctx.tenantId,
+        disputeId: dispute.id,
+        actorType: "admin",
+        actorId: ctx.userId,
+        action: "escalated",
+        note: parsed.data.note,
+      },
+    });
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "customer_dispute.escalated",
+      entityType: "customerDispute",
+      entityId: dispute.id,
+      details: {
+        reference: dispute.reference,
+        note: parsed.data.note,
+        financialMutation: false,
+      },
+    });
+  });
+  await createNotification({
+    tenantId: ctx.tenantId,
+    audience: "tenant",
+    kind: "system",
+    severity: "attention",
+    title: `Dispute ${dispute.reference} escalated`,
+    body: parsed.data.note,
+    href: `/susu/admin/disputes/${dispute.id}`,
+    dedupeKey: `customer_dispute_escalated:${dispute.id}`,
+  }).catch(() => null);
+  revalidateDisputes();
+  return { success: true };
+}
+
+/**
+ * Confirm that an upheld outcome points at a correction that really exists.
+ *
+ * A dispute never changes money itself, so an upheld outcome is only honest when
+ * the reversal/withdrawal it names is on record for the same subject. Returns the
+ * reason when it is not, so the resolver can refuse instead of closing a dispute
+ * on a made-up reference.
+ */
+async function correctionProblem(
+  subjectType: DisputeSubjectType,
+  subjectId: string,
+  reference: string | null | undefined
+): Promise<string | null> {
+  const trimmed = (reference ?? "").trim();
+  if (!trimmed) {
+    return "Record the correction reference before closing this dispute as upheld.";
+  }
+  if (subjectType === "contribution") {
+    const correction = await db.contribution.findFirst({
+      where: {
+        OR: [{ reversalOfId: subjectId }, { id: subjectId, reversedAt: { not: null } }],
+        referenceId: trimmed,
+      },
+      select: { id: true },
+    });
+    const anyCorrection = correction
+      ? correction
+      : await db.contribution.findFirst({
+          where: { reversalOfId: subjectId, referenceId: trimmed },
+          select: { id: true },
+        });
+    if (!anyCorrection) {
+      return "No reversal matches that reference for this contribution. Record the correction first.";
+    }
+    return null;
+  }
+  const correction = await db.withdrawal.findFirst({
+    where: {
+      OR: [{ reversalOfId: subjectId }, { id: subjectId, reversedAt: { not: null } }],
+      referenceId: trimmed,
+    },
+    select: { id: true },
+  });
+  if (!correction) {
+    return "No reversal matches that reference for this withdrawal. Record the correction first.";
+  }
+  return null;
 }
 
 export async function getAdminDisputes(filters?: {
@@ -751,6 +963,17 @@ export async function resolveCustomerDispute(input: {
       success: false,
       error: "Start the review before resolving this dispute.",
     };
+  }
+  if (values.outcome === "upheld") {
+    if (!isDisputeSubjectType(dispute.subjectType)) {
+      return { success: false, error: "This dispute has an unsupported subject type." };
+    }
+    const problem = await correctionProblem(
+      dispute.subjectType,
+      dispute.subjectId,
+      values.outcomeReference
+    );
+    if (problem) return { success: false, error: problem };
   }
 
   try {

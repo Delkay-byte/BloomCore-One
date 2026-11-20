@@ -23,6 +23,8 @@ export async function cleanDatabase() {
   await prisma.cardFee.deleteMany();
   await prisma.collectorCustomerAssignment.deleteMany();
   await prisma.collectorRemittance.deleteMany();
+  await prisma.customerWithdrawalRequest.deleteMany();
+  await prisma.evidenceAttachment.deleteMany();
   await prisma.susuCycle.deleteMany();
   await prisma.susuAccount.deleteMany();
   await prisma.customer.deleteMany();

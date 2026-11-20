@@ -7,7 +7,10 @@ import { ArrowLeft, ShieldCheck } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import DisputeStatusBadge from "@/components/susu/DisputeStatusBadge";
+import EvidencePanel from "@/components/EvidencePanel";
 import {
+  assignDispute,
+  escalateDispute,
   getAdminDispute,
   requestDisputeInformation,
   resolveCustomerDispute,
@@ -16,12 +19,17 @@ import {
 } from "@/lib/actions/customer-dispute.actions";
 import {
   DISPUTE_CATEGORY_LABELS,
+  DISPUTE_PRIORITIES,
+  DISPUTE_PRIORITY_LABELS,
   isOpenDispute,
   type DisputeCategory,
+  type DisputePriority,
 } from "@/lib/customer-disputes";
 
 const EVENT_LABEL: Record<string, string> = {
   opened: "Dispute opened",
+  assigned: "Owner or urgency changed",
+  escalated: "Escalated",
   customer_responded: "Customer added information",
   review_started: "Review started",
   information_requested: "Information requested",
@@ -53,6 +61,8 @@ export default function AdminDisputeDetailPage() {
   const [resolutionNote, setResolutionNote] = useState("");
   const [outcomeReference, setOutcomeReference] = useState("");
   const [resolutionEvidence, setResolutionEvidence] = useState("");
+  const [priority, setPriority] = useState<DisputePriority>("normal");
+  const [escalationNote, setEscalationNote] = useState("");
 
   const load = useCallback(async () => {
     if (!disputeId) return;
@@ -86,6 +96,10 @@ export default function AdminDisputeDetailPage() {
     }
     setBusy(false);
   }
+
+  useEffect(() => {
+    if (dispute) setPriority(dispute.priority);
+  }, [dispute]);
 
   if (loading && !dispute) return <p className="text-sm text-slate-500">Loading dispute…</p>;
   if (!dispute) {
@@ -125,6 +139,118 @@ export default function AdminDisputeDetailPage() {
 
       {error && <Notice type="error">{error}</Notice>}
       {success && <Notice type="success">{success}</Notice>}
+
+      <section className="card space-y-3 p-4" aria-labelledby="dispute-ownership">
+        <h2 id="dispute-ownership" className="text-sm font-bold text-slate-900">
+          Owner and urgency
+        </h2>
+        <dl className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+          <div>
+            <dt className="text-slate-500">Assigned to</dt>
+            <dd className="font-medium text-slate-800">
+              {dispute.assignedToName ?? "Nobody yet"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Target</dt>
+            <dd className={dispute.overdue ? "font-medium text-red-700" : "text-slate-800"}>
+              {dispute.dueAt
+                ? `${fmt(dispute.dueAt)}${dispute.overdue ? " · overdue" : ""}`
+                : "No target set"}
+            </dd>
+          </div>
+        </dl>
+        {dispute.escalationNote && (
+          <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+            Escalated: {dispute.escalationNote}
+          </p>
+        )}
+        {open && (
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs font-medium text-slate-600">
+              Priority
+              <select
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as DisputePriority)}
+                className="input mt-1 block"
+                aria-label="Dispute priority"
+              >
+                {DISPUTE_PRIORITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {DISPUTE_PRIORITY_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void run(
+                  () =>
+                    assignDispute({
+                      disputeId: dispute.id,
+                      assignedToId: dispute.assignedToId,
+                      priority,
+                    }),
+                  "Owner and urgency saved."
+                )
+              }
+              disabled={busy}
+              className="btn btn-secondary btn-sm"
+            >
+              Save priority
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void run(
+                  () => assignDispute({ disputeId: dispute.id, assignedToId: null, priority }),
+                  "Dispute unassigned."
+                )
+              }
+              disabled={busy || !dispute.assignedToId}
+              className="btn btn-secondary btn-sm"
+            >
+              Unassign
+            </button>
+            <label className="min-w-[16rem] flex-1 text-xs font-medium text-slate-600">
+              Escalation reason
+              <input
+                value={escalationNote}
+                onChange={(event) => setEscalationNote(event.target.value)}
+                className="input mt-1 w-full"
+                placeholder="Why does this need escalating?"
+                aria-label="Escalation reason"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void run(async () => {
+                  const result = await escalateDispute({
+                    disputeId: dispute.id,
+                    note: escalationNote,
+                  });
+                  if (result.success) setEscalationNote("");
+                  return result;
+                }, "Dispute escalated.")
+              }
+              disabled={busy || escalationNote.trim().length < 10}
+              className="btn btn-primary btn-sm"
+            >
+              Escalate
+            </button>
+          </div>
+        )}
+      </section>
+
+      <EvidencePanel
+        subjectType="customerDispute"
+        subjectId={dispute.id}
+        label="Evidence files"
+        readOnly={!open}
+        onUploaded={() => void load()}
+      />
 
       <section className="card p-4">
         <h2 className="text-sm font-bold text-slate-900">The customer&apos;s account</h2>

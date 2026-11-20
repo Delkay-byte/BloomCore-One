@@ -632,36 +632,47 @@ export async function searchCustomers(query: string) {
 // its own business's data.
 // ---------------------------------------------------------------------------
 
-export async function getCustomerAccount() {
+/**
+ * The customer's dashboard data.
+ *
+ * A customer may hold more than one active account, so every active account is
+ * returned in a stable order and the requested one is placed first. Callers that
+ * only read `accounts[0]` therefore keep working, while the portal can offer a
+ * real selector instead of silently showing whichever account sorted first.
+ */
+export async function getCustomerAccount(accountId?: string) {
   const ctx = await requireTenantCustomer();
 
-  return db.customer.findFirst({
+  const accountInclude = {
+    cycles: {
+      where: { status: "active" },
+      take: 1,
+      include: {
+        contributions: {
+          orderBy: { collectionDate: "desc" },
+          take: 20,
+          include: {
+            allocations: true,
+            receivedBy: { select: { fullName: true } },
+            collector: {
+              include: { user: { select: { fullName: true } } },
+            },
+          },
+        },
+        withdrawals: { orderBy: { createdAt: "desc" }, take: 20 },
+        commissions: { orderBy: { createdAt: "desc" } },
+      },
+    },
+  } as const;
+
+  const customer = await db.customer.findFirst({
     where: { id: ctx.userId, tenantId: ctx.tenantId },
     include: {
       accounts: {
         where: { status: "active", tenantId: ctx.tenantId },
-        take: 1,
-        include: {
-          cycles: {
-            where: { status: "active" },
-            take: 1,
-            include: {
-              contributions: {
-                orderBy: { collectionDate: "desc" },
-                take: 20,
-                include: {
-                  allocations: true,
-                  receivedBy: { select: { fullName: true } },
-                  collector: {
-                    include: { user: { select: { fullName: true } } },
-                  },
-                },
-              },
-              withdrawals: { orderBy: { createdAt: "desc" }, take: 20 },
-              commissions: { orderBy: { createdAt: "desc" } },
-            },
-          },
-        },
+        orderBy: { createdAt: "asc" },
+        take: 20,
+        include: accountInclude,
       },
       assignments: {
         where: { active: true, tenantId: ctx.tenantId },
@@ -671,6 +682,17 @@ export async function getCustomerAccount() {
       },
     },
   });
+  if (!customer) return null;
+
+  // Only an account the customer actually owns can be selected; an unknown id
+  // falls back to the first account rather than failing the whole dashboard.
+  const selectedId = customer.accounts.find((account) => account.id === accountId)?.id;
+  if (!selectedId) return customer;
+  const accounts = [
+    ...customer.accounts.filter((account) => account.id === selectedId),
+    ...customer.accounts.filter((account) => account.id !== selectedId),
+  ];
+  return { ...customer, accounts };
 }
 
 export async function getCustomerPayments() {

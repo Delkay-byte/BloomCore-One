@@ -68,3 +68,6 @@ blob-report/
 # Temporary generated Prisma clients (local tooling)
 .prisma-pg-gen/
 .prisma-gen/
+
+# Private evidence files (EVIDENCE_STORAGE_DIR default). Never commit these.
+.data/

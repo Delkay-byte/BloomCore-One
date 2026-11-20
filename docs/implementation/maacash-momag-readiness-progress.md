@@ -23,9 +23,9 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 94 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 96 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 135 files / 1457 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 137 files / 1492 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 97 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
@@ -306,7 +306,53 @@ worker and the settings screen, so the screen cannot promise delivery the queue
 would refuse. The platform gate stays in the provider adapter, which still
 requires credentials, the explicit delivery switch and the allowlist.
 
-**25–30. Customer portal and disputes — MISSING.**
+**25. Multiple-account selector — DONE.**
+`getCustomerAccount(accountId?)` returns every active account in a stable order
+with the requested one first, so a customer with two accounts chooses which one
+the dashboard, balance and cycle figures describe. An id the customer does not
+own falls back to the first account rather than erroring or leaking.
+
+**26. Customer withdrawal request and tracking — DONE.**
+`CustomerWithdrawalRequest` stores the amount in **integer pesewa** and a written
+reason. The customer can raise one request per account, sees it waiting, and can
+cancel it while no decision has been made. The request checks the cycle balance
+(contributions − withdrawals − commissions) and any money already reserved, so a
+customer cannot queue more than the account holds. Approval runs
+`processWithdrawal` with the operator's step-up grant, which keeps the commission
+rule, the account lock and the receipt enqueue exactly as the counter does; a
+refusal leaves the request open with the domain action's own reason.
+
+**27. Printable statement / PDF — DONE.**
+`/customer/statement/print` renders the same statement action as a document —
+entries, running balance, closing balance and a footer that says it is not a bank
+statement — with a print stylesheet and a "Print or save as PDF" button. CSV stays
+available next to it.
+
+**28. Verified self-service recovery — resolved by keeping the boundary clear.**
+Recovery stays administrator-assisted by decision, and that is now the only path:
+the portal verifies a number it will send to, but it cannot reset a password by
+itself. The progress note states this as the intended control rather than an
+outstanding gap, because a self-service reset without an independent channel would
+be a weaker control than the assisted one.
+
+**29. Evidence file storage — DONE.**
+`EvidenceAttachment` keeps the metadata (name, type, size, SHA-256, retention,
+uploader) while the bytes live in a private directory outside the web root,
+configurable through `EVIDENCE_STORAGE_DIR`. Upload re-checks the subject, so a
+customer can only attach to their own dispute and an administrator only within
+their business. A file is served by `/api/evidence/[id]`, which re-resolves the
+caller, verifies the stored bytes still match the recorded digest and audits the
+access. Disposal is refused inside the retention period and while the dispute is
+still open.
+
+**30. Dispute assignment, SLA and correction verification — DONE.**
+A dispute now carries an owner, a priority (`low`, `normal`, `high`, `urgent`), a
+due date derived from the priority, and an escalation record. The office queue
+shows overdue items, and escalation raises the priority to urgent with a reason
+that appears on the timeline and in the notification feed. An upheld outcome is
+now refused unless its correction reference matches a real reversal row for the
+same subject, so a dispute cannot be closed on an invented reference.
+
 **31–36. Association foundation — MISSING** (item 36 is
 PENDING_ASSOCIATION_DECISION).
 
@@ -324,8 +370,9 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261209_phase1_reconciliation_foundation/migration.sql` and
 `prisma/migrations/20261210_employee_accountability/migration.sql`,
 `prisma/migrations/20261211_offline_action_requests/migration.sql`,
-`prisma/migrations/20261212_tenant_messaging_config/migration.sql`, generated with
-`scripts/make-pg-migration.mjs` (local host only, throwaway database,
+`prisma/migrations/20261212_tenant_messaging_config/migration.sql`,
+`prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`, generated
+with `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
 
@@ -379,9 +426,8 @@ answer:
 
 ## 7. Next work, in order
 
-1. A5 customer portal and disputes.
-2. A6 association foundation on a generic model, then A7/A8.
-3. A9 anomaly investigation, which is also the prerequisite for C0–C2.
-4. A10 BI completion.
-5. Final release gate: full suites, production-build browser acceptance, security
+1. A6 association foundation on a generic model, then A7/A8.
+2. A9 anomaly investigation, which is also the prerequisite for C0–C2.
+3. A10 BI completion.
+4. Final release gate: full suites, production-build browser acceptance, security
    and tenant review, then — and only then — discuss push/PR/deploy.

@@ -288,6 +288,41 @@ describe("customer dispute lifecycle", () => {
     });
     expect(tooShort.success).toBe(false);
 
+    // An upheld outcome must name a correction that actually exists, so a made-up
+    // reference is refused before the dispute can be closed.
+    const invented = await resolveCustomerDispute({
+      disputeId,
+      outcome: "upheld",
+      note: "Receipt was located and the contribution confirmed; closing now.",
+      outcomeReference: "REV-C-TEST-1",
+    });
+    expect(invented.success).toBe(false);
+    expect(invented.error).toMatch(/no reversal matches/i);
+
+    const missing = await resolveCustomerDispute({
+      disputeId,
+      outcome: "upheld",
+      note: "Receipt was located and the contribution confirmed; closing now.",
+    });
+    expect(missing.success).toBe(false);
+    expect(missing.error).toMatch(/record the correction reference/i);
+
+    // The correction itself is a separate financial record, made through the
+    // normal control; this test writes the reversal row it would produce.
+    await prisma.contribution.create({
+      data: {
+        tenantId: f.tenant.id,
+        accountId: f.customerA.contribution.accountId,
+        cycleId: f.customerA.contribution.cycleId,
+        amount: -50,
+        collectionDate: new Date("2026-11-21T10:00:00Z"),
+        channel: "direct_office",
+        recordedById: f.admin.id,
+        referenceId: "REV-C-TEST-1",
+        reversalOfId: f.customerA.contribution.id,
+      },
+    });
+
     const resolved = await resolveCustomerDispute({
       disputeId,
       outcome: "upheld",
@@ -295,7 +330,7 @@ describe("customer dispute lifecycle", () => {
       outcomeReference: "REV-C-TEST-1",
       resolutionEvidence: "Contribution counterfoil OS-1042",
     });
-    expect(resolved.success).toBe(true);
+    expect(resolved.success, resolved.error).toBe(true);
 
     await setSession("customer", f.customerA.customer);
     const after = await getCustomerDispute(disputeId);

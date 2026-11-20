@@ -26,6 +26,8 @@ export async function cleanDatabase() {
     prisma.cardFee.deleteMany(),
     prisma.collectorCustomerAssignment.deleteMany(),
     prisma.collectorRemittance.deleteMany(),
+    prisma.customerWithdrawalRequest.deleteMany(),
+    prisma.evidenceAttachment.deleteMany(),
     prisma.susuCycle.deleteMany(),
     prisma.susuAccount.deleteMany(),
     prisma.customerDisputeEvent.deleteMany(),

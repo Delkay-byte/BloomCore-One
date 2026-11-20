@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Download, RefreshCw } from "lucide-react";
+import { ClipboardList, Download, Printer, RefreshCw } from "lucide-react";
 import { SkeletonPage } from "@/components/ui/Skeletons";
 import Notice from "@/components/ui/Notice";
 import CediAmount from "@/components/CediAmount";
@@ -127,6 +127,9 @@ export default function CustomerStatementPage() {
           >
             <Download className="h-4 w-4" aria-hidden /> Download CSV
           </button>
+          <Link href="/customer/statement/print" className="btn btn-secondary">
+            <Printer className="h-4 w-4" aria-hidden /> Print or save as PDF
+          </Link>
         </div>
       </div>
 

@@ -586,6 +586,7 @@ model Customer {
   assignments CollectorCustomerAssignment[]
   disputes    CustomerDispute[]
   messagingPreference CustomerMessagingPreference?
+  withdrawalRequests  CustomerWithdrawalRequest[]
   customerMessages    CustomerMessageOutbox[]
   messagingConsentChallenges MessagingConsentChallenge[]
 
@@ -617,6 +618,7 @@ model SusuAccount {
   cardFees      CardFee[]
   assignments   CollectorCustomerAssignment[]
   disputes      CustomerDispute[]
+  withdrawalRequests CustomerWithdrawalRequest[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -659,6 +661,72 @@ model SusuCycle {
 /// edits or reverses the financial row silently; an upheld outcome must be
 /// carried out through the existing correction/reversal control and referenced
 /// in `outcomeReference`.
+/// A stored evidence file.
+///
+/// The bytes live outside the database in a private directory; the row records
+/// what they are, who attached them, the SHA-256 of the exact content and how
+/// long they must be kept. Access is always re-checked against the subject, so a
+/// file reference cannot be traded for a download.
+model EvidenceAttachment {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  /// customerDispute | operationalAnomaly | offlineActionRequest
+  subjectType   String
+  subjectId     String
+  fileName      String
+  contentType   String
+  sizeBytes     Int
+  sha256        String
+  /// Opaque storage key inside the private evidence directory.
+  storageKey    String    @unique
+  uploadedById  String
+  uploadedByType String   @default("admin")
+  retentionUntil DateTime
+  deletedAt     DateTime?
+  deletedById   String?
+  createdAt     DateTime  @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, subjectType, subjectId])
+  @@index([retentionUntil])
+}
+
+/// A withdrawal the customer asked for from the portal.
+///
+/// This is a request, never a posting: the office decides, and approving it runs
+/// the same withdrawal action the staff screen uses. The amount is stored in
+/// integer pesewa so no rounding can happen between the request and the ledger.
+model CustomerWithdrawalRequest {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  reference      String
+  customerId     String
+  accountId      String
+  cycleId        String?
+  /// Integer pesewa. GH¢1.00 is 100.
+  amountPesewa   Int
+  reason         String
+  /// requested | approved | paid | rejected | cancelled | needs_review
+  status         String   @default("requested")
+  requestedById  String
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// The real withdrawal this request produced, when one was recorded.
+  resultingWithdrawalId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  account  SusuAccount     @relation(fields: [accountId], references: [id])
+
+  @@unique([tenantId, reference])
+  @@index([customerId, status])
+  @@index([tenantId, status, createdAt])
+}
+
 model CustomerDispute {
   id               String   @id @default(cuid())
   tenantId         String?
@@ -690,6 +758,13 @@ model CustomerDispute {
   resolvedAt       DateTime?
   /// Optional correction/reversal reference recorded when an outcome is upheld.
   outcomeReference String?
+  /// Who is working on it, how urgent it is and when it is due.
+  assignedToId     String?
+  /// low | normal | high | urgent
+  priority         String   @default("normal")
+  dueAt            DateTime?
+  escalatedAt      DateTime?
+  escalationNote   String?
   createdAt        DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1166,6 +1241,8 @@ model BusinessTenant {
   offlineActionRequests        OfflineActionRequest[]
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
+  customerWithdrawalRequests   CustomerWithdrawalRequest[]
+  evidenceAttachments          EvidenceAttachment[]
   customerDisputeEvents        CustomerDisputeEvent[]
   associationMembers           AssociationMember[]
   associationSponsorships      AssociationSponsorship[]

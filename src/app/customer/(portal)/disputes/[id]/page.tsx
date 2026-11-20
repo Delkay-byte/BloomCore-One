@@ -7,6 +7,7 @@ import { ArrowLeft, ShieldCheck } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import DisputeStatusBadge from "@/components/susu/DisputeStatusBadge";
+import EvidencePanel from "@/components/EvidencePanel";
 import {
   cancelCustomerDispute,
   getCustomerDispute,
@@ -191,6 +192,14 @@ export default function CustomerDisputeDetailPage() {
           </div>
         )}
       </section>
+
+      {dispute.status !== "cancelled" && (
+        <EvidencePanel
+          subjectType="customerDispute"
+          subjectId={dispute.id}
+          label="Your evidence files"
+        />
+      )}
 
       <section className="card p-4">
         <h2 className="text-sm font-bold text-slate-900">History</h2>

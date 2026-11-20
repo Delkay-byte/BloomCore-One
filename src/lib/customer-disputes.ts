@@ -129,6 +129,58 @@ export const resolveDisputeSchema = z.object({
     .optional(),
 });
 
+/** How urgent a dispute is, and how long the business has to answer it. */
+export const DISPUTE_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export type DisputePriority = (typeof DISPUTE_PRIORITIES)[number];
+
+export const DISPUTE_PRIORITY_LABELS: Record<DisputePriority, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
+};
+
+/** Working hours the business aims to answer within, by priority. */
+export const DISPUTE_SLA_HOURS: Record<DisputePriority, number> = {
+  low: 72,
+  normal: 48,
+  high: 24,
+  urgent: 4,
+};
+
+export function isDisputePriority(value: string): value is DisputePriority {
+  return (DISPUTE_PRIORITIES as readonly string[]).includes(value);
+}
+
+export function disputeDueAt(from: Date, priority: DisputePriority): Date {
+  return new Date(from.getTime() + DISPUTE_SLA_HOURS[priority] * 60 * 60 * 1000);
+}
+
+export function disputeIsOverdue(
+  dueAt: Date | null,
+  status: string,
+  now = new Date()
+): boolean {
+  if (!dueAt) return false;
+  if (!["open", "under_review", "awaiting_customer"].includes(status)) return false;
+  return dueAt.getTime() < now.getTime();
+}
+
+export const assignDisputeSchema = z.object({
+  disputeId: z.string().min(1),
+  assignedToId: z.string().trim().nullable(),
+  priority: z.enum(DISPUTE_PRIORITIES),
+});
+
+export const escalateDisputeSchema = z.object({
+  disputeId: z.string().min(1),
+  note: z
+    .string()
+    .trim()
+    .min(10, "Say why this needs escalation (at least 10 characters).")
+    .max(500, "Keep the escalation note under 500 characters."),
+});
+
 export const requestDisputeInfoSchema = z.object({
   disputeId: z.string().min(1),
   note: z

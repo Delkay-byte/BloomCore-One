@@ -76,6 +76,11 @@ export const navSections: NavSection[] = [
       { href: "/susu/admin/collectors", label: "Collectors", icon: Footprints },
       { href: "/susu/admin/contributions", label: "Contributions", icon: Banknote },
       { href: "/susu/admin/withdrawals", label: "Withdrawals", icon: Landmark },
+      {
+        href: "/susu/admin/withdrawal-requests",
+        label: "Withdrawal Requests",
+        icon: Banknote,
+      },
       { href: "/susu/admin/remittances", label: "Money Handed In", icon: Vault },
       { href: "/susu/admin/approvals", label: "Approvals", icon: ShieldCheck },
       {
