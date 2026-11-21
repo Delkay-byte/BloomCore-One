@@ -25,13 +25,13 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
 | PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 117 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 141 files / 1569 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 142 files / 1588 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
 | ESLint | `npx eslint .` | 0 errors, 117 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 103 passed (chromium + mobile-chromium) |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 105 passed (chromium + mobile-chromium) |
 
 All of the above are reproducible from a clean checkout with a disposable
 PostgreSQL cluster; see §6 for the exact environment.
@@ -520,7 +520,34 @@ event keeps the hash it was recorded under. A closed finding that a later scan
 detects again reopens automatically (status open, `reopenCount` incremented, a
 `reopened` event with the note that the condition persisted) unless an unexpired
 suppression covers it. Closing therefore cannot make a real problem invisible.
-**54–57. Business intelligence — MISSING.**
+**54. Cash, float and liquidity metrics — DONE.**
+`computeCashPosition` puts three different facts side by side without adding them
+up: the newest declaration per asset type (with float split by network), settled
+transfers in and out inside the period, and the last reported closing cash/float
+plus the sums of the recorded close variances. A declaration that disagrees with
+the last close is reported as a difference, a declaration older than seven days is
+listed as stale, and a branch that never declared says so instead of showing zero.
+
+**55. Completeness and late records — DONE.**
+`computeCompleteness` counts expected branch-days (every day × every active
+branch), submitted closes, the missing dates themselves, closes submitted more
+than a day late, and active operators with no close in the period. A day a branch
+was closed by an administrator still counts as expected, so the gap is visible and
+explainable rather than silently absent.
+
+**56. Consolidated MoMo report — DONE.**
+`/admin/reports/consolidated` renders the position, the flow and the gaps for a
+chosen period, and `exportConsolidatedCsv` writes the same figures with the metric
+dictionary attached. Both are computed from the records in one pass, so the CSV
+cannot disagree with the screen.
+
+**57. Metric dictionary and label review — DONE.**
+`src/lib/reporting/dictionary.ts` defines every figure with a formula, its
+exclusions and a kind: volume, operational flow, accounting result or position.
+Principal is labelled "Money moved (not income)", the accounting figure is "Net
+operating result" and states that it is not profit, and a test asserts no label
+contains "profit", "revenue", "cash income" or "net cash flow". The Kind column
+renders those words rather than the enum, so the screen and the dictionary agree.
 
 ### Phase 1 schema and migration
 

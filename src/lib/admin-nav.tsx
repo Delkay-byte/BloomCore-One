@@ -66,6 +66,7 @@ export const navSections: NavSection[] = [
       { href: "/admin/anomalies", label: "Anomaly Monitor", icon: ShieldAlert },
       { href: "/admin/history", label: "Money & History", icon: BookText },
       { href: "/admin/reports", label: "Reports", icon: ClipboardList },
+      { href: "/admin/reports/consolidated", label: "Consolidated Report", icon: FileBarChart },
     ],
   },
   {
