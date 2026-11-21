@@ -669,8 +669,17 @@ answer:
 
 ## 7. Next work, in order
 
-1. A8 sponsored subscriptions.
-2. A9 anomaly investigation, which is also the prerequisite for C0–C2.
-3. A10 BI completion.
-4. Final release gate: full suites, production-build browser acceptance, security
-   and tenant review, then — and only then — discuss push/PR/deploy.
+Everything internally implementable is implemented and verified. What remains is
+not code:
+
+1. **C3 — external AI approval.** `PRODUCTION_INVESTIGATION_APPROVED`,
+   `PRODUCTION_PROVIDER_APPROVED` and `PRODUCTION_CONVERSATION_APPROVED` stay
+   `false` until a separate security and financial-evidence review approves an
+   external model. The deterministic explanation is what ships meanwhile.
+2. **Association decisions** (items 36, 9.13 and 10.13): pilot dashboard audience,
+   sponsorship funding policy, and the certification framework. Each is marked
+   `PENDING_ASSOCIATION_DECISION` with the model recording facts rather than
+   guessing policy.
+3. **Final release gate**: the full suite set in §1, a security and tenant review,
+   and then — and only then — a discussion about push, PR or deploy. Nothing has
+   been pushed, merged or deployed.
