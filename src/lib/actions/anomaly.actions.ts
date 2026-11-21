@@ -6,9 +6,14 @@ import { createAuditLogTx } from "@/lib/audit";
 import {
   ANOMALY_RULE_CATALOG,
   ANOMALY_THRESHOLDS,
-  evaluateAnomalies,
   type AnomalySeverity,
+  type AnomalyFinding,
 } from "@/lib/anomaly-rules";
+import {
+  collectAnomalyFindings,
+  persistAnomalyFindings,
+  type ScanSummary,
+} from "@/lib/anomaly-scan";
 
 export interface AnomalyActionResponse {
   success: boolean;
@@ -99,9 +104,6 @@ function periodFromInput(from?: string, to?: string): { from: string; to: string
 
 /**
  * Run the deterministic rule set for this tenant and persist findings.
- *
- * Re-running is safe: the (tenantId, fingerprint) unique key upserts the same
- * finding instead of duplicating it. Resolved findings stay resolved.
  */
 export async function runAnomalyScan(input?: {
   from?: string;
@@ -110,266 +112,16 @@ export async function runAnomalyScan(input?: {
   const ctx = await requireTenantAdminMomo();
   const period = periodFromInput(input?.from, input?.to);
   const now = new Date();
-
-  const [locations, accounts, transactions, transfers, handovers] = await Promise.all([
-    db.location.findMany({
-      where: { tenantId: ctx.tenantId, status: "active" },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    db.dailyAccount.findMany({
-      where: {
-        tenantId: ctx.tenantId,
-        businessDate: {
-          gte: new Date(`${period.from}T00:00:00.000Z`),
-          lte: new Date(`${period.to}T23:59:59.999Z`),
-        },
-      },
-      select: {
-        id: true,
-        locationId: true,
-        location: { select: { name: true } },
-        workerId: true,
-        worker: { select: { fullName: true } },
-        businessDate: true,
-        status: true,
-        submittedAt: true,
-        reviewedAt: true,
-        totalExpenses: true,
-        calculatedDifference: true,
-        ledgerMode: true,
-      },
-    }),
-    db.momoTransaction.findMany({
-      where: {
-        tenantId: ctx.tenantId,
-        businessDate: {
-          gte: new Date(`${period.from}T00:00:00.000Z`),
-          lte: new Date(`${period.to}T23:59:59.999Z`),
-        },
-      },
-      select: {
-        id: true,
-        type: true,
-        amount: true,
-        status: true,
-        businessDate: true,
-        locationId: true,
-        location: { select: { name: true } },
-        workerId: true,
-        worker: { select: { fullName: true } },
-        reference: true,
-        reversesTransactionId: true,
-      },
-    }),
-    db.branchTransfer.findMany({
-      where: {
-        tenantId: ctx.tenantId,
-        OR: [
-          {
-            createdAt: {
-              gte: new Date(`${period.from}T00:00:00.000Z`),
-              lte: new Date(`${period.to}T23:59:59.999Z`),
-            },
-          },
-          { status: { in: ["approved", "dispatched", "variance_investigation"] } },
-        ],
-      },
-      select: {
-        id: true,
-        reference: true,
-        status: true,
-        amount: true,
-        variance: true,
-        sourceLocationId: true,
-        destinationLocationId: true,
-        approvedAt: true,
-        dispatchedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    db.shiftHandover.findMany({
-      where: {
-        tenantId: ctx.tenantId,
-        shift: {
-          businessDate: {
-            gte: new Date(`${period.from}T00:00:00.000Z`),
-            lte: new Date(`${period.to}T23:59:59.999Z`),
-          },
-        },
-      },
-      select: {
-        id: true,
-        shiftId: true,
-        status: true,
-        outgoingUserId: true,
-        cashVariance: true,
-        floatVariance: true,
-        createdAt: true,
-        confirmedAt: true,
-        shift: {
-          select: {
-            businessDate: true,
-            locationId: true,
-            location: { select: { name: true } },
-          },
-        },
-      },
-    }),
-  ]);
-
-  const workerIds = Array.from(
-    new Set([
-      ...accounts.map((row) => row.workerId),
-      ...transactions.map((row) => row.workerId),
-      ...handovers.map((row) => row.outgoingUserId),
-    ])
-  );
-  const workers =
-    workerIds.length > 0
-      ? await db.user.findMany({
-          where: { tenantId: ctx.tenantId, id: { in: workerIds } },
-          select: { id: true, fullName: true },
-        })
-      : [];
-  const workerNames = new Map(workers.map((row) => [row.id, row.fullName]));
-
-  const findings = evaluateAnomalies({
-    from: period.from,
-    to: period.to,
+  const findings = await collectAnomalyFindings(ctx.tenantId, period, now);
+  const summary = await persistAnomalyFindings({
+    tenantId: ctx.tenantId,
+    actorId: ctx.userId,
+    trigger: "manual",
+    period,
+    findings,
     now,
-    locations,
-    accounts: accounts.map((row) => ({
-      id: row.id,
-      locationId: row.locationId,
-      locationName: row.location.name,
-      workerId: row.workerId,
-      workerName: row.worker.fullName,
-      businessDate: row.businessDate,
-      status: row.status,
-      submittedAt: row.submittedAt,
-      reviewedAt: row.reviewedAt,
-      totalExpenses: row.totalExpenses,
-      calculatedDifference: row.calculatedDifference,
-      ledgerMode: row.ledgerMode,
-    })),
-    transactions: transactions.map((row) => ({
-      id: row.id,
-      type: row.type,
-      amount: row.amount,
-      status: row.status,
-      businessDate: row.businessDate,
-      locationId: row.locationId,
-      locationName: row.location.name,
-      workerId: row.workerId,
-      workerName: row.worker.fullName,
-      reference: row.reference,
-      isReversal: Boolean(row.reversesTransactionId) || row.status === "reversal",
-    })),
-    transfers,
-    handovers: handovers.map((row) => ({
-      id: row.id,
-      shiftId: row.shiftId,
-      status: row.status,
-      outgoingUserId: row.outgoingUserId,
-      outgoingUserName: workerNames.get(row.outgoingUserId) ?? "Employee",
-      cashVariance: row.cashVariance,
-      floatVariance: row.floatVariance,
-      createdAt: row.createdAt,
-      confirmedAt: row.confirmedAt,
-      businessDate: row.shift.businessDate,
-      locationId: row.shift.locationId,
-      locationName: row.shift.location.name,
-    })),
   });
-
-  const existing = await db.operationalAnomaly.findMany({
-    where: {
-      tenantId: ctx.tenantId,
-      fingerprint: { in: findings.map((row) => row.fingerprint) },
-    },
-    select: { fingerprint: true },
-  });
-  const existingSet = new Set(existing.map((row) => row.fingerprint));
-  const created = findings.filter((row) => !existingSet.has(row.fingerprint)).length;
-
-  await db.$transaction(async (tx) => {
-    for (const finding of findings) {
-      await tx.operationalAnomaly.upsert({
-        where: {
-          tenantId_fingerprint: {
-            tenantId: ctx.tenantId,
-            fingerprint: finding.fingerprint,
-          },
-        },
-        create: {
-          tenantId: ctx.tenantId,
-          fingerprint: finding.fingerprint,
-          ruleKey: finding.ruleKey,
-          severity: finding.severity,
-          title: finding.title,
-          summary: finding.summary,
-          entityType: finding.entityType,
-          entityId: finding.entityId,
-          locationId: finding.locationId,
-          workerId: finding.workerId,
-          businessDate: finding.businessDate
-            ? new Date(`${finding.businessDate}T00:00:00.000Z`)
-            : null,
-          metricValue: finding.metricValue,
-          thresholdValue: finding.thresholdValue,
-          evidence: JSON.stringify(finding.evidence),
-          detectedAt: now,
-          lastSeenAt: now,
-        },
-        update: {
-          severity: finding.severity,
-          title: finding.title,
-          summary: finding.summary,
-          locationId: finding.locationId,
-          workerId: finding.workerId,
-          businessDate: finding.businessDate
-            ? new Date(`${finding.businessDate}T00:00:00.000Z`)
-            : null,
-          metricValue: finding.metricValue,
-          thresholdValue: finding.thresholdValue,
-          evidence: JSON.stringify(finding.evidence),
-          lastSeenAt: now,
-        },
-      });
-    }
-    await createAuditLogTx(tx, {
-      userId: ctx.userId,
-      tenantId: ctx.tenantId,
-      action: "anomaly.scan_completed",
-      entityType: "tenant",
-      entityId: ctx.tenantId,
-      details: {
-        from: period.from,
-        to: period.to,
-        scanned: findings.length,
-        created,
-        updated: findings.length - created,
-        high: findings.filter((row) => row.severity === "high").length,
-        medium: findings.filter((row) => row.severity === "medium").length,
-        low: findings.filter((row) => row.severity === "low").length,
-      },
-    });
-  });
-
-  return {
-    success: true,
-    data: {
-      scanned: findings.length,
-      created,
-      updated: findings.length - created,
-      high: findings.filter((row) => row.severity === "high").length,
-      medium: findings.filter((row) => row.severity === "medium").length,
-      low: findings.filter((row) => row.severity === "low").length,
-      period,
-    },
-  };
+  return { success: true, data: summary };
 }
 
 export async function getAnomalyBoard(filters?: {

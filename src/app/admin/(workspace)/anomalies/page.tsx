@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
+import AnomalyInvestigationPanel from "@/components/AnomalyInvestigationPanel";
+import { getStaff } from "@/lib/actions/staff.actions";
 import { StatCard } from "@/components/ui/DataDisplay";
 import {
   acknowledgeAnomaly,
@@ -105,18 +107,26 @@ export default function AdminAnomaliesPage() {
     ruleKey: "all",
   });
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [staff, setStaff] = useState<Array<{ id: string; fullName: string }>>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [nextBoard, nextBriefing] = await Promise.all([
+      const [nextBoard, nextBriefing, nextStaff] = await Promise.all([
         getAnomalyBoard(filters),
         getZeliAnomalyBriefing() as Promise<ZeliAnomalyBriefingResponse>,
+        getStaff().catch(() => []),
       ]);
       setBoard(nextBoard);
       setBriefing(nextBriefing.success ? nextBriefing.data ?? null : null);
+      setStaff(
+        (nextStaff as Array<{ id: string; fullName: string }>).map((person) => ({
+          id: person.id,
+          fullName: person.fullName,
+        }))
+      );
     } catch {
       setError("The anomaly monitor could not be loaded.");
     } finally {
@@ -588,6 +598,17 @@ export default function AdminAnomaliesPage() {
               })}
             </section>
           )}
+
+          <AnomalyInvestigationPanel
+            anomalies={board.anomalies.map((row) => ({
+              id: row.id,
+              title: row.title,
+              ruleKey: row.ruleKey,
+              severity: row.severity,
+              status: row.status,
+            }))}
+            staff={staff}
+          />
 
           <p className="flex items-start gap-2 text-xs text-slate-500">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden />

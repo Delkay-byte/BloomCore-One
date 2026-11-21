@@ -23,15 +23,15 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 111 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 117 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 140 files / 1552 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 141 files / 1569 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint .` | 0 errors, 112 pre-existing warnings |
+| ESLint | `npx eslint .` | 0 errors, 117 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 101 passed (chromium + mobile-chromium) |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 103 passed (chromium + mobile-chromium) |
 
 All of the above are reproducible from a clean checkout with a disposable
 PostgreSQL cluster; see §6 for the exact environment.
@@ -481,7 +481,45 @@ as paid cover.
 Sponsor eligibility criteria, refund rules, caps and who bears liability are
 association decisions. The register enforces the limits it is given and records
 what happened; it does not set policy.
-**49–53. Anomaly investigation — MISSING.**
+**49. Finding event history — DONE.**
+`AnomalyFindingEvent` is append-only: detection, a rescan that changed the
+evidence, assignment, notes, checklist steps, a closure, a false-positive
+disposition, a reopening and a suppression each leave a row with the severity,
+metric, threshold, evidence and a SHA-256 snapshot hash. A finding also keeps
+`firstSeenAt`, its last `snapshotHash` and a `reopenCount`. A rescan that changes
+nothing appends nothing, so history stays readable rather than a heartbeat.
+
+**50. Investigation case — DONE.**
+`AnomalyInvestigation` holds the owner, status (open, investigating, waiting for
+evidence, closed), an SLA due date from the finding's severity (2, 5 or 10 days),
+a disposition and the correction that fixed the record. The default checklist is
+created with the investigation so "checked" is a recorded step
+(`AnomalyInvestigationTask`), comments are append-only
+(`AnomalyInvestigationComment`), and a genuine disposition is refused unless its
+correction is a real row in this business.
+
+**51. False-positive disposition and rule tuning — DONE.**
+Closing as a false positive records the reason and can create an
+`AnomalySuppression` for that rule and record, with a reason, a maximum of 180
+days and a revoke path that needs its own reason. A whole-rule suppression is
+also possible. Suppressions are listed with their expiry, so a quiet rule is
+visible rather than forgotten, and a suppression never deletes the findings it
+covers.
+
+**52. Continuous scan with ownership and alert fatigue — DONE.**
+`POST /api/internal/anomaly/scan` is the scheduled trigger: it needs
+`ANOMALY_SCAN_TOKEN` (503 until set, 403 without it), scans businesses in bounded
+batches, and records every attempt in `AnomalyScanRun` with trigger, counts and any
+error. Alerts are capped: only newly created **high** findings notify, at most 3
+per scan, never the same finding twice inside 24 hours, and never a suppressed
+one — and the notification itself is de-duplicated by key.
+
+**53. Source snapshot, hash and reopening — DONE.**
+Each finding stores the hash of the exact evidence it was last seen with, and each
+event keeps the hash it was recorded under. A closed finding that a later scan
+detects again reopens automatically (status open, `reopenCount` incremented, a
+`reopened` event with the note that the condition persisted) unless an unexpired
+suppression covers it. Closing therefore cannot make a real problem invisible.
 **54–57. Business intelligence — MISSING.**
 
 ### Phase 1 schema and migration
@@ -497,7 +535,8 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261213_portal_withdrawals_evidence/migration.sql`,
 `prisma/migrations/20261214_association_governance/migration.sql`,
 `prisma/migrations/20261215_training_certification/migration.sql`,
-`prisma/migrations/20261216_sponsored_subscriptions/migration.sql`, generated with
+`prisma/migrations/20261216_sponsored_subscriptions/migration.sql`,
+`prisma/migrations/20261217_anomaly_investigation/migration.sql`, generated with
 `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.

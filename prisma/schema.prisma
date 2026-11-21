@@ -467,6 +467,156 @@ model ShiftHandover {
 /// rule, the measured value, the threshold and the supporting record so an
 /// administrator can check it. The unique fingerprint prevents a repeated scan
 /// from duplicating the same finding.
+/// One append-only step in a finding's life: a scan that re-saw it, an
+/// acknowledgment, an assignment, a comment, a closure or a reopening.
+///
+/// A rescan used to overwrite `evidence` and `lastSeenAt` in place, so the state
+/// a person acted on was lost. Every scan that changes the metric, the severity
+/// or the evidence now appends an event instead, and the snapshot hash names the
+/// exact evidence that was seen.
+model AnomalyFindingEvent {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String
+  /// detected | rescan | acknowledged | assigned | commented | escalated |
+  /// resolved | false_positive | reopened | suppressed
+  kind           String
+  severity       String?
+  metricValue    Decimal?
+  thresholdValue Decimal?
+  summary        String?
+  /// Canonical JSON of the evidence captured at this step.
+  evidence       String?
+  /// SHA-256 of the canonical evidence and the entity reference.
+  snapshotHash   String?
+  note           String?
+  actorId        String?
+  scanRunId      String?
+  createdAt      DateTime @default(now())
+
+  tenant  BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, anomalyId, createdAt])
+  @@index([tenantId, kind, createdAt])
+}
+
+/// The investigation of one finding: who owns it, what it is waiting for, what
+/// was checked, and which correction closed it.
+model AnomalyInvestigation {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String   @unique
+  /// open | investigating | awaiting_evidence | closed
+  status         String   @default("open")
+  assigneeId     String?
+  dueAt          DateTime?
+  /// genuine | false_positive | inconclusive
+  disposition    String?
+  dispositionNote String?
+  /// The correction or reversal that resolved the underlying condition.
+  linkedCorrectionType String?
+  linkedCorrectionId   String?
+  openedById     String
+  closedById     String?
+  closedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant     BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly    OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+  tasks      AnomalyInvestigationTask[]
+  comments   AnomalyInvestigationComment[]
+
+  @@index([tenantId, status, dueAt])
+  @@index([tenantId, assigneeId])
+}
+
+/// A checklist step on an investigation, so "checked" is a recorded fact.
+model AnomalyInvestigationTask {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  investigationId String
+  label          String
+  sequence       Int      @default(0)
+  doneById       String?
+  doneAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+
+  @@index([investigationId, sequence])
+}
+
+/// A comment on an investigation. Comments are never edited or deleted.
+model AnomalyInvestigationComment {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  investigationId String
+  authorId       String
+  body           String
+  createdAt      DateTime @default(now())
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+
+  @@index([investigationId, createdAt])
+}
+
+/// A time-boxed decision not to raise a rule again for one scope.
+///
+/// Suppression is how a known false positive is handled without pretending the
+/// rule is wrong for everyone: it needs a reason, an expiry and can be revoked,
+/// and a suppression never deletes the findings it covers.
+model AnomalySuppression {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  ruleKey      String
+  /// When set, only this entity is covered; otherwise the whole rule is.
+  entityType   String?
+  entityId     String?
+  reason       String
+  createdById  String
+  expiresAt    DateTime
+  revokedById  String?
+  revokedAt    DateTime?
+  revokeReason String?
+  createdAt    DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, ruleKey, expiresAt])
+}
+
+/// One scan attempt, manual or scheduled.
+///
+/// The run row is the alert-fatigue control: it records how many findings were
+/// seen, created, reopened, suppressed and notified, so a noisy rule can be seen
+/// and a scheduled scan that failed is not silent.
+model AnomalyScanRun {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  /// manual | scheduled
+  trigger     String   @default("manual")
+  /// running | completed | failed
+  status      String   @default("running")
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  scanned     Int      @default(0)
+  created     Int      @default(0)
+  reopened    Int      @default(0)
+  suppressed  Int      @default(0)
+  notified    Int      @default(0)
+  periodFrom  String?
+  periodTo    String?
+  error       String?
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, startedAt])
+}
+
 model OperationalAnomaly {
   id              String   @id @default(cuid())
   tenantId        String?
@@ -492,6 +642,12 @@ model OperationalAnomaly {
   evidence        String?
   detectedAt      DateTime @default(now())
   lastSeenAt      DateTime @default(now())
+  firstSeenAt     DateTime @default(now())
+  /// SHA-256 of the evidence this finding was last seen with.
+  snapshotHash    String?
+  /// How many times a resolved finding came back.
+  reopenCount     Int      @default(0)
+  lastNotifiedAt  DateTime?
   acknowledgedById String?
   acknowledgedAt  DateTime?
   resolvedById    String?
@@ -501,6 +657,8 @@ model OperationalAnomaly {
   updatedAt       DateTime @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  events AnomalyFindingEvent[]
+  investigation AnomalyInvestigation?
 
   @@unique([tenantId, fingerprint])
   @@index([tenantId, status, severity])
@@ -1656,6 +1814,12 @@ model BusinessTenant {
   sponsors                     Sponsor[]
   sponsorshipFundings          SponsorshipFunding[]
   sponsorshipCoverages         SponsorshipCoverage[]
+  anomalyFindingEvents         AnomalyFindingEvent[]
+  anomalyInvestigations        AnomalyInvestigation[]
+  anomalyInvestigationTasks    AnomalyInvestigationTask[]
+  anomalyInvestigationComments AnomalyInvestigationComment[]
+  anomalySuppressions         AnomalySuppression[]
+  anomalyScanRuns             AnomalyScanRun[]
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]
