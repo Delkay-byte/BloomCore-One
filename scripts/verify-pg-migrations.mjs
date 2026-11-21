@@ -44,6 +44,7 @@ const CUT_OFF_MIGRATIONS = new Set([
   "20261215_training_certification",
   "20261216_sponsored_subscriptions",
   "20261217_anomaly_investigation",
+  "20261218_ai_investigation_drafts",
 ]);
 
 const MIGRATIONS_DIR = path.join(repoRoot, "prisma", "migrations");

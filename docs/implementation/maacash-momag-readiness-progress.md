@@ -23,11 +23,11 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 | Check | Command | Result |
 | --- | --- | --- |
 | SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 117 tables, no drift |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 118 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 142 files / 1588 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 143 files / 1613 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint .` | 0 errors, 117 pre-existing warnings |
+| ESLint | `npx eslint .` | 0 errors, 118 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
@@ -563,7 +563,8 @@ Both Prisma schemas carry the new models and validate
 `prisma/migrations/20261214_association_governance/migration.sql`,
 `prisma/migrations/20261215_training_certification/migration.sql`,
 `prisma/migrations/20261216_sponsored_subscriptions/migration.sql`,
-`prisma/migrations/20261217_anomaly_investigation/migration.sql`, generated with
+`prisma/migrations/20261217_anomaly_investigation/migration.sql`,
+`prisma/migrations/20261218_ai_investigation_drafts/migration.sql`, generated with
 `scripts/make-pg-migration.mjs` (local host only, throwaway database,
 refuses non-loopback targets), keep PostgreSQL deployments, which use
 migrations, in step with SQLite, which is provisioned with `prisma db push`.
@@ -576,10 +577,60 @@ the parsing module directly would pull `node:crypto` into the browser bundle.
 
 ## 4. Zeli AI explanation and investigation layer — Priority C
 
-**C0 prerequisites — MISSING.**
-**C1 implementation — MISSING.**
-**C2 security tests — MISSING.**
+**C0 prerequisites — DONE.**
+- **Evidence schema.** `src/lib/zeli/investigation/evidence.ts` defines the pack an
+  explanation may see: finding id, rule, severity, status, detected/last-seen
+  timestamps, the measured value with its threshold and unit and the rule's
+  calculation, approved source references with a SHA-256 hash per source, role
+  labels and a pseudonym instead of a person, and explicit `missingEvidence` and
+  `limitations` lists. The pack itself is hashed, and a pack that carries a
+  phone, email or name field is refused rather than silently redacted.
+- **Response schema.** `schema.ts` requires `findingId`, `schemaVersion`,
+  `promptVersion`, `facts[]`, `hypotheses[]` (low or medium confidence only),
+  `missingEvidence[]`, `timeline[]`, `investigationQuestions[]`, `nextSteps[]`,
+  `limitations[]` (at least one) and `modelMetadata` with `advisoryOnly: true`. A
+  draft is rejected for an unknown finding id, an unapproved citation, a value that
+  was not measured (in a `values` array or in prose), malformed JSON or a missing
+  limitation.
+- **Timeline service.** `buildEvidenceForFinding` reads only the finding's own
+  source record plus its finding events and investigation, all tenant-scoped; the
+  timeline carries descriptions derived from allow-listed fields, not free text,
+  because a note can contain a person's name.
+- **Review state machine.** `decideReview` allows draft to reviewed, accepted or
+  rejected with a mandatory reason, refuses a decided draft, refuses self-review,
+  and returns `affectsFinding: false` on every path.
+- **Retention, redaction and access.** Drafts store the evidence pack and its hash
+  beside the payload; only tenant administrators reach them; the pack is the only
+  data an external provider would receive, and it is stored with every draft so a
+  review can be re-checked later.
+
+**C1 implementation — DONE.**
+`buildEvidenceForFinding` and `generateDraftForEvidence` produce a draft,
+`generateInvestigationDraft` stores it with a finding event and an audit row, and
+`reviewInvestigationDraft` records the decision. The prompt and schema versions are
+constants (`anomaly-explanation-p1`, `anomaly-draft-v1`). The external provider is
+refused by `PRODUCTION_INVESTIGATION_APPROVED = false`, so generation is
+deterministic today and a draft says so in its own `modelMetadata`. That
+deterministic explanation **is** the fallback, so there is no state in which the
+screen shows nothing. `ZELI_INVESTIGATION_DISABLED=1` is a single kill switch that
+refuses generation. The desk renders facts, hypotheses, missing evidence,
+limitations, the timeline and the evidence hash, with Accept and Reject plus a
+reason, and states that neither decision closes the finding.
+
+**C2 security tests — DONE.**
+`tests/zeli-investigation.test.ts` (25 tests) covers the ten required cases: schema
+rejection for unknown finding ids, unapproved citations, unmeasured values and
+malformed JSON; injection text in a branch name being treated as data; cross-tenant
+finding and evidence access; PII minimisation asserted on the exact payload;
+numeric grounding including prose; hallucinated source references; mandatory human
+review with a non-author reviewer; kill-switch and provider-disabled fallback; audit
+completeness (finding id, evidence hash, prompt and schema version, decision, and
+`findingChanged: false`); and evidence tampering being refused at review.
+
 **C3 approval — remains not granted.**
+`PRODUCTION_INVESTIGATION_APPROVED` is `false` and is checked before the
+environment, so an env var alone cannot enable an external provider. Enabling one
+still needs the separate security and financial-evidence review.
 
 Provider gates are unchanged and still off: `PRODUCTION_PROVIDER_APPROVED=false`,
 `PRODUCTION_CONVERSATION_APPROVED=false`. No AI provider credential is present in

@@ -19,6 +19,7 @@ import {
   type SuppressionView,
 } from "@/lib/actions/anomaly-investigation.actions";
 import { ANOMALY_INVESTIGATION_NOTE, DISPOSITIONS, DISPOSITION_LABELS } from "@/lib/anomaly-investigation";
+import { InvestigationAiPanel } from "@/components/InvestigationAiPanel";
 
 /**
  * Investigation desk for anomaly findings.
@@ -450,6 +451,8 @@ export function AnomalyInvestigationPanel({
           </div>
         </div>
       ) : null}
+
+      {selected ? <InvestigationAiPanel anomalyId={selected.id} /> : null}
 
       <div className="mt-4 border-t border-slate-100 pt-3">
         <h3 className="text-xs font-bold text-slate-900">Deliberately quiet rules</h3>

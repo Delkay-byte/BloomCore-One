@@ -117,7 +117,7 @@ export default function AdminAnomaliesPage() {
       const [nextBoard, nextBriefing, nextStaff] = await Promise.all([
         getAnomalyBoard(filters),
         getZeliAnomalyBriefing() as Promise<ZeliAnomalyBriefingResponse>,
-        getStaff().catch(() => []),
+        getStaff().catch(() => [] as Array<{ id: string; fullName: string }>),
       ]);
       setBoard(nextBoard);
       setBriefing(nextBriefing.success ? nextBriefing.data ?? null : null);

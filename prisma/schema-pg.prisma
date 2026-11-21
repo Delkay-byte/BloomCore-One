@@ -617,6 +617,43 @@ model AnomalyScanRun {
   @@index([tenantId, startedAt])
 }
 
+/// One AI-assisted explanation of a finding, generated against a specific evidence
+/// pack and kept for review.
+///
+/// A draft never changes a finding, a transaction or a balance: it is an explanation
+/// that a named person either accepts or rejects, and the pack hash proves which
+/// evidence the explanation was written from.
+model AnomalyInvestigationDraft {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String
+  /// SHA-256 of the evidence pack the draft was generated from.
+  evidenceHash   String
+  evidence       String
+  promptVersion  String
+  schemaVersion  String
+  /// deterministic | external
+  source         String   @default("deterministic")
+  model          String
+  /// draft | reviewed | accepted | rejected
+  status         String   @default("draft")
+  /// The validated payload, stored exactly as reviewed.
+  payload        String
+  generatedById  String
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewReason   String?
+  /// Rejections are kept, so a second draft can be compared with the first.
+  supersededById String?
+  createdAt      DateTime @default(now())
+
+  tenant  BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, anomalyId, createdAt])
+  @@index([tenantId, status])
+}
+
 model OperationalAnomaly {
   id              String   @id @default(cuid())
   tenantId        String?
@@ -659,6 +696,7 @@ model OperationalAnomaly {
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   events AnomalyFindingEvent[]
   investigation AnomalyInvestigation?
+  drafts AnomalyInvestigationDraft[]
 
   @@unique([tenantId, fingerprint])
   @@index([tenantId, status, severity])
@@ -1820,6 +1858,7 @@ model BusinessTenant {
   anomalyInvestigationComments AnomalyInvestigationComment[]
   anomalySuppressions         AnomalySuppression[]
   anomalyScanRuns             AnomalyScanRun[]
+  anomalyInvestigationDrafts  AnomalyInvestigationDraft[]
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]
