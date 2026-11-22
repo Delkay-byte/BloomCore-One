@@ -34,14 +34,18 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      // The mobile project owns the Android-sized shell tests and the offline
-      // status spec, so CI runs each exactly once.
-      testIgnore: /mobile\.spec\.ts|maacash-offline-status\.spec\.ts|maacash-auth-security\.spec\.ts/,
+      // The mobile project owns the Android-sized shell tests, the offline status
+      // spec and the responsive notice spec, so each runs exactly once per project.
+      testIgnore:
+        /mobile\.spec\.ts|maacash-offline-status\.spec\.ts|maacash-auth-security\.spec\.ts/,
     },
     {
       name: "mobile-chromium",
       use: { ...devices["Pixel 7"] },
-      testMatch: /(mobile|maacash-offline-status|maacash-auth-security)\.spec\.ts/,
+      // `maacash-coming-soon` runs in both projects: the notices must not wrap or
+      // cover the control they describe on a phone-sized screen.
+      testMatch:
+        /(mobile|maacash-offline-status|maacash-auth-security|maacash-coming-soon)\.spec\.ts/,
     },
   ],
   webServer: process.env.E2E_BASE_URL

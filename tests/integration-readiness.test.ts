@@ -48,11 +48,36 @@ describe("integration readiness", () => {
     expect(rows.every((row) => row.delivers === false)).toBe(true);
     expect(rows.every((row) => row.status === "sandbox" || row.status === "unavailable")).toBe(true);
     expect(rows.map((row) => row.id)).toEqual([
-      "messaging",
+      "whatsapp",
       "sms",
-      "telco_statement",
+      "mtn",
+      "telecel",
+      "at_money",
+      "banking",
+      "accounting",
+      "identity_verification",
       "provider_payment_status",
     ]);
+  });
+
+  it("marks unbuilt integrations as coming soon and never marks WhatsApp", () => {
+    const rows = getIntegrationReadiness();
+    const marked = rows.filter((row) => row.comingSoon).map((row) => row.id);
+    expect(marked).toEqual([
+      "sms",
+      "mtn",
+      "telecel",
+      "at_money",
+      "banking",
+      "accounting",
+      "identity_verification",
+      "provider_payment_status",
+    ]);
+    // The owner is building WhatsApp, so it must not be labelled unavailable.
+    expect(marked).not.toContain("whatsapp");
+    expect(rows.find((row) => row.id === "whatsapp")?.comingSoon).toBe(false);
+    // A delivering adapter never carries the marker either.
+    expect(rows.every((row) => !(row.delivers && row.comingSoon))).toBe(true);
   });
 
   it("keeps messaging in sandbox and never reports a sent message", async () => {

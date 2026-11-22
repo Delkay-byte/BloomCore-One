@@ -31,8 +31,9 @@ import {
 import { decideReview } from "@/lib/zeli/investigation/review";
 import { SYSTEM_PROMPT } from "@/lib/zeli/investigation/prompt";
 import {
-  PRODUCTION_INVESTIGATION_APPROVED,
+  AI_INVESTIGATION_APPROVED,
   externalGenerationAllowed,
+  externalGenerationBlockedReason,
   investigationDisabled,
 } from "@/lib/zeli/investigation/service";
 
@@ -57,6 +58,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 import { runAnomalyScan } from "@/lib/actions/anomaly.actions";
+import { activateAiPackage, createAiSubscription } from "./ai-investigation-fixtures";
 import {
   generateInvestigationDraft,
   getInvestigationAi,
@@ -126,6 +128,11 @@ async function fixture() {
       locationId: location.id,
     },
   });
+  // External investigation is a paid package: give the business a verified payment
+  // and a Super Admin activation, exactly as production requires.
+  await createAiSubscription(tenant.id);
+  await activateAiPackage(tenant.id);
+
   return { tenant, location, admin, reviewer, worker };
 }
 
@@ -388,9 +395,12 @@ describe("review state machine", () => {
 });
 
 describe("prompt and approval state", () => {
-  it("keeps external generation unapproved and states the prompt is advisory", () => {
-    expect(PRODUCTION_INVESTIGATION_APPROVED).toBe(false);
+  it("records the narrow investigation approval and keeps general AI gates off", () => {
+    // The owner approved external evidence processing for the paid package only.
+    expect(AI_INVESTIGATION_APPROVED).toBe(true);
+    // ... but never inside a test runtime, and never for general conversation.
     expect(externalGenerationAllowed()).toBe(false);
+    expect(externalGenerationBlockedReason()).toBe("test_runtime");
     expect(SYSTEM_PROMPT).toMatch(/is data/i);
     expect(SYSTEM_PROMPT).toMatch(/never suggest changing, reversing or approving/i);
     expect(SYSTEM_PROMPT).toMatch(/never say whether fraud occurred/i);
@@ -426,11 +436,12 @@ describe("generation over a real finding", () => {
     const result = await getInvestigationAi(finding.id);
     expect(result.success, result.error).toBe(true);
     const evidence = result.data!.evidence;
-    expect(evidence.findingId).toBe(finding.id);
-    expect(evidence.metric.measured).toBe(120);
-    expect(evidence.sources.some((row) => row.type === "daily_account")).toBe(true);
-    expect(evidence.missingEvidence.some((line) => /investigation/i.test(line))).toBe(true);
-    expect(evidence.context.workerPseudonym).toMatch(/^Operator /);
+    expect(evidence).not.toBeNull();
+    expect(evidence!.findingId).toBe(finding.id);
+    expect(evidence!.metric.measured).toBe(120);
+    expect(evidence!.sources.some((row) => row.type === "daily_account")).toBe(true);
+    expect(evidence!.missingEvidence.some((line) => /investigation/i.test(line))).toBe(true);
+    expect(evidence!.context.workerPseudonym).toMatch(/^Operator /);
     expect(result.data!.state.externalApproved).toBe(false);
     expect(result.data!.state.disabled).toBe(false);
 
@@ -569,6 +580,26 @@ describe("generation over a real finding", () => {
     delete process.env.ZELI_INVESTIGATION_DISABLED;
     const allowed = await generateInvestigationDraft(finding.id);
     expect(allowed.success, allowed.error).toBe(true);
+  });
+
+  it("does not return an evidence pack to a business without the paid package", async () => {
+    const f = await fixture();
+    const finding = await findingFor(f);
+    // Remove the paid package and the activation this business was given.
+    await prisma.aiInvestigationEntitlement.deleteMany({ where: { tenantId: f.tenant.id } });
+    await prisma.zeliSubscription.deleteMany({ where: { tenantId: f.tenant.id } });
+
+    const result = await getInvestigationAi(finding.id);
+    expect(result.success).toBe(true);
+    expect(result.data!.evidence).toBeNull();
+    expect(result.data!.drafts).toHaveLength(0);
+    expect(result.data!.state.access.allowed).toBe(false);
+    expect(result.data!.state.access.reason).toBe("no_package");
+    expect(result.data!.state.access.guidance).toMatch(/package has not been purchased/i);
+
+    const generated = await generateInvestigationDraft(finding.id);
+    expect(generated.success).toBe(false);
+    expect(generated.error).toMatch(/package has not been purchased/i);
   });
 
   it("refuses another business's finding and its evidence", async () => {

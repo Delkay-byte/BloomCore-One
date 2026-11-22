@@ -20,6 +20,8 @@ import ZeliAdminControlCentre from "./ZeliAdminControlCentre";
 import CommercePanel from "./CommercePanel";
 import PaymentExceptionsPanel from "./PaymentExceptionsPanel";
 import TenantZeliAccessPanel from "./TenantZeliAccessPanel";
+import AiInvestigationPanel from "./AiInvestigationPanel";
+import { getAiInvestigationAdminState } from "@/lib/actions/ai-investigation-admin.actions";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,7 @@ export default async function PlatformZeliPage() {
       listTenantZeliAccess(),
       getZeliPlatformSwitchState(),
     ]);
+  const aiPackage = await getAiInvestigationAdminState();
   return (
     <div className="space-y-6">
       <ZeliAdminControlCentre
@@ -52,6 +55,9 @@ export default async function PlatformZeliPage() {
         updatedByName={availabilityState.updatedByName}
         state={providerState}
       />
+      {aiPackage.success && aiPackage.data ? (
+        <AiInvestigationPanel initial={aiPackage.data} />
+      ) : null}
       <TenantZeliAccessPanel
         initialRows={tenantZeli.success ? tenantZeli.data ?? [] : []}
         globalEnabled={switchState.globalEnabled}

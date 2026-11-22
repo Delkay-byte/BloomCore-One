@@ -1,6 +1,7 @@
 import { requireTenantAdmin } from "@/lib/tenant";
 import { getIntegrationReadiness } from "@/lib/integrations/readiness";
 import Notice from "@/components/ui/Notice";
+import ComingSoonBadge from "@/components/ComingSoonBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,8 @@ export default async function AdminIntegrationsPage() {
       <Notice type="info">
         No message is sent and no provider balance or transaction is confirmed. These
         adapters are placeholders until an approved contract, credentials and
-        reconciliation process exist.
+        reconciliation process exist. &quot;Coming soon&quot; marks a provider
+        integration that is not available yet.
       </Notice>
 
       <section className="grid gap-3 lg:grid-cols-3">
@@ -42,13 +44,16 @@ export default async function AdminIntegrationsPage() {
                 <h2 className="text-sm font-bold text-slate-900">{integration.label}</h2>
                 <p className="mt-0.5 text-xs text-slate-500">{integration.capability}</p>
               </div>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase ${
-                  STATUS_CLASSES[integration.status] ?? STATUS_CLASSES.unavailable
-                }`}
-              >
-                {integration.status}
-              </span>
+              <div className="flex flex-wrap items-center gap-1">
+                {integration.comingSoon ? <ComingSoonBadge /> : null}
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase ${
+                    STATUS_CLASSES[integration.status] ?? STATUS_CLASSES.unavailable
+                  }`}
+                >
+                  {integration.status}
+                </span>
+              </div>
             </div>
 
             <p className="mt-3 text-sm text-slate-700">{integration.detail}</p>

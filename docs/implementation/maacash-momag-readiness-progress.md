@@ -627,10 +627,14 @@ review with a non-author reviewer; kill-switch and provider-disabled fallback; a
 completeness (finding id, evidence hash, prompt and schema version, decision, and
 `findingChanged: false`); and evidence tampering being refused at review.
 
-**C3 approval — remains not granted.**
-`PRODUCTION_INVESTIGATION_APPROVED` is `false` and is checked before the
-environment, so an env var alone cannot enable an external provider. Enabling one
-still needs the separate security and financial-evidence review.
+**C3 approval — granted only as the narrow, paid, per-business package described in
+C4.** The former `PRODUCTION_INVESTIGATION_APPROVED` constant is replaced by
+`AI_INVESTIGATION_CODE_APPROVED = true` plus the ordered entitlement decision, which
+is what the owner approved. It is *not* a general approval: the runtime still refuses
+external calls in tests, a business still needs a confirmed payment and a Super Admin
+activation, and `PRODUCTION_CONVERSATION_APPROVED` and `PRODUCTION_PROVIDER_APPROVED`
+remain `false`. The `ZELI_EXTERNAL_AI_DISABLED` / `ZELI_INVESTIGATION_DISABLED`
+switches still stop the whole feature for the deployment.
 
 Provider gates are unchanged and still off: `PRODUCTION_PROVIDER_APPROVED=false`,
 `PRODUCTION_CONVERSATION_APPROVED=false`. No AI provider credential is present in
@@ -638,6 +642,81 @@ the browser or the E2E environment (`scripts/e2e-env.cjs` blanks
 `PAYSTACK_*`, `DEEPSEEK_*`, `ZELI_TEAM_TESTING_*`, `WHATSAPP_*`, `RESEND_API_KEY`
 and `PLATFORM_OIDC_*`, and forces `PAYSTACK_ENABLED=false`,
 `PLATFORM_OIDC_ENABLED=false`).
+
+**C4 paid AI Investigation package — DONE (owner-approved scope).**
+The owner approved external AI processing of real financial evidence for a business
+that has bought the dedicated AI Investigation package. That approval is implemented
+as an *entitlement*, not as a global switch.
+
+- **Data model.** `AiInvestigationEntitlement` (one row per business: package code,
+  subscription and plan reference, activation actor, activation time, expiry, reason,
+  revocation actor/time/reason) and `AiInvestigationUsage` (requests per calendar
+  month with the allowance frozen on the row), plus `ZeliPlan.addonKey` so a paid
+  package is identifiable rather than matched by name. Migration
+  `20261219_ai_investigation_package`; both Prisma schemas kept identical.
+- **Ordered decision function.** `evaluateAiInvestigationAccess` is pure and denies in
+  a fixed order: deployment approval, operator kill switch, business status, role,
+  package, provider-confirmed payment, current paid period, activation present,
+  activation not revoked, activation not expired, monthly allowance. Each denial
+  carries a machine reason and plain-language guidance, so the screen can explain
+  what is missing instead of failing opaquely.
+- **Server-side resolution.** `resolveAiInvestigationAccess` re-reads the plan,
+  subscription, activation and usage on every call. Nothing is trusted from the
+  client, and no cached "enabled" flag short-circuits the order above. A tenant
+  administrator cannot activate the package: `activateAiInvestigation`,
+  `revokeAiInvestigation`, `configureAiInvestigationPackage` and
+  `getAiInvestigationAdminState` require a platform session.
+- **Payment is not activation, and activation is not payment.** Activation refuses a
+  subscription whose `paidAt` is null, whose status is not `active`, or whose paid
+  period has ended; the package catalogue refuses a zero price and never invents one.
+  Revocation takes effect on the next request, not when a cache expires.
+- **Quota.** `consumeAiInvestigationAllowance` increments after a draft is persisted
+  and refuses to exceed the allowance; the allowance is copied onto the usage row so a
+  later plan edit cannot retroactively raise a month already in progress.
+- **Provider.** External generation is attempted only when the entitlement allowed
+  *and* the runtime permits it (`externalProviderPermittedForRuntime` refuses test
+  runtimes) *and* a credential exists. Failures — timeout, 429, 5xx, malformed JSON,
+  schema rejection, ungrounded numbers — fall back to the deterministic draft and
+  record `fallbackReason`; a provider that cannot answer never produces a blank desk
+  and never produces an unvalidated draft.
+- **Unchanged safety.** Accepting a draft still never changes a finding, transaction,
+  balance or account (`affectsFinding: false` is asserted inside the transaction).
+  AI never makes a fraud determination. `PRODUCTION_CONVERSATION_APPROVED` remains
+  `false`; the narrow investigation approval does not widen into a general
+  conversational AI.
+- **Platform control.** `/platform/zeli` renders the activation board: package,
+  confirmed payment and paid period, activation state with actor, monthly usage and
+  the next step for each business, with Activate/Revoke behind a required written
+  reason and a platform audit row (`ai_investigation.activated` /
+  `ai_investigation.revoked` / `ai_investigation.package_configured`) written inside
+  the same transaction as the change.
+- **Tests.** `tests/ai-investigation-entitlement.test.ts` (27) walks the denial
+  matrix — free business, paid non-add-on package, unconfirmed payment, no
+  activation, tenant-admin activation attempt, expired period, revoked activation,
+  expired activation, exhausted quota, wrong role, suspended business, operator kill
+  switch, missing deployment approval — plus cross-tenant isolation, the audit
+  payload, and the provider timeout / 429 / invented-evidence fallbacks.
+  `tests/zeli-investigation.test.ts` (26) keeps the minimisation, injection,
+  self-review and tamper cases green.
+
+**B1 external integration notices — DONE.**
+`src/components/ComingSoonBadge.tsx` is the single marker, with an accessible
+`aria-label` that reads "… not available yet". It marks MTN, Telecel, AT Money, SMS
+live delivery, banking, accounting, external customer identity verification and
+customer payment status on `/admin/integrations`, and SMS live delivery on
+`/admin/messaging`. WhatsApp is deliberately excluded: the owner is building it, and
+the readiness row says so in words rather than labelling it unavailable. Nothing was
+placed over working functionality — manual MoMo entry, CSV statement import,
+reconciliation, reports and customer access carry no marker, and no page offers a
+provider action (`Connect`, `Test send`, `Sync now`) that cannot work.
+
+**B2 WhatsApp configuration audit — DONE.** See
+[`docs/audits/maacash-whatsapp-configuration-audit.md`](../audits/maacash-whatsapp-configuration-audit.md).
+One defect found and fixed: `scripts/e2e-env.cjs` blanked
+`WHATSAPP_WEBHOOK_VERIFY_TOKEN`, but the webhook reads `WHATSAPP_VERIFY_TOKEN`, so a
+developer shell exporting the real name could still change the webhook's answer in
+the browser suite. Both names — plus the delivery switch, allowlist, dispatch token
+and status-webhook secret — are now blanked.
 
 ---
 
@@ -676,10 +755,14 @@ not code:
    `PRODUCTION_PROVIDER_APPROVED` and `PRODUCTION_CONVERSATION_APPROVED` stay
    `false` until a separate security and financial-evidence review approves an
    external model. The deterministic explanation is what ships meanwhile.
-2. **Association decisions** (items 36, 9.13 and 10.13): pilot dashboard audience,
+2. **C4 deployment switch for a real package.** The code path is complete and tested;
+   what an operator still needs is a Super Admin decision per business (price,
+   allowance, expiry) once the package is sold. No live payment was taken and no
+   production entitlement was created during this work.
+3. **Association decisions** (items 36, 9.13 and 10.13): pilot dashboard audience,
    sponsorship funding policy, and the certification framework. Each is marked
    `PENDING_ASSOCIATION_DECISION` with the model recording facts rather than
    guessing policy.
-3. **Final release gate**: the full suite set in §1, a security and tenant review,
+4. **Final release gate**: the full suite set in §1, a security and tenant review,
    and then — and only then — a discussion about push, PR or deploy. Nothing has
    been pushed, merged or deployed.

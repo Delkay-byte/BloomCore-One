@@ -18,20 +18,30 @@ import {
   type ReviewDecision,
 } from "@/lib/zeli/investigation/review";
 import { validateDraft, type InvestigationDraftPayload } from "@/lib/zeli/investigation/schema";
+import {
+  AI_INVESTIGATION_DEFAULT_MONTHLY_LIMIT,
+  consumeAiInvestigationAllowance,
+  resolveAiInvestigationAccess,
+  type AiInvestigationAccess,
+} from "@/lib/zeli/investigation/entitlement";
 
 /**
- * The AI investigation layer, as far as it may go without approval.
+ * The AI investigation layer under the owner's package-only approval.
  *
- * Everything here produces an explanation for a person to review. No function can
- * change a finding, a transaction, a count or a balance, and accepting a draft
- * records a decision about wording, not about money.
+ * External processing needs a genuinely paid AI Investigation package, a live Super
+ * Admin activation, an authorised role and an unused allowance — all read from the
+ * database on each request. Everything here produces an explanation for a person to
+ * review. No function can change a finding, a transaction, a count or a balance, and
+ * accepting a draft records a decision about wording, not about money.
  */
 
 export interface AiInvestigationState {
   /** The single switch that stops generation everywhere. */
   disabled: boolean;
-  /** False until a separate security and financial-evidence review approves it. */
+  /** True when this deployment may call an external provider at all. */
   externalApproved: boolean;
+  /** The live per-business decision: paid package, activation, quota, role. */
+  access: AiInvestigationAccess;
   promptVersion: string;
   schemaVersion: string;
   aiCreatesFinancialRecords: false;
@@ -63,16 +73,18 @@ export interface InvestigationAiResponse {
   success: boolean;
   error?: string;
   data?: {
-    evidence: InvestigationEvidence;
+    /** Only returned when the package gates allow this business to use the feature. */
+    evidence: InvestigationEvidence | null;
     drafts: DraftView[];
     state: AiInvestigationState;
   };
 }
 
-function state(): AiInvestigationState {
+function state(access: AiInvestigationAccess): AiInvestigationState {
   return {
     disabled: investigationDisabled(),
     externalApproved: externalGenerationAllowed(),
+    access,
     promptVersion: DRAFT_VERSIONS.promptVersion,
     schemaVersion: DRAFT_VERSIONS.schemaVersion,
     aiCreatesFinancialRecords: false,
@@ -141,14 +153,38 @@ async function draftViews(
 }
 
 /** The evidence an explanation would be written from, plus any existing drafts. */
+/**
+ * Read the feature state for one business and finding.
+ *
+ * The evidence pack and any drafts are returned only when the paid package gates
+ * allow it. Otherwise the caller gets the guidance a tenant administrator can act on
+ * — purchase the package, wait for payment, or ask a Super Admin to activate — and no
+ * evidence at all.
+ */
 export async function getInvestigationAi(anomalyId: string): Promise<InvestigationAiResponse> {
   const ctx = await requireTenantAdminMomo();
+  const access = await resolveAiInvestigationAccess(ctx.tenantId, ctx.role, {
+    operatorDisabled: investigationDisabled(),
+  });
+
+  if (!access.allowed) {
+    const exists = await db.operationalAnomaly.findFirst({
+      where: { id: anomalyId, tenantId: ctx.tenantId },
+      select: { id: true },
+    });
+    if (!exists) return { success: false, error: "Finding not found." };
+    return {
+      success: true,
+      data: { evidence: null, drafts: [], state: state(access) },
+    };
+  }
+
   const built = await buildEvidenceForFinding(ctx.tenantId, anomalyId);
   if (!built.success || !built.data) {
     return { success: false, error: built.error ?? "The evidence could not be assembled." };
   }
   const drafts = await draftViews(ctx.tenantId, anomalyId, built.data);
-  return { success: true, data: { evidence: built.data, drafts, state: state() } };
+  return { success: true, data: { evidence: built.data, drafts, state: state(access) } };
 }
 
 /**
@@ -161,17 +197,27 @@ export async function getInvestigationAi(anomalyId: string): Promise<Investigati
 export async function generateInvestigationDraft(anomalyId: string): Promise<{
   success: boolean;
   error?: string;
-  data?: { draftId: string };
+  data?: { draftId: string; source: "deterministic" | "external"; fallbackReason: string | null };
 }> {
   const ctx = await requireTenantAdminMomo();
   if (investigationDisabled()) {
     return { success: false, error: "AI investigation is switched off for this deployment." };
   }
+
+  // The gates are resolved here, on this request, from the database. Nothing from the
+  // browser and nothing cached can stand in for them.
+  const access = await resolveAiInvestigationAccess(ctx.tenantId, ctx.role, {
+    operatorDisabled: investigationDisabled(),
+  });
+  if (!access.allowed) {
+    return { success: false, error: access.guidance };
+  }
+
   const built = await buildEvidenceForFinding(ctx.tenantId, anomalyId);
   if (!built.success || !built.data) {
     return { success: false, error: built.error ?? "The evidence could not be assembled." };
   }
-  const generated = await generateDraftForEvidence(built.data);
+  const generated = await generateDraftForEvidence(built.data, { allowExternal: true });
   if (!generated.success || !generated.data) {
     return { success: false, error: generated.error ?? "The draft was rejected." };
   }
@@ -214,13 +260,28 @@ export async function generateInvestigationDraft(anomalyId: string): Promise<{
         schemaVersion: DRAFT_VERSIONS.schemaVersion,
         source: generated.data!.source,
         model: generated.data!.model,
+        planCode: access.planCode,
+        activationStatus: access.activationStatus,
+        fallbackReason: generated.data!.fallbackReason,
         aiCreatedFinancialRecord: false,
       },
     });
     return created;
   });
 
-  return { success: true, data: { draftId: draft.id } };
+  await consumeAiInvestigationAllowance(
+    ctx.tenantId,
+    access.allowance ?? AI_INVESTIGATION_DEFAULT_MONTHLY_LIMIT
+  );
+
+  return {
+    success: true,
+    data: {
+      draftId: draft.id,
+      source: generated.data!.source,
+      fallbackReason: generated.data!.fallbackReason,
+    },
+  };
 }
 
 /**

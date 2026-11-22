@@ -1859,6 +1859,8 @@ model BusinessTenant {
   anomalySuppressions         AnomalySuppression[]
   anomalyScanRuns             AnomalyScanRun[]
   anomalyInvestigationDrafts  AnomalyInvestigationDraft[]
+  aiInvestigationEntitlement  AiInvestigationEntitlement?
+  aiInvestigationUsages       AiInvestigationUsage[]
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]
@@ -2356,6 +2358,60 @@ model ZeliProviderGatewayEvent {
 
 /// Configurable Zeli subscription catalogue. Prices are owner-configured; no
 /// price is seeded by the application.
+/// The platform's explicit activation of the dedicated AI Investigation package
+/// for one business.
+///
+/// A paid package alone is not enough: a Super Admin must activate it, with a
+/// reason. This row is the activation, and it is checked on every request together
+/// with the live subscription payment and period.
+model AiInvestigationEntitlement {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  /// active | revoked. Expiry is read from the package period on every request.
+  status          String   @default("active")
+  subscriptionId  String
+  planId          String
+  /// The package code the Super Admin activated, kept for the record.
+  planCode        String
+  activatedById   String
+  activatedByEmail String
+  activatedAt     DateTime @default(now())
+  /// Copied at activation for display; the live check uses the subscription.
+  expiresAt       DateTime
+  reason          String
+  revokedById     String?
+  revokedByEmail  String?
+  revokedAt       DateTime?
+  revokeReason    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// Monthly external-investigation usage for one business.
+///
+/// The package allowance is a safety limit, not a price: it is configured on the
+/// package by the platform, and this row is the counter that enforces it.
+model AiInvestigationUsage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  /// YYYY-MM (UTC).
+  period    String
+  requests  Int      @default(0)
+  limit     Int
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, period])
+  @@index([period])
+}
+
 model ZeliPlan {
   id               String   @id @default(cuid())
   code             String   @unique
@@ -2374,6 +2430,10 @@ model ZeliPlan {
   foundingPrice    Decimal?
   /// Zeli is included in every commercial package.
   zeliIncluded     Boolean  @default(true)
+  /// Set when this plan is a paid add-on rather than a base package.
+  /// Currently only `ai_investigation`: the dedicated AI investigation package.
+  /// An add-on payment never grants the base analytics entitlement.
+  addonKey         String?
   providerPlanCode String? // optional Paystack plan for recurring billing
   status           String   @default("draft") // draft | active | archived
   isPublic         Boolean  @default(false)
@@ -2385,6 +2445,8 @@ model ZeliPlan {
 
   subscriptions        ZeliSubscription[]
   foundingAllocations  FoundingAllocation[]
+
+  @@index([addonKey])
 
   @@index([status])
   @@index([isPublic])

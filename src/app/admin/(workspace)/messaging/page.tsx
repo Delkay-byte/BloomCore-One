@@ -10,6 +10,7 @@ import {
   type MessagingSettingsView,
 } from "@/lib/actions/messaging-settings.actions";
 import type { MessagingChannel, MessagingPurpose } from "@/lib/messaging/config";
+import ComingSoonBadge from "@/components/ComingSoonBadge";
 
 const PURPOSE_LABELS: Record<MessagingPurpose, string> = {
   receipt: "Transaction receipt",
@@ -158,7 +159,10 @@ export default function MessagingSettingsPage() {
                 ? "configured and switched on"
                 : "not configured for this deployment"}
             </li>
-            <li>SMS provider: {view.platform.smsReady ? "ready" : "no approved provider"}</li>
+            <li className="flex flex-wrap items-center gap-2">
+              <span>SMS provider: {view.platform.smsReady ? "ready" : "no approved provider"}</span>
+              {view.platform.smsReady ? null : <ComingSoonBadge detail="SMS live delivery is not available yet." />}
+            </li>
           </ul>
           <p className="text-[11px] text-slate-500">
             A provider that is not configured reports messages as simulated, never as
@@ -188,7 +192,12 @@ export default function MessagingSettingsPage() {
                 onChange={(event) => setSmsEnabled(event.target.checked)}
                 className="mt-0.5"
               />
-              <span>Send receipts over SMS</span>
+              <span className="flex flex-wrap items-center gap-2">
+                Send receipts over SMS
+                {view?.platform.smsReady ? null : (
+                  <ComingSoonBadge detail="SMS live delivery is not available yet; receipts stay queued." />
+                )}
+              </span>
             </label>
 
             <label className="block text-xs font-medium text-slate-600">

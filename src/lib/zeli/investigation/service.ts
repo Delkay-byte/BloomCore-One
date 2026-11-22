@@ -21,6 +21,12 @@ import {
 } from "./evidence";
 import { buildDeterministicDraft } from "./deterministic";
 import {
+  InvestigationProviderError,
+  externalProviderPermittedForRuntime,
+  externalProviderSettings,
+  requestExternalDraft,
+} from "./provider";
+import {
   DRAFT_PROMPT_VERSION,
   DRAFT_SCHEMA_VERSION,
   ungroundedClaims,
@@ -34,17 +40,38 @@ export function investigationDisabled(): boolean {
 }
 
 /**
- * External generation is not approved for production.
+ * The owner approved external processing of real financial evidence for the
+ * dedicated AI Investigation package. That approval is recorded here as a narrow
+ * code gate; it is not a switch that grants access by itself.
  *
- * The constant is checked before the environment, so setting an env var alone can
- * never enable a provider that has not passed a security and financial-evidence
- * review. This mirrors PRODUCTION_PROVIDER_APPROVED and
- * PRODUCTION_CONVERSATION_APPROVED, which stay false.
+ * A request additionally needs a paid package subscription, a live Super Admin
+ * activation, an authorised role and an unused allowance, all read from the database
+ * on the request (see `entitlement.ts`). This constant cannot enable general
+ * conversation or broad aggregate processing: those keep their own constants,
+ * `PRODUCTION_CONVERSATION_APPROVED` and `PRODUCTION_PROVIDER_APPROVED`, both false.
  */
-export const PRODUCTION_INVESTIGATION_APPROVED = false;
+export const AI_INVESTIGATION_APPROVED = true;
 
-export function externalGenerationAllowed(): boolean {
-  return PRODUCTION_INVESTIGATION_APPROVED;
+/**
+ * Whether the deployment *could* call an external provider for investigation.
+ *
+ * Runtime permission (no test environment, no operator disable, a configured
+ * credential) is required as well, so a configured key in a test run still cannot
+ * send evidence anywhere.
+ */
+export function externalGenerationAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return AI_INVESTIGATION_APPROVED && externalProviderPermittedForRuntime(env);
+}
+
+/** Every reason external generation was refused, for the audit row. */
+export function externalGenerationBlockedReason(
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  if (!AI_INVESTIGATION_APPROVED) return "code_approval_missing";
+  if (env.NODE_ENV === "test") return "test_runtime";
+  if ((env.ZELI_EXTERNAL_AI_DISABLED ?? "").trim() === "1") return "operator_disabled";
+  if (!externalProviderSettings(env).configured) return "credential_missing";
+  return null;
 }
 
 function ruleLabel(ruleKey: string): string {
@@ -378,7 +405,14 @@ export async function buildEvidenceForFinding(
 export interface DraftResult {
   success: boolean;
   error?: string;
-  data?: { payload: InvestigationDraftPayload; evidenceHash: string; source: "deterministic" | "external"; model: string };
+  data?: {
+    payload: InvestigationDraftPayload;
+    evidenceHash: string;
+    source: "deterministic" | "external";
+    model: string;
+    /** Why an external attempt was not made, or why it fell back. */
+    fallbackReason: string | null;
+  };
 }
 
 /**
@@ -390,16 +424,56 @@ export interface DraftResult {
  * returns its reasons rather than a partial answer.
  */
 export async function generateDraftForEvidence(
-  evidence: InvestigationEvidence
+  evidence: InvestigationEvidence,
+  options: {
+    /** True only after the paid-package and Super Admin gates have passed. */
+    allowExternal?: boolean;
+    fetchImpl?: typeof fetch;
+    env?: NodeJS.ProcessEnv;
+  } = {}
 ): Promise<DraftResult> {
-  if (investigationDisabled()) {
+  const env = options.env ?? process.env;
+  if ((env.ZELI_INVESTIGATION_DISABLED ?? "").trim() === "1") {
     return { success: false, error: "AI investigation is switched off for this deployment." };
   }
 
-  const source = externalGenerationAllowed() ? "external" : "deterministic";
-  const model = source === "external" ? "not-configured" : "rules-only";
-  const payload = buildDeterministicDraft(evidence);
+  const blockedReason = externalGenerationBlockedReason(env);
+  const source: "deterministic" | "external" = "deterministic";
+  const model = "rules-only";
+  let fallbackReason: string | null = blockedReason;
 
+  if (options.allowExternal && !blockedReason) {
+    try {
+      const external = await requestExternalDraft(evidence, {
+        fetchImpl: options.fetchImpl,
+        env,
+      });
+      const validation = validateDraft({ raw: external.payload, evidence });
+      if (validation.ok && validation.payload) {
+        const ungrounded = ungroundedClaims(validation.payload, evidence);
+        if (ungrounded.length === 0) {
+          return {
+            success: true,
+            data: {
+              payload: validation.payload,
+              evidenceHash: evidence.packHash,
+              source: "external",
+              model: external.model,
+              fallbackReason: null,
+            },
+          };
+        }
+        fallbackReason = "ungrounded";
+      } else {
+        fallbackReason = "schema_rejected";
+      }
+    } catch (error) {
+      fallbackReason =
+        error instanceof InvestigationProviderError ? error.code : "provider_error";
+    }
+  }
+
+  const payload = buildDeterministicDraft(evidence);
   const validation = validateDraft({ raw: payload, evidence });
   if (!validation.ok || !validation.payload) {
     return { success: false, error: `The draft was rejected: ${validation.errors.join(" ")}` };
@@ -411,7 +485,13 @@ export async function generateDraftForEvidence(
 
   return {
     success: true,
-    data: { payload: validation.payload, evidenceHash: evidence.packHash, source, model },
+    data: {
+      payload: validation.payload,
+      evidenceHash: evidence.packHash,
+      source,
+      model,
+      fallbackReason,
+    },
   };
 }
 
