@@ -93,9 +93,9 @@ Two judgement calls are recorded rather than hidden:
 | 8.2, 8.7–8.10 | A6 association entity, zones, roles, consent, exports | `src/lib/association-governance.ts`, `/api/association/export`; 16 tests |
 | 9.2–9.12 | A8 sponsor, funding ledger, coverage, abuse controls, ownership separation | `src/lib/sponsorship.ts`, `SponsorshipPanel`; 23 tests, 1 browser spec |
 | 10.2–10.10, 10.12 | A7 courses, enrolment, attendance, assessment, certificates, retention | `src/lib/training.ts`, `/verify/certificate/[token]`; 23 tests |
-| 11.2, 11.4, 11.6, 11.7, 11.10, 11.11 | A9 finding events, investigation, suppression, scheduled scan, snapshot hash, reopening | `src/lib/anomaly-investigation.ts`, `src/lib/anomaly-scan.ts`, `POST /api/internal/anomaly/scan`; 17 + 25 tests, 1 browser spec |
+| 11.2, 11.4, 11.6, 11.7, 11.10, 11.11 | A9 finding events, investigation, suppression, scheduled scan, snapshot hash, reopening | `src/lib/anomaly-investigation.ts`, `src/lib/anomaly-scan.ts`, `POST /api/internal/anomaly/scan`; 17 tests, 1 browser spec |
 | 12.3, 12.5, 12.6, 12.10 | A10 consolidated cash, flow, completeness and metric dictionary | `src/lib/reporting/*`, `/admin/reports/consolidated`; 19 tests, 1 browser spec |
-| C0–C4 AI layer | Zeli explanation drafts and the paid investigation package | `src/lib/zeli/investigation/*`, `/platform/zeli`; 25 + 28 tests |
+| C0–C4 AI layer | Zeli explanation drafts and the paid investigation package | `src/lib/zeli/investigation/*`, `/platform/zeli`; 26 + 28 tests |
 
 ### 2.3 The seven that remain, and why
 
