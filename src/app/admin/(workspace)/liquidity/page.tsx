@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ClipboardCheck, RefreshCw, Save, Send, Vault } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
+import LiquidityForecastPanel from "@/components/LiquidityForecastPanel";
 import Notice from "@/components/ui/Notice";
 import {
   getLiquidityBoard,
@@ -529,6 +530,9 @@ export default function BranchLiquidityPage() {
                 Review note: {location.reviewNote}
               </p>
             )}
+            <div className="border-t border-slate-200 p-3">
+              <LiquidityForecastPanel locationId={location.locationId} />
+            </div>
           </section>
         );
       })}
