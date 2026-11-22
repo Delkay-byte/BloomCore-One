@@ -1843,6 +1843,9 @@ model BusinessTenant {
   operationalPolicy            TenantOperationalPolicy?
   offlineActionRequests        OfflineActionRequest[]
   momoOfflineDrafts            MomoOfflineDraft[]
+  riskIntelligenceConsents    RiskIntelligenceConsent[]
+  agentRiskSignals            AgentRiskSignal[]
+  riskIntelligenceDisclosures RiskIntelligenceDisclosure[]
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerWithdrawalRequests   CustomerWithdrawalRequest[]
@@ -3476,4 +3479,98 @@ model ReconciliationExceptionEvent {
 
   @@index([caseId, createdAt])
   @@index([tenantId, type])
+}
+
+// ---------------------------------------------------------------------------
+// Shared agent risk intelligence (opt-in, governed, never a public blacklist)
+// ---------------------------------------------------------------------------
+
+/// A business's explicit decision to take part in shared risk intelligence.
+///
+/// Joining is a deliberate act by the business owner, recorded with the exact policy
+/// version they accepted. Leaving is equally deliberate: the row is kept, marked
+/// withdrawn, and its signals stop being shared. No business is enrolled implicitly.
+model RiskIntelligenceConsent {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  /// The policy text the owner accepted. A new version must be accepted again.
+  policyVersion  String
+  status         String    @default("active")
+  /// share_signals | query_only
+  scope          String    @default("share_signals")
+  consentedById  String
+  consentedAt    DateTime  @default(now())
+  withdrawnById  String?
+  withdrawnAt    DateTime?
+  withdrawReason String?
+  billingBasis   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, policyVersion])
+  @@index([tenantId, status])
+}
+
+/// One risk signal contributed by one business about one agent.
+///
+/// The identity is a salted hash of a normalised agent identity, never a name, a phone
+/// number or a photograph. The originating business is stored so a signal can be
+/// withdrawn and so a disclosure can be audited, and is never shown to another business.
+model AgentRiskSignal {
+  id           String   @id @default(cuid())
+  /// The contributing business.
+  tenantId     String?
+  /// Salted hash of the normalised identity. Raw identity is never stored here.
+  subjectKey   String
+  /// Which identity fields went into the key, so the basis is reproducible.
+  keyBasis     String
+  /// Salt version used, so rotating the salt does not silently break matching.
+  saltVersion  Int      @default(1)
+  /// shortage | repeated_shortage | unreconciled_day | evidence_gap |
+  /// unconfirmed_handover | policy_breach
+  category     String
+  /// high | medium | low
+  severity     String
+  /// open | withdrawn | expired
+  status       String   @default("open")
+  /// The internal record that justified the signal. Never disclosed to another business.
+  sourceType   String
+  sourceId     String
+  internalNote String?
+  observedFrom DateTime
+  observedTo   DateTime
+  /// Signals fade: an old shortage says less about this month.
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, subjectKey, sourceType, sourceId])
+  @@index([subjectKey, status])
+  @@index([tenantId, status])
+  @@index([expiresAt])
+}
+
+/// Every time one business is shown another business's aggregated signal.
+///
+/// A shared-risk product that cannot say who was shown what is not governed, so each
+/// disclosure is written before the caller sees the result.
+model RiskIntelligenceDisclosure {
+  id               String   @id @default(cuid())
+  tenantId         String?
+  subjectKey       String
+  /// Categories and coarse counts only; never the contributing businesses.
+  disclosed        String
+  /// Distinct contributing businesses behind the answer at the time.
+  contributorCount Int
+  viewerId         String
+  reason           String
+  createdAt        DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([subjectKey, createdAt])
 }

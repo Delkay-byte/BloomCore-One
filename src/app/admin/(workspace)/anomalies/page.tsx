@@ -14,6 +14,7 @@ import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import AnomalyInvestigationPanel from "@/components/AnomalyInvestigationPanel";
 import EvidenceProvenancePanel from "@/components/EvidenceProvenancePanel";
+import RiskIntelligencePanel from "@/components/RiskIntelligencePanel";
 import { getStaff } from "@/lib/actions/staff.actions";
 import { StatCard } from "@/components/ui/DataDisplay";
 import {
@@ -612,6 +613,10 @@ export default function AdminAnomaliesPage() {
           />
 
           <EvidenceProvenancePanel />
+
+          <RiskIntelligencePanel
+            staff={staff.map((row) => ({ id: row.id, fullName: row.fullName, role: "worker" }))}
+          />
 
           <p className="flex items-start gap-2 text-xs text-slate-500">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden />
