@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { TenantContext } from "@/lib/tenant";
 import {
@@ -34,6 +35,15 @@ import {
   type ChargeRequiredAction,
 } from "@/lib/payments/charge-attempts";
 import { sanitizeProviderMessage } from "./paystack";
+import { AI_INVESTIGATION_ADDON } from "@/lib/zeli/investigation/entitlement";
+
+/**
+ * The actor recorded when a verified payment, not a person, activates an add-on.
+ * It is deliberately not a real platform account: no login can act as it, and a
+ * reviewer can tell automatic activation from a manual grant at a glance.
+ */
+export const ADDON_PAYMENT_ACTOR_ID = "system:payment_provider";
+export const ADDON_PAYMENT_ACTOR_EMAIL = "payment-provider@system.local";
 import { liveBlockedExplanation } from "./live-readiness";
 import {
   DEFAULT_HOSTED_CHECKOUT_CHANNEL,
@@ -1848,6 +1858,106 @@ interface InternalChargeResult {
  * canonical transaction identity so a callback verification and the matching
  * webhook cannot both extend the period.
  */
+
+/**
+ * Activate a purchased add-on inside the payment transaction.
+ *
+ * The provider has already been verified by the caller: the reference, amount and
+ * currency matched the stored checkout and the transaction status is `success`. This
+ * function therefore only writes entitlement state — it never decides whether the
+ * payment was real.
+ *
+ * It is deliberately narrow: only `ai_investigation` is a supported add-on today, and
+ * an unknown add-on key refuses rather than guessing. The activation is recorded with
+ * the payment reference so an auditor can go from entitlement to provider event, and
+ * with a system actor because no human approved it — a human revocation is the
+ * control, not a human activation.
+ */
+async function activateAddonEntitlement(
+  tx: Prisma.TransactionClient,
+  input: {
+    tenantId: string;
+    subscriptionId: string;
+    planId: string;
+    planCode: string;
+    addonKey: string;
+    periodEnd: Date;
+    paidAt: Date;
+    reference: string;
+  }
+): Promise<"addon_activated" | "addon_renewed"> {
+  if (input.addonKey !== AI_INVESTIGATION_ADDON) {
+    throw new Error(`Unsupported add-on package: ${input.addonKey}`);
+  }
+
+  const existing = await tx.aiInvestigationEntitlement.findUnique({
+    where: { tenantId: input.tenantId },
+  });
+
+  await tx.aiInvestigationEntitlement.upsert({
+    where: { tenantId: input.tenantId },
+    create: {
+      tenantId: input.tenantId,
+      status: "active",
+      subscriptionId: input.subscriptionId,
+      planId: input.planId,
+      planCode: input.planCode,
+      // No human activated this: the verified payment did. The actor is recorded as
+      // the payment provider so the audit trail never implies a manual grant.
+      activatedById: ADDON_PAYMENT_ACTOR_ID,
+      activatedByEmail: ADDON_PAYMENT_ACTOR_EMAIL,
+      activatedAt: input.paidAt,
+      expiresAt: input.periodEnd,
+      reason: `Verified provider payment ${input.reference}`,
+    },
+    update: {
+      status: "active",
+      subscriptionId: input.subscriptionId,
+      planId: input.planId,
+      planCode: input.planCode,
+      activatedById: ADDON_PAYMENT_ACTOR_ID,
+      activatedByEmail: ADDON_PAYMENT_ACTOR_EMAIL,
+      activatedAt: input.paidAt,
+      expiresAt: input.periodEnd,
+      reason: `Verified provider payment ${input.reference}`,
+      // A renewal clears an earlier revocation: the customer has paid again and the
+      // access is legitimate. Abuse revocation stays in the platform audit trail.
+      revokedById: null,
+      revokedByEmail: null,
+      revokedAt: null,
+      revokeReason: null,
+    },
+  });
+
+  await tx.platformAuditLog.create({
+    data: {
+      action: existing ? "ai_investigation.auto_renewed" : "ai_investigation.auto_activated",
+      // No platform account performed this. The audit row names the system actor in
+      // the email field and leaves the human actor empty, because `actorId` is a
+      // foreign key to a real administrator.
+      actorId: null,
+      actorEmail: ADDON_PAYMENT_ACTOR_EMAIL,
+      tenantId: input.tenantId,
+      entityType: "ai_investigation_entitlement",
+      entityId: input.tenantId,
+      reason: `Verified provider payment ${input.reference}`,
+      details: JSON.stringify({
+        source: "payment_provider",
+        planCode: input.planCode,
+        subscriptionId: input.subscriptionId,
+        providerReference: input.reference,
+        paidAt: input.paidAt.toISOString(),
+        expiresAt: input.periodEnd.toISOString(),
+        previousStatus: existing?.status ?? null,
+        financialMutation: false,
+        humanApprovalRequired: false,
+      }),
+    },
+  });
+
+  return existing ? "addon_renewed" : "addon_activated";
+}
+
 export async function fulfilPaidSubscription(input: {
   reference: string;
   eventId: string;
@@ -1874,6 +1984,24 @@ export async function fulfilPaidSubscription(input: {
   }
   if (claim === "in_progress") {
     return { decision: "ignored", subscriptionId: subscription.id, reason: "processing" };
+  }
+
+  // A paid purchase needs a real price. A zero-price package is a configuration
+  // mistake, not a sale, and must never be fulfilled into paid access.
+  if (Number(subscription.amount) <= 0 || Number(subscription.plan.price) <= 0) {
+    await finishEvent(input.eventId, "failed", "zero_price_package");
+    await recordException({
+      dedupeKey: `zero_price_package:${subscription.id}:${input.eventId}`,
+      tenantId: subscription.tenantId,
+      subscriptionId: subscription.id,
+      reference: input.reference,
+      kind: "payment_mismatch",
+      detail:
+        "A package with no price was submitted for payment. No access was granted and the package needs an approved price.",
+      amount: input.transaction.amount,
+      currency: input.transaction.currency,
+    });
+    return { decision: "failed", subscriptionId: subscription.id, reason: "zero_price_package" };
   }
 
   if (
@@ -2004,6 +2132,23 @@ export async function fulfilPaidSubscription(input: {
       // pricing because the allocation becomes exhausted.
       if (fresh.foundingAllocationId && fresh.billingTerm !== "annual") {
         await consumeFoundingPeriod(tx, fresh.foundingAllocationId);
+      }
+
+      // An add-on payment must never grant the base analytics entitlement. It
+      // activates its own entitlement, in this same transaction, so a verified
+      // provider payment is the only thing that turns the add-on on.
+      if (fresh.plan.addonKey) {
+        const addon = await activateAddonEntitlement(tx, {
+          tenantId: fresh.tenantId,
+          subscriptionId: fresh.id,
+          planId: fresh.planId,
+          planCode: fresh.plan.code,
+          addonKey: fresh.plan.addonKey,
+          periodEnd,
+          paidAt: verifiedPaidAt,
+          reference: fresh.providerReference,
+        });
+        return { kind: "processed" as const, reason: addon };
       }
 
       const keepManual =

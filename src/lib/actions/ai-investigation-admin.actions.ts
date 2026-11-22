@@ -9,6 +9,7 @@ import {
   AI_INVESTIGATION_CODE_APPROVED,
   AI_INVESTIGATION_DEFAULT_MONTHLY_LIMIT,
 } from "@/lib/zeli/investigation/entitlement";
+import { ADDON_PAYMENT_ACTOR_ID } from "@/lib/payments/zeli-subscriptions";
 
 /**
  * Platform control of the AI Investigation package.
@@ -176,11 +177,18 @@ export async function getAiInvestigationAdminState(): Promise<
       expiresAt: activation ? activation.expiresAt.toISOString() : null,
       revokeReason: activation ? activation.revokeReason : null,
       usedThisMonth: usageByTenant.get(row.tenantId) ?? 0,
+      // Activation is automatic once the provider confirms payment, so a confirmed
+      // payment with no activation means the automatic path did not complete.
+      // Manual activation exists for exactly that case, and it is audited.
       nextStep: !paymentCurrent
         ? "The paid period has ended or the subscription is not active. No activation is possible."
         : activationStatus === "active"
-          ? "Active. Revoke to withdraw access immediately."
-          : "Payment confirmed. A Super Admin may activate the package.",
+          ? activation?.activatedById === ADDON_PAYMENT_ACTOR_ID
+            ? "Active, activated automatically by the verified payment. Revoke to withdraw access immediately."
+            : "Active. Revoke to withdraw access immediately."
+          : activationStatus === "revoked"
+            ? "Revoked by a Super Admin. A new verified payment reactivates it."
+            : "Payment confirmed but not activated. Activation is automatic; check the payment event before correcting it here.",
     });
   }
 

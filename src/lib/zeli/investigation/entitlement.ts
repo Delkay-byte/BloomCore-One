@@ -85,7 +85,7 @@ export interface AiInvestigationInputs {
     periodEnd: Date | null;
     amountConfirmed: boolean;
   } | null;
-  activation: { status: string; expiresAt: Date } | null;
+  activation: { status: string; expiresAt: Date; activatedAt?: Date | null } | null;
   usage: { requests: number } | null;
   now?: Date;
 }
@@ -251,7 +251,11 @@ export function evaluateAiInvestigationAccess(
     paymentConfirmed: true,
     paymentEndsAt: subscription.periodEnd.toISOString(),
     activationStatus: "active",
-    activatedAt: null,
+    // When the package was switched on, whether by a verified payment or a Super
+    // Admin. The tenant screen shows this; it is not a secret.
+    activatedAt: input.activation.activatedAt
+      ? input.activation.activatedAt.toISOString()
+      : null,
     expiresAt: input.activation.expiresAt.toISOString(),
     allowance,
     used,
@@ -318,7 +322,11 @@ export async function resolveAiInvestigationAccess(
         }
       : null,
     activation: activation
-      ? { status: activation.status, expiresAt: activation.expiresAt }
+      ? {
+          status: activation.status,
+          expiresAt: activation.expiresAt,
+          activatedAt: activation.activatedAt,
+        }
       : null,
     usage,
     now,

@@ -3,6 +3,10 @@ import {
   syntheticTestingEnabled,
   type EffectiveProviderPolicy,
 } from "../provider-control";
+import {
+  resolveConversationEntitlement,
+  type ConversationEntitlement,
+} from "../conversation-entitlement";
 
 /**
  * Conversational provider policy.
@@ -20,11 +24,22 @@ import {
  *               authorization and per-request user consent
  *
  * No environment variable, database switch or API key can enable production
- * conversational processing on its own.
+ * conversational processing on its own, and the reviewed code approval is not an
+ * entitlement either: a business must additionally hold a paid, current package that
+ * includes Zeli and be inside its monthly allowance. That check lives in
+ * `conversation-entitlement.ts` and is applied here so no caller can skip it.
  */
 
-/** Change only through a reviewed, privacy-approved commit. */
-export const PRODUCTION_CONVERSATION_APPROVED = false;
+/**
+ * Reviewed approval for external conversation with **paid** businesses.
+ *
+ * The owner authorised this narrowly: conversation is included in eligible paid
+ * monthly and annual MaaCash packages, subject to the tier's monthly allowance. It is
+ * not general permission to send anything anywhere — the aggregate/provider gate in
+ * `provider-control.ts` (`PRODUCTION_PROVIDER_APPROVED`) is unrelated and unchanged,
+ * and the investigation add-on keeps its own separate entitlement.
+ */
+export const PRODUCTION_CONVERSATION_APPROVED = true;
 
 export const CONVERSATION_POLICY_VERSION = "2026-11-conv.1";
 export const CONVERSATION_SCHEMA_VERSION = "zeli-conversation-v1";
@@ -52,6 +67,8 @@ export interface ConversationProviderPolicy {
   teamTesterActive?: boolean;
   teamDisclosureAccepted?: boolean;
   teamDisclosureVersion?: string;
+  /** The paid-package entitlement that conversation requires. */
+  entitlement?: ConversationEntitlement | null;
   /** Underlying aggregate policy, kept for diagnostics only. */
   control: EffectiveProviderPolicy;
 }
@@ -178,8 +195,23 @@ export async function getConversationPolicy(
         syntheticOnly: false,
       };
     }
+
+    // Last gate: the business must actually be paying for a package that includes
+    // Zeli. The client never supplies this, and it is re-read on every turn.
+    const entitlement = await resolveConversationEntitlement(tenantId);
+    if (!entitlement.allowed) {
+      return {
+        ...base,
+        entitlement,
+        state: "disabled",
+        allowed: false,
+        reason: entitlement.guidance,
+        syntheticOnly: false,
+      };
+    }
     return {
       ...base,
+      entitlement,
       state: "approved",
       allowed: true,
       reason:

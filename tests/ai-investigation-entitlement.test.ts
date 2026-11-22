@@ -455,7 +455,10 @@ describe("Super Admin activation", () => {
     expect(row?.paymentConfirmed).toBe(true);
     expect(row?.paymentCurrent).toBe(true);
     expect(row?.activationStatus).toBe("none");
-    expect(row?.nextStep).toMatch(/A Super Admin may activate/i);
+    // Activation is automatic after a verified payment now, so a confirmed payment
+    // with no activation means the automatic path did not complete.
+    expect(row?.nextStep).toMatch(/activation is automatic/i);
+    expect(row?.nextStep).toMatch(/check the payment event/i);
   });
 
   it("never invents a price for the package catalogue", async () => {
