@@ -22,16 +22,16 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 
 | Check | Command | Result |
 | --- | --- | --- |
-| SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass — 119 models / 119 tables |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 120 tables, no drift |
+| SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass — 123 models / 123 tables |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 123 tables, 26 migrations, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 144 files / 1643 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 151 files / 1759 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint .` | 0 errors, 119 pre-existing warnings |
+| ESLint | `npx eslint .` | 0 errors, 117 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 113 passed (chromium + mobile-chromium) |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs --workers=2` | 116 passed, 11 skipped (chromium + mobile-chromium) |
 | Consolidated release gate | `node scripts/verify-release.mjs` | all 9 steps pass, exit 0 |
 
 All of the above are reproducible from a clean checkout with a disposable
@@ -747,19 +747,163 @@ answer:
 
 ---
 
-## 7. Next work, in order
+## 7. Second delivery round — commercial, offline and intelligence work
+
+Everything below was implemented, tested and committed locally after the first release
+gate. The gate was then re-run in full; it passes.
+
+### 7.1 Task 1 — the 119th ESLint warning
+
+The count moved from 118 to 119 between `7b12d77` and `864f86d`. Rather than guess, the
+warning was isolated by running ESLint with `--format json` at HEAD and in a separate
+worktree checked out at `7b12d77` (with `node_modules` junctioned in), then diffing the two
+message sets by file, line, rule and message text.
+
+Exactly one warning was new: `@typescript-eslint/no-unused-vars` —
+`'telco' is assigned a value but never used` at `src/lib/integrations/readiness.ts:83:9`,
+introduced when `telco_statement` was split into per-network rows that hard-coded
+`"unavailable"`, leaving the `telco` binding unused.
+
+Fixed by wiring the three network rows to `telco.delivers` — which is what the binding was
+for — and removing a genuinely dead `messages` binding and its import. Result:
+**117 warnings, 0 errors**. No ESLint configuration was changed.
+
+### 7.2 Task 2 — catalogue, Zeli entitlements and the paid add-on
+
+- `src/lib/pricing/catalogue.ts` is the single source of truth: `APPROVED_MONTHLY_PRICES`
+  (starter 129, business 219, multi-branch 429), `APPROVED_ANNUAL_PRICES`
+  (1390 / 2365 / 4630, about 10% off), `PREVIOUS_PRICES` (99 / 169 / 339 and
+  1070 / 1825 / 3660) kept for existing customers, `PRICE_CHANGE_EFFECTIVE`,
+  `AI_INVESTIGATION_PRICE` (159 monthly, 50 investigations).
+- `src/lib/zeli/conversation-entitlement.ts` gates general Zeli conversation on a paid,
+  current subscription. Denials are ordered and owner-actionable: `no_subscription`,
+  `addon_only`, `payment_pending`, `subscription_suspended`, `subscription_inactive`,
+  `payment_unconfirmed`, `period_ended`, `not_included`, `quota_exhausted`. The client never
+  determines entitlement; `getConversationPolicy` applies it last, after every existing
+  safety switch.
+- `PRODUCTION_CONVERSATION_APPROVED` is now `true` for the **conversational** path only.
+  `PRODUCTION_PROVIDER_APPROVED` and the investigation approval stay as they were, and the
+  investigation entitlement remains a separate module that cannot grant conversation and
+  vice versa.
+- Add-on activation is automatic on a **verified payment**: `activateAddonEntitlement` runs
+  inside the `fulfilPaidSubscription` transaction and writes the entitlement plus a platform
+  audit row with actor `system:payment_provider`. A browser redirect cannot activate
+  anything, and a zero-price package is refused as `zero_price_package`.
+- Prices were raised to the new catalogue by `scripts/apply-catalogue-pricing.mjs`, which is
+  local-only, dry-run by default, only touches a plan whose price still equals the replaced
+  figure, and never rewrites an existing `ZeliSubscription.amount`.
+- Renewal notices are computed by `renewalNoticeFor` and shown in the billing screen: current
+  amount, catalogue amount, effective date, no charge, period not shortened, and how to
+  cancel.
+
+### 7.3 Task 3 — the public pricing page
+
+Rewritten around business value (accountability, reconciliation, multi-branch staffing,
+Susu, statements, reporting, evidence, offline work, Zeli), with exact catalogue prices,
+annual savings computed from the catalogue, per-tier "best for" guidance, an explicit
+"What depends on someone else" section and an honest "What MaaCash is not". The add-on
+section explains that it activates on verified payment.
+
+### 7.4 Task 4 — the fourth sign-in card
+
+`UnifiedLoginClient` now shows a Business Owner card linking to the canonical
+business-owner route, alongside the existing three. No second authentication implementation
+was added. Covered by a desktop test and a phone-width test
+(`e2e/maacash-login-mobile.spec.ts`).
+
+### 7.5 Offline MoMo operations — DONE
+
+New `MomoOfflineDraft` (migration `20261220_offline_momo_drafts`). A captured day is parked
+on the server and **posts nothing**: no ledger row, no transaction, no balance, no daily
+account. Validation runs on the device (integer pesewa, three networks, canonical payload
+hash, 14-day staleness) and again on the server (same-origin, rate limit, enrolled device
+authorised within 24 hours, branch membership, one key = one capture with a changed body
+rejected as `409 payload_mismatch`, conflict detection against an existing day). Applying a
+draft requires the worker's own saved account for the same branch and day, saved after the
+capture. 15 tests.
+
+### 7.6 Counter Companion — DONE
+
+`src/lib/counter-companion.ts` plus a panel on the worker dashboard. Four counter flows,
+Ghanaian number normalisation with a masked display form, an explicit read-back
+confirmation, integer-pesewa amounts, and a refusal to store anything that looks like a PIN,
+password, OTP or secret. `providerConfirmed` is the literal `false`. The permission policy
+declares **no** required permissions and names the three it refuses (`READ_SMS`,
+`READ_CALL_LOG`, `BIND_ACCESSIBILITY_SERVICE`) with the reason, so a future native shell has
+to argue against a written decision. Feasibility and the rejected approaches are recorded in
+`docs/product/counter-companion.md`. 12 tests.
+
+### 7.7 Closed-loop evidence — DONE
+
+`deriveProvenance` ranks a record's support on five ordered levels (agent declared, device
+captured, evidence attached, statement matched, provider confirmed) and explains each in an
+owner's language. `provider_confirmed` can only come from a provider *record* fact, which
+nothing in this build sets: an imported CSV, a typed reference or an AI explanation stops
+one level short. The read action gathers facts only through the caller's tenant and refuses
+another business's transaction without revealing it. 14 tests.
+
+### 7.8 Shared agent risk intelligence — DONE, off until configured
+
+Three tables (`RiskIntelligenceConsent`, `AgentRiskSignal`, `RiskIntelligenceDisclosure`,
+migration `20261221_shared_risk_intelligence`) and a pure policy layer. Opt-in only, per
+policy version, with a receive-only scope; withdrawal stops a business's signals counting
+immediately. A signal is disclosed only when at least three distinct businesses
+independently reported the same category, the caller's own signals never count towards that
+threshold, unrelated categories never merge, subjects are stored as HMAC-SHA256 of a
+normalised name and phone with a required deployment salt, counts are bands rather than
+exact numbers, signals expire after 180 days, and every disclosure is written inside the
+read transaction. The output is a review prompt with `isBlacklist: false` and
+`disclosesIdentity: false`. Joining is refused while `RISK_INTELLIGENCE_SALT` is unset, so
+the product never pretends to collect anything. 21 tests.
+
+### 7.9 Branch liquidity forecasting — DONE
+
+`forecastBranchLiquidity` forecasts a branch day from that branch's own history:
+de-duplicated days, malformed points dropped, extreme days trimmed, a weekday model chosen
+by a rolling-origin backtest against the naive average, and the band coverage it actually
+achieved reported alongside. The suggested opening float is the upper band rather than the
+mean, because a short day is the failure being prevented. Integer pesewa, deterministic, and
+`autoTransfer` is a literal `false` with no transfer-shaped field in the output. 18 tests.
+
+### 7.10 One regression found and fixed in the browser suite
+
+Mounting the two new panels made the worker dashboard resolve the offline scope twice on
+every visit — a server round trip for a count nobody asked for — which broke the existing
+test that guards against an auth retry storm. Both panels now read the device queue only
+when the agent opens them, and a device is enrolled on a real capture rather than on page
+load. The test was **not** modified. With that fix the full browser suite passes (116).
+
+A first full browser run in this round reported 13 failures, all of them
+`browserContext.newPage: Target crashed` across unrelated specs — the machine was running
+other projects' dev servers at the time. Re-run with `--workers=2` after cleaning the
+orphaned browsers: 116 passed, 11 skipped, 0 failed. The crashes were environmental, not
+product failures, and no assertion was relaxed.
+
+### 7.11 Product documentation
+
+`docs/product/` now carries six documents: the strategy and competitor research (Cedipoint,
+M-Agent, SmartAgent, Paximo), UX principles, phase plan and success measures; the counter
+companion and its refused permissions; the offline MoMo lifecycle; the evidence provenance
+levels; the risk intelligence governance and its operational preconditions; and the
+forecasting method, backtest and limits.
+
+## 8. Next work, in order
 
 Everything internally implementable is implemented and verified; the consolidated
 gate passes at HEAD. What remains is not code:
 
-1. **C3 — external AI approval.** `PRODUCTION_INVESTIGATION_APPROVED`,
-   `PRODUCTION_PROVIDER_APPROVED` and `PRODUCTION_CONVERSATION_APPROVED` stay
-   `false` until a separate security and financial-evidence review approves an
-   external model. The deterministic explanation is what ships meanwhile.
-2. **C4 deployment switch for a real package.** The code path is complete and tested;
-   what an operator still needs is a Super Admin decision per business (price,
-   allowance, expiry) once the package is sold. No live payment was taken and no
-   production entitlement was created during this work.
+1. **External AI, as it now stands.** `PRODUCTION_CONVERSATION_APPROVED` is `true` for
+   the conversational path, gated by a paid, current subscription and its monthly
+   allowance. `PRODUCTION_PROVIDER_APPROVED` and the AI Investigation approval remain
+   unchanged, and investigation stays a separately purchased add-on with its own
+   entitlement. Flipping one constant never grants the other. The deterministic
+   explanation remains the fallback whenever the external path is unavailable.
+2. **Commercial activation.** The code path is complete and tested; what an operator
+   still needs is a Super Admin decision per business (price, allowance, expiry) for the
+   investigation add-on, and a verified payment before the conversation entitlement
+   turns on. No live payment was taken and no production entitlement was created during
+   this work. Setting `RISK_INTELLIGENCE_SALT` is a precondition for shared risk
+   intelligence, and joining is refused without it.
 3. **Association decisions** (items 36, 9.13 and 10.13): pilot dashboard audience,
    sponsorship funding policy, and the certification framework. Each is marked
    `PENDING_ASSOCIATION_DECISION` with the model recording facts rather than

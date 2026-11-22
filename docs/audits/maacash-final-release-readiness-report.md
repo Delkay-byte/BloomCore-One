@@ -1,7 +1,9 @@
 # MaaCash final release readiness report
 
-Local-only audit. Branch `feat/maacash-momag-readiness`, HEAD `864f86d`
-(`C4/B1/B2: paid AI Investigation entitlement, coming-soon notices, WhatsApp config audit`).
+Local-only audit. Branch `feat/maacash-momag-readiness`, HEAD `4baf026`
+(`worker panel fix`), after the second delivery round (`583f344` … `4baf026`: pricing and
+entitlements, offline MoMo, Counter Companion, evidence provenance, shared risk
+intelligence, liquidity forecasting). Section 15 records that round.
 Production reference `92d6d974e1e41d7b0586e823f9c000a0a7fe0925`, verified as an ancestor.
 
 Audit of record: [`maacash-12-feature-completion-gap-audit.md`](./maacash-12-feature-completion-gap-audit.md)
@@ -461,3 +463,100 @@ Seven requirements cannot be finished here: four need a provider contract and th
 MoMAG/MMAAG decision. None of them is a code gap, and none blocks the local result set.
 Nothing has been pushed, merged or deployed; that decision is the owner's, after the
 approval in §12 step 1.
+
+## 15. Second delivery round (after the first gate)
+
+The owner authorised a further local-only round: pricing and entitlements, a repriced
+public page, a fourth sign-in card, and four product priorities. All of it is committed
+locally on the same branch. The consolidated gate was re-run and passes.
+
+### 15.1 What changed, and where it is recorded
+
+| Work | Commit | Detail |
+| --- | --- | --- |
+| ESLint 119th warning isolated and fixed | `583f344` | One new `no-unused-vars` at `src/lib/integrations/readiness.ts:83`, introduced by B1; fixed by wiring the rows to `telco.delivers`. **117 warnings, 0 errors**, no config change. |
+| Zeli conversation entitlement + add-on auto-activation | `800ad6c` | `conversation-entitlement.ts`, nine ordered denials, `PRODUCTION_CONVERSATION_APPROVED = true` for the conversational path only, `activateAddonEntitlement` inside the payment transaction. |
+| Repricing + pricing page + fourth login card | `d383570` | Catalogue of record, `apply-catalogue-pricing.mjs`, value-led pricing page, Business Owner card. |
+| Renewal notice | `2e61a0e` | `renewalNoticeFor`, shown in billing: no charge, period not shortened, cancel path. |
+| Offline MoMo capture | `4561346` | `MomoOfflineDraft`, migration `20261220_offline_momo_drafts`, posts nothing, 15 tests. |
+| Counter Companion | `3d1ba11` | Pure workflow, closed permission policy (no permissions required, three refused), 12 tests. |
+| Closed-loop evidence | `758d9c3` | Five ordered provenance levels, provider confirmation unreachable without a provider record, 14 tests. |
+| Shared risk intelligence + product docs | `b628506` | Consent/signal/disclosure tables, migration `20261221_shared_risk_intelligence`, three-business cohort, hashed subjects, audited disclosures, 21 tests; six `docs/product/*` documents. |
+| Worker panel regression fix | `4baf026` | Panels read the device queue only when opened; the auth-retry-storm test passes unchanged. |
+
+### 15.2 Verification at HEAD
+
+The consolidated gate was run in two parts on the same tree (the E2E step needs its own
+server lifecycle):
+
+```
+node scripts/verify-release.mjs --skip-e2e
+  PASS  Prisma schema validation (both providers)      61s
+  PASS  SQLite provisioning rehearsal                   9s
+  PASS  PostgreSQL migration rehearsal                 31s
+  PASS  Unit and integration suite (SQLite)           321s
+  PASS  PostgreSQL integration suite (disposable)      56s
+  PASS  TypeScript                                    104s
+  PASS  ESLint (0 errors, 117 warnings)               146s
+  PASS  Production build                              116s
+
+node scripts/verify-e2e.mjs --workers=2
+  116 passed, 11 skipped, 0 failed                  4.9m
+```
+
+Current totals: **123 models / 123 tables** in both schemas, **26 PostgreSQL
+migrations**, **151 unit/integration files with 1759 tests**, **10 PostgreSQL files with
+44 tests**, **116 browser tests**.
+
+A first full browser run in this round reported 13 failures, every one of them
+`browserContext.newPage: Target crashed` across unrelated specs (platform, zeli,
+security headers, tab sessions, responsive, mobile). The machine was running two other
+projects' dev servers. After cleaning orphaned browsers and reducing parallelism the same
+suite passed completely. No assertion was changed or relaxed, and the one genuine product
+regression found this way (the worker dashboard's extra offline-scope resolution) was
+fixed in code.
+
+### 15.3 Commercial position, stated exactly
+
+| Plan | Monthly | Annual | Notes |
+| --- | ---: | ---: | --- |
+| Starter | GH₵129 | GH₵1,390 | One branch, Zeli conversation allowance included. |
+| Business | GH₵219 | GH₵2,365 | Multi-branch operations, reconciliation, reports. |
+| Multi-branch | GH₵429 | GH₵4,630 | Consolidated reporting across branches, staff accountability. |
+| AI Investigation add-on | GH₵159 | — | 50 investigations a month, activates on verified payment only. |
+
+Previous prices (99 / 169 / 339 monthly; 1,070 / 1,825 / 3,660 annual) remain in
+`PREVIOUS_PRICES` and are never rewritten on an existing subscription: a price change
+produces a notice with the effective date, states that no charge is being made and that
+the period is not shortened, and names the cancellation path.
+
+### 15.4 New external and operational dependencies
+
+Nothing new requires a third-party contract, but three things must be configured before
+the new features are usable in production:
+
+| Setting | Needed for | Behaviour when unset |
+| --- | --- | --- |
+| `RISK_INTELLIGENCE_SALT` (≥24 chars, secret) | Shared risk intelligence | Joining is refused and the console says it is not configured. No silent default. |
+| Paid, current subscription | Zeli conversation | `no_subscription` / `payment_pending` / `period_ended` refusals with owner guidance. |
+| Confirmed payment of the add-on | AI Investigation | Access denied with `no_package` / `payment_unconfirmed` guidance; automatic activation carries a `system:payment_provider` audit actor. |
+
+`DEEPSEEK_API_KEY`, `WHATSAPP_*`, `SMS_*` and the provider credentials remain as recorded
+in §8 of this report and in the WhatsApp configuration audit. `PRODUCTION_PROVIDER_APPROVED`
+is still `false`.
+
+### 15.5 What did not change
+
+- No requirement in the 161-row audit changed status in this round: the four
+  `BLOCKED_EXTERNAL` and three `PENDING_ASSOCIATION_DECISION` items are the same ones.
+- The four external provider contracts (provider-confirmed transactions, provider-confirmed
+  network float, live WhatsApp, live SMS) are still open.
+- Nothing was pushed, merged or deployed. No production database, secret or migration was
+  touched, and no live payment was taken.
+- No security control was weakened. The one test that failed was fixed by changing product
+  code, not the assertion.
+
+### 15.6 Verdict remains
+
+**READY FOR RELEASE APPROVAL** for the internally deliverable scope, with the same seven
+non-internal items and the same owner decisions outstanding.
