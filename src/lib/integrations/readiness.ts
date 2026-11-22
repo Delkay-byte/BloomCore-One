@@ -10,7 +10,6 @@
  * deliberately non-delivering: they report `unavailable` or `simulated`.
  */
 
-import { getMessageProvider } from "@/lib/messaging/provider";
 import { getWhatsAppConfig } from "@/lib/messaging/whatsapp";
 import { getSmsProvider, getSmsProviderConfig } from "@/lib/messaging/sms";
 
@@ -79,7 +78,6 @@ export function getTelcoProvider(): TelcoProvider {
 }
 
 export function getIntegrationReadiness(): IntegrationReadiness[] {
-  const messages = getMessageProvider();
   const telco = getTelcoProvider();
   const whatsapp = getWhatsAppConfig();
   const sms = getSmsProvider();
@@ -126,8 +124,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "mtn",
       label: "MTN operational integration",
       capability: "Independent MTN confirmation of MoMo float, statements and transactions",
-      status: "unavailable",
-      delivers: false,
+      status: telco.delivers ? "sandbox" : "unavailable",
+      delivers: telco.delivers,
       comingSoon: true,
       detail:
         "Not available. MTN transactions are recorded by staff and can be reconciled against an imported CSV statement; no MTN system is contacted and no MTN record is confirmed.",
@@ -141,8 +139,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "telecel",
       label: "Telecel operational integration",
       capability: "Independent Telecel confirmation of float, statements and transactions",
-      status: "unavailable",
-      delivers: false,
+      status: telco.delivers ? "sandbox" : "unavailable",
+      delivers: telco.delivers,
       comingSoon: true,
       detail:
         "Not available. Telecel activity is recorded by staff and can be reconciled against an imported CSV statement; no Telecel system is contacted.",
@@ -156,8 +154,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "at_money",
       label: "AT Money operational integration",
       capability: "Independent AT Money confirmation of float, statements and transactions",
-      status: "unavailable",
-      delivers: false,
+      status: telco.delivers ? "sandbox" : "unavailable",
+      delivers: telco.delivers,
       comingSoon: true,
       detail:
         "Not available. AT Money activity is recorded by staff and can be reconciled against an imported CSV statement; no AT Money system is contacted.",
