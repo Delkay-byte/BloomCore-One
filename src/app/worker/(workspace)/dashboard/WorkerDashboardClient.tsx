@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import OfflineMomoCapture from "@/components/OfflineMomoCapture";
+import CounterCompanion from "@/components/CounterCompanion";
 import { getOrCreateDeviceId } from "@/lib/offline/device";
 import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
@@ -195,6 +196,10 @@ export default function WorkerDashboardClient({
           </div>
         )}
       </section>
+
+      {deviceId ? (
+        <CounterCompanion locationId={locationId} userId={userId} deviceId={deviceId} />
+      ) : null}
 
       {deviceId ? (
         <OfflineMomoCapture locationId={locationId} userId={userId} deviceId={deviceId} />
