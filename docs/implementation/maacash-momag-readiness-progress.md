@@ -22,16 +22,17 @@ credentials) · **PENDING_ASSOCIATION_DECISION** (needs MoMAG/MMAAG policy input
 
 | Check | Command | Result |
 | --- | --- | --- |
-| SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass |
-| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 118 tables, no drift |
+| SQLite provisioning rehearsals (4) | `node scripts/verify-sqlite-migrations.mjs` | pass — 119 models / 119 tables |
+| PostgreSQL migration rehearsals (3) | `node scripts/verify-pg-migrations.mjs` | pass — 120 tables, no drift |
 | PostgreSQL integration suite | `npm run test:pg` | 10 files / 44 tests pass |
-| Unit + integration suite (SQLite) | `npm test` | 143 files / 1613 tests pass |
+| Unit + integration suite (SQLite) | `npm test` | 144 files / 1643 tests pass |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint .` | 0 errors, 118 pre-existing warnings |
+| ESLint | `npx eslint .` | 0 errors, 119 pre-existing warnings |
 | SQLite schema | `npx prisma validate --schema prisma/schema.prisma` | valid |
 | PostgreSQL schema | `npx prisma validate --schema prisma/schema-pg.prisma` | valid |
 | Production build | `npm run build` | succeeds |
-| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 105 passed (chromium + mobile-chromium) |
+| Browser acceptance, production build | `node scripts/verify-e2e.mjs` | 113 passed (chromium + mobile-chromium) |
+| Consolidated release gate | `node scripts/verify-release.mjs` | all 9 steps pass, exit 0 |
 
 All of the above are reproducible from a clean checkout with a disposable
 PostgreSQL cluster; see §6 for the exact environment.
@@ -748,8 +749,8 @@ answer:
 
 ## 7. Next work, in order
 
-Everything internally implementable is implemented and verified. What remains is
-not code:
+Everything internally implementable is implemented and verified; the consolidated
+gate passes at HEAD. What remains is not code:
 
 1. **C3 — external AI approval.** `PRODUCTION_INVESTIGATION_APPROVED`,
    `PRODUCTION_PROVIDER_APPROVED` and `PRODUCTION_CONVERSATION_APPROVED` stay
@@ -763,6 +764,7 @@ not code:
    sponsorship funding policy, and the certification framework. Each is marked
    `PENDING_ASSOCIATION_DECISION` with the model recording facts rather than
    guessing policy.
-4. **Final release gate**: the full suite set in §1, a security and tenant review,
-   and then — and only then — a discussion about push, PR or deploy. Nothing has
-   been pushed, merged or deployed.
+4. **Final release gate**: passed. See
+   [`docs/audits/maacash-final-release-readiness-report.md`](../audits/maacash-final-release-readiness-report.md)
+   for the requirement mapping, the verification runs and the unexecuted deployment
+   plan. Nothing has been pushed, merged or deployed.
