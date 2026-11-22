@@ -22,13 +22,24 @@ const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
 const PASSWORD = "DemoOwner!2026";
 const PLATFORM_PASSWORD = "DemoPlatform!2026";
 
+/**
+ * Owner-approved catalogue (2026-12). Prices match
+ * `src/lib/pricing/catalogue.ts`; the demo seed is a *copy* of the same figures so
+ * a local demo cannot quote a price the product no longer sells.
+ *
+ * Zeli allowances are per business per month, shared by every administrator.
+ */
 const plans = [
-  { code: "starter", name: "Starter", billingInterval: "month", price: 99, foundingPrice: 79, usageAllowance: 250, locationLimit: 1, staffLimit: 3, supportLevel: "Standard support", sortOrder: 1 },
-  { code: "business", name: "Business", billingInterval: "month", price: 169, foundingPrice: 149, usageAllowance: 600, locationLimit: 3, staffLimit: 10, supportLevel: "Standard support", sortOrder: 2 },
-  { code: "multi-branch", name: "Multi-Branch", billingInterval: "month", price: 339, foundingPrice: 225, usageAllowance: 1500, locationLimit: 5, staffLimit: 20, supportLevel: "Priority support", sortOrder: 3 },
-  { code: "starter-annual", name: "Starter Annual", billingInterval: "year", price: 1070, foundingPrice: null, usageAllowance: 250, locationLimit: 1, staffLimit: 3, supportLevel: "Standard support", sortOrder: 4 },
-  { code: "business-annual", name: "Business Annual", billingInterval: "year", price: 1825, foundingPrice: null, usageAllowance: 600, locationLimit: 3, staffLimit: 10, supportLevel: "Standard support", sortOrder: 5 },
-  { code: "multi-branch-annual", name: "Multi-Branch Annual", billingInterval: "year", price: 3660, foundingPrice: null, usageAllowance: 1500, locationLimit: 5, staffLimit: 20, supportLevel: "Priority support", sortOrder: 6 },
+  { code: "starter", name: "Starter", billingInterval: "month", price: 129, foundingPrice: 79, usageAllowance: 250, locationLimit: 1, staffLimit: 3, supportLevel: "Standard support", sortOrder: 1 },
+  { code: "business", name: "Business", billingInterval: "month", price: 219, foundingPrice: 149, usageAllowance: 600, locationLimit: 3, staffLimit: 10, supportLevel: "Standard support", sortOrder: 2 },
+  { code: "multi-branch", name: "Multi-Branch", billingInterval: "month", price: 429, foundingPrice: 225, usageAllowance: 1500, locationLimit: 5, staffLimit: 20, supportLevel: "Priority support", sortOrder: 3 },
+  { code: "starter-annual", name: "Starter Annual", billingInterval: "year", price: 1390, foundingPrice: null, usageAllowance: 250, locationLimit: 1, staffLimit: 3, supportLevel: "Standard support", sortOrder: 4 },
+  { code: "business-annual", name: "Business Annual", billingInterval: "year", price: 2365, foundingPrice: null, usageAllowance: 600, locationLimit: 3, staffLimit: 10, supportLevel: "Standard support", sortOrder: 5 },
+  { code: "multi-branch-annual", name: "Multi-Branch Annual", billingInterval: "year", price: 4630, foundingPrice: null, usageAllowance: 1500, locationLimit: 5, staffLimit: 20, supportLevel: "Priority support", sortOrder: 6 },
+  // The premium add-on. `zeliIncluded: false` and `addonKey` keep it out of the base
+  // package entitlement: buying it never grants conversations, and buying a package
+  // never grants investigation.
+  { code: "ai-investigation", name: "AI Investigation", billingInterval: "month", price: 159, foundingPrice: null, usageAllowance: 50, locationLimit: null, staffLimit: null, supportLevel: "Priority support", sortOrder: 90, addonKey: "ai_investigation", zeliIncluded: false },
 ];
 
 const passwordHash = await bcrypt.hash(PASSWORD, 12);
@@ -37,8 +48,8 @@ const platformHash = await bcrypt.hash(PLATFORM_PASSWORD, 12);
 for (const plan of plans) {
   await prisma.zeliPlan.upsert({
     where: { code: plan.code },
-    create: { ...plan, currency: "GHS", status: "active", isPublic: true, zeliIncluded: true },
-    update: { ...plan, currency: "GHS", status: "active", isPublic: true, zeliIncluded: true },
+    create: { ...plan, currency: "GHS", status: "active", isPublic: true, zeliIncluded: plan.zeliIncluded ?? true },
+    update: { ...plan, currency: "GHS", status: "active", isPublic: true, zeliIncluded: plan.zeliIncluded ?? true },
   });
 }
 

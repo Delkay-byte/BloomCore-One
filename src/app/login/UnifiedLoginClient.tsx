@@ -32,6 +32,8 @@ import type { LucideIcon } from "lucide-react";
 import { BrandLockup } from "@/components/brand/Brand";
 import OfflineSessionPrompt from "@/components/OfflineSessionPrompt";
 import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
+import { ADMIN_LOGIN_PATH } from "@/lib/site";
+import { Briefcase } from "lucide-react";
 
 type RoleKey = "customer" | "momo" | "susu";
 
@@ -116,6 +118,21 @@ const ROLES: RoleConfig[] = [
     iconTone: "bg-indigo-50 text-indigo-700",
   },
 ];
+
+/**
+ * The fourth entry on the sign-in landing page.
+ *
+ * It is a link to the canonical business-owner sign-in (`/admin/login`) rather than a
+ * fourth role inside this form: administrators have their own route, MFA flow, module
+ * selection and return-URL handling, and duplicating that here would create a second
+ * authentication implementation.
+ */
+const BUSINESS_OWNER_CARD = {
+  label: "Business Owner",
+  blurb:
+    "Manage your mobile money or Susu business, monitor branches and staff, review financial operations and access your business insights.",
+  heading: "Business owner sign-in",
+} as const;
 
 const ROLE_BY_KEY = ROLES.reduce(
   (acc, role) => ({ ...acc, [role.key]: role }),
@@ -279,10 +296,36 @@ export default function UnifiedLoginClient({
                 />
               </button>
             ))}
+
+            {/* Business owners go to the canonical administrator sign-in. */}
+            <Link
+              href={ADMIN_LOGIN_PATH}
+              aria-label={BUSINESS_OWNER_CARD.heading}
+              data-testid="login-card-business-owner"
+              className="group flex w-full items-center gap-4 rounded-2xl border-2 border-emerald-200 bg-white p-4 text-left shadow-card transition-colors hover:border-emerald-500 hover:bg-emerald-50"
+            >
+              <span className="flex h-12 w-12 flex-none items-center justify-center rounded-xl bg-emerald-50 text-emerald-800">
+                <Briefcase size={24} aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-base font-semibold text-ink-deep">
+                  {BUSINESS_OWNER_CARD.label}
+                </span>
+                <span className="mt-0.5 block text-sm leading-snug text-ink-muted">
+                  {BUSINESS_OWNER_CARD.blurb}
+                </span>
+              </span>
+              <ArrowRight
+                size={18}
+                className="ml-auto flex-none text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-600"
+                aria-hidden
+              />
+            </Link>
           </div>
 
           <p className="mt-6 text-center text-sm text-ink-muted">
-            Contact your administrator for account access.
+            Business owners sign in on the administrator page. Staff and customers
+            contact their administrator for account access.
           </p>
         </div>
       </Shell>

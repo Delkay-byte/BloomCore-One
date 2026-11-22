@@ -3,8 +3,10 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import { isPublicMarketingRoute } from "@/lib/public-routes";
 import {
+  AI_INVESTIGATION_PRICE,
   APPROVED_ANNUAL_PRICES,
   APPROVED_MONTHLY_PRICES,
+  PREVIOUS_PRICES,
   ENQUIRY_PACKAGES,
   annualSavingPercent,
   formatGhs,
@@ -90,19 +92,40 @@ describe("public pricing has no founding promotion", () => {
 });
 
 describe("approved commercial terms", () => {
-  it("matches the owner-approved monthly prices", () => {
-    expect(APPROVED_MONTHLY_PRICES).toEqual({ starter: 99, business: 169, "multi-branch": 339 });
+  it("matches the owner-approved 2026-12 monthly prices", () => {
+    expect(APPROVED_MONTHLY_PRICES).toEqual({ starter: 129, business: 219, "multi-branch": 429 });
   });
 
   it("matches the owner-approved annual prices and stays near a 10% saving", () => {
     expect(APPROVED_ANNUAL_PRICES).toEqual({
-      starter: 1070,
-      business: 1825,
-      "multi-branch": 3660,
+      starter: 1390,
+      business: 2365,
+      "multi-branch": 4630,
     });
-    expect(annualSavingPercent(99, 1070)).toBe(10);
-    expect(annualSavingPercent(169, 1825)).toBe(10);
-    expect(annualSavingPercent(339, 3660)).toBe(10);
+    expect(annualSavingPercent(129, 1390)).toBe(10);
+    expect(annualSavingPercent(219, 2365)).toBe(10);
+    expect(annualSavingPercent(429, 4630)).toBe(10);
+  });
+
+  it("keeps the previous prices for the renewal notice and never for a quote", () => {
+    expect(PREVIOUS_PRICES.starter).toBe(99);
+    expect(PREVIOUS_PRICES["multi-branch-annual"]).toBe(3660);
+    // A previous price must never be lower than nothing: each one is a real record.
+    for (const value of Object.values(PREVIOUS_PRICES)) expect(value).toBeGreaterThan(0);
+    // The current price is above the one it replaced, in every tier and term.
+    expect(APPROVED_MONTHLY_PRICES.starter).toBeGreaterThan(PREVIOUS_PRICES.starter);
+    expect(APPROVED_ANNUAL_PRICES["multi-branch-annual" as never] ?? APPROVED_ANNUAL_PRICES["multi-branch"]).toBeGreaterThan(
+      PREVIOUS_PRICES["multi-branch-annual"]
+    );
+  });
+
+  it("prices the AI Investigation add-on as a premium, separately purchasable package", () => {
+    expect(AI_INVESTIGATION_PRICE.monthly).toBeGreaterThan(0);
+    expect(AI_INVESTIGATION_PRICE.allowance).toBeGreaterThan(0);
+    // It must cost less than the top package but more than Starter: it is an add-on,
+    // not a replacement for running the business.
+    expect(AI_INVESTIGATION_PRICE.monthly).toBeLessThan(APPROVED_MONTHLY_PRICES["multi-branch"]);
+    expect(AI_INVESTIGATION_PRICE.monthly).toBeGreaterThan(APPROVED_MONTHLY_PRICES.starter);
   });
 
   it("rejects meaningless saving comparisons", () => {

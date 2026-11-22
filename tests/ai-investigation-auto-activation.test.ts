@@ -9,7 +9,7 @@
  * Every provider call is mocked. No real charge is made.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createHmac } from "crypto";
 import { prisma, cleanDatabase, createTestTenant } from "./setup";
 import { handlePaystackWebhook, ADDON_PAYMENT_ACTOR_ID } from "@/lib/payments/zeli-subscriptions";
