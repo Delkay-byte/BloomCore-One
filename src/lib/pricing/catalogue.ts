@@ -123,3 +123,34 @@ export function annualSavingPercent(
 
 /** Package labels offered in the enquiry form. */
 export const ENQUIRY_PACKAGES = ["Starter", "Business", "Multi-Branch", "Not sure yet"] as const;
+
+export interface RenewalNotice {
+  currentAmount: number;
+  renewalAmount: number;
+  currency: string;
+  effectiveAt: string | null;
+}
+
+/**
+ * When the amount a customer is paying differs from the catalogue price, both must be
+ * shown before a renewal. Returns null when they agree — there is nothing to announce.
+ *
+ * This never charges anything and never edits a subscription. It exists so a price
+ * change cannot reach an existing customer as a surprise on their statement.
+ */
+export function renewalNoticeFor(input: {
+  subscription: { amount: number; paidAt: Date | null; periodEnd: Date | null; currency: string } | null;
+  nextAmount: number | null;
+  planCurrency?: string | null;
+}): RenewalNotice | null {
+  const { subscription, nextAmount } = input;
+  if (!subscription || !subscription.paidAt || nextAmount == null) return null;
+  if (!Number.isFinite(subscription.amount) || subscription.amount <= 0) return null;
+  if (Math.round(subscription.amount * 100) === Math.round(nextAmount * 100)) return null;
+  return {
+    currentAmount: subscription.amount,
+    renewalAmount: nextAmount,
+    currency: subscription.currency || input.planCurrency || "GHS",
+    effectiveAt: subscription.periodEnd ? subscription.periodEnd.toISOString() : null,
+  };
+}

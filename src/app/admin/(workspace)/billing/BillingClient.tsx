@@ -765,6 +765,36 @@ export default function BillingClient({
         </section>
       )}
 
+      {overview.renewalNotice && (
+        <section
+          className="rounded-xl border border-sky-200 bg-sky-50 p-5"
+          data-testid="renewal-price-notice"
+        >
+          <h2 className="text-sm font-semibold text-sky-900">Your renewal price</h2>
+          <p className="mt-1 text-sm text-sky-900">
+            You are paying {money(overview.renewalNotice.currentAmount)}{" "}
+            {overview.plan?.billingInterval === "year" ? "a year" : "a month"}. From{" "}
+            {overview.renewalNotice.effectiveAt
+              ? new Date(overview.renewalNotice.effectiveAt).toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })
+              : "your next renewal"}{" "}
+            the catalogue price is{" "}
+            {money(overview.renewalNotice.renewalAmount)}. Nothing has been charged, and
+            the period you have already paid for is not shortened.
+          </p>
+          <p className="mt-1 text-xs text-sky-800">
+            Zeli now includes an external assistant with every paid package, and the
+            platform gained offline MoMo operations, a closed evidence trail, branch
+            liquidity forecasting and shared risk intelligence. If you would rather not
+            renew at the new price, cancel the renewal from this page before the period
+            ends and keep access until then.
+          </p>
+        </section>
+      )}
+
       {overview.founding && (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
           <h2 className="text-sm font-semibold text-amber-900">Founding customer offer</h2>

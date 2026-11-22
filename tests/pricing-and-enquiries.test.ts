@@ -7,6 +7,7 @@ import {
   APPROVED_ANNUAL_PRICES,
   APPROVED_MONTHLY_PRICES,
   PREVIOUS_PRICES,
+  renewalNoticeFor,
   ENQUIRY_PACKAGES,
   annualSavingPercent,
   formatGhs,
@@ -126,6 +127,34 @@ describe("approved commercial terms", () => {
     // not a replacement for running the business.
     expect(AI_INVESTIGATION_PRICE.monthly).toBeLessThan(APPROVED_MONTHLY_PRICES["multi-branch"]);
     expect(AI_INVESTIGATION_PRICE.monthly).toBeGreaterThan(APPROVED_MONTHLY_PRICES.starter);
+  });
+
+  it("announces a renewal price change and stays silent when nothing changed", () => {
+    const periodEnd = new Date("2027-01-01T00:00:00.000Z");
+    const changed = renewalNoticeFor({
+      subscription: { amount: 169, paidAt: new Date("2026-12-01T00:00:00.000Z"), periodEnd, currency: "GHS" },
+      nextAmount: 219,
+    });
+    expect(changed).not.toBeNull();
+    expect(changed!.currentAmount).toBe(169);
+    expect(changed!.renewalAmount).toBe(219);
+    expect(changed!.effectiveAt).toBe(periodEnd.toISOString());
+
+    expect(
+      renewalNoticeFor({
+        subscription: { amount: 219, paidAt: new Date(), periodEnd, currency: "GHS" },
+        nextAmount: 219,
+      })
+    ).toBeNull();
+
+    // An unpaid or non-existent subscription has no renewal to announce.
+    expect(
+      renewalNoticeFor({
+        subscription: { amount: 169, paidAt: null, periodEnd, currency: "GHS" },
+        nextAmount: 219,
+      })
+    ).toBeNull();
+    expect(renewalNoticeFor({ subscription: null, nextAmount: 219 })).toBeNull();
   });
 
   it("rejects meaningless saving comparisons", () => {

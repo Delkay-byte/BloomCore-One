@@ -32,6 +32,7 @@ import {
   type HostedCheckoutChannel,
 } from "@/lib/payments/checkout-url";
 import { supportedCheckoutChannels } from "@/lib/payments/checkout-channels";
+import { renewalNoticeFor } from "@/lib/pricing/catalogue";
 
 /**
  * Business owner subscription and billing.
@@ -78,6 +79,17 @@ export interface BillingOverview {
   graceEndsAt: string | null;
   nextAmount: number | null;
   standardAmount: number | null;
+  /**
+   * Set when the price this customer is paying differs from the price the catalogue
+   * now quotes. The billing screen shows both figures so a renewal can never change
+   * the amount silently.
+   */
+  renewalNotice: {
+    currentAmount: number;
+    renewalAmount: number;
+    currency: string;
+    effectiveAt: string | null;
+  } | null;
   amountDueNow: number | null;
   payableSubscriptionId: string | null;
   founding: {
@@ -265,6 +277,18 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     periodEnd: current?.periodEnd?.toISOString() ?? null,
     graceEndsAt: current?.graceEndsAt?.toISOString() ?? null,
     nextAmount,
+    renewalNotice: renewalNoticeFor({
+      subscription: current
+        ? {
+            amount: Number(current.amount),
+            paidAt: current.paidAt,
+            periodEnd: current.periodEnd,
+            currency: current.currency,
+          }
+        : null,
+      nextAmount,
+      planCurrency: plan?.currency ?? null,
+    }),
     standardAmount: current?.standardAmount != null ? Number(current.standardAmount) : plan ? Number(plan.price) : null,
     amountDueNow: payable ? Number(payable.amount) : null,
     payableSubscriptionId: payable?.id ?? null,
