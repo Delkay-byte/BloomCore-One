@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2, Smartphone } from "lucide-react";
 import Notice from "@/components/ui/Notice";
 import { getOfflineScope } from "@/lib/offline/scope";
 import { addTransaction, getAllTransactions, type OfflineTransaction } from "@/lib/offline/store";
 import { OfflineLockedError } from "@/lib/offline/unlock";
+import { getOrCreateDeviceId } from "@/lib/offline/device";
 import {
   COUNTER_FLOWS,
   COUNTER_STATUS_LABELS,
@@ -26,15 +27,14 @@ import { MOMO_OFFLINE_NETWORKS, MOMO_OFFLINE_NETWORK_LABELS } from "@/lib/offlin
  */
 export default function CounterCompanion({
   userId,
-  deviceId,
   locationId,
   onCaptured,
 }: {
   userId: string;
-  deviceId: string;
   locationId: string | null;
   onCaptured?: () => void;
 }) {
+  const [deviceId, setDeviceId] = useState("");
   const [flow, setFlow] = useState<string>("cash_in");
   const [network, setNetwork] = useState<string>("mtn");
   const [customerNumber, setCustomerNumber] = useState("");
@@ -47,6 +47,7 @@ export default function CounterCompanion({
   const [notice, setNotice] = useState("");
   const [recent, setRecent] = useState<CounterCapture[]>([]);
   const [pending, setPending] = useState(0);
+  const [shown, setShown] = useState(false);
 
   const refreshPending = useCallback(async () => {
     try {
@@ -57,9 +58,11 @@ export default function CounterCompanion({
     }
   }, []);
 
-  useEffect(() => {
-    void refreshPending();
-  }, [refreshPending]);
+  async function reveal() {
+    if (shown) return;
+    setShown(true);
+    await refreshPending();
+  }
 
   async function save() {
     setError("");
@@ -84,10 +87,13 @@ export default function CounterCompanion({
 
     setBusy(true);
     try {
+      // Enrolment happens here, on a real capture, not on page load.
+      const enrolledDeviceId = deviceId || (await getOrCreateDeviceId());
+      if (!deviceId) setDeviceId(enrolledDeviceId);
       const scope = await getOfflineScope().catch(() => null);
       const tx: OfflineTransaction = {
         id: crypto.randomUUID(),
-        deviceId,
+        deviceId: enrolledDeviceId,
         tenantId: scope?.tenantId,
         userId,
         type: "momo_draft",
@@ -152,6 +158,8 @@ export default function CounterCompanion({
     <section
       className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm"
       data-testid="counter-companion"
+      onFocusCapture={() => void reveal()}
+      onPointerDown={() => void reveal()}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>

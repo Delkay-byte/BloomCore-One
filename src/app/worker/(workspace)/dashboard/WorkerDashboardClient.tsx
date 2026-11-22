@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ArrowRight,
   CalendarCheck2,
@@ -14,7 +14,7 @@ import {
 import CediAmount from "@/components/CediAmount";
 import OfflineMomoCapture from "@/components/OfflineMomoCapture";
 import CounterCompanion from "@/components/CounterCompanion";
-import { getOrCreateDeviceId } from "@/lib/offline/device";
+
 import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { createDailyAccount } from "@/lib/actions/daily-account.actions";
@@ -60,17 +60,6 @@ export default function WorkerDashboardClient({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [quote] = useState(() => getDailyQuote("momo"));
-  // The device id is created only when the agent opens the capture panel, so a browser
-  // that never uses offline work is never enrolled by visiting the dashboard.
-  const [deviceId, setDeviceId] = useState("");
-
-  useEffect(() => {
-    if (!deviceId) {
-      void getOrCreateDeviceId()
-        .then((id) => setDeviceId(id))
-        .catch(() => setDeviceId(""));
-    }
-  }, [deviceId]);
 
   const todayAccount = accounts.find(
     (account) => account.businessDate.slice(0, 10) === getTodayString()
@@ -197,13 +186,9 @@ export default function WorkerDashboardClient({
         )}
       </section>
 
-      {deviceId ? (
-        <CounterCompanion locationId={locationId} userId={userId} deviceId={deviceId} />
-      ) : null}
+      <CounterCompanion locationId={locationId} userId={userId} />
 
-      {deviceId ? (
-        <OfflineMomoCapture locationId={locationId} userId={userId} deviceId={deviceId} />
-      ) : null}
+      <OfflineMomoCapture locationId={locationId} userId={userId} />
 
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Recent reports</h2>

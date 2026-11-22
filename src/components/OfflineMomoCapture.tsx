@@ -10,6 +10,7 @@ import {
   type OfflineTransaction,
 } from "@/lib/offline/store";
 import { OfflineLockedError } from "@/lib/offline/unlock";
+import { getOrCreateDeviceId } from "@/lib/offline/device";
 import { OfflineStorageError } from "@/lib/errors/friendly";
 import {
   MOMO_OFFLINE_NETWORKS,
@@ -63,13 +64,14 @@ function money(value: number): string {
 export default function OfflineMomoCapture({
   locationId,
   userId,
-  deviceId,
 }: {
   locationId: string | null;
   userId: string;
-  deviceId: string;
 }) {
   const [open, setOpen] = useState(false);
+  // The device is enrolled only when the agent actually opens a capture, so visiting the
+  // dashboard never enrols a browser that will not do offline work.
+  const [deviceId, setDeviceId] = useState("");
   const [businessDate, setBusinessDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [openingCash, setOpeningCash] = useState("");
   const [openingFloat, setOpeningFloat] = useState("");
@@ -84,7 +86,10 @@ export default function OfflineMomoCapture({
   const [queued, setQueued] = useState<OfflineTransaction[]>([]);
   const [serverDrafts, setServerDrafts] = useState<MomoDraftView[]>([]);
 
-  const refresh = useCallback(async () => {
+  // The local queue is read on mount because it lives on the device. The server's view of
+  // this agent's drafts is only asked for once the panel is opened, so a dashboard visit
+  // does not make an unnecessary round trip.
+  const refresh = useCallback(async (includeServer = false) => {
     try {
       const local = await getAllTransactions();
       setQueued(
@@ -93,13 +98,25 @@ export default function OfflineMomoCapture({
     } catch {
       // A device without an offline workspace simply shows nothing to resume.
     }
-    const mine = await getMyMomoDrafts().catch(() => null);
-    if (mine?.success && mine.data) setServerDrafts(mine.data);
+    if (includeServer) {
+      const mine = await getMyMomoDrafts().catch(() => null);
+      if (mine?.success && mine.data) setServerDrafts(mine.data);
+    }
   }, []);
 
+  // Nothing is read until the agent opens the panel: the device queue and the server's
+  // view of drafts both cost a round trip, and a collapsed panel needs neither.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!open) return;
+    const timer = setTimeout(() => {
+      void refresh(true);
+      if (deviceId) return;
+      void getOrCreateDeviceId()
+        .then((id) => setDeviceId(id))
+        .catch(() => setDeviceId(""));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [open, deviceId, refresh]);
 
   function totals() {
     const sum = (kind: MomoOfflineActivity["kind"]) =>
@@ -178,7 +195,7 @@ export default function OfflineMomoCapture({
       );
       setLines([newLine()]);
       setNote("");
-      await refresh();
+      await refresh(true);
     } catch (err) {
       if (err instanceof OfflineLockedError) {
         setLocked(true);
