@@ -1842,6 +1842,7 @@ model BusinessTenant {
   shiftRevisions               ShiftRevision[]
   operationalPolicy            TenantOperationalPolicy?
   offlineActionRequests        OfflineActionRequest[]
+  momoOfflineDrafts            MomoOfflineDraft[]
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerWithdrawalRequests   CustomerWithdrawalRequest[]
@@ -2705,6 +2706,48 @@ model ZeliAvailability {
 // remittance or reversal captured offline becomes a request that an
 // administrator authorises online, because the decision to move money needs a
 // live session, fresh proof of identity and a reviewer.
+/// A MoMo day captured on a device while it was offline.
+///
+/// This is a DRAFT, never a posting. Syncing one changes no balance, ledger row,
+/// transaction or daily account: it parks the captured figures with the server so the
+/// worker can open them in the real daily-account form once the connection returns, and
+/// so an administrator can see that the day was captured late. Applying a draft is an
+/// ordinary online action that goes through the normal authorisation path, which is why
+/// this model has no money columns of its own — the figures live in `payloadJson` as
+/// integer pesewa and are re-read, never trusted, when they are applied.
+model MomoOfflineDraft {
+  id           String   @id @default(cuid())
+  tenantId     String
+  locationId   String
+  userId       String
+  deviceId     String
+  /// The business day the capture belongs to (UTC date at midnight).
+  businessDate DateTime
+  /// Canonical JSON of the captured figures, integer pesewa throughout.
+  payloadJson  String
+  /// SHA-256 of the canonical payload. A retry with a different body is refused.
+  payloadHash  String
+  idempotencyKey String
+  /// pending | applied | rejected | needs_review
+  status       String   @default("pending")
+  /// Why the server could not accept it, or why it overlaps an existing account.
+  conflictReason String?
+  /// The daily account the draft was applied into, when it was.
+  appliedAccountId String?
+  appliedAt    DateTime?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, businessDate])
+  @@index([userId, businessDate])
+}
+
 model OfflineActionRequest {
   id                  String   @id @default(cuid())
   tenantId            String?

@@ -52,6 +52,7 @@ export async function cleanDatabase() {
     prisma.reconciliationExceptionEvent.deleteMany(),
     prisma.reconciliationExceptionLink.deleteMany(),
     prisma.reconciliationExceptionCase.deleteMany(),
+    prisma.momoOfflineDraft.deleteMany(),
     prisma.aiInvestigationUsage.deleteMany(),
     prisma.aiInvestigationEntitlement.deleteMany(),
     prisma.anomalyInvestigationDraft.deleteMany(),

@@ -131,7 +131,9 @@ async function submitToServer(transaction: OfflineTransaction): Promise<SyncResu
     const endpoint =
       transaction.type === "offline_request"
         ? "/api/offline/sync-request"
-        : "/api/offline/sync-contribution";
+        : transaction.type === "momo_draft"
+          ? "/api/offline/momo-draft"
+          : "/api/offline/sync-contribution";
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

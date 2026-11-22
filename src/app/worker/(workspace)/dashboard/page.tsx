@@ -58,6 +58,7 @@ export default async function WorkerDashboardPage() {
       userName={worker?.fullName ?? ""}
       locationId={worker?.locationId ?? null}
       locationName={worker?.location?.name ?? null}
+      userId={ctx.userId}
       accounts={views}
     />
   );
