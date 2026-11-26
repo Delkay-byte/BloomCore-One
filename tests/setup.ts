@@ -211,7 +211,7 @@ export async function createTestAdmin(options: {
   const tenantId = options.tenantId ?? tenant!.id;
   const user = await prisma.user.create({
     data: {
-      email: `test-admin-${randomBytes(2).toString("hex")}@bikprestige.com`,
+      email: `test-admin-${randomBytes(8).toString("hex")}@bikprestige.com`,
       fullName: "Test Admin",
       role: "admin",
       status: "active",
