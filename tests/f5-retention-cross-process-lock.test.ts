@@ -65,7 +65,7 @@ function seedSignal(id: string, expiresAt: number) {
 }
 
 beforeAll(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode", "f5-vitest-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "f5-vitest-"));
   const file = assertDisposableDatabase(path.join(dir, "test.db"));
   url = sqliteUrlFor(file);
   execFileSync(

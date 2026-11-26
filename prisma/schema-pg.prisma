@@ -3552,6 +3552,7 @@ model RiskIntelligenceConsent {
 
   @@unique([tenantId, policyVersion])
   @@index([tenantId, status])
+  @@index([expelledAt], map: "RiskIntelligenceConsent_expelledAt_idx")
 }
 
 /// One risk signal contributed by one business about one agent.
@@ -3760,6 +3761,7 @@ model EmployeeNoticeAttestation {
 
   @@unique([tenantId, userId, noticeVersion])
   @@index([tenantId, noticeVersion])
+  @@index([tenantId, verified], map: "EmployeeNoticeAttestation_verified_idx")
 }
 
 /// Electronic execution record bound to exact document version and SHA-256.

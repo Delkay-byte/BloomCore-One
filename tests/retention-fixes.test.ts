@@ -94,7 +94,7 @@ async function signal(
 }
 
 beforeAll(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode", "retention-vitest-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "retention-vitest-"));
   const file = assertDisposableDatabase(path.join(dir, "test.db"));
   url = sqliteUrlFor(file);
   execFileSync(
@@ -159,7 +159,7 @@ describe("local retention defect fixes", () => {
     const now = Date.now();
     const past = now - 300 * DAY;
     await signal("f2-signal", { expiresAt: past });
-    await signal("f2-subject", { expiresAt: past, subjectKey: "f2-held-subject" });
+    await signal("f2-subject", { expiresAt: past, subjectKey: "held" });
     await signal("f2-free", { expiresAt: past });
 
     const extension = iso(now + 10 * DAY);
@@ -180,7 +180,7 @@ describe("local retention defect fixes", () => {
       data: {
         id: "f2-hold-subject",
         scopeType: "subject",
-        scopeId: "f2-held-subject",
+        scopeId: "held",
         dpoReference: "F2-T",
         reason: "synthetic",
         authorisedById: "owner",
