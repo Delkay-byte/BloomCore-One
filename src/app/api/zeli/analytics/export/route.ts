@@ -6,6 +6,10 @@ import { detectInsights } from "@/lib/zeli/intelligence/insights";
 import { PeriodValidationError, type PeriodPreset } from "@/lib/zeli/intelligence/period";
 import { getZeliAvailability, zeliUnavailableResponse } from "@/lib/zeli/availability";
 import { csvCell } from "@/lib/csv";
+import {
+  enforceExportRateLimit,
+  exportRateLimitResponse,
+} from "@/lib/security/export-rate-limit";
 
 function line(cells: unknown[]): string {
   return cells.map(csvCell).join(",");
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
+
+  const limited = await enforceExportRateLimit("zeliAnalytics", ctx.userId, ctx.tenantId);
+  if (limited) return exportRateLimitResponse(limited);
 
   const params = request.nextUrl.searchParams;
   const period = (params.get("period") || "this_month") as PeriodPreset;

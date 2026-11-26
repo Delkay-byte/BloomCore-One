@@ -7,7 +7,7 @@
  * no ledger, transaction, balance or daily account is created by syncing a capture.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, cleanDatabase, createTestTenant, createTestAdmin } from "./setup";
 
 const { mockCookieStore } = vi.hoisted(() => ({ mockCookieStore: new Map<string, string>() }));
@@ -456,6 +456,54 @@ describe("server sync", () => {
     expect(refused.error).toMatch(/rejected/i);
   });
 
+  /**
+   * Local acceptance additions.
+   *
+   * An acceptance run must prove the refusal on the exact path the UI offers. These three
+   * cases were not previously exercised directly: an unauthenticated session, an apply
+   * against an account that does not exist, and an apply against another branch.
+   */
+  it("rejects a sync attempt with no session", async () => {
+    state.userId = "";
+    state.tenantId = "";
+    const response = await post(body());
+    expect(response.status).toBe(401);
+    expect(await prisma.momoOfflineDraft.count({ where: { tenantId } })).toBe(0);
+    await setSession(worker, "worker");
+  });
+
+  it("refuses to apply onto an account that does not exist", async () => {
+    const created = await (await post(body())).json();
+    const result = await applyMomoDraft({ draftId: created.draftId, accountId: "not-a-real-account" });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not found/i);
+    const stored = await prisma.momoOfflineDraft.findUnique({ where: { id: created.draftId } });
+    expect(stored?.status).toBe("pending");
+  });
+
+  it("refuses to apply onto another branch's account", async () => {
+    const created = await (await post(body())).json();
+    const otherLocation = await prisma.location.create({
+      data: { tenantId, name: "Second Branch", code: `L2${Date.now() % 100000}` },
+    });
+    const foreignBranchAccount = await prisma.dailyAccount.create({
+      data: {
+        tenantId,
+        locationId: otherLocation.id,
+        workerId: worker.id,
+        businessDate: new Date(`${dateString(0)}T00:00:00.000Z`),
+        status: "draft",
+        updatedAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const result = await applyMomoDraft({
+      draftId: created.draftId,
+      accountId: foreignBranchAccount.id,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/branch/i);
+  });
+
   it("shows the worker only their own captures", async () => {
     const tenant = await prisma.businessTenant.findUniqueOrThrow({ where: { id: tenantId } });
     const other = await prisma.user.create({
@@ -500,3 +548,4 @@ describe("server sync", () => {
     expect(all.data![0].capturedBy).toBe("Third Worker");
   });
 });
+

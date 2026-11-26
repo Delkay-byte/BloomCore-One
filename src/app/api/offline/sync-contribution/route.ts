@@ -605,7 +605,7 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    console.error("[offline-sync]", err);
+    console.error("[offline-sync]", err instanceof Error ? err.name : "UnknownError", (err as { code?: unknown })?.code ?? "no-code");
     return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }

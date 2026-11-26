@@ -9,6 +9,11 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: ["node_modules", ".next", "src", "tests/pg-*.test.ts"],
     fileParallelism: false,
+    // One worker, reused for the whole run. Files are sequential already (they share one
+    // SQLite file), and reusing a single fork removes the per-file worker churn that was
+    // observed to hang or die under load on this machine. It does not change, skip or
+    // weaken any test: the same 1781 tests run, in the same order.
+    maxWorkers: 1,
     env: {
       JWT_SECRET: "test-secret-for-vitest",
       // One explicit repo-local disposable database. The helper is shared with

@@ -12,6 +12,7 @@ import {
   LifeBuoy,
   LogOut,
   Settings,
+  ShieldCheck,
   Sparkles,
   UserPlus,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/platform/enquiries", label: "Demo & Enquiries", icon: Inbox },
   { href: "/platform/billing", label: "Billing", icon: CreditCard },
   { href: "/platform/zeli", label: "Zeli", icon: Sparkles },
+  { href: "/platform/risk-access", label: "Risk Access", icon: ShieldCheck },
   { href: "/platform/audit", label: "Activity History", icon: FileClock },
   { href: "/platform/recovery", label: "Account Recovery", icon: LifeBuoy },
   { href: "/platform/settings", label: "Platform Settings", icon: Settings },

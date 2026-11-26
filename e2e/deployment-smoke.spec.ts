@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Read-only verification against the deployed public origins.
+ * Read-only verification against the canonical deployed origin.
  *
- * These tests are opt-in so the normal suite never touches production:
+ * Opt-in so the normal suite never touches production:
  *   MAACASH_CANONICAL_ORIGIN=https://maacash.bloomcoretech.com
- *   MAACASH_LEGACY_ORIGIN=https://maacash.onrender.com
+ *
+ * The retired Render hostname is out of scope. It must never be a smoke-test
+ * target or a deployment check.
  */
 const CANONICAL = process.env.MAACASH_CANONICAL_ORIGIN;
-const LEGACY = process.env.MAACASH_LEGACY_ORIGIN;
 
 test.describe("live canonical custom domain", () => {
   test.skip(!CANONICAL, "Set MAACASH_CANONICAL_ORIGIN to verify production.");
@@ -41,7 +42,10 @@ test.describe("live canonical custom domain", () => {
     page,
     request,
   }) => {
-    await page.goto(`${CANONICAL}/`);
+    // External font/CDN requests on the live origin can keep the `load` event
+    // pending beyond the test timeout. DOM readiness is sufficient for the
+    // manifest and worker assertions that follow.
+    await page.goto(`${CANONICAL}/`, { waitUntil: "domcontentloaded" });
 
     const manifestHref = await page
       .locator('link[rel="manifest"]')
@@ -108,35 +112,5 @@ test.describe("live canonical custom domain", () => {
     });
     expect([302, 307, 308]).toContain(protectedPage.status());
     expect(protectedPage.headers()["location"]).toContain("/login");
-  });
-});
-
-test.describe("live old-host transition", () => {
-  test.skip(!LEGACY, "Set MAACASH_LEGACY_ORIGIN to verify the transition host.");
-
-  test("stays reachable without a blanket redirect and shows the notice", async ({
-    request,
-  }) => {
-    const response = await request.get(`${LEGACY}/`, { maxRedirects: 0 });
-    expect(response.status()).toBe(200);
-    expect(response.headers()["location"]).toBeUndefined();
-    const html = await response.text();
-    expect(html).toContain('data-maacash-legacy-host-notice="true"');
-    expect(html).toContain("maacash.bloomcoretech.com");
-    expect(html).toContain("synchronize any unsynchronized offline records");
-  });
-
-  test("keeps health and synchronization routes reachable", async ({
-    request,
-  }) => {
-    const health = await request.get(`${LEGACY}/api/health`);
-    expect(health.status()).toBe(200);
-    expect((await health.json()).status).toBe("ok");
-
-    const sync = await request.get(`${LEGACY}/api/offline/sync-contribution`, {
-      maxRedirects: 0,
-    });
-    expect(sync.status()).not.toBe(404);
-    expect([405, 401, 403, 400]).toContain(sync.status());
   });
 });

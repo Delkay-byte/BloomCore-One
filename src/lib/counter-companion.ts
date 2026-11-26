@@ -1,4 +1,7 @@
 /**
+ * RETIRED from the normal launch workflow. The pure validation, masking and
+ * accounting rules below are preserved for reuse by the Android Smart Counter.
+ *
  * Counter Companion: the fast, policy-safe entry path for counter work.
  *
  * What this is: a guided capture that turns "network, type, customer, amount,

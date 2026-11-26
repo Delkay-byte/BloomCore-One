@@ -1,11 +1,20 @@
 "use server";
 
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
+import { getAdminSession } from "@/lib/auth";
 import { requireTenantAdminMomo } from "@/lib/tenant";
 import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import {
+  acquireJobLease,
+  assertJobLease,
+  LeaseLostError,
+  releaseJobLease,
+  RETENTION_LEASE_KEY,
+} from "@/lib/security/job-lease";
 import {
   RISK_INTELLIGENCE_DECAY_DAYS,
   RISK_INTELLIGENCE_POLICY_VERSION,
@@ -16,7 +25,20 @@ import {
   type RiskConsentState,
   type RiskQueryResult,
 } from "@/lib/risk-intelligence/policy";
-import { hashRiskSubject, riskIntelligenceConfigured } from "@/lib/risk-intelligence/hasher";
+import {
+  candidateSubjectKeys,
+  hashRiskSubject,
+  riskIntelligenceConfigured,
+} from "@/lib/risk-intelligence/hasher";
+import {
+  eligibleShareTenantIds,
+  globalRiskEnabled,
+  subjectIsFrozen,
+  supportedKeyVersions,
+  tenantRiskState,
+} from "@/lib/risk-intelligence/governance-state";
+import { DISCLOSURE_EXPLANATION } from "@/lib/risk-intelligence/notices";
+import { closedSourceEvidence } from "@/lib/risk-intelligence/source-evidence";
 
 /**
  * Shared agent risk intelligence: the governed operations.
@@ -117,6 +139,13 @@ export async function joinRiskIntelligence(
         "Shared risk intelligence is not configured on this deployment, so joining would collect nothing. Joining is disabled until it is.",
     };
   }
+  if (!(await globalRiskEnabled())) {
+    return {
+      success: false,
+      error:
+        "Shared risk intelligence is disabled by an emergency control. Joining is unavailable; this is not a clean report.",
+    };
+  }
 
   await db.$transaction(async (tx) => {
     const existing = await tx.riskIntelligenceConsent.findFirst({
@@ -183,7 +212,7 @@ export async function withdrawRiskIntelligence(
     // audit trail is intact, but they no longer count towards anyone's cohort.
     await tx.agentRiskSignal.updateMany({
       where: { tenantId: ctx.tenantId, status: "open" },
-      data: { status: "withdrawn" },
+      data: { status: "withdrawn", withdrawnAt: new Date(), resolvedAt: new Date() },
     });
     await createAuditLogTx(tx, {
       tenantId: ctx.tenantId,
@@ -207,6 +236,10 @@ const contributeSchema = z.object({
   note: z.string().min(10).max(500),
   observedFrom: z.string().min(10),
   observedTo: z.string().min(10),
+  /** Explicit good-faith declaration; omission or false is refused. */
+  goodFaith: z.boolean().optional(),
+  /** Optional supporting evidence reference; the closed source supplies one. */
+  evidenceReference: z.string().max(300).optional(),
 });
 
 /**
@@ -222,6 +255,14 @@ export async function contributeRiskSignal(
   const parsed = contributeSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Invalid signal." };
   const ctx = await requireTenantAdminMomo();
+
+  if (!(await globalRiskEnabled())) {
+    return {
+      success: false,
+      error: "Shared risk intelligence is disabled by an emergency control.",
+    };
+  }
+  const participation = await tenantRiskState(ctx.tenantId, parsed.data.userId);
 
   const consent = await loadConsent(ctx.tenantId);
   const subject = await db.user.findFirst({
@@ -248,6 +289,16 @@ export async function contributeRiskSignal(
     })
   );
 
+  const sourceEvidence = await closedSourceEvidence({
+    tenantId: ctx.tenantId,
+    subjectUserId: subject.id,
+    sourceType: parsed.data.sourceType,
+    sourceId: parsed.data.sourceId,
+  });
+  if (!sourceEvidence.ok || !sourceEvidence.reference) {
+    return { success: false, error: sourceEvidence.error ?? "The source record is not closed." };
+  }
+
   const validation = validateRiskContribution({
     consent,
     category: parsed.data.category,
@@ -256,34 +307,17 @@ export async function contributeRiskSignal(
     sourceId: parsed.data.sourceId,
     reasonLength: parsed.data.note.trim().length,
     alreadyContributed,
+    businessEligibilityVerified: participation.eligibilityVerified,
+    controllerRegistrationChecked: participation.controllerRegistrationChecked,
+    agreementsExecuted: participation.agreementsExecuted,
+    noticeEvidenceRecorded: participation.noticeEvidenceRecorded,
+    businessSuspended: participation.suspended,
+    expelled: participation.expelled,
+    globalEnabled: await globalRiskEnabled(),
+    goodFaithDeclared: parsed.data.goodFaith === true,
+    evidenceReference: sourceEvidence.reference,
   });
   if (!validation.ok) return { success: false, error: validation.error };
-
-  // The source record must belong to this business.
-  const ownsSource =
-    parsed.data.sourceType === "anomalyInvestigation"
-      ? Boolean(
-          await db.anomalyInvestigation.findFirst({
-            where: { id: parsed.data.sourceId, tenantId: ctx.tenantId },
-            select: { id: true },
-          })
-        )
-      : parsed.data.sourceType === "reconciliationExceptionCase"
-        ? Boolean(
-            await db.reconciliationExceptionCase.findFirst({
-              where: { id: parsed.data.sourceId, tenantId: ctx.tenantId },
-              select: { id: true },
-            })
-          )
-        : Boolean(
-            await db.dailyAccount.findFirst({
-              where: { id: parsed.data.sourceId, tenantId: ctx.tenantId },
-              select: { id: true },
-            })
-          );
-  if (!ownsSource) {
-    return { success: false, error: "That record is not one of your business's records." };
-  }
 
   const observedFrom = new Date(parsed.data.observedFrom);
   const observedTo = new Date(parsed.data.observedTo);
@@ -307,6 +341,9 @@ export async function contributeRiskSignal(
         severity: validation.severity,
         sourceType: parsed.data.sourceType,
         sourceId: parsed.data.sourceId,
+        evidenceReference: sourceEvidence.reference,
+        goodFaithDeclaredAt: new Date(),
+        reportedById: ctx.userId,
         internalNote: parsed.data.note,
         observedFrom,
         observedTo,
@@ -349,7 +386,13 @@ const querySchema = z.object({
  */
 export async function querySharedRiskSignals(
   input: unknown
-): Promise<RiskActionResponse<{ result: RiskQueryResult; subjectLabel: string }>> {
+): Promise<
+  RiskActionResponse<{
+    result: RiskQueryResult;
+    subjectLabel: string;
+    explanation: readonly string[];
+  }>
+> {
   const parsed = querySchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: RISK_QUERY_GUIDANCE.reason_required };
@@ -368,43 +411,102 @@ export async function querySharedRiskSignals(
   if (!subject) return { success: false, error: "Employee not found." };
 
   const consent = await loadConsent(ctx.tenantId);
+  const participation = await tenantRiskState(ctx.tenantId);
 
-  let signals: { category: string; severity: string; tenantId: string | null; observedTo: Date; expiresAt: Date }[] = [];
+  // A deployment without the shared salt cannot match anybody. Saying "nobody reported
+  // this person" would be a false reassurance, so the answer is refused outright.
+  if (consent.active && !riskIntelligenceConfigured()) {
+    return {
+      success: false,
+      error:
+        "Shared risk intelligence is not configured on this deployment, so no answer can be given. Do not read this as a clean report.",
+    };
+  }
+  if (consent.active && !subject.phone) {
+    return {
+      success: false,
+      error:
+        "This employee has no recorded mobile number, so no cross-business answer can be given. Do not read this as a clean report.",
+    };
+  }
+
+  const globalEnabled = await globalRiskEnabled();
+  if (!globalEnabled) {
+    return { success: false, error: RISK_QUERY_GUIDANCE.feature_unavailable };
+  }
+  // ENG-01: the network is counted server-side at query time. Only businesses
+  // with current consent, required agreements, no suspension/expulsion and an
+  // active tenant count. The exact number is never returned to the caller.
+  const eligibleTenantIds = await eligibleShareTenantIds();
+  const network = { activeEligibleBusinesses: eligibleTenantIds.length };
+
+  let signals: {
+    category: string;
+    severity: string;
+    tenantId: string | null;
+    observedTo: Date;
+    expiresAt: Date;
+    status: string;
+  }[] = [];
   let subjectKey: string | null = null;
+  let frozen = false;
+  let matchUnavailable = false;
   if (consent.active && consent.policyVersion === RISK_INTELLIGENCE_POLICY_VERSION && subject.phone) {
     try {
-      subjectKey = hashRiskSubject(subject.fullName, subject.phone).subjectKey;
-    } catch {
-      subjectKey = null;
-    }
-    if (subjectKey) {
+      // ENG-05: match across the active key and every key version a privacy administrator
+      // metadata still marks as supported, not a stale environment list.
+      const supported = await supportedKeyVersions();
+      const candidates = candidateSubjectKeys(subject.fullName, subject.phone, supported);
+      if (candidates.length === 0) throw new Error("No supported key version.");
+      subjectKey = candidates[0].subjectKey;
+      const keys = candidates.map((candidate) => candidate.subjectKey);
+      frozen = await subjectIsFrozen(keys);
       signals = await db.agentRiskSignal.findMany({
-        where: { subjectKey, status: "open" },
+        where: {
+          subjectKey: { in: keys },
+          status: "open",
+          tenantId: { in: eligibleTenantIds },
+        },
         select: {
           category: true,
           severity: true,
           tenantId: true,
           observedTo: true,
           expiresAt: true,
+          status: true,
         },
-        take: 120,
+        take: 200,
       });
+    } catch {
+      matchUnavailable = true;
     }
+  }
+  if (consent.active && matchUnavailable) {
+    return {
+      success: false,
+      error:
+        "Shared risk intelligence cannot match this subject safely. No answer can be given; do not read this as a clean report.",
+    };
   }
 
   const evaluation = evaluateRiskQuery({
     consent,
-    tenantAvailable: true,
+    globalEnabled,
+    tenantAvailable: !participation.suspended && !participation.expelled,
+    agreementsExecuted: participation.agreementsExecuted,
     role: ctx.role,
     subjectKnownToCaller: Boolean(subject),
+    subjectFrozen: frozen,
     reason: parsed.data.reason,
     callerTenantId: ctx.tenantId,
+    network,
     signals: signals.map((signal) => ({
       category: signal.category,
       severity: signal.severity,
       tenantId: signal.tenantId ?? "",
       observedAt: signal.observedTo.toISOString(),
       expiresAt: signal.expiresAt.toISOString(),
+      status: signal.status,
     })),
     asOf: new Date().toISOString(),
   });
@@ -445,7 +547,11 @@ export async function querySharedRiskSignals(
 
   return {
     success: true,
-    data: { result: evaluation, subjectLabel: subject.fullName.split(" ")[0] ?? "this person" },
+    data: {
+      result: evaluation,
+      subjectLabel: subject.fullName.split(" ")[0] ?? "this person",
+      explanation: DISCLOSURE_EXPLANATION,
+    },
   };
 }
 
@@ -507,15 +613,77 @@ export async function withdrawMyRiskSignal(
   return { success: true, data: { withdrawn: true } };
 }
 
-/** Expire old signals. Called by the daily scan; never deletes a row. */
-export async function expireStaleRiskSignals(): Promise<{ expired: number }> {
-  const now = new Date();
-  const result = await db.agentRiskSignal.updateMany({
-    where: { status: "open", expiresAt: { lte: now } },
-    data: { status: "expired" },
-  });
-  if (result.count > 0) {
-    await createAuditLog({ userId: "system:risk_intelligence", action: "risk_intelligence.signals_expired", entityType: "agentRiskSignal", details: { expired: result.count, financialMutation: false } });
+/**
+ * Expire old signals. Never deletes a row.
+ *
+ * Authorised only by the internal scheduler token or an active privacy grant.
+ * A browser cannot call this action directly and mutate expiry state.
+ */
+export async function expireStaleRiskSignals(
+  input?: unknown
+): Promise<{
+  success: boolean;
+  expired?: number;
+  error?: string;
+  conflict?: boolean;
+}> {
+  const parsed = z.object({ token: z.string().min(1) }).safeParse(input);
+  const configured = process.env.RISK_RETENTION_TOKEN?.trim();
+  let authorised = false;
+  if (parsed.success && configured) {
+    const provided = Buffer.from(parsed.data.token);
+    const expected = Buffer.from(configured);
+    authorised =
+      provided.length === expected.length && timingSafeEqual(provided, expected);
   }
-  return { expired: result.count };
+  if (!authorised) {
+    const session = await getAdminSession();
+    if (session?.userId) {
+      const grant = await db.riskPrivacyAccess.findFirst({
+        where: { userId: session.userId, active: true },
+        select: { id: true },
+      });
+      authorised = Boolean(grant);
+    }
+  }
+  if (!authorised) return { success: false, error: "Not authorised." };
+
+  // Expiry is a second destructive path. It uses the SAME database-backed
+  // lease as the sweep so direct action calls cannot overlap either path.
+  const lease = await acquireJobLease(RETENTION_LEASE_KEY);
+  if (!lease) {
+    return {
+      success: false,
+      conflict: true,
+      error: "Retention sweep is already running.",
+    };
+  }
+  let outcome: "success" | "failed" | "lost" | "none" = "none";
+  try {
+    await assertJobLease(lease);
+    const now = new Date();
+    const result = await db.agentRiskSignal.updateMany({
+      where: { status: "open", expiresAt: { lte: now }, deletedAt: null },
+      data: { status: "expired" },
+    });
+    if (result.count > 0) {
+      await assertJobLease(lease);
+      await createAuditLog({ userId: "system:risk_intelligence", action: "risk_intelligence.signals_expired", entityType: "agentRiskSignal", details: { expired: result.count, financialMutation: false } });
+    }
+    outcome = "success";
+    return { success: true, expired: result.count };
+  } catch (error) {
+    if (error instanceof LeaseLostError) {
+      outcome = "lost";
+      return {
+        success: false,
+        conflict: true,
+        error: "Retention execution lease was lost.",
+      };
+    }
+    outcome = "failed";
+    throw error;
+  } finally {
+    await releaseJobLease(lease, outcome);
+  }
 }

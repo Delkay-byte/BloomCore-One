@@ -18,6 +18,10 @@ import {
  *
  * This is a safety net for sign-out and account changes. It never creates a
  * session; it only sends the browser back to the local login/offline prompt.
+ *
+ * The check is deliberately a load-time decision, not a connectivity reaction. A
+ * connection that drops while a page is open must never navigate away from work in
+ * progress; the failing save is reported in place instead.
  */
 function currentModule(): OfflineModule | null {
   if (typeof window === "undefined") return null;
@@ -82,20 +86,22 @@ export default function OfflineSessionGuard() {
       await reconcileModuleSession(activeModule!);
     }
 
+    // The fail-closed check runs once, against the page as delivered. A live page that
+    // merely loses its connection is not a restored cache: the agent may be halfway
+    // through a day, and sending them to the login screen there would discard typed
+    // figures. A save attempted while offline already fails with its own message and
+    // keeps the values, which is the behaviour this product promises.
     void guardOffline();
-    const onConnectivityChange = () => {
-      void guardOffline();
+    const onOnline = () => {
       void reconcile();
     };
-    window.addEventListener("offline", onConnectivityChange);
-    window.addEventListener("online", onConnectivityChange);
+    window.addEventListener("online", onOnline);
     // The page may have opened from cache while the browser still reports
     // "online"; reconcile immediately as well.
     void reconcile();
     return () => {
       cancelled = true;
-      window.removeEventListener("offline", onConnectivityChange);
-      window.removeEventListener("online", onConnectivityChange);
+      window.removeEventListener("online", onOnline);
     };
   }, []);
 

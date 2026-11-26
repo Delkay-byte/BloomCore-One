@@ -1819,6 +1819,14 @@ model BusinessTenant {
   contactPhone       String?
   contactEmail       String?
   address            String?
+  /// Business registration number shown on legal instruments. Optional because
+  /// existing tenants predate the field; participation onboarding requires it.
+  registrationNumber String?
+  /// DPC controller-registration state for this business. It never blocks
+  /// account creation and is not asserted as approval by BloomCore.
+  dpcRegistrationStatus    String    @default("not_provided") // not_provided | pending | registered | exempt
+  dpcRegistrationNumber    String?
+  dpcRegistrationCheckedAt DateTime?
   momoEnabled        Boolean   @default(false)
   susuEnabled        Boolean   @default(false)
   status             String    @default("PROVISIONING") // PROVISIONING | ACTIVE | SUSPENDED | ARCHIVED
@@ -2028,6 +2036,28 @@ model RateLimitCounter {
   updatedAt       DateTime @updatedAt
 
   @@index([expiresAt])
+}
+
+/// Cross-process execution lease for expensive singleton jobs.
+/// The owner id is a random UUID (not a secret); the fencing token increments
+/// on every takeover so a stale owner cannot continue mutating after expiry.
+model SystemJobLease {
+  id           String    @id @default(cuid())
+  key          String    @unique
+  ownerId      String
+  fencingToken Int       @default(0)
+  /// idle | running | released | expired
+  status       String    @default("idle")
+  acquiredAt   DateTime?
+  heartbeatAt  DateTime?
+  expiresAt    DateTime
+  releasedAt   DateTime?
+  /// success | failed | lost | none
+  lastOutcome  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, expiresAt])
 }
 
 /// Progressive failed-login state (1 min → 5 min → 15 min cooldowns).
@@ -3504,6 +3534,17 @@ model RiskIntelligenceConsent {
   withdrawnAt    DateTime?
   withdrawReason String?
   billingBasis   String?
+  /// ENG-08 participation gates, verified server-side before contribution.
+  eligibilityVerified           Boolean   @default(false)
+  controllerRegistrationChecked Boolean   @default(false)
+  /// ENG-07 business-level suspension, independent of consent withdrawal.
+  suspendedAt    DateTime?
+  suspensionReason String?
+  suspendedById  String?
+  /// ENG-07 expulsion for proven bad-faith reporting. An expelled business must
+  /// be explicitly reinstated by BloomCore under the published participation terms.
+  expelledAt      DateTime?
+  expulsionReason String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -3538,11 +3579,25 @@ model AgentRiskSignal {
   /// The internal record that justified the signal. Never disclosed to another business.
   sourceType   String
   sourceId     String
+  /// Reference to the closed record and its supporting evidence, as read from
+  /// the source row at contribution time. Never disclosed to another business.
+  evidenceReference String?
+  /// Good-faith declaration made by the reporting administrator.
+  goodFaithDeclaredAt DateTime?
+  /// The administrator who submitted the signal (audit identity, not disclosed).
+  reportedById String?
   internalNote String?
   observedFrom DateTime
   observedTo   DateTime
   /// Signals fade: an old shortage says less about this month.
   expiresAt    DateTime
+  /// ENG-02/ENG-04 lifecycle timestamps. Adding columns is additive.
+  withdrawnAt  DateTime?
+  frozenAt     DateTime?
+  disputedAt   DateTime?
+  resolvedAt   DateTime?
+  deletedAt    DateTime?
+  scrubbedAt   DateTime?
   createdAt    DateTime @default(now())
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -3568,9 +3623,291 @@ model RiskIntelligenceDisclosure {
   viewerId         String
   reason           String
   createdAt        DateTime @default(now())
+  /// ENG-04: 24-month audit retention, then scrub or delete.
+  deletedAt        DateTime?
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, createdAt])
   @@index([subjectKey, createdAt])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Shared agent risk intelligence — DPC governance safeguards (ENG-01..ENG-08)
+// Additive only. No existing table, column or record is removed or repurposed.
+// ---------------------------------------------------------------------------
+
+/// Global emergency control. A single row with id "global". When absent, the
+/// deployment follows its existing configuration (secret presence); an explicit
+/// row with enabled=false disables the feature immediately.
+model RiskGlobalControl {
+  id          String   @id
+  enabled     Boolean  @default(false)
+  reason      String
+  changedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// A valid objection or challenge freezes the matched subject for all key versions.
+model RiskSubjectFreeze {
+  id               String   @id @default(cuid())
+  subjectKey       String
+  /// frozen | upheld | rejected | restored
+  status           String   @default("frozen")
+  reason           String
+  caseRef          String?
+  frozenById       String
+  notifiedTenantId String?
+  frozenAt         DateTime @default(now())
+  resolvedAt       DateTime?
+  resolutionById   String?
+  /// upheld | rejected | restored — always reasoned and documented
+  resolution       String?
+  createdAt        DateTime @default(now())
+
+  @@index([subjectKey, status])
+  @@index([status, frozenAt])
+}
+
+/// Subject access, correction, objection, challenge and complaint/review cases.
+model SubjectRightsRequest {
+  id                     String   @id @default(cuid())
+  caseRef                String   @unique
+  tenantId               String
+  subjectKey             String?
+  subjectUserId          String?
+  /// access | correction | objection | challenge | complaint_review
+  type                   String
+  classification         String   @default("standard")
+  /// received | acknowledged | in_review | frozen | resolved | closed
+  status                 String   @default("received")
+  reviewerId             String?
+  identityVerified       Boolean  @default(false)
+  receivedAt             DateTime @default(now())
+  acknowledgedAt         DateTime?
+  ackDeadline            DateTime
+  resolutionDeadline     DateTime
+  extendedDeadline       DateTime?
+  extensionReason        String?
+  extensionApprovedById  String?
+  decision               String?
+  decisionReason         String?
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+  /// Version of the Ghana public-holiday calendar used to compute the
+  /// acknowledgement deadline, so the calculation is reproducible.
+  holidayCalendarVersion String?
+  /// Redacted JSON metadata only: never raw identity or another business's report.
+  evidence               String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([ackDeadline])
+  @@index([resolutionDeadline])
+}
+
+model RightsRequestCommunication {
+  id        String   @id @default(cuid())
+  requestId String
+  /// inbound | outbound
+  direction String
+  channel   String
+  content   String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+/// Versioned employee privacy notice. Text comes from the approved source document.
+model EmployeePrivacyNotice {
+  id            String   @id @default(cuid())
+  version       String   @unique
+  title         String
+  /// Exact approved text, so historical versions remain viewable.
+  documentText  String
+  documentHash  String
+  effectiveDate DateTime
+  policyVersion String
+  createdAt     DateTime @default(now())
+}
+
+/// Delivery evidence and acknowledgement, separate from business consent.
+model EmployeeNoticeAttestation {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  userId               String
+  noticeVersion        String
+  deliveryMethod       String
+  issuedAt             DateTime
+  deliveryEvidence     String
+  /// Exact hash of the notice version presented to the agent.
+  documentSha256       String?
+  /// delivered | acknowledged | declined
+  acknowledgementState String   @default("delivered")
+  acknowledgedAt       DateTime?
+  /// True only when acceptable delivery evidence exists and was verified. A
+  /// failed or returned delivery leaves this false even if a row is recorded.
+  verified             Boolean  @default(false)
+  verifiedAt           DateTime?
+  failureReason        String?
+  recordedById         String
+  policyVersion        String
+  createdAt            DateTime @default(now())
+
+  @@unique([tenantId, userId, noticeVersion])
+  @@index([tenantId, noticeVersion])
+}
+
+/// Electronic execution record bound to exact document version and SHA-256.
+model ParticipationAgreement {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  type                 String
+  title                String
+  version              String
+  effectiveDate        DateTime
+  /// Exact text presented to the signatory; historical versions are preserved.
+  documentText         String
+  documentSha256       String
+  documentRef          String
+  state                String   @default("draft")
+  signatoryId          String
+  signatoryName        String
+  signatoryRole        String
+  signatoryAuthority   String
+  authenticationMethod String
+  /// Verification evidence for the lawyer-approved authentication method.
+  authenticationEvidence String?
+  acceptedAt           DateTime?
+  countersignedById    String?
+  countersignedAt      DateTime?
+  executedAt           DateTime?
+  countersignatoryName       String?
+  countersignatoryCapacity   String?
+  /// SHA-256 over the final execution certificate (document hash + identities +
+  /// timestamps + state). Evidence only; it does not assert legal validity.
+  executionCertificateSha256 String?
+  supersededById       String?
+  createdAt            DateTime @default(now())
+
+  @@unique([tenantId, type, version])
+  @@index([tenantId, state])
+}
+
+/// Scoped legal hold over specifically identified records.
+model RiskLegalHold {
+  id              String   @id @default(cuid())
+  /// signal | subject | request
+  scopeType       String
+  scopeId         String
+  tenantId        String?
+  dpoReference    String
+  reason          String
+  authorisedById  String
+  createdAt       DateTime @default(now())
+  reviewDate      DateTime
+  caseClosureDate DateTime?
+  extensionUntil  DateTime?
+  extensionReason String?
+  releasedAt      DateTime?
+  releasedById    String?
+  releaseReason   String?
+
+  @@index([scopeType, scopeId])
+}
+
+/// Append-only history for global, business, signal and subject controls.
+model RiskControlEvent {
+  id        String   @id @default(cuid())
+  /// global | business | signal | subject
+  level     String
+  action    String
+  scopeId   String?
+  tenantId  String?
+  actorId   String
+  reason    String
+  outcome   String
+  /// JSON metadata only; each row is immutable.
+  history   String?
+  createdAt DateTime @default(now())
+
+  @@index([level, scopeId, createdAt])
+}
+
+/// Key metadata only. No secret value is ever stored in the application database.
+model RiskKeyVersion {
+  version     Int      @id
+  /// active | previous | retired
+  status      String
+  /// Provider-side reference or alias. Never a secret value.
+  providerRef String?
+  activatedAt DateTime @default(now())
+  retiredAt   DateTime?
+  retiredById String?
+
+  @@index([status])
+}
+
+/// Restricted privacy administrators/reviewers, checked server-side on every operation.
+model RiskPrivacyAccess {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  /// privacy_admin | privacy_reviewer | legacy dpo
+  role        String
+  grantedById String
+  reason      String
+  active      Boolean  @default(true)
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+/// Owner-confirmed public legal and infrastructure facts used by the controlled
+/// instruments. The registered name, company number and TIN remain code
+/// constants and are deliberately not editable here.
+model RiskOrganisationProfile {
+  id                        String   @id @default("bloomcore")
+  registeredOffice          String?
+  registeredOfficeConfirmed Boolean  @default(false)
+  privacyEmail              String?
+  signatoryName             String?
+  signatoryCapacity         String?
+  hostingProviders          String?
+  hostingRegions            String?
+  updatedById               String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+
+/// Durable evidence for outbound governance notifications and document delivery.
+/// No recipient address, secret, subject key or document content is stored here.
+model GovernanceDocumentDelivery {
+  id                String   @id @default(cuid())
+  eventType         String
+  /// agreement | notice | signal | rights
+  scopeType         String
+  scopeId           String
+  tenantId          String?
+  recipientUserId   String?
+  /// SHA-256 of the normalised destination address, not the address itself.
+  recipientHash     String
+  templateVersion   String
+  /// queued | sent | failed | skipped
+  status            String   @default("queued")
+  attempts          Int      @default(1)
+  providerMessageId String?
+  /// Generic provider status only; never a body, token or address.
+  lastError         String?
+  /// JSON retry metadata, append-only per row.
+  retryHistory      String?
+  createdAt         DateTime @default(now())
+  sentAt            DateTime?
+
+  @@unique([eventType, scopeId, recipientHash])
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
 }

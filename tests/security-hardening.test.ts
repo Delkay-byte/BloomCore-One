@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, cleanDatabase } from "./setup";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -147,17 +148,21 @@ describe("client IP extraction", () => {
     expect(getClientIp(headers)).toEqual({ ip: null, source: "untrusted" });
   });
 
-  it("uses the platform-set headers and never the X-Forwarded-For chain", () => {
+  it("uses an edge-proven header and never the X-Forwarded-For chain", () => {
+    const secret = "test-only-edge-secret-for-unit-tests-0123456789";
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", secret);
+    const ip = "198.51.100.9";
     const headers = new Headers({
       "x-forwarded-for": "1.2.3.4, 10.0.0.1",
       "true-client-ip": "203.0.113.7",
-      "cf-connecting-ip": "198.51.100.9",
+      "cf-connecting-ip": ip,
+      "x-bloomcore-edge-auth": createHmac("sha256", secret).update(ip).digest("hex"),
     });
-    // SEC-05: the edge-set Cloudflare header wins. True-Client-IP is not
-    // guaranteed to be overwritten, so it is only used with explicit opt-in.
+    // SEC-05: a cryptographically edge-proven Cloudflare header wins.
+    // True-Client-IP is only used with explicit opt-in and its own proof.
     expect(getClientIp(headers)).toEqual({
-      ip: "198.51.100.9",
+      ip,
       source: "cf-connecting-ip",
     });
   });

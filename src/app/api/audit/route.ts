@@ -5,6 +5,10 @@ import {
   presentAuditEntry,
   type AuditEntityContext,
 } from "@/lib/audit-presentation";
+import {
+  enforceExportRateLimit,
+  exportRateLimitResponse,
+} from "@/lib/security/export-rate-limit";
 
 interface AuditRow {
   id: string;
@@ -324,6 +328,9 @@ export async function GET(request: NextRequest) {
   if (ctx.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const limited = await enforceExportRateLimit("audit", ctx.userId, ctx.tenantId);
+  if (limited) return exportRateLimitResponse(limited);
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);

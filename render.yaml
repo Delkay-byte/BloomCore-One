@@ -35,6 +35,8 @@ services:
     buildCommand: npm ci --include=dev && npx prisma generate --schema=prisma/schema-pg.prisma && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
+    # The live service has autoDeploy enabled: one authorised push to main is
+    # the single coordinated deployment. No second push or manual deploy.
     autoDeploy: true
     envVars:
       - key: NODE_ENV
@@ -53,6 +55,12 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # Transactional email. The sender must be on the verified Resend domain;
+      # the public Gmail privacy contact is never a sender identity.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       # Security hardening (add values in the Render dashboard, never in Git).
       - key: RATE_LIMIT_HMAC_SECRET
         sync: false
@@ -70,15 +78,48 @@ services:
         value: "maacash.bloomcoretech.com"
       - key: TRUSTED_PROXY_HEADERS
         value: "true"
+      # Edge HMAC proof over CF-Connecting-IP. Value is set only in the Render
+      # dashboard. While absent, getClientIp() fails closed to the unknown
+      # bucket; account-keyed throttles and Turnstile remain active.
+      - key: EDGE_PROXY_SECRET
+        sync: false
       - key: NEXTAUTH_URL
         value: "https://maacash.bloomcoretech.com"
+      # Origin used by scripts/run-risk-retention-cron.mjs. SITE_URL is an
+      # accepted fallback, but the scheduler contract uses this exact name.
+      - key: MAACASH_APP_URL
+        value: "https://maacash.bloomcoretech.com"
+      # Staff use shared field devices: a 15-minute idle lock is the production
+      # ceiling, with an 8-hour absolute session and a 5-minute background lock.
       - key: SESSION_IDLE_TIMEOUT_SECONDS
-        value: "28800"
+        value: "900"
       - key: SESSION_BACKGROUND_TIMEOUT_SECONDS
-        value: "7200"
+        value: "300"
       - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
         value: "28800"
       - key: OFFLINE_COLLECTIONS_ENABLED
         value: "false"
       - key: OFFLINE_MOMO_ENABLED
         value: "false"
+      # Owner-confirmed public privacy contact. Not a sender identity.
+      - key: BLOOMCORE_PRIVACY_EMAIL
+        value: "bloomcoretechnologies@gmail.com"
+      # Owner-confirmed signatory. The registered office is deliberately not
+      # invented: set BLOOMCORE_REGISTERED_ADDRESS in the dashboard before any
+      # controlled agreement can execute.
+      - key: BLOOMCORE_AUTHORISED_SIGNATORY_NAME
+        value: "Saviour Amegayie"
+      - key: BLOOMCORE_AUTHORISED_SIGNATORY_CAPACITY
+        value: "Proprietor"
+      - key: BLOOMCORE_REGISTERED_ADDRESS
+        sync: false
+      # Shared-agent pseudonymisation key and the daily retention bearer token.
+      # Values live only in the dashboard and in the scheduler secret store.
+      - key: RISK_INTELLIGENCE_SALT
+        sync: false
+      - key: RISK_RETENTION_TOKEN
+        sync: false
+      - key: RISK_HOSTING_PROVIDERS
+        sync: false
+      - key: RISK_HOSTING_REGIONS
+        sync: false

@@ -141,6 +141,41 @@ async function verifySignature(
  * MFA policy match. Any failure is a denial.
  */
 const DEFAULT_PROOF_OPTIONS: { allowSelection?: boolean } = {};
+const lastCredentialTouchAt = new Map<string, number>();
+
+/**
+ * Next.js may verify the same proof several times in one browser request
+ * (action handler, layout render, re-render). React's `cache()` scope does not
+ * always span those helpers, so without this short-lived map each verification
+ * attempts a duplicate `TabProofNonce` insert and the database rejects it.
+ * The key includes the worker-issued request id and nonce hash: a different
+ * request can never reuse a cached verification, and the 2-second TTL matches
+ * the existing proof skew window.
+ */
+const nonceProofCache = new Map<
+  string,
+  { value: VerifiedTabProof; expiresAt: number }
+>();
+
+function cachedNonceProof(key: string | null): VerifiedTabProof | null {
+  if (!key) return null;
+  const hit = nonceProofCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    nonceProofCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function cacheNonceProof(key: string | null, value: VerifiedTabProof): void {
+  if (!key) return;
+  if (nonceProofCache.size > 2000) {
+    const now = Date.now();
+    for (const [k, v] of nonceProofCache) if (v.expiresAt <= now) nonceProofCache.delete(k);
+  }
+  nonceProofCache.set(key, { value, expiresAt: Date.now() + 2000 });
+}
 
 export const verifyTabProof = cache(async function verifyTabProof(
   expected: TabSurface | "any",
@@ -157,6 +192,27 @@ export const verifyTabProof = cache(async function verifyTabProof(
     const parsed = parseProof(raw);
     if (!parsed) return null;
     const { proof, signature } = parsed;
+
+    const nonceKey = requestId
+      ? `${requestId}:${createHash("sha256").update(proof.nonce).digest("hex")}:${expected}`
+      : null;
+    const replayed = cachedNonceProof(nonceKey);
+    if (replayed) return replayed;
+
+    // Bind the signed method and path to the real request. The header path is
+    // itself signed, and Next's RSC refresh advertises its target in next-url.
+    // A proof minted for another method or route is unusable here.
+    const declaredPath = requestHeaders.get(TAB_PATH_HEADER);
+    const routerPath =
+      requestHeaders.get("next-url") ?? requestHeaders.get("x-invoke-path");
+    if (
+      declaredPath &&
+      routerPath &&
+      declaredPath.split("?")[0] !== routerPath.split("?")[0]
+    ) {
+      return null;
+    }
+    if (requestHeaders.get("rsc") === "1" && proof.method !== "GET") return null;
 
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - proof.ts) > PROOF_MAX_SKEW_SECONDS) return null;
@@ -192,17 +248,18 @@ export const verifyTabProof = cache(async function verifyTabProof(
         },
       });
     } catch {
+      // A nonce is single-use across browser requests. A Server Action that
+      // calls revalidatePath makes Next re-render the route inside the SAME
+      // browser request, with a fresh React cache scope. Re-verifying the same
+      // proof there must be idempotent, otherwise a successful write bounces
+      // the user to the login page. Only an exact match on the worker-issued
+      // request id is accepted; a different request id is a replay and fails.
       if (!requestId) return null;
       const existing = await db.tabProofNonce
         .findUnique({ where: { id: nonceId } })
         .catch(() => null);
-      if (
-        !existing ||
-        existing.credentialId !== credential.id ||
-        existing.requestId !== requestId
-      ) {
-        return null;
-      }
+      if (!existing || existing.requestId !== requestId) return null;
+      if (existing.expiresAt.getTime() <= now * 1000) return null;
     }
 
     const payload = JSON.parse(credential.payloadJson) as JwtPayload;
@@ -218,12 +275,20 @@ export const verifyTabProof = cache(async function verifyTabProof(
     if (mfaPolicy() === "enforce" && payload.amr !== "pwd+mfa") return null;
 
     await touchSessionRecord(credential.sessionId);
-    await db.tabCredential
-      .update({
-        where: { id: credential.id },
-        data: { lastUsedAt: new Date() },
-      })
-      .catch(() => undefined);
+    // lastUsedAt is informational only; authorisation above already checked
+    // the credential, session, nonce, module and MFA policy. Amortise this
+    // write under load and retry it later if the store is temporarily busy.
+    const credentialTouchAt = Date.now();
+    const previousTouch = lastCredentialTouchAt.get(credential.id) ?? 0;
+    if (credentialTouchAt - previousTouch >= 15_000) {
+      lastCredentialTouchAt.set(credential.id, credentialTouchAt);
+      await db.tabCredential
+        .update({
+          where: { id: credential.id },
+          data: { lastUsedAt: new Date(credentialTouchAt) },
+        })
+        .catch(() => lastCredentialTouchAt.delete(credential.id));
+    }
 
     const verified: VerifiedTabProof = {
       payload,
@@ -232,6 +297,7 @@ export const verifyTabProof = cache(async function verifyTabProof(
       module: credential.module as TabSurface,
     };
     cacheProof(cacheKey, verified);
+    cacheNonceProof(nonceKey, verified);
     return verified;
   } catch {
     return null;

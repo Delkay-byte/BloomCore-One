@@ -1,4 +1,29 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { NextConfig } from "next";
+
+/**
+ * Local-only risk intelligence secrets.
+ *
+ * The salt file is deliberately not one of Next.js's automatic env files, so
+ * it can never be picked up by a production build. Loading it here (development
+ * only) makes the real application usable without copying the salt into .env
+ * or committing it. Existing environment variables always win, and nothing is
+ * logged.
+ */
+if (process.env.NODE_ENV !== "production") {
+  const localRiskEnv = join(process.cwd(), ".env.risk-intelligence.local");
+  if (existsSync(localRiskEnv)) {
+    for (const rawLine of readFileSync(localRiskEnv, "utf8").split(/\r?\n/)) {
+      const match = rawLine.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      if (process.env[key] !== undefined) continue;
+      const value = rawValue.trim().replace(/^["']|["']$/g, "");
+      if (value) process.env[key] = value;
+    }
+  }
+}
 
 /**
  * Security headers for BIK Prestige Enterprise.

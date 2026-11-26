@@ -1,7 +1,12 @@
 # Counter Companion
 
-**Status:** implemented as an in-product (web/PWA) workflow. No native Android shell is
-needed today, and the policy for one is written down so nobody invents permissions later.
+**Status:** RETIRED from the normal launch workflow. The component is no longer mounted
+on the worker dashboard, has no navigation item and has no customer-facing route. Its pure
+validation and accounting rules stay in `src/lib/counter-companion.ts` for reuse by the
+planned agent-only Android Smart Counter. No financial records or audit history were deleted.
+
+The policy below remains the written decision a future native shell must argue against;
+it does not authorise reading SMS, call logs or USSD sessions.
 
 Files:
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   ensureTabSessionWorker,
+  installRscProofShim,
   tabSessionsSupported,
 } from "@/lib/security/tab-session-client";
 
@@ -16,16 +17,24 @@ export default function TabSessionProvider() {
 
   useEffect(() => {
     let cancelled = false;
+    let uninstall: (() => void) | undefined;
     void (async () => {
       if (!tabSessionsSupported()) {
         if (!cancelled) setUnsupported(true);
         return;
       }
       const registration = await ensureTabSessionWorker();
-      if (!cancelled && !registration) setUnsupported(true);
+      if (!registration) {
+        if (!cancelled) setUnsupported(true);
+        return;
+      }
+      // Keep post-write RSC refreshes authenticated without changing auth.
+      uninstall = installRscProofShim();
+      if (cancelled) uninstall();
     })();
     return () => {
       cancelled = true;
+      uninstall?.();
     };
   }, []);
 

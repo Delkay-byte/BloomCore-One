@@ -28,6 +28,7 @@ import {
 import { loginSchema } from "@/lib/validations";
 import { createAuditLog } from "@/lib/audit";
 import { recordSecurityEvent } from "@/lib/security/events";
+import { resolveEffectiveNotice } from "@/lib/risk-intelligence/notice-resolution";
 import { getTenantContext } from "@/lib/tenant";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import {
@@ -708,6 +709,41 @@ export async function changePassword(
   }
 
   const wasForced = !!session.forcePasswordReset;
+  // Server-side onboarding gate. An agent cannot finish first login until the
+  // current notice has been read and explicitly acknowledged. This is checked
+  // against the database, not a client checkbox or a cached session flag.
+  if (wasForced && (dbUser.role === "worker" || dbUser.role === "collector")) {
+    let effective;
+    try {
+      effective = await resolveEffectiveNotice(dbUser.tenantId, dbUser.id);
+    } catch {
+      return {
+        success: false,
+        error:
+          "Your employee privacy notice cannot be issued until your employer completes its legal profile and your employee record has your name and phone number. Contact your administrator.",
+      };
+    }
+    const attestation = await db.employeeNoticeAttestation.findFirst({
+      where: {
+        tenantId: dbUser.tenantId ?? "",
+        userId: dbUser.id,
+        noticeVersion: effective.version,
+        acknowledgementState: "acknowledged",
+      },
+      select: { acknowledgedAt: true, policyVersion: true, documentSha256: true },
+    });
+    if (
+      !attestation?.acknowledgedAt ||
+      attestation.policyVersion !== effective.policyVersion ||
+      attestation.documentSha256 !== effective.documentHash
+    ) {
+      return {
+        success: false,
+        error:
+          "Read and acknowledge your current employee privacy notice before finishing onboarding.",
+      };
+    }
+  }
 
   const newHash = await hashPassword(newPassword);
   // Bump tokenVersion to invalidate ALL existing sessions across all modules

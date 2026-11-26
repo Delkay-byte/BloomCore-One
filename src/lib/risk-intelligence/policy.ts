@@ -11,8 +11,8 @@
  *   * **Opt in, or nothing.** No business is enrolled implicitly, and a business that
  *     withdraws stops contributing immediately.
  *   * **A cohort, never a whisper.** One business's claim is never shown to another.
- *     A signal is only disclosed when at least three distinct businesses independently
- *     reported the same subject, and the categories must agree.
+ *     A signal is only disclosed when at least three distinct other businesses
+ *     reported the same subject, and at least two reported the same category.
  *   * **No identities, no notes, no evidence.** The response carries category bands and
  *     a coarse contributor count. It never carries a name, a phone number, a note, the
  *     contributing businesses, or the underlying record.
@@ -27,7 +27,10 @@
  */
 
 export const RISK_INTELLIGENCE_POLICY_VERSION = "risk-intelligence-policy-2026.12";
+/** ENG-01: the minimum eligible, participating network before any disclosure. */
+export const RISK_INTELLIGENCE_MIN_NETWORK = 20;
 export const RISK_INTELLIGENCE_MIN_CONTRIBUTORS = 3;
+export const RISK_INTELLIGENCE_MIN_CATEGORY_CONTRIBUTORS = 2;
 export const RISK_INTELLIGENCE_MIN_CATEGORIES = 1;
 export const RISK_INTELLIGENCE_DECAY_DAYS = 180;
 export const RISK_INTELLIGENCE_MAX_SIGNALS_PER_SUBJECT = 12;
@@ -67,10 +70,14 @@ export type RiskQueryDenial =
   | "consent_missing"
   | "consent_withdrawn"
   | "policy_version_stale"
+  | "agreement_missing"
+  | "feature_unavailable"
   | "tenant_unavailable"
   | "role_not_permitted"
   | "subject_not_known_to_business"
-  | "reason_required";
+  | "subject_frozen"
+  | "reason_required"
+  | "insufficient_network";
 
 export const RISK_QUERY_GUIDANCE: Record<RiskQueryDenial, string> = {
   consent_missing:
@@ -79,11 +86,19 @@ export const RISK_QUERY_GUIDANCE: Record<RiskQueryDenial, string> = {
     "Your business withdrew from shared risk intelligence, so it neither shares nor receives signals.",
   policy_version_stale:
     "The shared risk policy has changed since your business agreed to it. The owner needs to review and accept the current version.",
+  agreement_missing:
+    "The required participation agreements are not executed for this business. No answer can be given, and this must not be read as a clean report.",
+  feature_unavailable:
+    "Shared risk intelligence is unavailable on this deployment. No answer can be given, and this must not be read as a clean report.",
   tenant_unavailable: "This business account is not currently able to use shared intelligence.",
   role_not_permitted: "Only a business owner or administrator can ask for shared risk signals.",
   subject_not_known_to_business:
     "Shared signals can only be asked about someone this business has its own record for.",
+  subject_frozen:
+    "This subject is under an active objection or challenge. No cross-business disclosure can be given while it is frozen; this is not a clean report.",
   reason_required: "Write why you are asking, so the request can be reviewed later.",
+  insufficient_network:
+    "The participating network is too small to answer safely. We cannot answer; no cross-business disclosure can be given, and this must not be read as a clean report.",
 };
 
 export interface RiskSignalFact {
@@ -93,17 +108,30 @@ export interface RiskSignalFact {
   tenantId: string;
   observedAt: string;
   expiresAt: string;
+  /** open | expired | withdrawn | frozen | disputed_frozen */
+  status?: string;
+  /** A signal under dispute or an individual freeze is never eligible. */
+  disputed?: boolean;
+  frozen?: boolean;
 }
 
 export interface RiskQueryInput {
   consent: RiskConsentState;
+  /** The global emergency control. Disabled means no answer at all. */
+  globalEnabled: boolean;
   tenantAvailable: boolean;
   role: string;
   /** True when the caller's business has its own record of this person. */
   subjectKnownToCaller: boolean;
+  /** True when the matched subject is under an active objection or challenge. */
+  subjectFrozen: boolean;
   reason: string;
   /** Signals observed by the caller's own business are excluded from the cohort. */
   callerTenantId: string;
+  /** Server-side network facts: active, eligible, share-signals businesses. */
+  network: { activeEligibleBusinesses: number };
+  /** False when a required agreement is missing; undefined is treated as satisfied. */
+  agreementsExecuted?: boolean;
   signals: RiskSignalFact[];
   /** The day the query is made, so expiry is evaluated against a supplied clock. */
   asOf: string;
@@ -160,6 +188,11 @@ function higherSeverity(left: RiskSeverity, right: RiskSeverity): RiskSeverity {
  * actual obstacle, so a business owner is told what to do rather than that they failed.
  */
 export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
+  // Emergency controls and network adequacy are checked before any signal is
+  // read. An unavailable or undersized network is never a "clean" answer.
+  if (!input.globalEnabled) {
+    return { allowed: false, denial: "feature_unavailable", guidance: RISK_QUERY_GUIDANCE.feature_unavailable };
+  }
   if (!input.tenantAvailable) {
     return { allowed: false, denial: "tenant_unavailable", guidance: RISK_QUERY_GUIDANCE.tenant_unavailable };
   }
@@ -175,6 +208,12 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
   if (input.consent.policyVersion !== RISK_INTELLIGENCE_POLICY_VERSION) {
     return { allowed: false, denial: "policy_version_stale", guidance: RISK_QUERY_GUIDANCE.policy_version_stale };
   }
+  if (input.agreementsExecuted === false) {
+    return { allowed: false, denial: "agreement_missing", guidance: RISK_QUERY_GUIDANCE.agreement_missing };
+  }
+  if (input.subjectFrozen) {
+    return { allowed: false, denial: "subject_frozen", guidance: RISK_QUERY_GUIDANCE.subject_frozen };
+  }
   if (!input.subjectKnownToCaller) {
     return {
       allowed: false,
@@ -185,17 +224,30 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
   if (input.reason.trim().length < 10) {
     return { allowed: false, denial: "reason_required", guidance: RISK_QUERY_GUIDANCE.reason_required };
   }
+  if (
+    !Number.isFinite(input.network.activeEligibleBusinesses) ||
+    input.network.activeEligibleBusinesses < RISK_INTELLIGENCE_MIN_NETWORK
+  ) {
+    return {
+      allowed: false,
+      denial: "insufficient_network",
+      guidance: RISK_QUERY_GUIDANCE.insufficient_network,
+    };
+  }
 
   const asOf = new Date(input.asOf).getTime();
+  // Only live, eligible signals count. Expired, withdrawn, disputed, frozen and
+  // unknown-category signals are excluded at query time whether or not a job ran.
   const live = input.signals.filter((signal) => {
-    if (signal.tenantId === input.callerTenantId) return true; // their own signal, shown back
+    if (signal.status && signal.status !== "open") return false;
+    if (signal.disputed || signal.frozen) return false;
     if (!(RISK_CATEGORIES as readonly string[]).includes(signal.category)) return false;
     const expires = new Date(signal.expiresAt).getTime();
     return Number.isFinite(expires) && expires > asOf;
   });
 
-  // The cohort is distinct *other* businesses. A business's own signals never count
-  // towards the threshold that unlocks disclosure to it.
+  // The cohort is distinct *other* businesses. A business's own signals never
+  // count towards the threshold that unlocks disclosure to it.
   const others = live.filter((signal) => signal.tenantId !== input.callerTenantId);
   const contributors = new Set(others.map((signal) => signal.tenantId));
 
@@ -205,7 +257,7 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
       verdict: "no_shared_signals",
       headline:
         contributors.size === 0
-          ? "No other business taking part has reported a signal about this person."
+          ? "No other eligible business taking part has reported a signal about this person."
           : "Not enough independent reports to share anything, so nothing is disclosed.",
       signals: [],
       contributorCount: contributors.size,
@@ -213,13 +265,14 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
       isBlacklist: false,
       disclosesIdentity: false,
       notes: [
+        "This is not a clean history. It means only that no eligible business's report can be shared under the threshold rules.",
         "A single business's report is never shown to another business, because an accusation from one employer is not evidence about a person.",
       ],
     };
   }
 
   const byCategory = new Map<RiskCategory, { severity: RiskSeverity; latest: string; contributors: Set<string> }>();
-  for (const signal of live) {
+  for (const signal of others) {
     const category = signal.category as RiskCategory;
     const current = byCategory.get(category);
     const severity = normaliseSeverity(signal.severity);
@@ -237,7 +290,7 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
   }
 
   const signals: RiskSignalSummary[] = [...byCategory.entries()]
-    .filter(([, value]) => value.contributors.size >= 2)
+    .filter(([, value]) => value.contributors.size >= RISK_INTELLIGENCE_MIN_CATEGORY_CONTRIBUTORS)
     .slice(0, RISK_INTELLIGENCE_MAX_SIGNALS_PER_SUBJECT)
     .map(([category, value]) => ({
       category,
@@ -252,13 +305,14 @@ export function evaluateRiskQuery(input: RiskQueryInput): RiskQueryResult {
       allowed: true,
       verdict: "no_shared_signals",
       headline:
-        "Reports exist, but no single kind of problem was reported independently by more than one business.",
+        "Reports exist, but no single kind of problem was reported independently by enough businesses.",
       signals: [],
       contributorCount: contributors.size,
       requiresHumanJudgement: true,
       isBlacklist: false,
       disclosesIdentity: false,
       notes: [
+        "This is not a clean history. It means only that no category meets the independent-contributor rule.",
         "Signals are only shared when two or more businesses describe the same kind of problem, so unrelated complaints cannot combine into an accusation.",
       ],
     };
@@ -292,6 +346,19 @@ export interface RiskContributionInput {
   /** The matrix has to be at least this long before it can be shared. */
   reasonLength: number;
   alreadyContributed: boolean;
+  /** ENG-08 gates: every one must hold before a real signal is contributed. */
+  businessEligibilityVerified: boolean;
+  controllerRegistrationChecked: boolean;
+  agreementsExecuted: boolean;
+  noticeEvidenceRecorded: boolean;
+  businessSuspended: boolean;
+  globalEnabled: boolean;
+  /** ENG-07: expelled for proven bad-faith reporting. */
+  expelled?: boolean;
+  /** Declared at submission; false is a hard refusal. */
+  goodFaithDeclared?: boolean;
+  /** Reference to supporting evidence in the closed source record. */
+  evidenceReference?: string | null;
 }
 
 export type RiskContributionResult =
@@ -299,6 +366,15 @@ export type RiskContributionResult =
   | { ok: false; error: string };
 
 export function validateRiskContribution(input: RiskContributionInput): RiskContributionResult {
+  if (!input.globalEnabled) {
+    return { ok: false, error: "Shared risk intelligence is unavailable, so nothing can be contributed." };
+  }
+  if (input.businessSuspended) {
+    return { ok: false, error: "This business is suspended from shared risk intelligence." };
+  }
+  if (input.expelled) {
+    return { ok: false, error: "This business has been expelled for bad-faith reporting. BloomCore must record a documented reinstatement decision." };
+  }
   if (!input.consent.active || input.consent.scope !== "share_signals") {
     return {
       ok: false,
@@ -308,6 +384,15 @@ export function validateRiskContribution(input: RiskContributionInput): RiskCont
   }
   if (input.consent.policyVersion !== RISK_INTELLIGENCE_POLICY_VERSION) {
     return { ok: false, error: "The shared risk policy has changed. The owner must accept the current version." };
+  }
+  if (!input.businessEligibilityVerified) {
+    return { ok: false, error: "Business eligibility must be confirmed first. Controller registration is recorded for information and is not a participation gate." };
+  }
+  if (!input.agreementsExecuted) {
+    return { ok: false, error: "The required participation agreements must be executed first." };
+  }
+  if (!input.noticeEvidenceRecorded) {
+    return { ok: false, error: "Employee privacy notice delivery evidence must be recorded first." };
   }
   if (!(RISK_CATEGORIES as readonly string[]).includes(input.category)) {
     return { ok: false, error: "That is not a shareable signal type." };
@@ -320,6 +405,12 @@ export function validateRiskContribution(input: RiskContributionInput): RiskCont
   }
   if (input.alreadyContributed) {
     return { ok: false, error: "This record has already been shared." };
+  }
+  if (input.goodFaithDeclared === false) {
+    return { ok: false, error: "A good-faith declaration is required before a signal can be shared." };
+  }
+  if (input.evidenceReference !== undefined && !input.evidenceReference?.trim()) {
+    return { ok: false, error: "A reference to supporting evidence in the closed record is required." };
   }
   if (input.reasonLength < 10) {
     return { ok: false, error: "Write at least a sentence about what happened, for your own future reference." };

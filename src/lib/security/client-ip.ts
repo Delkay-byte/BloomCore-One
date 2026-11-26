@@ -1,30 +1,25 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "net";
 
 /**
- * Safe client-IP extraction.
+ * Safe client-IP extraction for abuse controls.
  *
  * Threat model
  * ------------
- * Render terminates TLS at its edge and forwards platform headers. `X-Forwarded-For`
- * is NOT safe for security decisions on Render: the platform appends to whatever
- * the client sent, so the left-most entry is attacker-controlled.
+ * A direct request to a Render `onrender.com` origin can set any forwarding
+ * header. A header name alone is therefore NOT proof of a trusted edge. This
+ * module trusts `CF-Connecting-IP` only when the request also carries an
+ * HMAC-SHA256 proof over that exact IP, produced by the Cloudflare edge with a
+ * secret that is never sent to the browser. Without that configured proof the
+ * result fails closed to a shared "unknown" bucket; account-keyed throttles
+ * and Turnstile remain the primary abuse controls.
  *
- * Public traffic reaches this service through Cloudflare only (the Render
- * subdomain is disabled), and Cloudflare overwrites `CF-Connecting-IP` at the
- * edge, so that header is the one identity we can attribute. It is still only
- * consulted when the application has been explicitly told it runs behind a
- * trusted proxy (`TRUSTED_PROXY_HEADERS=true`, auto-enabled when Render sets
- * `RENDER=true`).
- *
- * `True-Client-IP` is NOT trusted by default: Cloudflare does not guarantee
- * overwriting it, so a client can send one and have it forwarded. It is used
- * only when an operator explicitly sets `TRUST_TRUE_CLIENT_IP=true` after
- * verifying the edge is configured to replace it.
- *
- * `X-Real-IP` is never trusted, and there is no X-Forwarded-For fallback.
+ * `X-Forwarded-For`, `X-Real-IP` and `True-Client-IP` are never sufficient.
+ * `True-Client-IP` additionally requires explicit opt-in AND a valid proof.
  */
 
 export type IpSource = "cf-connecting-ip" | "true-client-ip" | "untrusted";
+export const EDGE_PROOF_HEADER = "x-bloomcore-edge-auth";
 
 export interface ClientIpResult {
   /** Validated IP address, or null when it cannot be determined safely. */
@@ -34,9 +29,11 @@ export interface ClientIpResult {
 
 function normalizeIp(value: string | null): string | null {
   if (!value) return null;
-  const candidate = value.split(",")[0]?.trim();
+  // The trusted edge supplies exactly one address. A comma list is ambiguous
+  // and must never be split into a client-chosen bucket.
+  if (value.includes(",")) return null;
+  const candidate = value.trim();
   if (!candidate) return null;
-  // Strip IPv6 brackets and an IPv4-mapped prefix for stable bucket keys.
   const cleaned = candidate.replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "");
   if (isIP(cleaned) === 0) return null;
   return cleaned.toLowerCase();
@@ -48,25 +45,41 @@ function trustedProxyEnabled(): boolean {
   return process.env.RENDER === "true" || Boolean(process.env.RENDER_SERVICE_ID);
 }
 
+/**
+ * Constant-time comparison of an edge-supplied proof. Returns false when the
+ * shared secret is absent, too short, or the proof is missing or malformed.
+ */
+function edgeProofValid(headers: Headers, ip: string): boolean {
+  const secret = process.env.EDGE_PROXY_SECRET;
+  if (!secret || secret.length < 32) return false;
+  const supplied = headers.get(EDGE_PROOF_HEADER);
+  if (!supplied || !/^[a-f0-9]{64}$/i.test(supplied)) return false;
+  const expected = createHmac("sha256", secret).update(ip).digest("hex");
+  const a = Buffer.from(supplied.toLowerCase(), "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export function getClientIp(headers: Headers): ClientIpResult {
   if (!trustedProxyEnabled()) {
     return { ip: null, source: "untrusted" };
   }
 
-  // Cloudflare always overwrites this header at the edge.
   const cfConnectingIp = normalizeIp(headers.get("cf-connecting-ip"));
-  if (cfConnectingIp) {
+  if (cfConnectingIp && edgeProofValid(headers, cfConnectingIp)) {
     return { ip: cfConnectingIp, source: "cf-connecting-ip" };
   }
 
-  // Opt-in only: requires an operator-verified edge that replaces the header.
+  // Opt-in only, and still cryptographically bound to the edge secret.
   if (process.env.TRUST_TRUE_CLIENT_IP === "true") {
     const trueClientIp = normalizeIp(headers.get("true-client-ip"));
-    if (trueClientIp) return { ip: trueClientIp, source: "true-client-ip" };
+    if (trueClientIp && edgeProofValid(headers, trueClientIp)) {
+      return { ip: trueClientIp, source: "true-client-ip" };
+    }
   }
 
-  // Deliberately no X-Forwarded-For / X-Real-IP fallback. An attacker who can
-  // reach the service without the trusted edge must not choose their bucket.
+  // No X-Forwarded-For / X-Real-IP fallback. Direct-origin callers cannot
+  // select or rotate their rate-limit bucket with client-controlled headers.
   return { ip: null, source: "untrusted" };
 }
 

@@ -7,6 +7,7 @@
  * of having answered it.
  */
 
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, cleanDatabase } from "./setup";
 import {
@@ -70,6 +71,9 @@ function signal(overrides: Partial<RiskSignalFact> = {}): RiskSignalFact {
 
 const queryBase = {
   consent: ACTIVE,
+  globalEnabled: true,
+  subjectFrozen: false,
+  network: { activeEligibleBusinesses: 20 },
   tenantAvailable: true,
   role: "admin",
   subjectKnownToCaller: true,
@@ -221,6 +225,12 @@ describe("validateRiskContribution", () => {
     sourceId: "inv_1",
     reasonLength: 40,
     alreadyContributed: false,
+    businessEligibilityVerified: true,
+    controllerRegistrationChecked: true,
+    agreementsExecuted: true,
+    noticeEvidenceRecorded: true,
+    businessSuspended: false,
+    globalEnabled: true,
   };
 
   it("accepts a signal that points at a closed record", () => {
@@ -277,7 +287,56 @@ describe("shared risk intelligence in the database", () => {
   let adminId: string;
   let employeeId: string;
 
-  async function seedTenant(code: string) {
+  async function makeParticipant(id: string) {
+    await prisma.riskIntelligenceConsent.create({
+      data: {
+        tenantId: id,
+        policyVersion: RISK_INTELLIGENCE_POLICY_VERSION,
+        status: "active",
+        scope: "share_signals",
+        consentedById: "network-seed",
+        eligibilityVerified: true,
+        controllerRegistrationChecked: true,
+      },
+    });
+    for (const type of ["joint_controller", "participation_terms"] as const) {
+      await prisma.participationAgreement.create({
+        data: {
+          tenantId: id,
+          type,
+          title: type,
+          version: "network-1",
+          effectiveDate: new Date(),
+          documentText: "Disposable network agreement text.",
+          documentSha256: "0".repeat(64),
+          documentRef: "unit-test",
+          state: "active",
+          signatoryId: "network-seed",
+          signatoryName: "Network Seed",
+          signatoryRole: "owner",
+          signatoryAuthority: "business owner",
+          authenticationMethod: "unit-test",
+        },
+      });
+    }
+  }
+
+  /** Seed enough independent, eligible businesses for the 20-business network gate. */
+  async function seedNetwork(size: number) {
+    for (let index = 0; index < size; index += 1) {
+      const seeded = await seedTenantMuted("NET" + index);
+      await makeParticipant(seeded.tenantId);
+    }
+  }
+
+  async function seedTenantMuted(code: string) {
+    const tenant = await prisma.businessTenant.create({
+      data: { code: `${code}-${Math.random().toString(36).slice(2, 8)}`, name: `Tenant ${code}`, status: "ACTIVE" },
+    });
+    return { tenantId: tenant.id };
+  }
+
+  async function seedTenant(code: string, participant = false) {
     const tenant = await prisma.businessTenant.create({
       data: { code: `${code}-${Math.random().toString(36).slice(2, 8)}`, name: `Tenant ${code}`, status: "ACTIVE" },
     });
@@ -291,6 +350,7 @@ describe("shared risk intelligence in the database", () => {
         passwordHash: "x",
       },
     });
+    if (participant) await makeParticipant(tenant.id);
     return { tenantId: tenant.id, adminId: admin.id };
   }
 
@@ -312,6 +372,20 @@ describe("shared risk intelligence in the database", () => {
     });
     employeeId = employee.id;
     ctxHolder.current = { tenantId, userId: adminId, role: "admin", modules: ["admin"] };
+
+    // ENG-01: the eligible network is created only in the disposable unit
+    // database. No fixture data touches the application database.
+    for (let index = 0; index < 19; index += 1) {
+      const member = await seedTenant(`NW${index}`);
+      await prisma.riskIntelligenceConsent.create({
+        data: {
+          tenantId: member.tenantId,
+          policyVersion: RISK_INTELLIGENCE_POLICY_VERSION,
+          scope: "share_signals",
+          consentedById: member.adminId,
+        },
+      });
+    }
   });
 
   async function join() {
@@ -320,6 +394,61 @@ describe("shared risk intelligence in the database", () => {
       acceptedPolicyVersion: RISK_INTELLIGENCE_POLICY_VERSION,
     });
     expect(result.success, result.error).toBe(true);
+    await prisma.riskIntelligenceConsent.updateMany({
+      where: { tenantId },
+      data: { eligibilityVerified: true, controllerRegistrationChecked: true },
+    });
+    for (const type of ["joint_controller", "participation_terms"] as const) {
+      await prisma.participationAgreement.create({
+        data: {
+          tenantId,
+          type,
+          title: type === "joint_controller" ? "Joint Controller Agreement" : "Business Participation and Data-Sharing Terms",
+          version: "test-1",
+          effectiveDate: new Date(),
+          documentText: "Disposable unit-test agreement text.",
+          documentSha256: "0".repeat(64),
+          documentRef: "unit-test",
+          state: "active",
+          signatoryId: adminId,
+          signatoryName: "Test Owner",
+          signatoryRole: "owner",
+          signatoryAuthority: "business owner",
+          authenticationMethod: "unit-test",
+        },
+      });
+    }
+    // The live disclosure threshold requires 20 eligible businesses.
+    await seedNetwork(19);
+    const noticeText = "Disposable unit-test notice text.";
+    const noticeHash = createHash("sha256").update(noticeText, "utf8").digest("hex");
+    await prisma.employeePrivacyNotice.create({
+      data: {
+        version: "test-notice-1",
+        title: "Employee Privacy Notice",
+        documentText: noticeText,
+        documentHash: noticeHash,
+        effectiveDate: new Date(),
+        policyVersion: RISK_INTELLIGENCE_POLICY_VERSION,
+      },
+    });
+    await prisma.employeeNoticeAttestation.create({
+      data: {
+        tenantId,
+        userId: employeeId,
+        noticeVersion: "test-notice-1",
+        deliveryMethod: "portal_acknowledgement",
+        issuedAt: new Date(),
+        deliveryEvidence: "unit-test-evidence",
+        acknowledgementState: "acknowledged",
+        acknowledgedAt: new Date(),
+        verified: true,
+        verifiedAt: new Date(),
+        recordedById: adminId,
+        policyVersion: RISK_INTELLIGENCE_POLICY_VERSION,
+        documentSha256: noticeHash,
+      },
+    });
   }
 
   it("is off until the owner joins, and joining needs the current policy", async () => {
@@ -367,7 +496,7 @@ describe("shared risk intelligence in the database", () => {
     // Two other businesses report the same kind of problem. Still not enough.
     const subject = hashRiskSubject("Ama Mensah", "0244000111");
     for (const code of ["RB", "RC"]) {
-      const other = await seedTenant(code);
+      const other = await seedTenant(code, true);
       await prisma.agentRiskSignal.create({
         data: {
           tenantId: other.tenantId,
@@ -392,7 +521,7 @@ describe("shared risk intelligence in the database", () => {
     expect(two.data.result.verdict).toBe("no_shared_signals");
 
     // A third makes it a cohort.
-    const third = await seedTenant("RD");
+    const third = await seedTenant("RD", true);
     await prisma.agentRiskSignal.create({
       data: {
         tenantId: third.tenantId,
@@ -432,7 +561,7 @@ describe("shared risk intelligence in the database", () => {
     const contributors = ["RE", "RF", "RG"];
     const ids: string[] = [];
     for (const code of contributors) {
-      const other = await seedTenant(code);
+      const other = await seedTenant(code, true);
       ids.push(other.tenantId);
       await prisma.agentRiskSignal.create({
         data: {
@@ -539,7 +668,8 @@ describe("shared risk intelligence in the database", () => {
         ).id,
         workerId: employeeId,
         businessDate: new Date("2026-11-05T00:00:00.000Z"),
-        status: "submitted",
+        status: "reviewed",
+        reviewedAt: new Date("2026-11-06T00:00:00.000Z"),
       },
     });
 
@@ -552,6 +682,7 @@ describe("shared risk intelligence in the database", () => {
       note: "The day ended short and was never explained",
       observedFrom: "2026-11-05T00:00:00.000Z",
       observedTo: "2026-11-05T00:00:00.000Z",
+      goodFaith: true,
     });
     expect(created.success, created.error).toBe(true);
 

@@ -123,6 +123,116 @@ export async function registerTabSession(token: string): Promise<boolean> {
   });
 }
 
+const PROOF_HEADER = "x-bloomcore-tab-proof";
+const ASSERTION_HEADER = "x-bloomcore-tab-assertion";
+const CLIENT_HEADER = "x-bloomcore-tab-client";
+const PATH_HEADER = "x-bloomcore-tab-path";
+const REQUEST_ID_HEADER = "x-bloomcore-tab-request-id";
+
+type ProofReply = {
+  proof?: string;
+  assertion?: string;
+  client?: string;
+  path?: string;
+};
+
+/**
+ * Ask the controlling service worker for a single-use proof bound to one
+ * method and path. The page never sees a private key or a session token.
+ */
+function requestTabProof(method: string, path: string): Promise<ProofReply | null> {
+  const controller = navigator.serviceWorker.controller;
+  if (!controller) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    let settled = false;
+    const finish = (value: ProofReply | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      channel.port1.onmessage = null;
+      channel.port1.close();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), 1500);
+    channel.port1.onmessage = (event: MessageEvent<ProofReply & { type?: string }>) => {
+      if (event.data?.type !== "tab-proof-response") return;
+      finish(event.data?.proof ? event.data : null);
+    };
+    controller.postMessage(
+      {
+        type: "tab-proof-request",
+        method,
+        path,
+        requestId: crypto.randomUUID(),
+      },
+      [channel.port2]
+    );
+  });
+}
+
+/**
+ * Narrow shim for Next.js router RSC refreshes only.
+ *
+ * A Server Action that calls revalidatePath makes the client router issue a
+ * `rsc: 1` GET. That fetch can leave before the service worker attaches the
+ * tab proof, so fail-closed middleware redirects a legitimate user. The shim
+ * attaches a worker-signed proof for that exact GET. All other fetches, and
+ * every request that already carries a proof, are passed through untouched.
+ * No identity, role or tenant value comes from page JavaScript.
+ */
+export function installRscProofShim(): () => void {
+  if (typeof window === "undefined" || !navigator.serviceWorker?.controller) {
+    return () => undefined;
+  }
+  const original = window.fetch;
+  const shimmed = original as typeof window.fetch & { __maacashProofShim?: boolean };
+  if (shimmed.__maacashProofShim) return () => undefined;
+
+  const shim = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    let request: Request;
+    try {
+      request = input instanceof Request ? input : new Request(input, init);
+    } catch {
+      return original(input as RequestInfo, init);
+    }
+    let url: URL;
+    try {
+      url = new URL(request.url, window.location.href);
+    } catch {
+      return original(input as RequestInfo, init);
+    }
+    const isRsc =
+      request.headers.get("rsc") === "1" || url.searchParams.has("_rsc");
+    if (
+      url.origin !== window.location.origin ||
+      !isRsc ||
+      request.headers.has(PROOF_HEADER)
+    ) {
+      return original(input as RequestInfo, init);
+    }
+
+    const reply = await requestTabProof(
+      request.method,
+      `${url.pathname}${url.search}`
+    );
+    if (!reply?.proof) return original(input as RequestInfo, init);
+    const headers = new Headers(request.headers);
+    headers.set(PROOF_HEADER, reply.proof);
+    if (reply.assertion) headers.set(ASSERTION_HEADER, reply.assertion);
+    if (reply.client) headers.set(CLIENT_HEADER, reply.client);
+    if (reply.path) headers.set(PATH_HEADER, reply.path);
+    headers.set(REQUEST_ID_HEADER, crypto.randomUUID());
+    return original(new Request(request, { headers }));
+  }) as typeof window.fetch & { __maacashProofShim?: boolean };
+  shim.__maacashProofShim = true;
+
+  window.fetch = shim;
+  return () => {
+    if (window.fetch === shim) window.fetch = original;
+  };
+}
+
 /** Remove only this tab's session handle. Other tabs keep theirs. */
 export async function clearTabSession(): Promise<void> {
   clearMfaChallenge();

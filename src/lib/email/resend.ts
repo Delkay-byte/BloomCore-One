@@ -58,6 +58,8 @@ export interface EmailDeliveryResult {
   skipped?: boolean;
   /** Provider status when the request was made. Never includes the body. */
   status?: number;
+  /** Provider message identifier only; never the provider body. */
+  providerMessageId?: string;
 }
 
 interface OutboxEntry extends TransactionalEmail {
@@ -157,7 +159,14 @@ export async function sendTransactionalEmail(
       retryable: response.status === 429 || response.status >= 500,
     };
     }
-    return { ok: true, status: response.status };
+    // Extract only the provider's message id. The response body can contain
+    // recipient data and is never stored or logged.
+    const payload = (await response.json().catch(() => null)) as { id?: unknown } | null;
+    const providerMessageId =
+      typeof payload?.id === "string" && payload.id.length > 0
+        ? payload.id.slice(0, 80)
+        : undefined;
+    return { ok: true, status: response.status, providerMessageId };
   } catch {
     console.error("[email] Resend request failed before a response was received.");
     return { ok: false, retryable: true };

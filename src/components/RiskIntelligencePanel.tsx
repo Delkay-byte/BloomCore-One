@@ -21,6 +21,8 @@ import {
   type RiskConsentView,
 } from "@/lib/actions/risk-intelligence.actions";
 import type { RiskQueryResult } from "@/lib/risk-intelligence/policy";
+import { submitSubjectRightsRequest } from "@/lib/actions/risk-governance.actions";
+import RiskSignalContribution from "@/components/RiskSignalContribution";
 
 interface StaffOption {
   id: string;
@@ -38,7 +40,13 @@ export default function RiskIntelligencePanel({ staff }: { staff: StaffOption[] 
   const [notice, setNotice] = useState("");
   const [subject, setSubject] = useState("");
   const [reason, setReason] = useState("");
-  const [answer, setAnswer] = useState<{ result: RiskQueryResult; subjectLabel: string } | null>(null);
+  const [answer, setAnswer] = useState<{
+    result: RiskQueryResult;
+    subjectLabel: string;
+    explanation: readonly string[];
+  } | null>(null);
+  const [rightsType, setRightsType] = useState("access");
+  const [rightsDetails, setRightsDetails] = useState("");
   const [withdrawReason, setWithdrawReason] = useState("");
 
   const load = useCallback(async () => {
@@ -183,10 +191,23 @@ export default function RiskIntelligencePanel({ staff }: { staff: StaffOption[] 
                     ))}
                   </ul>
                 </>
-              ) : (
+              ) : null}
+              <ul
+                className="mt-2 list-disc space-y-1 border-t border-slate-100 pt-2 pl-4 text-slate-600"
+                data-testid="risk-disclosure-explanation"
+              >
+                {answer.explanation.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              {!answer.result.allowed ? (
                 <p className="text-slate-700">{answer.result.guidance}</p>
-              )}
+              ) : null}
             </div>
+          )}
+
+          {consent.scope === "share_signals" && (
+            <RiskSignalContribution key={subject} subject={subject} onContributed={() => void load()} />
           )}
 
           {signals.length > 0 && (
@@ -222,6 +243,73 @@ export default function RiskIntelligencePanel({ staff }: { staff: StaffOption[] 
               </ul>
             </div>
           )}
+
+          <div className="rounded-lg border border-slate-100 px-3 py-2" data-testid="risk-rights">
+            <p className="font-semibold text-slate-900">Employee rights request</p>
+            <p className="mt-1 text-slate-600">
+              Access, correction, objection, challenge and complaint/review requests are
+              recorded as secure cases. An objection or challenge freezes the subject for every
+              key version until a BloomCore privacy administrator decides.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-medium text-slate-700">
+                Employee
+                <select
+                  className="input mt-1 w-full text-sm"
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                >
+                  <option value="">Choose an employee</option>
+                  {staff.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-700">
+                Request type
+                <select
+                  className="input mt-1 w-full text-sm"
+                  value={rightsType}
+                  onChange={(event) => setRightsType(event.target.value)}
+                >
+                  <option value="access">Access</option>
+                  <option value="correction">Correction</option>
+                  <option value="objection">Objection</option>
+                  <option value="challenge">Challenge</option>
+                  <option value="complaint_review">Complaint / review</option>
+                </select>
+              </label>
+            </div>
+            <label className="mt-2 block text-xs font-medium text-slate-700">
+              What the employee is asking for
+              <input
+                className="input mt-1 w-full text-sm"
+                value={rightsDetails}
+                onChange={(event) => setRightsDetails(event.target.value)}
+                placeholder="Record the request without another business's report"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-secondary btn-xs mt-2"
+              disabled={busy || !subject || rightsDetails.trim().length < 10}
+              onClick={() =>
+                void run(
+                  () =>
+                    submitSubjectRightsRequest({
+                      subjectUserId: subject,
+                      type: rightsType,
+                      details: rightsDetails,
+                    }),
+                  "Rights request submitted. The subject stays frozen while it is reviewed."
+                )
+              }
+            >
+              Submit rights request
+            </button>
+          </div>
 
           <div className="rounded-lg bg-slate-50 px-3 py-2">
             <label className="text-xs font-medium text-slate-700">

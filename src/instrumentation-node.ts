@@ -7,6 +7,9 @@
  * drivers (Prisma 7 uses node-postgres / better-sqlite3 adapters).
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { PerformanceObserver } from "node:perf_hooks";
 import { assertEmailConfigurationForProduction } from "./lib/email/resend";
 import { assertTurnstileConfigurationForProduction } from "./lib/security/config";
 
@@ -15,6 +18,59 @@ const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const BILLING_INTERVAL_MS = 60 * 60 * 1000;
 
 let started = false;
+
+/**
+ * Local, synthetic-only memory/GC sampler. It is gated to the isolated load
+ * runtime and writes aggregate numbers to a file inside the test artifact
+ * directory. No production data, credential or heap snapshot is written.
+ */
+function startLocalMemorySampler(): void {
+  if (
+    process.env.APP_ENV !== "LOCAL_LOAD_TEST" ||
+    process.env.MAACASH_LOAD_MEM_SAMPLE !== "1" ||
+    !process.env.MAACASH_LOAD_MEM_OUT
+  ) {
+    return;
+  }
+  const out = process.env.MAACASH_LOAD_MEM_OUT;
+  const allowedRoot = path.resolve(process.cwd(), "tests");
+  const resolved = path.resolve(out);
+  if (!resolved.startsWith(allowedRoot + path.sep)) return;
+  const gcDurations: number[] = [];
+  try {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        gcDurations.push(Number(entry.duration.toFixed(3)));
+        if (gcDurations.length > 500) gcDurations.shift();
+      }
+    });
+    observer.observe({ type: "gc", buffered: true });
+  } catch {
+    // GC entries require --expose-gc; RSS/heap sampling still works.
+  }
+  const timer = setInterval(() => {
+    const m = process.memoryUsage();
+    const activeHandles = (
+      process as unknown as { _getActiveHandles?: () => unknown[] }
+    )._getActiveHandles?.().length ?? null;
+    fs.appendFileSync(
+      resolved,
+      JSON.stringify({
+        at: new Date().toISOString(),
+        rssMb: Number((m.rss / 1048576).toFixed(1)),
+        heapUsedMb: Number((m.heapUsed / 1048576).toFixed(1)),
+        heapTotalMb: Number((m.heapTotal / 1048576).toFixed(1)),
+        externalMb: Number((m.external / 1048576).toFixed(1)),
+        arrayBuffersMb: Number((m.arrayBuffers / 1048576).toFixed(1)),
+        activeHandles,
+        gcCount: gcDurations.length,
+        gcMaxMs: gcDurations.length ? Math.max(...gcDurations) : null,
+      }) + "\n"
+    );
+  }, 2000);
+  timer.unref();
+}
+startLocalMemorySampler();
 
 /**
  * Boot-time configuration preflight (SEC-16 / SEC-11). Kept here rather than in
@@ -95,9 +151,48 @@ async function runBillingMaintenance(): Promise<void> {
   console.info("[billing] lifecycle", lifecycle, "reconciled", reconciled);
 }
 
+/**
+ * Durable, metadata-only audit for every Risk Intelligence key access. The
+ * process-local history is useful for diagnostics but is not evidence; this
+ * sink persists one audit row without the key, salt, input or hash output.
+ */
+async function installRiskSecretAccessAudit(): Promise<void> {
+  const [{ setRiskSecretAccessSink }, { createAuditLog }] = await Promise.all([
+    import("./lib/risk-intelligence/secret-provider"),
+    import("./lib/audit"),
+  ]);
+  setRiskSecretAccessSink((metadata) => {
+    void createAuditLog({
+      userId: "system:risk_secret_access",
+      action: "risk_intelligence.secret_access",
+      entityType: "riskKeyVersion",
+      entityId: String(metadata.version),
+      details: {
+        version: metadata.version,
+        providerId: metadata.providerId,
+        operation: metadata.operation,
+        outcome: metadata.outcome,
+        at: metadata.at,
+        financialMutation: false,
+      },
+    }).catch((error) => {
+      const name = error instanceof Error ? error.name : "UnknownError";
+      console.error("[risk-secret-audit] write failed", name);
+    });
+  });
+}
+
 /** Start the periodic maintenance sweep once per Node.js server instance. */
 export function startBackgroundSweeps(): void {
   if (process.env.VITEST) return;
+
+  // Install before any sweep or request can touch a risk key. A failure is
+  // logged by class only and does not disable the application; the in-process
+  // history still records access while the operator fixes the sink.
+  void installRiskSecretAccessAudit().catch((error) => {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    console.error("[risk-secret-audit] install failed", name);
+  });
 
   // Fail the boot before anything else starts when production configuration is
   // incomplete. This must run even if the sweep scheduler is disabled.

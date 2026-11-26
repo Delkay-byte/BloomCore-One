@@ -67,7 +67,7 @@ the provider contract and must be documented before approval.
 
 1. Emergency-disable external AI.
 2. Preserve local audit records (no payload content).
-3. Notify the owner/DPO and follow the incident procedure.
+3. Notify the owner/privacy lead and follow the incident procedure.
 4. Contact the provider if a transfer is suspected.
 5. Record remediation and notify regulators/data subjects where required.
 

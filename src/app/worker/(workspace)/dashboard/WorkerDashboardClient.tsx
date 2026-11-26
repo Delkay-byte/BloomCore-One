@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
 import OfflineMomoCapture from "@/components/OfflineMomoCapture";
-import CounterCompanion from "@/components/CounterCompanion";
 
 import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
@@ -186,8 +185,7 @@ export default function WorkerDashboardClient({
         )}
       </section>
 
-      <CounterCompanion locationId={locationId} userId={userId} />
-
+      {/* Counter Companion retired from the normal launch workflow. See docs/product/counter-companion.md. */}
       <OfflineMomoCapture locationId={locationId} userId={userId} />
 
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">

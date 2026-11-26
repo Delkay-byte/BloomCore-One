@@ -110,8 +110,8 @@ describe("Brand identity configuration", () => {
     );
   });
 
-  it("names the parent business BloomCore Technologies", () => {
-    expect(COMPANY_NAME).toBe("BloomCore Technologies");
+  it("names the parent business by its registered name", () => {
+    expect(COMPANY_NAME).toBe("BLOOMCORE TECHNOLOGIES");
   });
 
   it("keeps the first tenant as its own business identity", () => {

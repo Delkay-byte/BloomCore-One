@@ -72,15 +72,22 @@ export async function consumeRateLimit(
       },
     });
 
-    if (reset.count === 0) {
-      const incremented = await db.rateLimitCounter.updateMany({
-        where: { key, expiresAt: { gt: windowStart } },
-        data: { count: { increment: 1 } },
-      });
-
-      if (incremented.count === 0) {
+    let row: { count: number; expiresAt: Date } | null = null;
+    if (reset.count > 0) {
+      row = await db.rateLimitCounter.findUnique({ where: { key } });
+    } else {
+      try {
+        // Atomic increment that returns THIS caller's count. A plain
+        // increment-then-read would let concurrent callers all observe the
+        // final count and over-block legitimate traffic.
+        row = await db.rateLimitCounter.update({
+          where: { key, expiresAt: { gt: windowStart } },
+          data: { count: { increment: 1 } },
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code !== "P2025") throw error;
         try {
-          await db.rateLimitCounter.create({
+          row = await db.rateLimitCounter.create({
             data: {
               key,
               count: 1,
@@ -88,10 +95,10 @@ export async function consumeRateLimit(
               expiresAt: windowEnd,
             },
           });
-        } catch (error) {
-          if (!isUniqueViolation(error)) throw error;
+        } catch (createError) {
+          if (!isUniqueViolation(createError)) throw createError;
           // Another instance created the row first — increment its counter.
-          await db.rateLimitCounter.updateMany({
+          row = await db.rateLimitCounter.update({
             where: { key, expiresAt: { gt: windowStart } },
             data: { count: { increment: 1 } },
           });
@@ -99,7 +106,6 @@ export async function consumeRateLimit(
       }
     }
 
-    const row = await db.rateLimitCounter.findUnique({ where: { key } });
     const count = row?.count ?? 1;
     const resetAt = row?.expiresAt ?? windowEnd;
     const allowed = count <= policy.limit;

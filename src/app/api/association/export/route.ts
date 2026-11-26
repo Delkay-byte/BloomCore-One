@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exportAssociationReport } from "@/lib/actions/association-governance.actions";
 import { isAssociationExportType } from "@/lib/association-governance";
+import { getApiTenantContext } from "@/lib/tenant";
+import {
+  enforceExportRateLimit,
+  exportRateLimitResponse,
+} from "@/lib/security/export-rate-limit";
 
 /**
  * Association report export.
@@ -16,6 +21,16 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (!isAssociationExportType(type)) {
     return NextResponse.json({ error: "Unknown report." }, { status: 400 });
   }
+
+  // Authorise before consuming any quota. The bucket is the authenticated
+  // actor plus the server-resolved tenant; `type` cannot change its scope.
+  const ctx = await getApiTenantContext("admin");
+  if (!ctx || ctx.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+  const limited = await enforceExportRateLimit("association", ctx.userId, ctx.tenantId);
+  if (limited) return exportRateLimitResponse(limited);
+
   try {
     const result = await exportAssociationReport(type);
     if (!result.success || !result.csv) {

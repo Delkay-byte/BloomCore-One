@@ -21,7 +21,14 @@ export function buildPrismaAdapter(url: string) {
   if (url.startsWith("file:")) {
     return new PrismaBetterSqlite3({ url: url.split("?")[0] });
   }
-  return new PrismaPg({ connectionString: url });
+  // The pg adapter defaults to a very small pool (10). Deployments and
+  // isolated capacity runs can raise it explicitly; the default is unchanged.
+  const configuredMax = Number(process.env.PG_POOL_MAX);
+  const max =
+    Number.isInteger(configuredMax) && configuredMax >= 1 && configuredMax <= 200
+      ? configuredMax
+      : undefined;
+  return new PrismaPg({ connectionString: url, ...(max ? { max } : {}) });
 }
 
 export function createPrismaClient(url: string = databaseUrl()): PrismaClient {

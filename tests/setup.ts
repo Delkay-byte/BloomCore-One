@@ -8,6 +8,12 @@
 import { randomBytes } from "crypto";
 import { createPrismaClient } from "@/lib/prisma-client";
 
+// One deterministic countersignatory for tests. Production reads its own
+// deployment configuration; these values are never used outside tests.
+process.env.BLOOMCORE_AUTHORISED_SIGNATORY_NAME ??= "BloomCore Test Signatory";
+process.env.BLOOMCORE_AUTHORISED_SIGNATORY_CAPACITY ??= "Authorised Signatory";
+process.env.BLOOMCORE_REGISTERED_ADDRESS ??= "Synthetic test address, not a real registered office";
+
 // Use the test database from environment variable
 export const prisma = createPrismaClient();
 
@@ -53,6 +59,18 @@ export async function cleanDatabase() {
     prisma.reconciliationExceptionLink.deleteMany(),
     prisma.reconciliationExceptionCase.deleteMany(),
     prisma.momoOfflineDraft.deleteMany(),
+    prisma.rightsRequestCommunication.deleteMany(),
+    prisma.subjectRightsRequest.deleteMany(),
+    prisma.employeeNoticeAttestation.deleteMany(),
+    prisma.employeePrivacyNotice.deleteMany(),
+    prisma.participationAgreement.deleteMany(),
+    prisma.riskLegalHold.deleteMany(),
+    prisma.riskControlEvent.deleteMany(),
+    prisma.riskSubjectFreeze.deleteMany(),
+    prisma.riskKeyVersion.deleteMany(),
+    prisma.riskPrivacyAccess.deleteMany(),
+    prisma.governanceDocumentDelivery.deleteMany(),
+    prisma.riskGlobalControl.deleteMany(),
     prisma.riskIntelligenceDisclosure.deleteMany(),
     prisma.agentRiskSignal.deleteMany(),
     prisma.riskIntelligenceConsent.deleteMany(),

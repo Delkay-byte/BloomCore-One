@@ -17,6 +17,10 @@ import {
 import { MOMO_OFFLINE_NETWORKS, MOMO_OFFLINE_NETWORK_LABELS } from "@/lib/offline/momo-draft";
 
 /**
+ * RETIRED from the normal launch workflow. Kept for reuse of its validation
+ * and capture logic by the future Android Smart Counter. Not mounted on any
+ * route and not reachable from the worker dashboard.
+ *
  * Counter Companion: one transaction, four taps, no false claims.
  *
  * A companion entry is stored on the device as a MoMo activity and travels the same

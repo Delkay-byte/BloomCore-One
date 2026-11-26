@@ -3,33 +3,39 @@
  *
  * Lives apart from the policy module because it needs `node:crypto`, and importing that
  * into a client graph is a hard build failure. The rule it enforces: a shared signal is
- * keyed on a salted hash, so the shared dataset cannot be read as a directory of people
+ * keyed on a salted HMAC, so the shared dataset cannot be read as a directory of people
  * even if it were copied out.
+ *
+ * Rotation: new contributions use the active key version. Queries try the active
+ * version and every supported previous version. A hash is never regenerated —
+ * the original identity inputs are not retained.
  */
 
 import { createHmac } from "node:crypto";
+import {
+  getRiskSecretProvider,
+  keyForVersion,
+  riskSecretsConfigured,
+} from "./secret-provider";
 
 export const RISK_SUBJECT_SALT_VERSION = 1;
 
 /**
- * The salt is deployment configuration, never a repository constant.
- *
- * An absent salt is a hard failure rather than a silent default: a shared product keyed
- * on a default salt would let anyone recompute the hash of a phone number and reverse it.
+ * The legacy local salt accessor. Kept for callers that expect it; new code
+ * should use the provider so rotation and audit metadata are respected.
  */
 export function riskSubjectSalt(): string {
-  const salt = process.env.RISK_INTELLIGENCE_SALT;
-  if (!salt || salt.trim().length < 24) {
+  try {
+    return keyForVersion(1, "configuration");
+  } catch {
     throw new Error(
       "RISK_INTELLIGENCE_SALT is not configured. Shared risk intelligence is unavailable until it is."
     );
   }
-  return salt.trim();
 }
 
 export function riskIntelligenceConfigured(): boolean {
-  const salt = process.env.RISK_INTELLIGENCE_SALT;
-  return Boolean(salt && salt.trim().length >= 24);
+  return riskSecretsConfigured();
 }
 
 /**
@@ -58,23 +64,75 @@ export function normaliseSubjectIdentity(fullName: string, phone: string): {
   };
 }
 
+function identityBasis(fullName: string, phone: string): {
+  normalisedName: string;
+  normalisedPhone: string;
+} {
+  const { normalisedName, normalisedPhone } = normaliseSubjectIdentity(fullName, phone);
+  if (normalisedName.length < 3 || normalisedPhone.length < 9) {
+    throw new Error("A subject needs both a name and a mobile number to be matched.");
+  }
+  return { normalisedName, normalisedPhone };
+}
+
+/** Hash an identity with an explicit key version and key. */
+export function hashRiskSubjectWithKey(
+  fullName: string,
+  phone: string,
+  version: number,
+  key: string
+): string {
+  const { normalisedName, normalisedPhone } = identityBasis(fullName, phone);
+  return createHmac("sha256", key)
+    .update(`v${version}|${normalisedName}|${normalisedPhone}`)
+    .digest("hex");
+}
+
 /**
- * The shared subject key.
- *
- * A name-only or phone-only key would collide strangers, so both are required; the name
- * is included second so two people at the same number (a family phone) stay distinct.
+ * The shared subject key for a new contribution: the active provider version.
  */
 export function hashRiskSubject(fullName: string, phone: string): {
   subjectKey: string;
   keyBasis: string;
   saltVersion: number;
 } {
-  const { basis, normalisedName, normalisedPhone } = normaliseSubjectIdentity(fullName, phone);
-  if (normalisedName.length < 3 || normalisedPhone.length < 9) {
-    throw new Error("A subject needs both a name and a mobile number to be matched.");
+  // Validate the identity first: a bad name/phone must not be masked by a
+  // configuration error, and the caller needs the actionable message.
+  identityBasis(fullName, phone);
+  const version = getRiskSecretProvider().activeVersion();
+  let key: string;
+  try {
+    key = keyForVersion(version, "contribute");
+  } catch {
+    throw new Error(
+      `RISK_INTELLIGENCE_SALT / key version ${version} is not configured. Shared risk intelligence is unavailable until it is.`
+    );
   }
-  const subjectKey = createHmac("sha256", riskSubjectSalt())
-    .update(`v${RISK_SUBJECT_SALT_VERSION}|${normalisedName}|${normalisedPhone}`)
-    .digest("hex");
-  return { subjectKey, keyBasis: basis, saltVersion: RISK_SUBJECT_SALT_VERSION };
+  return {
+    subjectKey: hashRiskSubjectWithKey(fullName, phone, version, key),
+    keyBasis: "name+phone",
+    saltVersion: version,
+  };
+}
+
+/**
+ * Candidate keys for a lookup. A missing previous-version key is skipped so a
+ * partial rotation cannot break matching; the active key is always attempted.
+ */
+export function candidateSubjectKeys(
+  fullName: string,
+  phone: string,
+  versions?: readonly number[]
+): { version: number; subjectKey: string }[] {
+  const provider = getRiskSecretProvider();
+  const out: { version: number; subjectKey: string }[] = [];
+  for (const version of versions ?? provider.supportedVersions()) {
+    const key = provider.keyFor(version);
+    if (!key) continue;
+    out.push({
+      version,
+      subjectKey: hashRiskSubjectWithKey(fullName, phone, version, key),
+    });
+  }
+  return out;
 }

@@ -97,19 +97,18 @@ export default function LegacyMigrationClient({
           This is the new MaaCash address
         </h2>
         <p className="text-sm text-slate-700">
-          Records saved offline on <code>maacash.onrender.com</code> belong to
-          that browser origin. This address cannot read or move them. Open the
-          old address, sign in, and synchronize there before it is retired.
+          Old offline records belong to the browser origin that created them.
+          This address cannot read or move them. The former Render address has
+          been retired and is not an active sync destination.
         </p>
         <p className="text-sm text-slate-700">
-          After synchronization is confirmed on the old address, sign in here
-          again and prepare this device for offline use on the new address.
+          If this device still has unsynchronised records, do not clear site
+          data. Contact the owner to arrange a controlled recovery of that
+          origin&apos;s queue. No record is deleted or marked complete by this
+          page.
         </p>
-        <a
-          className="btn btn-secondary btn-sm w-fit"
-          href="https://maacash.onrender.com/migrate"
-        >
-          Open the old address
+        <a className="btn btn-secondary btn-sm w-fit" href={canonicalUrl}>
+          Continue on the official MaaCash address
         </a>
       </section>
     );

@@ -289,6 +289,42 @@ describe("getTransactionProvenance", () => {
     expect(result.data.timeline.map((row) => row.label)).toContain("Open reconciliation exception");
   });
 
+  it("promotes a record when evidence is attached, and never past a statement match", async () => {
+    await prisma.evidenceAttachment.create({
+      data: {
+        tenantId,
+        subjectType: "momoTransaction",
+        subjectId: transactionId,
+        fileName: "receipt.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 1024,
+        sha256: "a".repeat(64),
+        storageKey: `evidence/${Math.random().toString(36).slice(2, 10)}`,
+        uploadedById: adminId,
+        retentionUntil: new Date("2027-12-01T00:00:00.000Z"),
+      },
+    });
+    const result = await getTransactionProvenance(transactionId);
+    if (!result.success) throw new Error(result.error);
+    expect(result.data.provenance.labels).toEqual(["agent_declared", "evidence_attached"]);
+    expect(result.data.provenance.providerConfirmed).toBe(false);
+    expect(result.data.provenance.nextStep).toMatch(/import the provider statement/i);
+  });
+
+  it("keeps a corrigible lifetime note on a corrected or reversed record", async () => {
+    await prisma.momoTransaction.update({
+      where: { id: transactionId },
+      data: { status: "reversed" },
+    });
+    const result = await getTransactionProvenance(transactionId);
+    if (!result.success) throw new Error(result.error);
+    expect(result.data.provenance.notes.join(" ")).toMatch(/corrected or reversed/i);
+    expect(result.data.timeline.map((row) => row.label)).toContain("Reversed");
+    // A reversal does not raise the level: the original entry is still the evidence.
+    expect(result.data.provenance.level).toBe("agent_declared");
+    expect(result.data.provenance.providerConfirmed).toBe(false);
+  });
+
   it("refuses another business's transaction without revealing it exists", async () => {
     const other = await prisma.businessTenant.create({
       data: {

@@ -81,8 +81,11 @@ export async function POST(request: NextRequest): Promise<Response> {
         notified: summary.notified,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Scan failed";
-      failures.push({ tenantId: tenant.id, error: message.slice(0, 300) });
+      // Never persist or return a raw exception: Prisma errors can carry query
+      // metadata, identifiers and values. The error class is enough for triage.
+      const name = error instanceof Error ? error.name : "UnknownError";
+      const message = `Scan failed (${name})`;
+      failures.push({ tenantId: tenant.id, error: message });
       await db.anomalyScanRun.create({
         data: {
           tenantId: tenant.id,

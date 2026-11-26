@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       authorizedAt: device.authorizedAt.toISOString(),
     });
   } catch (err) {
-    console.error("[offline-enroll]", err);
+    console.error("[offline-enroll]", err instanceof Error ? err.name : "UnknownError", (err as { code?: unknown })?.code ?? "no-code");
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

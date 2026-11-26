@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getMomoSession, isSessionCurrent } from "@/lib/auth";
 import FirstLoginPasswordForm from "@/components/FirstLoginPasswordForm";
+import EmployeeNoticeGate from "@/components/EmployeeNoticeGate";
+import { getMyOnboardingNotice } from "@/lib/actions/onboarding-notice.actions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,14 +20,18 @@ export default async function WorkerFirstLoginPage() {
   }
   if (!session.forcePasswordReset) redirect("/worker/dashboard");
 
+  const noticeResult = await getMyOnboardingNotice();
+
   return (
-    <FirstLoginPasswordForm
-      mode="staff"
-      module="momo"
-      fullName={session.fullName || "MoMo Agent"}
-      email={session.email}
-      roleLabel="MoMo Agent"
-      dashboardPath="/worker/dashboard"
-    />
+    <EmployeeNoticeGate notice={noticeResult.data ?? null}>
+      <FirstLoginPasswordForm
+        mode="staff"
+        module="momo"
+        fullName={session.fullName || "MoMo Agent"}
+        email={session.email}
+        roleLabel="MoMo Agent"
+        dashboardPath="/worker/dashboard"
+      />
+    </EmployeeNoticeGate>
   );
 }

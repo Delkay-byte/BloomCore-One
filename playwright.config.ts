@@ -38,7 +38,7 @@ export default defineConfig({
       // and the phone-width sign-in card check. Its narrow layout hides the marketing
       // panel that some desktop login assertions read, so those stay desktop-only.
       testIgnore:
-        /mobile\.spec\.ts|maacash-offline-status\.spec\.ts|maacash-auth-security\.spec\.ts/,
+        /mobile\.spec\.ts|maacash-offline-status\.spec\.ts|maacash-auth-security\.spec\.ts|deployment-smoke\.spec\.ts/,
     },
     {
       name: "mobile-chromium",

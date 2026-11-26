@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Lockfile-aware npm updates. Pull requests run the full CI gate.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Accra
+    open-pull-requests-limit: 5
+    groups:
+      production-dependencies:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - security
+
+  # GitHub Actions are SHA-pinned in ci.yml. Dependabot proposes reviewed bumps.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Accra
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - security

@@ -55,11 +55,15 @@ test.describe("Operations policy", () => {
       page.getByText(/Policy saved. The change is audited with the previous values./).first()
     ).toBeVisible({ timeout: 30_000 });
 
+    // A full reload aborts the router refresh that follows every server action
+    // and proves the values came from the server, not from transient client state.
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Operations Policy" })).toBeVisible({
+      timeout: 30_000,
+    });
     // The summary text follows the saved values rather than staying on defaults.
     await expect(page.getByText(/Shifts are required/)).toBeVisible();
     await expect(page.getByText(/the actor enters their own password again/i)).toBeVisible();
-
-    await page.reload();
     await expect(page.getByLabel("Require a shift before a day can close")).toBeChecked({
       timeout: 30_000,
     });
