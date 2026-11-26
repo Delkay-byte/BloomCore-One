@@ -209,7 +209,7 @@ jobs:
         uses: github/codeql-action/autobuild@018511a1aac61b6e92783189d8c0081eb8f69932 # v3.28.13
 
       - name: Analyze (SARIF artifact; code scanning is not enabled on this repository)
-        uses: github/codeql-action/analyze@018511a1aac61b6e92783189d8c0081eb8f69932 # v3.28.13
+        uses: github/codeql-action/analyze@1b549b9259bda1cb5ddde3b41741a82a2d15a841 # v3.28.13
         with:
           output: codeql-results.sarif
           upload: never
