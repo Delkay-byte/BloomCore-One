@@ -23,14 +23,12 @@ test.describe("public landing page", () => {
       page.getByRole("heading", { level: 1, name: /Manage your MoMo and Susu business/i })
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "MaaCash home" })).toBeVisible();
-    // Public "Sign In" links intentionally send a business owner to the private
-    // administrator login (`BUSINESS_LOGIN_PATH` in src/lib/site.ts); staff,
-    // collectors and customers use the shared `/login` from the hero and the
-    // footer. A public marketing page must never present a shared-role login as
-    // the default destination for a business owner.
+    // Every public "Sign In" link opens the role chooser at `/login`. Sending a
+    // visitor straight to `/admin/login` hides the other roles and contradicts
+    // the "Who are you?" prompt on the shared sign-in page.
     await expect(page.getByRole("link", { name: "Sign In", exact: true }).first()).toHaveAttribute(
       "href",
-      /^\/(admin\/login|login|workspace)$/
+      "/login"
     );
 
     for (const label of ["Features", "Who We Serve", "About", "Contact"]) {

@@ -123,9 +123,9 @@ describe("demonstration request page", () => {
     expect(contact).toContain("ALL_ACCESS_PATH");
   });
 
-  it("points public sign-in links at the business owner login", async () => {
+  it("points public sign-in links at the role chooser", async () => {
     const site = await import("@/lib/site");
-    expect(site.BUSINESS_LOGIN_PATH).toBe("/admin/login");
+    expect(site.BUSINESS_LOGIN_PATH).toBe("/login");
     expect(site.ADMIN_LOGIN_PATH).toBe("/admin/login");
     expect(site.ALL_ACCESS_PATH).toBe("/access");
     expect(site.STAFF_LOGIN_PATH).toBe("/login");

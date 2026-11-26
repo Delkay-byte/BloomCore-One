@@ -202,10 +202,9 @@ export const LEGAL_ROUTES = [
 /** Sign-in entry points. These are existing routes; do not rename them. */
 /** Dedicated tenant administrator (business owner) login. */
 export const ADMIN_LOGIN_PATH = "/admin/login";
-/** Public "sign in" links point at the business owner login. */
-export const BUSINESS_LOGIN_PATH = ADMIN_LOGIN_PATH;
-/** Shared staff, collector and customer login. */
+/** Public "sign in" links open the role chooser, never one role's login. */
 export const STAFF_LOGIN_PATH = "/login";
+export const BUSINESS_LOGIN_PATH = STAFF_LOGIN_PATH;
 export const ALL_ACCESS_PATH = "/access";
 export const PLATFORM_LOGIN_PATH = "/platform/login";
 
