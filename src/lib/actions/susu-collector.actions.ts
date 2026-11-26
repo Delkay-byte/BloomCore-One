@@ -1046,3 +1046,5 @@ export async function registerCustomerByCollector(params: {
     },
   };
 }
+
+export * from "./susu-remittance.actions";
