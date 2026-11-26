@@ -16,10 +16,13 @@ test.describe("Zeli on a mobile viewport", () => {
     // and assert the real selector, then confirm the composer is still usable.
     await expect(page.getByRole("button", { name: "History" })).toBeVisible();
     await page.getByRole("button", { name: "History" }).click();
-    await expect(page.locator("#zeli-history")).toBeVisible();
+    const history = page.getByRole("dialog", { name: "Conversation history" });
+    await expect(history).toBeVisible();
+    await history.getByRole("button", { name: "Close" }).click();
+    await expect(history).toBeHidden();
     await expect(page.locator("#zeli-input")).toBeVisible();
     await sendZeliMessage(page, "Show outstanding operational exceptions.");
-    await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Key figures" }).first()).toBeVisible({
       timeout: 30_000,
     });
 

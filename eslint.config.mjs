@@ -24,6 +24,20 @@ const eslintConfig = defineConfig([
     "snapshot-sqlite.js",
   ]),
   {
+    // Plain CommonJS helpers are loaded by Playwright and Vitest before any
+    // transpilation, so they legitimately use require().
+    files: ["**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
+  {
+    // Flat config resolves a rule's plugin from the same config object, so the
+    // react-hooks plugin registered by eslint-config-next is carried over here
+    // instead of being left behind by an override that only lists rules.
+    plugins: {
+      "react-hooks": nextVitals.find(
+        (entry) => entry?.plugins && "react-hooks" in entry.plugins
+      ).plugins["react-hooks"],
+    },
     rules: {
       // Downgrade to warning: the set-state-in-effect rule produces false positives
       // for the standard async data-fetching pattern (calling setState from an async

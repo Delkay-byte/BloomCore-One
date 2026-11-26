@@ -7,5 +7,7 @@ export async function GET() {
   if (!selection) {
     return NextResponse.json({ error: "No pending workspace selection" }, { status: 401 });
   }
-  return NextResponse.json(selection);
+  return NextResponse.json(selection, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

@@ -73,4 +73,26 @@ test.describe("stakeholder sign-in", () => {
       page.getByRole("heading", { name: /Please use the administrator login/i })
     ).toBeVisible();
   });
+
+  test("a business owner is one tap from the role chooser", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Who are you?" })).toBeVisible();
+
+    // The fourth card is present, names the audience and describes the job.
+    const owner = page.getByTestId("login-card-business-owner");
+    await expect(owner).toBeVisible();
+    await expect(owner).toContainText("Business Owner");
+    await expect(owner).toContainText(/monitor branches and staff/i);
+
+    // It reaches the canonical administrator sign-in, not a second form.
+    await owner.click();
+    await page.waitForURL(/\/admin\/login/, { timeout: 30_000 });
+    await expect(page.locator("#email")).toBeVisible({ timeout: 30_000 });
+
+    // The three existing role cards are untouched.
+    await page.goto("/login");
+    for (const label of ["MoMo Agent", "Susu Collector", "Customer"]) {
+      await expect(page.getByRole("button", { name: new RegExp(label) })).toBeVisible();
+    }
+  });
 });

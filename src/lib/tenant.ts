@@ -1,5 +1,6 @@
 import { db } from "./db";
-import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 import {
   getAdminSession,
   getMomoSession,
@@ -258,6 +259,21 @@ export async function requireTenantContext(
 ): Promise<TenantContext> {
   const ctx = await getTenantContext(module, requiredModule);
   if (!ctx) {
+    // Next 16 emits speculative router prefetches as browser-initiated RSC
+    // requests. They bypass both page JavaScript and the service worker, so
+    // they cannot carry the tab proof. They are not a user navigation: return
+    // a data-free 404 so the router discards the prefetch instead of bouncing
+    // a live tab to the sign-in page. Real requests still fail closed below.
+    let isSpeculativePrefetch = false;
+    try {
+      const requestHeaders = await headers();
+      isSpeculativePrefetch = requestHeaders.get("next-router-prefetch") === "1";
+    } catch {
+      // Server actions and unit tests may call this outside a request scope.
+      // Real request handling always has one; absence means "not a prefetch".
+    }
+    if (isSpeculativePrefetch) notFound();
+
     // Never clear another tab's session. The server-side record for this tab
     // is either absent, expired or revoked; the login page will establish a
     // fresh one without touching other tabs. Administrators must return to
@@ -402,6 +418,9 @@ export const TENANT_SCOPED_MODELS = {
   user: "user",
   location: "location",
   dailyAccount: "dailyAccount",
+  momoTransaction: "momoTransaction",
+  branchAssetBalance: "branchAssetBalance",
+  branchTransfer: "branchTransfer",
   expense: "expense",
   customer: "customer",
   susuAccount: "susuAccount",

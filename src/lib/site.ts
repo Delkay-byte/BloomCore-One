@@ -29,7 +29,9 @@
  */
 
 export const PRODUCT_NAME = "MaaCash";
-export const COMPANY_NAME = "BloomCore Technologies";
+/** Registered name exactly as recorded; never "Limited" or "Ltd". */
+export const COMPANY_NAME = "BLOOMCORE TECHNOLOGIES";
+export const COMPANY_REGISTRATION_NUMBER = "BN428031125";
 export const PRODUCT_TAGLINE = "One platform. Clearer control.";
 export const PRODUCT_DESCRIPTOR =
   "Mobile Money, Susu & Multi-Branch Financial Operations Platform";

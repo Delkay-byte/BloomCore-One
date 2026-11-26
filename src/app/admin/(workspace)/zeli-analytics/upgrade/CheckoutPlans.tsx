@@ -8,6 +8,8 @@ import {
   openBlankCheckoutTab,
   type CheckoutTab,
 } from "@/lib/payments/checkout-window";
+import PaymentMethodSelector from "@/components/billing/PaymentMethodSelector";
+import type { HostedCheckoutChannel } from "@/lib/payments/checkout-url";
 
 export interface CheckoutPlan {
   code: string;
@@ -32,12 +34,15 @@ export default function CheckoutPlans({
   plans,
   paymentConfigured,
   providerMessage,
+  channels,
 }: {
   plans: CheckoutPlan[];
   paymentConfigured: boolean;
   providerMessage: string;
+  channels: HostedCheckoutChannel[];
 }) {
   const [selected, setSelected] = useState<string | null>(plans[0]?.code ?? null);
+  const [channel, setChannel] = useState<HostedCheckoutChannel>("mobile_money");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -73,7 +78,7 @@ export default function CheckoutPlans({
     setError("");
     setNotice("");
     try {
-      const result = await startZeliCheckout(selected);
+      const result = await startZeliCheckout(selected, channel);
       if (!result.success || !result.data?.authorizationUrl) {
         try {
           tab.close();
@@ -201,6 +206,12 @@ export default function CheckoutPlans({
           Start {plans.find((plan) => plan.code === selected)?.trialDays}-day trial
         </button>
       ) : null}
+      <PaymentMethodSelector
+        channels={channels}
+        value={channel}
+        onChange={setChannel}
+        disabled={busy}
+      />
       <button
         type="button"
         onClick={() => void checkout()}
@@ -218,8 +229,7 @@ export default function CheckoutPlans({
       <p className="text-xs text-slate-500">
         Payments are processed securely by Paystack. Your subscription will be activated once your
         payment has been successfully verified. You will see the applicable amount before confirming
-        your payment. Paystack opens in a new tab, so this page stays open; choose Mobile Money, Card
-        or Bank Transfer there.
+        your payment. Paystack opens in a new tab, so this page stays open.
       </p>
       <p className="flex items-start gap-1.5 text-xs text-slate-500">
         <ShieldCheck size={13} className="mt-0.5 shrink-0 text-emerald-600" aria-hidden />

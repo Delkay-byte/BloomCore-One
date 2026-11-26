@@ -125,7 +125,16 @@ export interface SyncResult {
 async function submitToServer(transaction: OfflineTransaction): Promise<SyncResult> {
   try {
     const payload = await openTransactionPayload(transaction);
-    const response = await fetch("/api/offline/sync-contribution", {
+    // A queued contribution posts on sync; a queued request only becomes a
+    // request the administrator must authorise. Both keep the same idempotency
+    // and device guarantees, but they are different endpoints on purpose.
+    const endpoint =
+      transaction.type === "offline_request"
+        ? "/api/offline/sync-request"
+        : transaction.type === "momo_draft"
+          ? "/api/offline/momo-draft"
+          : "/api/offline/sync-contribution";
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",

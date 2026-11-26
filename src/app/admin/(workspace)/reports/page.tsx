@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import CediAmount from "@/components/CediAmount";
 import { resolveStoredDifference } from "@/lib/momo-reconciliation";
+import { buildCsv } from "@/lib/csv";
 
 interface Account {
   id: string; businessDate: Date; status: string; submittedAt?: Date | null;
@@ -20,6 +21,7 @@ interface Account {
   commission: number; debtsCollected: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
+  ledgerMode?: string;
   calculatedMomoVariance?: number; calculatedCashVariance?: number;
   location: { id: string; name: string; code: string };
   worker: { id: string; fullName: string; email: string };
@@ -61,16 +63,16 @@ export default function ReportsPage() {
     if (accounts.length === 0) return;
     // Simplified closing fields. Historical records keep their stored
     // difference; no historical row is recalculated during export.
-    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Net Daily Profit/Increase","Closing Physical Cash","Closing E-cash","Actual Closing Total","Difference","Difference status"];
+    const headers = ["Date","Location","Worker","Status","Opening Physical Cash","Opening E-cash","Debts Collected","Commission","Expenses","Net Accountability Increase","Closing Physical Cash","Closing E-cash","Actual Closing Total","Difference","Difference status","Closing basis"];
     const rows = accounts.map((a) => {
       const stored = resolveStoredDifference(a);
       const actual = Number(a.closingCash) + Number(a.closingMomoFloat);
       const netIncrease =
         Number(a.commission) + Number(a.debtsCollected) - Number(a.totalExpenses);
-      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, netIncrease, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status];
+      return [a.businessDate, a.location.name, a.worker.fullName, a.status, a.openingCash, a.openingMomoFloat, a.debtsCollected, a.commission, a.totalExpenses, netIncrease, a.closingCash, a.closingMomoFloat, actual, stored.difference, stored.status, a.ledgerMode === "ledger" ? "Transaction ledger" : "Operator-declared aggregate"];
     });
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `maacash-momo-reports-${new Date().toISOString().split("T")[0]}.csv`; a.click(); URL.revokeObjectURL(url);
   }

@@ -8,7 +8,7 @@ import {
   getTenantContext,
   assertTenantEntity,
 } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { issueEmailVerification } from "@/lib/security/account-tokens";
 import { validatePasswordPolicy } from "@/lib/security/password-policy";
 import { revalidatePath } from "next/cache";
@@ -543,7 +543,7 @@ export async function recordRemittance(params: {
     const variance = expectedAmount - remitted;
     const referenceId = `REM-${randomBytes(8).toString("hex")}`;
 
-    return tx.collectorRemittance.create({
+    const remittance = await tx.collectorRemittance.create({
       data: {
         tenantId: ctx.tenantId,
         collectorId,
@@ -558,6 +558,22 @@ export async function recordRemittance(params: {
         notes,
       },
     });
+
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "susu.remittance_recorded",
+      entityType: "remittance",
+      entityId: remittance.id,
+      details: {
+        collectorId,
+        expectedAmount: Number(remittance.expectedAmount),
+        remittedAmount: Number(remittance.remittedAmount),
+        variance: Number(remittance.variance),
+      },
+    });
+
+    return remittance;
   }).catch(async (error) => {
     if (error instanceof RemittanceConflictError) return null;
     if (
@@ -585,19 +601,6 @@ export async function recordRemittance(params: {
         "This idempotency key was already used with different remittance details.",
     };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.remittance_recorded",
-    entityType: "remittance",
-    entityId: remittance.id,
-    details: {
-      collectorId,
-      expectedAmount: Number(remittance.expectedAmount),
-      remittedAmount: Number(remittance.remittedAmount),
-      variance: Number(remittance.variance),
-    },
-  });
 
   revalidatePath("/susu/admin/remittances");
   revalidatePath("/susu/admin/collectors");
@@ -706,6 +709,23 @@ export async function reverseRemittance(params: {
       },
     });
     updatedCount = updated.count;
+
+    if (updated.count === 1) {
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.remittance_reversed",
+        entityType: "remittance",
+        entityId: original.id,
+        details: {
+          collectorId: original.collectorId,
+          expectedAmount: Number(original.expectedAmount),
+          remittedAmount: Number(original.remittedAmount),
+          variance: Number(original.variance),
+          reason,
+        },
+      });
+    }
   }).catch((error) => {
     if (error instanceof StepUpDeniedError) {
       updatedCount = -1;
@@ -733,21 +753,6 @@ export async function reverseRemittance(params: {
   if (updatedCount !== 1) {
     return { success: false, error: "This remittance has already been reversed." };
   }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    tenantId: ctx.tenantId,
-    action: "susu.remittance_reversed",
-    entityType: "remittance",
-    entityId: original.id,
-    details: {
-      collectorId: original.collectorId,
-      expectedAmount: Number(original.expectedAmount),
-      remittedAmount: Number(original.remittedAmount),
-      variance: Number(original.variance),
-      reason,
-    },
-  });
 
   if (dual.exceptionUsed) {
     await recordSingleAdministratorException({
@@ -1011,21 +1016,22 @@ export async function registerCustomerByCollector(params: {
       },
     });
 
-    return { customer, susuAccount };
-  });
+    await createAuditLogTx(tx, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      action: "susu.customer_created_by_collector",
+      entityType: "customer",
+      entityId: customer.id,
+      details: {
+        customerId: customer.customerId,
+        fullName: customer.fullName,
+        dailyContribution,
+        collectorId: collector.id,
+        collectorName: ctx.userId,
+      },
+    });
 
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.customer_created_by_collector",
-    entityType: "customer",
-    entityId: result.customer.id,
-    details: {
-      customerId: result.customer.customerId,
-      fullName: result.customer.fullName,
-      dailyContribution,
-      collectorId: collector.id,
-      collectorName: ctx.userId,
-    },
+    return { customer, susuAccount };
   });
 
   revalidatePath("/collector/dashboard");

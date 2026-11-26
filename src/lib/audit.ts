@@ -1,4 +1,5 @@
 import { db } from "./db";
+import type { Prisma } from "@prisma/client";
 
 interface AuditParams {
   userId: string;
@@ -85,22 +86,59 @@ export const AUDIT_ACTIONS = {
  * used. An explicit tenantId param always wins.
  */
 async function resolveAuditTenantId(
+  reader: Prisma.TransactionClient,
   userId: string
 ): Promise<string | null | undefined> {
-  try {
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { tenantId: true },
-    });
-    if (user) return user.tenantId;
-    const customer = await db.customer.findUnique({
-      where: { id: userId },
-      select: { tenantId: true },
-    });
-    return customer?.tenantId ?? null;
-  } catch {
-    return null;
+  const user = await reader.user.findUnique({
+    where: { id: userId },
+    select: { tenantId: true },
+  });
+  if (user) return user.tenantId;
+  const customer = await reader.customer.findUnique({
+    where: { id: userId },
+    select: { tenantId: true },
+  });
+  return customer?.tenantId ?? null;
+}
+
+interface AuditActorSnapshot {
+  actorName: string | null;
+  actorRole: string | null;
+  actorType: "user" | "customer" | null;
+}
+
+/**
+ * Snapshot the actor at write time. Activity History must still identify who
+ * performed an action after that account is renamed or deactivated, so the
+ * name and role are stored on the audit row instead of being re-derived later.
+ */
+async function resolveAuditActor(
+  reader: Prisma.TransactionClient,
+  userId: string
+): Promise<AuditActorSnapshot> {
+  const user = await reader.user.findUnique({
+    where: { id: userId },
+    select: { fullName: true, role: true },
+  });
+  if (user) {
+    return {
+      actorName: user.fullName,
+      actorRole: user.role,
+      actorType: "user",
+    };
   }
+  const customer = await reader.customer.findUnique({
+    where: { id: userId },
+    select: { fullName: true },
+  });
+  if (customer) {
+    return {
+      actorName: customer.fullName,
+      actorRole: "customer",
+      actorType: "customer",
+    };
+  }
+  return { actorName: null, actorRole: null, actorType: null };
 }
 
 export async function createAuditLog({
@@ -113,21 +151,60 @@ export async function createAuditLog({
   ipAddress,
 }: AuditParams) {
   try {
-    const tenantId = explicitTenantId ?? (await resolveAuditTenantId(userId));
-    await db.auditLog.create({
-      data: {
-        userId,
-        tenantId: tenantId ?? undefined,
-        action,
-        entityType,
-        entityId,
-        details: details ? JSON.stringify(details) : undefined,
-        ipAddress,
-      },
+    await db.$transaction(async (tx) => {
+      const tenantId = explicitTenantId ?? (await resolveAuditTenantId(tx, userId));
+      const actor = await resolveAuditActor(tx, userId);
+      await tx.auditLog.create({
+        data: {
+          userId,
+          tenantId: tenantId ?? undefined,
+          ...actor,
+          action,
+          entityType,
+          entityId,
+          details: details ? JSON.stringify(details) : undefined,
+          ipAddress,
+        },
+      });
     });
   } catch (error) {
-    // Audit log failure must never break the application.
-    // In production, this should be routed to external monitoring.
+    // Security/authentication telemetry must never break the request. Financial
+    // and other significant mutations use createAuditLogTx() instead, where the
+    // same failure rolls the mutation back.
     console.error("[SECURITY] Audit log failed:", action, error);
   }
+}
+
+/**
+ * Audit write that participates in the caller's financial transaction.
+ *
+ * Unlike createAuditLog(), a failure here throws, which rolls the financial
+ * operation back. New financial operations use this helper so a committed
+ * ledger posting can never exist without its audit record.
+ */
+export async function createAuditLogTx(
+  tx: Prisma.TransactionClient,
+  {
+    userId,
+    tenantId,
+    action,
+    entityType,
+    entityId,
+    details,
+    ipAddress,
+  }: AuditParams
+) {
+  const actor = await resolveAuditActor(tx, userId);
+  await tx.auditLog.create({
+    data: {
+      userId,
+      tenantId: tenantId ?? undefined,
+      ...actor,
+      action,
+      entityType,
+      entityId,
+      details: details ? JSON.stringify(details) : undefined,
+      ipAddress,
+    },
+  });
 }

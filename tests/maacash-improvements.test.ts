@@ -172,7 +172,7 @@ describe("simplified MoMo daily closing persistence", () => {
 
     const created = await createDailyAccount(location.id, "2026-11-10");
     const id = (created.data as { id: string }).id;
-    await saveDailyAccount(
+    const firstSave = await saveDailyAccount(
       id,
       dailyForm({
         openingCash: "100",
@@ -182,8 +182,10 @@ describe("simplified MoMo daily closing persistence", () => {
         totalExpenses: "0",
         commission: "0",
         debtsCollected: "0",
+        openingAdjustmentReason: "Opening float was topped up with change float from the branch.",
       })
     );
+    expect(firstSave.success).toBe(true);
     const blocked = await submitDailyAccount(id);
     expect(blocked.success).toBe(false);
     expect(blocked.error).toContain("shortage");
@@ -199,6 +201,7 @@ describe("simplified MoMo daily closing persistence", () => {
         commission: "0",
         debtsCollected: "0",
         reconciliationNote: "Cash count was short by GH₵25.",
+        openingAdjustmentReason: "Opening float was topped up with change float from the branch.",
       })
     );
     expect((await submitDailyAccount(id)).success).toBe(true);
@@ -215,6 +218,7 @@ describe("simplified MoMo daily closing persistence", () => {
         totalExpenses: "0",
         commission: "0",
         debtsCollected: "0",
+        openingAdjustmentReason: "Opening float was restored to the standard GH₵200 float.",
       })
     );
     const positive = await submitDailyAccount(positiveId);

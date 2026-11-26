@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { ArrowRightLeft, Clock3, LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 /**
  * MoMo worker shell.
@@ -84,6 +85,22 @@ export default function WorkerShell({
                   >
                     <LayoutDashboard size={15} aria-hidden /> Dashboard
                   </Link>
+                  <Link
+                    href="/worker/transfers"
+                    role="menuitem"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <ArrowRightLeft size={15} aria-hidden /> Cash &amp; Float
+                  </Link>
+                  <Link
+                    href="/worker/shifts"
+                    role="menuitem"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Clock3 size={15} aria-hidden /> Shifts &amp; Handover
+                  </Link>
                   {zeliEnabled && (
                     <Link
                       href="/zeli"
@@ -118,8 +135,9 @@ export default function WorkerShell({
       <footer className="border-t border-slate-200 bg-white">
         <div className="px-4 py-4 text-center">
           <p className="text-xs text-slate-400">
-            MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore Technologies
+            MaaCash{tenantName ? ` · ${tenantName}` : ""}
           </p>
+          <BloomCoreAttribution className="mt-1 text-slate-400" />
         </div>
       </footer>
     </div>

@@ -183,7 +183,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     // Fail closed and let the Control Center retry.
-    console.error("[revocation] apply failed", error);
+    console.error("[revocation] apply failed", error instanceof Error ? error.name : "UnknownError", (error as { code?: unknown })?.code ?? "no-code");
     await auditSsoEvent(PLATFORM_AUDIT_ACTIONS.PLATFORM_SSO_DENIED, {
       reason: "revocation_apply_failed",
     }).catch(() => undefined);

@@ -18,7 +18,19 @@ interface AuditEntry {
   details?: string | null;
   ipAddress?: string | null;
   createdAt: Date;
+  actorName?: string | null;
+  actorRole?: string | null;
   presentation: AuditPresentation;
+}
+
+function roleLabel(role: string | null | undefined): string {
+  if (!role) return "Unattributed actor";
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function actorLabel(log: AuditEntry): string {
+  if (log.actorName) return `${log.actorName} · ${roleLabel(log.actorRole)}`;
+  return roleLabel(log.actorRole);
 }
 
 function DetailFields({
@@ -124,6 +136,7 @@ export default function AuditLogPage() {
                 <thead>
                   <tr>
                     <th scope="col">Date</th>
+                    <th scope="col">By</th>
                     <th scope="col">Action</th>
                     <th scope="col">Related record</th>
                     <th scope="col">What happened</th>
@@ -137,6 +150,14 @@ export default function AuditLogPage() {
                     <tr key={log.id}>
                       <td className="whitespace-nowrap text-sm">
                         {formatDateTime(log.createdAt)}
+                      </td>
+                      <td className="max-w-[12rem] text-sm">
+                        <span className="font-medium text-slate-800">
+                          {log.actorName ?? "Unattributed"}
+                        </span>
+                        <span className="block text-[11px] text-slate-500">
+                          {roleLabel(log.actorRole)}
+                        </span>
                       </td>
                       <td>
                         <span className="badge badge-blue text-xs">
@@ -173,7 +194,7 @@ export default function AuditLogPage() {
                 <li key={log.id} className="p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="text-xs font-medium text-slate-500">
-                      {formatDateTime(log.createdAt)}
+                      {formatDateTime(log.createdAt)} · {actorLabel(log)}
                     </p>
                     <span className="badge badge-blue text-xs">
                       {log.presentation.actionLabel}
@@ -254,6 +275,16 @@ export default function AuditLogPage() {
               </h3>
               <DetailFields
                 fields={[
+                  {
+                    label: "Recorded by",
+                    value: selected.actorName
+                      ? `${selected.actorName} (${roleLabel(selected.actorRole)})`
+                      : roleLabel(selected.actorRole),
+                  },
+                  {
+                    label: "Actor ID",
+                    value: selected.userId,
+                  },
                   {
                     label: "Type",
                     value: selected.presentation.entityLabel,

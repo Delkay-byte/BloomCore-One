@@ -504,6 +504,54 @@ self.addEventListener("message", (event) => {
     return;
   }
 
+  // Next 16 issues a router RSC refresh after a Server Action revalidates a
+  // path. The browser does not expose that fetch to page code before it leaves,
+  // so page code asks this worker to sign a proof for the exact method and path.
+  // The private key never leaves the worker. A request with no tab mapping gets
+  // no proof and fails closed on the server.
+  if (data.type === "tab-proof-request") {
+    event.waitUntil(
+      (async () => {
+        const port = event.ports && event.ports[0];
+        const requestId = typeof data.requestId === "string" ? data.requestId : "";
+        const method = typeof data.method === "string" ? data.method.toUpperCase() : "";
+        const path = typeof data.path === "string" ? data.path : "";
+        const reply = (payload) => {
+          if (port) port.postMessage(payload);
+        };
+        if (
+          !port ||
+          !/^(GET|HEAD|POST|PUT|PATCH|DELETE)$/.test(method) ||
+          !path.startsWith("/") ||
+          path.includes("//")
+        ) {
+          reply({ type: "tab-proof-response", requestId, proof: null });
+          return;
+        }
+        const mapping = await mappingFor(sourceId, "");
+        if (!mapping || !mapping.privateKey) {
+          reply({ type: "tab-proof-response", requestId, proof: null });
+          return;
+        }
+        try {
+          const proof = await signedProof(mapping, method, path);
+          const assertion = await ensureAssertion(mapping);
+          reply({
+            type: "tab-proof-response",
+            requestId,
+            proof,
+            assertion,
+            client: sourceId || mapping.credentialId,
+            path,
+          });
+        } catch {
+          reply({ type: "tab-proof-response", requestId, proof: null });
+        }
+      })()
+    );
+    return;
+  }
+
   if (data.type === "status") {
     const mapping = memory.get(sourceId);
     if (event.source && "postMessage" in event.source) {

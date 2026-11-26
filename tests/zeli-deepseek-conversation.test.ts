@@ -112,8 +112,11 @@ describe("conversational provider policy", () => {
     expect(policy.reason).toContain("emergency");
   });
 
-  it("locks approved production without a reviewed conversation approval", async () => {
-    expect(PRODUCTION_CONVERSATION_APPROVED).toBe(false);
+  it("carries the reviewed conversation approval but still needs a paid package", async () => {
+    // The owner authorised external conversation for paid businesses, so the code
+    // gate is open. The entitlement is not: `tenant-x` has no subscription, so the
+    // turn is refused for that reason instead of the old blanket refusal.
+    expect(PRODUCTION_CONVERSATION_APPROVED).toBe(true);
     await setControl({
       mode: "approved",
       enabled: true,
@@ -121,10 +124,32 @@ describe("conversational provider policy", () => {
       policyVersion: "2026-11-conv.1",
       approvalReference: "DPC-TEST",
     });
+    process.env.ZELI_PRIVACY_POLICY_VERSION = "2026-11-conv.1";
     const policy = await getConversationPolicy("tenant-x");
+    // `tenant-x` is not an authorised tenant, so it is refused before the package
+    // is even considered. The package gate itself is covered exhaustively in
+    // tests/zeli-conversation-entitlement.test.ts.
     expect(policy.allowed).toBe(false);
     expect(policy.state).toBe("disabled");
-    expect(policy.reason).toContain("reviewed conversation code approval");
+    expect(policy.codeApprovalPresent).toBe(true);
+    expect(policy.reason).toMatch(/tenant authorization/i);
+    delete process.env.ZELI_PRIVACY_POLICY_VERSION;
+  });
+
+  it("still refuses when the approval reference is missing", async () => {
+    await setControl({
+      mode: "approved",
+      enabled: true,
+      emergencyDisabled: false,
+      policyVersion: "2026-11-conv.1",
+      approvalReference: null,
+    });
+    process.env.ZELI_PRIVACY_POLICY_VERSION = "2026-11-conv.1";
+    delete process.env.ZELI_APPROVAL_REFERENCE;
+    const policy = await getConversationPolicy("tenant-x");
+    expect(policy.allowed).toBe(false);
+    expect(policy.reason).toContain("approval reference");
+    delete process.env.ZELI_PRIVACY_POLICY_VERSION;
   });
 
   it("requires the synthetic testing environment flag", async () => {
@@ -292,6 +317,40 @@ describe("DeepSeek conversational adapter", () => {
     }
     expect(error?.code).toBe("provider_status");
     expect(String(error?.message)).not.toContain(DUMMY_KEY);
+  });
+
+  it("maps timeouts and rate limiting without retrying", async () => {
+    fetchMock.mockRejectedValueOnce(
+      Object.assign(new Error("aborted"), { name: "AbortError" })
+    );
+    await expect(
+      requestDeepSeekConversation({
+        message: "Hello",
+        policy: stubPolicy(),
+        apiKey: DUMMY_KEY,
+        consent: false,
+        synthetic: true,
+      })
+    ).rejects.toMatchObject({ code: "timeout" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 429 }));
+    let rateLimited: ConversationProviderError | null = null;
+    try {
+      await requestDeepSeekConversation({
+        message: "Hello",
+        policy: stubPolicy(),
+        apiKey: DUMMY_KEY,
+        consent: false,
+        synthetic: true,
+      });
+    } catch (caught) {
+      rateLimited = caught as ConversationProviderError;
+    }
+    expect(rateLimited?.code).toBe("provider_status");
+    expect(String(rateLimited?.message)).toContain("429");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an oversized response", async () => {

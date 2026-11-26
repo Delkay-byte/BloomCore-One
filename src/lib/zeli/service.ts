@@ -34,6 +34,12 @@ import {
 import { getConversationPolicy } from "./providers/conversation-policy";
 import { consumeZeliQuota, ZeliAccessError } from "./usage";
 import { runToolConversation } from "./providers/tool-orchestrator";
+import { generateConversationTitle } from "./title";
+import {
+  normaliseSections,
+  type ZeliAnswerMeta,
+  type ZeliAnswerSection,
+} from "./response-format";
 
 export class ZeliUsageError extends Error {
   constructor(message: string) {
@@ -44,12 +50,15 @@ export class ZeliUsageError extends Error {
 
 export interface ZeliTurnResult {
   conversationId: string;
+  conversationTitle: string;
   text: string;
   sources: ZeliSource[];
   tools: ZeliToolOutcome[];
   provider: string;
   model: string;
   providerAvailable: boolean;
+  sections: ZeliAnswerSection[];
+  answerMeta: ZeliAnswerMeta | null;
   intent: string;
   deterministic: boolean;
   conversationMode: "local" | "external";
@@ -227,6 +236,8 @@ export async function runZeliTurn(params: {
   let periodLabel: string | null = null;
   let askedFor: string | null = null;
   let numericIntegrity: "verified" | "no_figures" | null = null;
+  let sections: ZeliAnswerSection[] = [];
+  let answerMeta: ZeliAnswerMeta | null = null;
 
   let teamHandled = false;
 
@@ -336,6 +347,13 @@ export async function runZeliTurn(params: {
         period = classified.period ?? "this_month";
         periodLabel = analyticAnswer.period ?? null;
         deterministic = true;
+        sections = normaliseSections(analyticAnswer.statements);
+        answerMeta = {
+          period: analyticAnswer.period,
+          source: analyticAnswer.sources[0]?.label ?? null,
+          freshness: analyticAnswer.freshness,
+          limitations: analyticAnswer.limitations,
+        };
       } else if (
         params.identity.role === "admin" &&
         (classified.intent === "unsupported" ||
@@ -444,30 +462,39 @@ export async function runZeliTurn(params: {
           ok: tool.ok,
           durationMs: tool.durationMs,
         })),
+        sections,
+        answerMeta,
       }),
       provider: providerName,
       model,
     },
   });
 
+  const conversationTitle =
+    conversation.titleSource !== "manual" && conversation.title === "New conversation"
+      ? generateConversationTitle(question)
+      : conversation.title;
   await db.zeliConversation.update({
     where: { id: conversation.id },
     data: {
       updatedAt: new Date(),
-      ...(conversation.title === "New conversation"
-        ? { title: question.slice(0, 70) }
+      ...(conversationTitle !== conversation.title
+        ? { title: conversationTitle, titleSource: "auto" }
         : {}),
     },
   });
 
   return {
     conversationId: conversation.id,
+    conversationTitle,
     text,
     sources,
     tools,
     provider: providerName,
     model,
     providerAvailable: true,
+    sections,
+    answerMeta,
     intent,
     deterministic,
     conversationMode,

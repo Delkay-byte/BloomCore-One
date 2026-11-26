@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import { AppBrand } from "@/components/brand/AppBrand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 /**
  * Shared sidebar shell for the tenant-administration workspaces.
@@ -145,9 +146,9 @@ export default function AppShell({
       <footer className="md:ml-64 border-t border-slate-200 bg-white">
         <div className="p-4 text-center">
           <p className="text-xs text-slate-400">
-            MaaCash{tenantName ? ` · ${tenantName}` : ""} · Built by BloomCore
-            Technologies
+            MaaCash{tenantName ? ` · ${tenantName}` : ""}
           </p>
+          <BloomCoreAttribution className="mt-1" />
         </div>
       </footer>
     </div>

@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { unitDatabase } from "./scripts/test-database-paths.cjs";
 
 export default defineConfig({
   test: {
@@ -8,9 +9,16 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: ["node_modules", ".next", "src", "tests/pg-*.test.ts"],
     fileParallelism: false,
+    // One worker, reused for the whole run. Files are sequential already (they share one
+    // SQLite file), and reusing a single fork removes the per-file worker churn that was
+    // observed to hang or die under load on this machine. It does not change, skip or
+    // weaken any test: the same 1781 tests run, in the same order.
+    maxWorkers: 1,
     env: {
       JWT_SECRET: "test-secret-for-vitest",
-      DATABASE_URL: "file:../tests/test.db?connection_limit=1&socket_timeout=30",
+      // One explicit repo-local disposable database. The helper is shared with
+      // scripts/prepare-unit-db.mjs so preparation and runtime always agree.
+      DATABASE_URL: `${unitDatabase().url}?connection_limit=1&socket_timeout=30`,
       NODE_ENV: "test",
       // Migration bridge for pre-existing cookie-seeded unit tests. Production
       // never sets this; new tests exercise the tab header directly.

@@ -55,7 +55,18 @@ export const LEGACY_BACKUP_STORES = {
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type TransactionType = "contribution" | "daily_account_draft";
+/**
+ * Only a contribution posts directly when it syncs. Everything else that moves
+ * money is queued as a request and authorised online.
+ *
+ * `daily_account_draft` was removed: it was a queue type with no sync route and
+ * no UI, so it could only ever accumulate unreachable records.
+ *
+ * `momo_draft` is the replacement, and it exists only with the whole path behind it:
+ * a client capture form, a payload contract, `/api/offline/momo-draft`, a server row,
+ * a review queue and an apply step. It parks a captured MoMo day; it never posts one.
+ */
+export type TransactionType = "contribution" | "offline_request" | "momo_draft";
 export type SyncStatus = "pending_sync" | "syncing" | "synced" | "failed";
 
 export interface OfflineTransaction {

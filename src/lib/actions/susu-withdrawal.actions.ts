@@ -2,7 +2,11 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLogTx } from "@/lib/audit";
+import {
+  enqueueReceiptForTransactionTx,
+  queueCustomerReceiptDelivery,
+} from "@/lib/messaging/outbox";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { formatCedi } from "@/lib/utils";
@@ -234,6 +238,39 @@ export async function processWithdrawal(params: {
         },
       });
 
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.withdrawal_processed",
+        entityType: "withdrawal",
+        entityId: withdrawal.id,
+        details: {
+          accountId,
+          requestedAmount: Number(withdrawal.requestedAmount),
+          commissionAmount: Number(withdrawal.commissionAmount),
+          netAmount: Number(withdrawal.netAmount),
+          remainingBalance: Number(withdrawal.remainingBalance),
+          referenceId,
+        },
+      });
+
+      await enqueueReceiptForTransactionTx(tx, {
+        tenantId: ctx.tenantId,
+        customerId: account.customerId,
+        subjectType: "withdrawal",
+        subjectId: withdrawal.id,
+        receipt: {
+          businessName: ctx.tenantName,
+          transactionType: "withdrawal",
+          amount: Number(withdrawal.netAmount),
+          currency: "GHS",
+          reference: referenceId,
+          occurredAt: withdrawal.createdAt,
+          accountReference: account.accountId,
+          confirmationStatus: "confirmed",
+        },
+      });
+
       return {
         withdrawal,
         commissionAmount,
@@ -242,21 +279,7 @@ export async function processWithdrawal(params: {
       };
     });
 
-    await createAuditLog({
-      userId: ctx.userId,
-      action: "susu.withdrawal_processed",
-      entityType: "withdrawal",
-      entityId: result.withdrawal.id,
-      details: {
-        accountId,
-        requestedAmount: result.withdrawal.requestedAmount,
-        commissionAmount: result.withdrawal.commissionAmount,
-        netAmount: result.withdrawal.netAmount,
-        remainingBalance: result.withdrawal.remainingBalance,
-        referenceId,
-      },
-    });
-
+    queueCustomerReceiptDelivery();
     revalidatePath("/susu/admin/withdrawals");
     revalidatePath("/susu/admin/customers");
     revalidatePath("/susu/admin");

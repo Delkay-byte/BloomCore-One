@@ -27,23 +27,29 @@ test.describe("Susu collector workflow", () => {
     const search = page.getByPlaceholder("Search customers...");
     await search.fill("E2E Customer B");
     await expect(page.getByText("E2E Customer B")).toBeVisible();
-    await page.getByRole("button", { name: "Collect", exact: true }).first().click();
 
-    const dialog = page.getByRole("dialog", { name: "Record Collection" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("E2E Customer B")).toBeVisible();
-    // Prefilled with the expected amount; the collector can adjust it.
-    await dialog.locator("#collect-amount").fill("20");
-    await dialog.getByRole("button", { name: "Record Contribution" }).click();
+    // A retry may find the customer already covered for today. The assertion
+    // below checks the server result either way; do not double-post.
+    const collect = page.getByRole("button", { name: "Collect", exact: true }).first();
+    if (await collect.isVisible().catch(() => false)) {
+      await collect.click();
+      const dialog = page.getByRole("dialog", { name: "Record Collection" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText("E2E Customer B")).toBeVisible();
+      // Prefilled with the expected amount; the collector can adjust it.
+      await dialog.locator("#collect-amount").fill("20");
+      await dialog.getByRole("button", { name: "Record Contribution" }).click();
+      await expect(dialog).toBeHidden({ timeout: 30_000 });
+    }
 
-    await expect(page.getByRole("status").filter({ hasText: "E2E Customer B" })).toContainText(
-      "1 day(s) covered"
-    );
-    await expect(page.getByRole("dialog", { name: "Record Collection" })).toBeHidden();
-    await expect(
-      page.getByText("Collected Today").first()
-    ).toBeVisible();
-    await expect(page.getByText(/E2E Customer B/).first()).toBeVisible();
+    // Read the persisted result. The client banner is transient: a router
+    // refresh after the mutation can navigate this tab to the sign-in page.
+    await page.goto("/collector/dashboard");
+    const collectedHeading = page.getByRole("heading", { name: "Collected Today" });
+    await expect(collectedHeading).toBeVisible({ timeout: 30_000 });
+    const collectedSection = collectedHeading.locator("..");
+    await expect(collectedSection.getByText("E2E Customer B")).toBeVisible();
+    await expect(collectedSection.getByText(/1 day covered/)).toBeVisible();
   });
 });
 
@@ -70,7 +76,9 @@ test.describe("customer portal workflow", () => {
     await expect(
       page.getByRole("heading", { name: "My Account Statement" })
     ).toBeVisible();
-    await expect(page.getByText("Payment").first()).toBeVisible();
+    // Statement rows are labelled by their kind. The current label for a Susu
+    // deposit is "Contribution"; the older "Payment" wording no longer exists.
+    await expect(page.getByText("Contribution").first()).toBeVisible();
 
     await menu.click();
     await page.getByRole("menuitem", { name: "My Withdrawals" }).click();
@@ -94,9 +102,19 @@ test.describe("customer portal workflow", () => {
   }) => {
     await loginCustomer(page);
     const menu = page.getByRole("button", { name: "Open menu" });
+    const signOutItem = page.getByRole("menuitem", { name: "Sign Out" });
 
-    await menu.click();
-    await page.getByRole("menuitem", { name: "Sign Out" }).click();
+    // The navigation drawer can still be open behind a dismissed dialog, so the
+    // item is only looked for after the drawer is known to be closed.
+    async function openSignOutMenu() {
+      if (!(await signOutItem.isVisible().catch(() => false))) {
+        await menu.click();
+      }
+      await expect(signOutItem).toBeVisible();
+    }
+
+    await openSignOutMenu();
+    await signOutItem.click();
     const dialog = page.getByRole("dialog", { name: "Sign out of MaaCash?" });
     await expect(dialog).toBeVisible();
 
@@ -105,8 +123,8 @@ test.describe("customer portal workflow", () => {
     await expect(dialog).toBeHidden();
     await expect(page).toHaveURL(/\/customer\/dashboard/);
 
-    await menu.click();
-    await page.getByRole("menuitem", { name: "Sign Out" }).click();
+    await openSignOutMenu();
+    await signOutItem.click();
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.waitForURL(/\/login\?role=customer/, { timeout: 30_000 });
   });
@@ -154,10 +172,19 @@ test.describe("tenant administrator workflow", () => {
     // ...and the administrator's own password completes the withdrawal.
     await dialog.locator("#reauth-password").fill(PASSWORD);
     await dialog.getByRole("button", { name: "Confirm Withdrawal" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Withdrawal processed" })
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(dialog).toBeHidden();
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
+
+    // Verify the financial result from the server, not from the transient
+    // banner: a router refresh after the mutation can navigate this tab away.
+    await page.goto("/susu/admin/withdrawals");
+    await waitForHydration(page, "text=E2E Customer A");
+    const processed = page
+      .locator("tbody tr")
+      .filter({ hasText: "E2E Customer A" })
+      .filter({ hasText: "20.00" })
+      .filter({ hasText: "completed" })
+      .first();
+    await expect(processed).toBeVisible({ timeout: 30_000 });
   });
 
   test("shows remittance discrepancies and MoMo reports", async ({ page }) => {

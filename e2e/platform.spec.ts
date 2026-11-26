@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { clearTabSession, loginPlatform, pageFetch } from "./helpers";
+import { restoreGlobalZeliAvailability } from "./zeli-availability-restore";
 
 test.describe("Platform Zeli control centre", () => {
   test.beforeEach(async ({ page }) => {
@@ -35,7 +36,7 @@ test.describe("Platform Zeli control centre", () => {
 
     await history.locator("textarea").first().fill("Pilot ended and access must close immediately");
     await history.getByRole("button", { name: "Revoke", exact: true }).click();
-    await page.getByRole("dialog", { name: "Revoke Zeli access?" }).getByRole("button", { name: "Confirm" }).click();
+    await page.getByRole("alertdialog", { name: "Revoke Zeli access?" }).getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByText("Entitlement revoke recorded.")).toBeVisible();
     await expect(history.getByText("revoked", { exact: true }).first()).toBeVisible();
   });
@@ -74,7 +75,7 @@ test.describe("Platform Zeli commerce and provider controls", () => {
     // The emergency stop is deliberately confirmed before it latches.
     await panel.getByRole("button", { name: "Emergency stop", exact: true }).click();
     await page
-      .getByRole("dialog", { name: "Activate emergency stop?" })
+      .getByRole("alertdialog", { name: "Activate emergency stop?" })
       .getByRole("button", { name: "Activate stop" })
       .click();
     // The notice renders outside the control section, next to the page-level
@@ -101,6 +102,12 @@ test.describe("Platform Zeli commerce and provider controls", () => {
 });
 
 test.describe("Global Zeli availability master switch", () => {
+  // The switch is platform-wide, so a failure part-way through the test must not
+  // leave every tenant without Zeli for the rest of the run.
+  test.afterAll(() => {
+    restoreGlobalZeliAvailability("E2E suite cleanup after the master-switch test");
+  });
+
   test("disables all tenant Zeli surfaces and re-enables them", async ({ page }) => {
     await loginPlatform(page);
     await page.goto("/platform/zeli");
@@ -109,7 +116,7 @@ test.describe("Global Zeli availability master switch", () => {
     await panel.locator("textarea").fill("E2E entire Zeli maintenance window");
     await panel.getByRole("button", { name: "Disable Zeli" }).click();
     await page
-      .getByRole("dialog", { name: "Disable Zeli globally?" })
+      .getByRole("alertdialog", { name: "Disable Zeli globally?" })
       .getByRole("button", { name: "Confirm" })
       .click();
     await expect(panel.getByText("ZELI OFF")).toBeVisible();
@@ -144,7 +151,7 @@ test.describe("Global Zeli availability master switch", () => {
     await panelAgain.locator("textarea").fill("E2E maintenance complete and verified");
     await panelAgain.getByRole("button", { name: "Enable Zeli" }).click();
     await page
-      .getByRole("dialog", { name: "Enable Zeli globally?" })
+      .getByRole("alertdialog", { name: "Enable Zeli globally?" })
       .getByRole("button", { name: "Confirm" })
       .click();
     await expect(panelAgain.getByText("ZELI ON")).toBeVisible();

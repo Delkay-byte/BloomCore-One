@@ -120,14 +120,16 @@ export async function createZeliConversation(): Promise<
 }
 
 export async function listZeliConversations(): Promise<
-  ZeliActionResponse<Array<{ id: string; title: string; updatedAt: string }>>
+  ZeliActionResponse<
+    Array<{ id: string; title: string; updatedAt: string; createdAt: string }>
+  >
 > {
   const identity = await requireIdentity();
   const rows = await db.zeliConversation.findMany({
     where: { tenantId: identity.tenantId, userId: identity.userId, deletedAt: null },
     orderBy: { updatedAt: "desc" },
     take: 50,
-    select: { id: true, title: true, updatedAt: true },
+    select: { id: true, title: true, updatedAt: true, createdAt: true },
   });
   return {
     success: true,
@@ -135,6 +137,68 @@ export async function listZeliConversations(): Promise<
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+    })),
+  };
+}
+
+/**
+ * Search this user's own conversations by title or message content. The tenant
+ * and user scope is applied before the query, so a guessed id or search term
+ * cannot reach another business's history.
+ */
+export async function searchZeliConversations(query: string): Promise<
+  ZeliActionResponse<
+    Array<{
+      id: string;
+      title: string;
+      updatedAt: string;
+      createdAt: string;
+      snippet: string | null;
+    }>
+  >
+> {
+  const identity = await requireIdentity();
+  const clean = String(query ?? "").trim().slice(0, 120);
+  const rows = await db.zeliConversation.findMany({
+    where: {
+      tenantId: identity.tenantId,
+      userId: identity.userId,
+      deletedAt: null,
+      ...(clean
+        ? {
+            OR: [
+              { title: { contains: clean } },
+              { messages: { some: { content: { contains: clean } } } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      title: true,
+      updatedAt: true,
+      createdAt: true,
+      messages: {
+        where: clean ? { content: { contains: clean } } : undefined,
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { content: true },
+      },
+    },
+  });
+  return {
+    success: true,
+    data: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      updatedAt: row.updatedAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      snippet: clean && row.messages[0]
+        ? row.messages[0].content.replace(/\s+/g, " ").slice(0, 140)
+        : null,
     })),
   };
 }
@@ -155,17 +219,27 @@ export async function getZeliConversation(conversationId: string) {
     data: {
       id: conversation.id,
       title: conversation.title,
-      messages: messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        sources: message.sources ? JSON.parse(message.sources) : [],
-        feedback: message.feedback,
-        provider: message.provider,
-        model: message.model,
-        deterministic: message.provider === "internal",
-        createdAt: message.createdAt.toISOString(),
-      })),
+      messages: messages.map((message) => {
+        let meta: Record<string, unknown> | null = null;
+        try {
+          meta = message.toolCalls ? JSON.parse(message.toolCalls) : null;
+        } catch {
+          meta = null;
+        }
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          sources: message.sources ? JSON.parse(message.sources) : [],
+          feedback: message.feedback,
+          provider: message.provider,
+          model: message.model,
+          deterministic: message.provider === "internal",
+          sections: meta?.sections ?? null,
+          answerMeta: meta?.answerMeta ?? null,
+          createdAt: message.createdAt.toISOString(),
+        };
+      }),
     },
   };
 }
@@ -183,7 +257,7 @@ export async function renameZeliConversation(
   if (!conversation) return { success: false, error: "Conversation not found" };
   await db.zeliConversation.update({
     where: { id: conversation.id },
-    data: { title: clean },
+    data: { title: clean, titleSource: "manual" },
   });
   return { success: true };
 }
@@ -209,6 +283,9 @@ export async function sendZeliMessage(params: {
     sources: unknown[];
     intent: string;
     deterministic: boolean;
+    title: string;
+    sections: import("@/lib/zeli/response-format").ZeliAnswerSection[];
+    answerMeta: import("@/lib/zeli/response-format").ZeliAnswerMeta | null;
   }>
 > {
   const identity = await resolveIdentity();
@@ -226,6 +303,9 @@ export async function sendZeliMessage(params: {
         sources: result.sources,
         intent: result.intent,
         deterministic: result.deterministic,
+        title: result.conversationTitle,
+        sections: result.sections,
+        answerMeta: result.answerMeta,
       },
     };
   } catch (error) {

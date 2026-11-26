@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BrandLockup } from "@/components/brand/Brand";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 export default function CustomerForgotPasswordPage() {
   return (
@@ -44,9 +45,10 @@ export default function CustomerForgotPasswordPage() {
           </div>
         </div>
       </div>
-      <p className="text-center text-xs text-slate-400 mt-8">
-        MaaCash · Built by BloomCore Technologies
-      </p>
+      <p className="text-center text-xs text-slate-400 mt-8">MaaCash</p>
+      <div className="mt-1 text-center">
+        <BloomCoreAttribution />
+      </div>
     </div>
   );
 }

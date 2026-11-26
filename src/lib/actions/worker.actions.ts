@@ -16,6 +16,8 @@ import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
 import { claimStepUpGrant } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
+import { sendRiskNotification } from "@/lib/risk-intelligence/notifications";
+import { resolveEffectiveNotice } from "@/lib/risk-intelligence/notice-resolution";
 
 export interface ActionResponse {
   success: boolean;
@@ -111,6 +113,40 @@ export async function createWorker(
     entityId: worker.id,
     details: { fullName: worker.fullName, email: worker.email },
   });
+
+  // ENG-06: deliver the exact current notice at account setup. Acknowledgement
+  // is recorded separately by the agent during first login, never inferred
+  // here. If the business profile is not yet complete the controlled notice
+  // cannot be rendered; no placeholder is recorded as if it had been issued.
+  try {
+    const notice = await resolveEffectiveNotice(ctx.tenantId, worker.id);
+    await db.employeeNoticeAttestation.create({
+      data: {
+        tenantId: ctx.tenantId,
+        userId: worker.id,
+        noticeVersion: notice.version,
+        deliveryMethod: "portal_acknowledgement",
+        issuedAt: new Date(),
+        deliveryEvidence: "worker_account_created",
+        acknowledgementState: "delivered",
+        recordedById: ctx.userId,
+        policyVersion: notice.policyVersion,
+        documentSha256: notice.documentHash,
+      },
+    });
+    await sendRiskNotification({
+      eventType: "notice_delivered",
+      scopeType: "notice",
+      scopeId: `${worker.id}:${notice.version}`,
+      tenantId: ctx.tenantId,
+      recipientUserId: worker.id,
+      reference: notice.version,
+      actorId: ctx.userId,
+    });
+  } catch {
+    // The first-login gate resolves the notice again and fails closed until the
+    // employer profile and employee contact details are complete.
+  }
 
   revalidatePath("/admin/workers");
   revalidatePath("/admin/dashboard");

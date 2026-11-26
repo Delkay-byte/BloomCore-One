@@ -1,3 +1,5 @@
+> **Dated addendum — 25 November 2026.** Counsel/DPIA/DPO/DPS approval is not a MaaCash requirement, onboarding gate or release gate. Any below reference to it as outstanding is historical and superseded by `docs/privacy/COUNSEL_DPIA_DPO_DPS_REMOVAL_ADDENDUM.md`.
+
 # Zeli — Conversational AI Privacy Decision Pack
 
 **Status:** DRAFT FOR OWNER AND LEGAL REVIEW. **NO APPROVAL HAS BEEN GRANTED.**

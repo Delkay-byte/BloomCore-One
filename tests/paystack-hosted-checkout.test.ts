@@ -203,7 +203,7 @@ beforeEach(async () => {
 });
 
 describe("hosted checkout initialization", () => {
-  it("initializes one server-derived transaction for GH₵99 with all channels", async () => {
+  it("initializes one server-derived transaction for GH₵99 with Mobile Money by default", async () => {
     const { ctx, subscription, admin, reference } = await seed();
     const calls = mockProvider();
 
@@ -218,7 +218,7 @@ describe("hosted checkout initialization", () => {
     expect(body.currency).toBe("GHS");
     expect(body.email).toBe(admin.email);
     expect(body.reference).toBe(reference);
-    expect(body.channels).toEqual(["mobile_money", "card", "bank_transfer"]);
+    expect(body.channels).toEqual(["mobile_money"]);
     expect(String(body.callback_url)).toContain(
       `/checkout/return?reference=${encodeURIComponent(reference)}`
     );
@@ -231,7 +231,68 @@ describe("hosted checkout initialization", () => {
     expect(attempt.method).toBe("hosted");
     expect(attempt.requiredAction).toBe("checkout");
     expect(attempt.checkoutUrl).toBe(CHECKOUT_URL);
+    expect(attempt.checkoutChannel).toBe("mobile_money");
     expect(attempt.attempts).toBe(1);
+    expect(result.channel).toBe("mobile_money");
+  });
+
+  it("sends only the selected Card channel", async () => {
+    const { ctx, subscription } = await seed();
+    const calls = mockProvider();
+    const result = await payProvisionedSubscription(ctx as never, subscription.id, {
+      method: "hosted",
+      channel: "card",
+    });
+    const body = calls.find((call) => call.url.includes("/transaction/initialize"))!.body!;
+    expect(body.channels).toEqual(["card"]);
+    expect(result.channel).toBe("card");
+    const attempt = await prisma.zeliChargeAttempt.findFirstOrThrow();
+    expect(attempt.checkoutChannel).toBe("card");
+  });
+
+  it("refuses Bank Transfer until the account is explicitly enabled for it", async () => {
+    const { ctx, subscription } = await seed();
+    const calls = mockProvider();
+    await expect(
+      payProvisionedSubscription(ctx as never, subscription.id, {
+        method: "hosted",
+        channel: "bank_transfer",
+      })
+    ).rejects.toThrow(/Bank Transfer is not available/);
+    expect(calls.filter((call) => call.url.includes("/transaction/initialize"))).toHaveLength(0);
+  });
+
+  it("offers Bank Transfer only after the explicit opt-in", async () => {
+    vi.stubEnv("PAYSTACK_CHECKOUT_BANK_TRANSFER", "true");
+    try {
+      const { ctx, subscription } = await seed();
+      const calls = mockProvider();
+      await payProvisionedSubscription(ctx as never, subscription.id, {
+        method: "hosted",
+        channel: "bank_transfer",
+      });
+      const body = calls.find((call) => call.url.includes("/transaction/initialize"))!.body!;
+      expect(body.channels).toEqual(["bank_transfer"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("locks the method once a checkout is open and never creates a second payment", async () => {
+    const { ctx, subscription } = await seed();
+    const calls = mockProvider();
+    await payProvisionedSubscription(ctx as never, subscription.id, {
+      method: "hosted",
+      channel: "mobile_money",
+    });
+    await expect(
+      payProvisionedSubscription(ctx as never, subscription.id, {
+        method: "hosted",
+        channel: "card",
+      })
+    ).rejects.toThrow(/already open with mobile money/);
+    expect(calls.filter((call) => call.url.includes("/transaction/initialize"))).toHaveLength(1);
+    expect(await prisma.zeliChargeAttempt.count()).toBe(1);
   });
 
   it("ignores browser-supplied prices and derives the amount from the subscription", async () => {
@@ -367,7 +428,9 @@ describe("hosted checkout initialization", () => {
     const overview = await getBillingOverview();
     expect(overview.payableAction?.requiredAction).toBe("checkout");
     expect(overview.payableAction?.checkoutUrl).toBe(CHECKOUT_URL);
+    expect(overview.payableAction?.channel).toBe("mobile_money");
     expect(overview.payableAction?.displayText).toMatch(/checkout/i);
+    expect(overview.checkoutChannels).toEqual(["mobile_money", "card"]);
   });
 });
 

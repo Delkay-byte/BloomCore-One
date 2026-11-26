@@ -3,10 +3,15 @@ import { PageHero, Section, SectionHeading } from "@/components/marketing/Sectio
 import {
   BUSINESS_LOGIN_PATH,
   COMPANY_NAME,
-  CONTACT_EMAIL,
+  COMPANY_REGISTRATION_NUMBER,
   PRODUCT_NAME,
 } from "@/lib/site";
 import { pageMetadata } from "@/lib/metadata";
+import {
+  BLOOMCORE_PRIVACY_EMAIL,
+  renderPublicPrivacyAddendum,
+} from "@/lib/risk-intelligence/legal-instruments";
+import { getRiskOrganisationConfig } from "@/lib/risk-intelligence/organisation-profile";
 
 export const metadata = pageMetadata({
   path: "/privacy",
@@ -18,11 +23,17 @@ export const metadata = pageMetadata({
  * Public privacy notice.
  *
  * It describes how the deployed system actually behaves: no analytics, no
- * advertising, no data sale. The privacy contact is the configured public
- * contact address, and the page says what to do when it is not configured
- * rather than inventing an address.
+ * advertising, no data sale. The owner-approved privacy contact is published
+ * exactly; no invented address, DPO or representative is implied.
  */
-export default function PrivacyPage() {
+export const dynamic = "force-dynamic";
+
+export default async function PrivacyPage() {
+  const config = await getRiskOrganisationConfig();
+  const publicEmail = config.legal.contactEmail.includes("@")
+    ? config.legal.contactEmail
+    : BLOOMCORE_PRIVACY_EMAIL;
+
   return (
     <>
       <PageHero
@@ -36,10 +47,29 @@ export default function PrivacyPage() {
           <div className="space-y-3 text-base leading-relaxed text-ink">
             <h2 className="text-xl font-semibold text-ink-deep">Who is responsible</h2>
             <p>
-              {COMPANY_NAME} operates {PRODUCT_NAME}. Each business that uses the
-              platform is responsible for the records its own staff enter, and for
-              telling its own customers how their information is used.
+              {COMPANY_NAME}, Business Registration Number{" "}
+              {COMPANY_REGISTRATION_NUMBER}, operates {PRODUCT_NAME}. Each business
+              that uses the platform is responsible for the records its own staff
+              enter, and for telling its own customers how their information is
+              used.
             </p>
+          </div>
+
+          <div className="space-y-3 text-base leading-relaxed text-ink">
+            <h2 className="text-xl font-semibold text-ink-deep">
+              Shared Agent Risk Intelligence
+            </h2>
+            <p>
+              This addendum applies when a business joins the Shared Agent Risk
+              Intelligence programme. It explains the joint-controller role, the
+              categories of pseudonymised data, the legal thresholds, retention,
+              security and how an agent exercises rights. The text below is the
+              operative public addendum and is rendered from the same controlled
+              source as the participation instruments.
+            </p>
+            <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 font-sans text-sm leading-relaxed text-ink">
+              {renderPublicPrivacyAddendum(config.legal, config.infrastructure)}
+            </pre>
           </div>
 
           <div className="space-y-3 text-base leading-relaxed text-ink">
@@ -181,26 +211,26 @@ export default function PrivacyPage() {
               for the period configured for the deployment.
             </p>
             <p>
-              Requests to access, correct or remove information should be made to
-              the business whose records they are, or to {COMPANY_NAME}.
-              {CONTACT_EMAIL ? (
-                <>
-                  {" "}Privacy questions can be sent to{" "}
-                  <a
-                    href={`mailto:${CONTACT_EMAIL}`}
-                    className="font-medium text-brand-700 hover:text-brand-800"
-                  >
-                    {CONTACT_EMAIL}
-                  </a>
-                  .
-                </>
-              ) : (
-                <>
-                  {" "}A public privacy address is not published yet; existing
-                  businesses can reach the platform operator through their
-                  administrator.
-                </>
-              )}
+              Requests to access, correct, block or erase information should first
+              be made to the business whose records they are. Privacy questions for
+              {" "}{COMPANY_NAME} can be sent to{" "}
+              <a
+                href={`mailto:${publicEmail}`}
+                className="font-medium text-brand-700 hover:text-brand-800"
+              >
+                {publicEmail}
+              </a>
+              . The request is acknowledged within 3 business days, excluding
+              weekends and gazetted Ghana public holidays, and resolved within 21
+              calendar days, with at most one reasoned 14-day extension.
+            </p>
+            <p>
+              Under the Data Protection Act, 2012 (Act 843) you may request access
+              to your personal data, correction, blocking or erasure, and you may
+              object to processing on reasonable grounds. You may also complain to
+              the Data Protection Commission through its published channels.
+              Exercising a right will not by itself affect your account, employment
+              or access to the service.
             </p>
           </div>
 

@@ -7,6 +7,7 @@ import { Footprints, Smartphone, UserRound } from "lucide-react";
 import { ACCESS_LINKS, type AccessLink } from "@/lib/access-links";
 import { BrandLockup } from "@/components/brand/Brand";
 import { PRODUCT_NAME } from "@/lib/site";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 const LINK_ICONS = { customer: UserRound, momo: Smartphone, susu: Footprints } as const;
 function LinkIcon({ link }: { link: AccessLink }) {
@@ -198,9 +199,10 @@ export default function AccessPage() {
           }
         `}</style>
 
-        <p className="text-center text-xs text-slate-400 mt-8">
-          MaaCash · Built by BloomCore Technologies
-        </p>
+        <p className="text-center text-xs text-slate-400 mt-8">MaaCash</p>
+        <div className="mt-1 text-center">
+          <BloomCoreAttribution />
+        </div>
       </div>
     </div>
   );

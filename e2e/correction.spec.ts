@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_A, loginAdmin } from "./helpers";
+import { ADMIN_A, PASSWORD, loginAdmin } from "./helpers";
 
 test.describe("Daily-account correction screen", () => {
   test("shows original values, requires reason and confirmation, and keeps history", async ({
@@ -24,6 +24,13 @@ test.describe("Daily-account correction screen", () => {
 
     await page.getByRole("checkbox").check();
     await page.getByRole("button", { name: "Save correction" }).click();
+
+    // A financial correction is a high-impact action: the server requires a
+    // single-use step-up grant bound to this record before it will save.
+    const reauth = page.getByRole("dialog", { name: "Confirm the correction" });
+    await expect(reauth).toBeVisible();
+    await reauth.locator("#reauth-password").fill(PASSWORD);
+    await reauth.getByRole("button", { name: "Save correction" }).click();
     await expect(
       page.getByText("Correction saved. The previous values are preserved in revision history.")
     ).toBeVisible({ timeout: 20_000 });

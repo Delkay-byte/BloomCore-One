@@ -13,6 +13,11 @@ export default defineConfig({
       DATABASE_URL: process.env.PG_DATABASE_URL,
     },
     fileParallelism: false,
+    // One worker for the whole file set. The suite is small and sequential already, and
+    // reusing a single fork removes the per-file worker churn that was observed to fail
+    // with "Worker exited unexpectedly" when the machine was loaded by the rest of the
+    // release gate.
+    maxWorkers: 1,
   },
   resolve: {
     alias: {

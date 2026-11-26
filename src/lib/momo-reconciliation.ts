@@ -11,8 +11,15 @@
  *   + commission + debts collected - expenses
  *
  * Equivalently:
- *   net daily profit / increase = commission + debts collected - expenses
- *   expected closing = opening total + net daily profit / increase
+ *   net accountability increase = commission + debt recovery + other income
+ *                                  - approved expenses
+ *   expected closing = opening total + net accountability increase
+ *
+ * This is an accountability measure, not accounting revenue or profit. Debt
+ * collection recovers money already owed, while customer principal movements
+ * are volume between the two pockets. The legacy `netIncrease`,
+ * `profitRetained` and `profitNotRetained` property names are retained for API
+ * compatibility; user-facing labels must not call them profit.
  *
  * Actual closing accountability
  *   = closing physical cash + closing E-cash
@@ -22,9 +29,9 @@
  *   positive only when actual closing is above the full expected closing total
  *   zero when counted money is within that balanced band
  *
- * Profit that is withdrawn or not retained is never labelled as a loss. A day
- * whose closing total equals the opening total is balanced, even when the day
- * earned a net profit that the owner withdrew.
+ * Increase that is withdrawn or not retained is never labelled as a loss. A
+ * day whose closing total equals the opening total is balanced, even when the
+ * owner withdrew the day's increase.
  *
  * Arithmetic runs on integer pesewas so no binary floating-point drift can
  * change a financial result. Inputs are rounded to two decimal places.
@@ -87,6 +94,11 @@ export interface ReconciliationInput {
   openingCash: number;
   debtsCollected?: number;
   commission?: number;
+  /**
+   * Approved operational income recorded separately from commission.
+   * Defaults to zero, so every existing aggregate caller is unchanged.
+   */
+  otherIncome?: number;
   totalExpenses?: number;
   closingMomoFloat: number;
   closingCash: number;
@@ -108,25 +120,27 @@ export interface ReconciliationResult {
   debtsCollected: number;
   /** Commission entered once from the provider statement. */
   commission: number;
+  /** Approved operational income outside commission and debt collection. */
+  otherIncome: number;
   /** Itemised business expenses. */
   expenses: number;
-  /** Commission + debts collected - expenses. */
+  /** Commission + debt recovery + other income - expenses (not profit). */
   netIncrease: number;
   /**
    * The minimum closing total that still preserves the business's money.
    *
-   * When the day made a profit, the opening capital must remain (the profit may
-   * be withdrawn). When the day made a net loss, the expected closing total is
-   * below the opening total.
+   * When the day produced a net increase, the opening capital must remain (the
+   * increase may be withdrawn). When expenses exceed income, the expected
+   * closing total is below the opening total.
    */
   capitalFloor: number;
-  /** Expected closing accountability if all profit remains in the business. */
+  /** Expected closing accountability if all increase remains in the business. */
   expectedClosing: number;
   /** Closing physical cash + closing E-cash. */
   actualClosing: number;
-  /** Profit still held at closing. */
+  /** Legacy name: the day's net increase still held at closing. */
   profitRetained: number;
-  /** Profit withdrawn or not reflected in the counted closing total. */
+  /** Legacy name: increase withdrawn or not reflected in the counted close. */
   profitNotRetained: number;
   /**
    * Accountability difference.
@@ -162,12 +176,13 @@ export function calculateReconciliation(
   const openingMomoFloat = pesewas(data.openingMomoFloat);
   const debtsCollected = pesewas(data.debtsCollected ?? 0);
   const commission = pesewas(data.commission ?? 0);
+  const otherIncome = pesewas(data.otherIncome ?? 0);
   const expenses = pesewas(data.totalExpenses ?? 0);
   const closingCash = pesewas(data.closingCash);
   const closingMomoFloat = pesewas(data.closingMomoFloat);
 
   const openingTotal = openingCash + openingMomoFloat;
-  const netIncrease = debtsCollected + commission - expenses;
+  const netIncrease = debtsCollected + commission + otherIncome - expenses;
   const expectedClosing = openingTotal + netIncrease;
   const capitalFloor = openingTotal + Math.min(netIncrease, 0);
   const actualClosing = closingCash + closingMomoFloat;
@@ -197,6 +212,7 @@ export function calculateReconciliation(
     openingTotal: fromPesewas(openingTotal),
     debtsCollected: fromPesewas(debtsCollected),
     commission: fromPesewas(commission),
+    otherIncome: fromPesewas(otherIncome),
     expenses: fromPesewas(expenses),
     netIncrease: fromPesewas(netIncrease),
     capitalFloor: fromPesewas(capitalFloor),

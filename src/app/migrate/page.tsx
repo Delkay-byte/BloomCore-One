@@ -43,9 +43,10 @@ export default async function MigratePage() {
           <a className="underline underline-offset-2" href={CANONICAL_PRODUCTION_URL}>
             maacash.bloomcoretech.com
           </a>
-          . Offline records are tied to the browser address that created them,
-          so they must be synchronized from the old address before it is
-          retired.
+          . Offline records are tied to the browser address that created them.
+          The former Render address is retired; any records still held there
+          require a controlled recovery by the owner. Nothing here deletes or
+          completes those records.
         </p>
       </header>
 

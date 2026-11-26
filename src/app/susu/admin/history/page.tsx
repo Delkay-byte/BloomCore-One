@@ -13,6 +13,7 @@ import {
 import { searchCustomers as searchCustomersRaw, searchStaff } from "@/lib/actions/susu-customer.actions";
 import { formatCedi, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
+import { buildCsv } from "@/lib/csv";
 import { ClipboardList, X } from "lucide-react";
 import SmartSearch from "@/components/SmartSearch";
 
@@ -153,8 +154,8 @@ export default function MoneyTransactionHistoryPage() {
       t.status || "—",
       t.notes || "",
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = buildCsv([headers, ...rows]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

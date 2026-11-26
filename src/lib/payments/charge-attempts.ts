@@ -83,6 +83,7 @@ export interface ChargeAttempt {
   subscriptionId: string;
   method: string;
   network: string | null;
+  checkoutChannel: string | null;
   amount: number;
   currency: string;
   state: string;
@@ -125,6 +126,7 @@ type ChargeAttemptRow = {
   subscriptionId: string;
   method: string;
   network: string | null;
+  checkoutChannel: string | null;
   amount: unknown;
   currency: string;
   state: string;
@@ -155,6 +157,7 @@ export interface ClaimInput {
   subscriptionId: string;
   method: "mobile_money" | "hosted";
   network?: string | null;
+  checkoutChannel?: string | null;
   amount: number;
   currency: string;
   requiredAction?: ChargeRequiredAction | null;
@@ -183,6 +186,7 @@ export async function claimChargeAttempt(input: ClaimInput): Promise<ClaimResult
         provider: "paystack",
         method: input.method,
         network: input.network ?? null,
+        checkoutChannel: input.checkoutChannel ?? null,
         amount: input.amount,
         currency: input.currency,
         state: "initiating",
@@ -203,6 +207,9 @@ export async function claimChargeAttempt(input: ClaimInput): Promise<ClaimResult
     data: {
       state: "initiating",
       requiredAction: input.requiredAction ?? null,
+      ...(input.checkoutChannel !== undefined
+        ? { checkoutChannel: input.checkoutChannel }
+        : {}),
       attempts: { increment: 1 },
       providerHttpStatus: null,
       providerCode: null,

@@ -212,8 +212,8 @@ export default function CorrectionForm({
             </span>
           </div>
           <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Net daily profit / increase = commission + debts collected − expenses.
-            Expected closing = opening total + net daily profit / increase. Customer
+            Net accountability increase = commission + debt recovery + other income − expenses.
+            Expected closing = opening total + net accountability increase. Customer
             deposits, withdrawals and airtime only move money between the two pockets.
             Airtime Sold is recorded for information and never changes the expected
             closing total.
@@ -369,7 +369,7 @@ export default function CorrectionForm({
           <h2 className="font-semibold text-slate-900">Reconciliation</h2>
           <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Net daily profit / increase
+              Net accountability increase
             </p>
             <p className="mt-1 text-lg font-bold tnum text-slate-900">
               {formatCedi(proposed.netIncrease)}
@@ -389,7 +389,7 @@ export default function CorrectionForm({
                 {formatCedi(proposed.expectedClosing)}
               </p>
               <p className="text-xs text-slate-400">
-                Opening total {formatCedi(proposed.openingTotal)} + net daily profit /
+                Opening total {formatCedi(proposed.openingTotal)} + net accountability
                 increase {formatCedi(proposed.netIncrease)}
               </p>
             </div>
@@ -408,15 +408,15 @@ export default function CorrectionForm({
           </div>
           <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm">
             <div className="flex justify-between gap-3">
-              <span className="text-slate-600">Profit retained at closing</span>
+              <span className="text-slate-600">Increase retained at closing</span>
               <span className="font-semibold tnum">{formatCedi(proposed.profitRetained)}</span>
             </div>
             <div className="mt-1 flex justify-between gap-3">
-              <span className="text-slate-600">Profit withdrawn / not retained</span>
+              <span className="text-slate-600">Increase withdrawn / not retained</span>
               <span className="font-semibold tnum">{formatCedi(proposed.profitNotRetained)}</span>
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Withdrawn profit is not a loss. A shortage is reported only when counted
+              An increase withdrawn is not a loss. A shortage is reported only when counted
               money is below the opening capital floor of {formatCedi(proposed.capitalFloor)}.
             </p>
           </div>

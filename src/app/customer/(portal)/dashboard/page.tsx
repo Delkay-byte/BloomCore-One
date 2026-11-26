@@ -13,6 +13,12 @@ import {
   type RawCustomerDashboard,
 } from "@/lib/customer-dashboard";
 
+interface AccountChoice {
+  id: string;
+  accountId: string;
+  dailyContribution: number;
+}
+
 interface CycleHistory {
   id: string;
   cycleNumber: number;
@@ -32,14 +38,26 @@ export default function CustomerDashboardPage() {
   const [cycles, setCycles] = useState<CycleHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [accounts, setAccounts] = useState<AccountChoice[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
   useEffect(() => {
     async function loadData() {
       try {
         const [accountResult, cyclesResult] = await Promise.all([
-          getCustomerAccount(),
+          getCustomerAccount(selectedAccountId || undefined),
           getCustomerCycles(),
         ]);
+        const choices = ((accountResult as unknown as {
+          accounts?: Array<{ id: string; accountId: string; dailyContribution: number }>;
+        } | null)?.accounts ?? []).map((account) => ({
+          id: account.id,
+          accountId: account.accountId,
+          dailyContribution: Number(account.dailyContribution),
+        }));
+        setAccounts(choices);
+        // Keep the selection stable: the server already put it first.
+        if (choices.length > 0) setSelectedAccountId(choices[0].id);
         const mapped = mapCustomerDashboard(
           accountResult as unknown as RawCustomerDashboard | null
         );
@@ -52,7 +70,7 @@ export default function CustomerDashboardPage() {
       }
     }
     loadData();
-  }, []);
+  }, [selectedAccountId]);
 
   if (loading) return <SkeletonPage variant="dashboard" />;
 
@@ -98,6 +116,26 @@ export default function CustomerDashboardPage() {
     <div className="space-y-6">
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
         <h1 className="text-2xl font-bold text-slate-900">{getGreeting()}, {customer.fullName}</h1>
+        {accounts.length > 1 && (
+          <label className="mt-3 block max-w-xs text-xs font-medium text-slate-600">
+            Account
+            <select
+              value={selectedAccountId}
+              onChange={(event) => setSelectedAccountId(event.target.value)}
+              className="input mt-1 w-full"
+              aria-label="Choose account"
+            >
+              {accounts.map((choice) => (
+                <option key={choice.id} value={choice.id}>
+                  {choice.accountId} · GH₵{choice.dailyContribution.toFixed(2)} per day
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">
+              Figures below are for the account you choose.
+            </span>
+          </label>
+        )}
         <p className="text-sm text-blue-600 italic mt-1">&ldquo;{quote}&rdquo;</p>
         <Link
           href="/zeli"

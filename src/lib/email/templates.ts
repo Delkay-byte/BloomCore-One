@@ -173,3 +173,32 @@ export function platformPaymentEmail(options: {
       .join("\n")}\n\nOpen the platform console: ${url}\n`,
   };
 }
+
+/**
+ * Governance notification. Deliberately carries no personal identity, subject
+ * key, contributing business name or source record detail. The recipient must
+ * sign in to MaaCash to see the case in the appropriate workflow.
+ */
+export function riskGovernanceNotificationEmail(options: {
+  heading: string;
+  intro: string;
+  referenceLabel: string;
+  reference: string;
+  actionLabel: string;
+  actionUrl: string;
+}): { subject: string; html: string; text: string } {
+  const html = layout({
+    heading: options.heading,
+    intro: options.intro,
+    actionLabel: options.actionLabel,
+    actionUrl: options.actionUrl,
+    expiry: `${options.referenceLabel}: ${options.reference}. Keep this reference for your records.`,
+    securityNote:
+      "This message contains no personal identity, subject key or other business's report. Sign in to MaaCash to review the case. If you were not expecting this message, do not act on it before verifying in the application.",
+  });
+  return {
+    subject: options.heading,
+    html,
+    text: `${options.intro}\n\n${options.referenceLabel}: ${options.reference}\n\nOpen MaaCash: ${options.actionUrl}\n\nThis message contains no personal identity, subject key or other business's report. Sign in to verify before acting.`,
+  };
+}

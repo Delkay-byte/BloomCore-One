@@ -5,9 +5,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7: the connection URL lives in prisma.config.ts for CLI commands
-  // (DIRECT_URL, the unpooled Neon host) and in the driver adapter passed by
-  // src/lib/db.ts at runtime (DATABASE_URL, the pooled Neon host).
+  // Prisma 7: the connection URL lives in prisma.config.ts for CLI commands and
+  // in the driver adapter passed by src/lib/db.ts at runtime.
 }
 
 // =====================
@@ -49,6 +48,7 @@ model User {
   devices               DeviceEnrollment[]
   recordedContributions Contribution[]       @relation("RecordedContributions")
   receivedContributions Contribution[]       @relation("ReceivedContributions")
+  recordedMomoTransactions MomoTransaction[] @relation("MomoTransactionRecordedBy")
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -72,6 +72,12 @@ model Location {
 
   users         User[]
   dailyAccounts DailyAccount[]
+  momoTransactions MomoTransaction[]
+  assetBalances BranchAssetBalance[]
+  outgoingTransfers BranchTransfer[] @relation("TransferSource")
+  incomingTransfers BranchTransfer[] @relation("TransferDestination")
+  shifts Shift[]
+  liquiditySnapshots BranchLiquiditySnapshot[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -108,7 +114,8 @@ model DailyAccount {
   calculatedDifference   Decimal @default(0)
   differenceStatus       String  @default("balanced")
   reconciliationNote     String?
-  // Physical handover confirmation. Separate from accounting review.
+  // Physical handover confirmation. Separate from accounting review: a reviewed
+  // account does not prove the money was received.
   actualAmountReceived Decimal?
   handoverDifference   Decimal?
   handoverNote         String?
@@ -123,6 +130,21 @@ model DailyAccount {
   correctedById    String?
   correctionReason String?
   revisionCount    Int       @default(0)
+
+  // Financial source of truth for the day.
+  //   aggregate — opening/closing plus manual commission, debts and expenses.
+  //   ledger    — commission, debts, other income and expenses derive from the
+  //               operational MomoTransaction rows; principal customer
+  //               transactions never enter the accountability formula.
+  // The mode is set once, explicitly, before any ledger entry is recorded. A
+  // historical aggregate row is never converted or back-filled silently.
+  ledgerMode               String    @default("aggregate")
+  ledgerCutoverAt          DateTime?
+  // Where this day's opening figures came from: manual | carried | manual_adjusted
+  openingBalanceSource     String    @default("manual")
+  carriedFromAccountId     String?
+  openingAdjustmentReason  String?
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -130,6 +152,9 @@ model DailyAccount {
   worker    User                   @relation(fields: [workerId], references: [id])
   expenses  Expense[]
   revisions DailyAccountRevision[]
+  liquiditySnapshots BranchLiquiditySnapshot[]
+  momoTransactions MomoTransaction[]
+  shifts Shift[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -140,6 +165,545 @@ model DailyAccount {
   @@index([status])
   @@index([submittedAt])
   @@index([tenantId])
+}
+
+/// Operational MoMo transaction ledger entry.
+///
+/// Every row is an operator-recorded operational record. Nothing here is a
+/// provider confirmation or a statement import; `recordingSource` always says
+/// so. Principal customer movements (cash in, cash out, airtime) are retained
+/// for operational reporting but never enter the accountability formula, which
+/// keeps them from being counted as business revenue or profit.
+///
+/// Corrections and reversals are append-only. The superseded row keeps all of
+/// its original values and only changes status; the successor or reversal row
+/// carries the linkage so the full history stays auditable.
+model MomoTransaction {
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  locationId            String
+  dailyAccountId        String?
+  /// The employee the transaction belongs to (the operator who recorded it).
+  workerId              String
+  /// cash_in | cash_out | airtime_sale | commission | debts_collected |
+  /// other_income | expense
+  type                  String
+  /// mtn | telecel | at_money | other | unassigned
+  network               String    @default("unassigned")
+  /// inflow | outflow | neutral | reversal
+  direction             String
+  amount                Decimal   @default(0)
+  /// Provider/business commission earned on this transaction. A day-total
+  /// commission row (type=commission) takes precedence over per-transaction
+  /// commission so the same money is never counted twice.
+  commissionAmount      Decimal   @default(0)
+  businessDate          DateTime
+  occurredAt            DateTime
+  /// Operator business reference; unique per tenant.
+  reference             String
+  /// Provider reference when the operator has one. Optional and non-verified.
+  externalReference     String?
+  /// manual_operator | statement_import | provider_api (future sources)
+  recordingSource       String    @default("manual_operator")
+  /// operator_recorded | statement_imported | provider_confirmed | disputed
+  /// Only an integration may set provider_confirmed. Manual entry cannot.
+  verificationStatus    String    @default("operator_recorded")
+  /// Enrolled device that captured the entry, when one is available.
+  recordedDeviceId      String?
+  recordedDeviceName    String?
+  /// Free-text pointer to the receipt, statement line or other evidence.
+  supportingEvidence    String?
+  /// recorded | reversed | corrected | reversal
+  status                String    @default("recorded")
+  idempotencyKey        String
+  reversesTransactionId String?   @unique
+  correctsTransactionId String?
+  correctionReason      String?
+  note                  String?
+  recordedById          String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location     Location        @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
+  worker       User            @relation("MomoTransactionRecordedBy", fields: [workerId], references: [id])
+  reversalOf   MomoTransaction? @relation("MomoTransactionReversal", fields: [reversesTransactionId], references: [id])
+  reversal     MomoTransaction? @relation("MomoTransactionReversal")
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, reference])
+  @@unique([tenantId, network, externalReference])
+  @@index([tenantId, businessDate])
+  @@index([locationId, businessDate])
+  @@index([workerId, businessDate])
+  @@index([dailyAccountId, status])
+  @@index([type, status])
+  @@index([tenantId, verificationStatus])
+  @@index([createdAt])
+}
+
+/// Declared internal balance for one asset at one location.
+///
+/// This is an operator declaration, never a provider-confirmed balance.
+/// `declaredAt` is the baseline timestamp: transfer movements are applied only
+/// when they happened after it, so a newly declared snapshot is not reduced
+/// twice by transfers the operator already counted.
+model BranchAssetBalance {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  locationId      String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType       String
+  declaredBalance Decimal  @default(0)
+  declaredAt      DateTime @default(now())
+  declaredById    String?
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location Location        @relation(fields: [locationId], references: [id])
+
+  @@unique([tenantId, locationId, assetType])
+  @@index([tenantId, assetType])
+  @@index([locationId])
+}
+
+/// Internal branch-to-branch transfer of physical cash or declared network
+/// float. The lifecycle is append-only: each transition writes an immutable
+/// event row, and the transfer row carries the current state plus the actor of
+/// every completed step.
+model BranchTransfer {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  reference         String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType         String
+  /// mtn | telecel | at_money | none (derived from the asset type)
+  network           String    @default("none")
+  sourceLocationId  String
+  destinationLocationId String
+  amount            Decimal
+  /// draft | requested | approved | dispatched | received | completed |
+  /// rejected | cancelled | disputed | variance_investigation
+  status            String    @default("requested")
+  purpose           String?
+  notes             String?
+  initiatedById     String
+  requestedAt       DateTime?
+  approvedById      String?
+  approvedAt        DateTime?
+  dispatchedById    String?
+  dispatchedAt      DateTime?
+  /// Receipt number, waybill or other evidence held for the dispatch.
+  dispatchEvidence  String?
+  receivedById      String?
+  receivedAt        DateTime?
+  actualAmountReceived Decimal?
+  /// Receipt number, count sheet or other evidence held at the destination.
+  receiptEvidence   String?
+  variance          Decimal?
+  varianceReason    String?
+  /// Sanctioned partial settlement. `settledAmount` is the value finally
+  /// accepted at the destination; `outstandingAmount` is the remainder that the
+  /// follow-up transfer or a write-back resolution must cover. This is never a
+  /// silent reduction of the dispatched amount: the original `amount` stays.
+  settlementStatus  String?
+  settledAmount     Decimal?
+  outstandingAmount Decimal?
+  followUpTransferId String?
+  parentTransferId   String?
+  settledById       String?
+  settledAt         DateTime?
+
+  /// The transfer that settles the remaining balance of this one (many
+  /// follow-ups may settle one original, so this side is not unique).
+  followUps      BranchTransfer[] @relation("TransferFollowUp")
+  /// Set when this transfer was created to settle an earlier partial receipt.
+  parentTransfer BranchTransfer?  @relation("TransferFollowUp", fields: [parentTransferId], references: [id])
+  rejectedById      String?
+  rejectedAt        DateTime?
+  rejectionReason   String?
+  cancelledById     String?
+  cancelledAt       DateTime?
+  cancellationReason String?
+  resolvedById      String?
+  resolvedAt        DateTime?
+  resolutionNote    String?
+  idempotencyKey    String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  source      Location        @relation("TransferSource", fields: [sourceLocationId], references: [id])
+  destination Location        @relation("TransferDestination", fields: [destinationLocationId], references: [id])
+  events      BranchTransferEvent[]
+
+  @@unique([tenantId, reference])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([sourceLocationId, assetType])
+  @@index([destinationLocationId, assetType])
+  @@index([status])
+}
+
+/// Immutable lifecycle history for a branch transfer.
+model BranchTransferEvent {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  transferId String
+  action     String
+  actorId    String
+  actorName  String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  transfer BranchTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+/// A working shift at one location on one business day.
+///
+/// A daily account can have several shifts. Shifts are accountability
+/// snapshots: their opening/closing figures are never added into the daily
+/// account's reconciliation, so the two records cannot double count.
+model Shift {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  locationId     String
+  dailyAccountId String?
+  reference      String
+  businessDate   DateTime
+  /// morning | afternoon | evening | custom
+  name           String
+  label          String?
+  assignedUserId String
+  /// draft | open | awaiting_handover | variance_open | closed | cancelled
+  status         String   @default("draft")
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  openingCash    Decimal  @default(0)
+  openingMomoFloat Decimal @default(0)
+  /// manual | carried | manual_adjusted
+  openingSource  String   @default("manual")
+  carriedFromShiftId String?
+  openingAdjustmentReason String?
+  closingCash    Decimal?
+  closingMomoFloat Decimal?
+  closingNotes   String?
+  openedById     String?
+  openedAt       DateTime?
+  closedById     String?
+  closedAt       DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
+  location     Location        @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
+  handovers    ShiftHandover[]
+  revisions    ShiftRevision[]
+
+  @@unique([tenantId, locationId, businessDate, name])
+  @@unique([tenantId, reference])
+  @@index([tenantId, businessDate])
+  @@index([locationId, businessDate])
+  @@index([assignedUserId, businessDate])
+  @@index([status])
+}
+
+/// Two-sided shift handover. The outgoing employee's declared figures are
+/// immutable once submitted; the receiving employee records their own counted
+/// figures separately. A difference is preserved as a variance and stays open
+/// until an administrator resolves it.
+model ShiftHandover {
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  shiftId             String
+  reference           String
+  outgoingUserId      String
+  outgoingCash        Decimal
+  outgoingMomoFloat   Decimal
+  outstandingOperations String?
+  outgoingNotes       String?
+  /// Count sheet, till slip or other evidence held for the outgoing count.
+  outgoingEvidence    String?
+  incomingUserId      String?
+  incomingCash        Decimal?
+  incomingMomoFloat   Decimal?
+  operationsAccepted  Boolean?
+  incomingNotes       String?
+  /// Count sheet, receipt or other evidence held for the receiving count.
+  incomingEvidence    String?
+  cashVariance        Decimal?
+  floatVariance       Decimal?
+  varianceReason      String?
+  /// awaiting_receipt | confirmed | variance_open | resolved
+  status              String   @default("awaiting_receipt")
+  confirmedAt         DateTime?
+  resolvedById        String?
+  resolvedAt          DateTime?
+  resolutionNote      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  shift  Shift           @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, reference])
+  @@index([shiftId, createdAt])
+  @@index([tenantId, status])
+  @@index([outgoingUserId])
+  @@index([incomingUserId])
+}
+
+/// Deterministic operational finding produced by a named threshold rule.
+///
+/// No probabilistic or AI classification is used. Each finding carries the
+/// rule, the measured value, the threshold and the supporting record so an
+/// administrator can check it. The unique fingerprint prevents a repeated scan
+/// from duplicating the same finding.
+/// One append-only step in a finding's life: a scan that re-saw it, an
+/// acknowledgment, an assignment, a comment, a closure or a reopening.
+///
+/// A rescan used to overwrite `evidence` and `lastSeenAt` in place, so the state
+/// a person acted on was lost. Every scan that changes the metric, the severity
+/// or the evidence now appends an event instead, and the snapshot hash names the
+/// exact evidence that was seen.
+model AnomalyFindingEvent {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String
+  /// detected | rescan | acknowledged | assigned | commented | escalated |
+  /// resolved | false_positive | reopened | suppressed
+  kind           String
+  severity       String?
+  metricValue    Decimal?
+  thresholdValue Decimal?
+  summary        String?
+  /// Canonical JSON of the evidence captured at this step.
+  evidence       String?
+  /// SHA-256 of the canonical evidence and the entity reference.
+  snapshotHash   String?
+  note           String?
+  actorId        String?
+  scanRunId      String?
+  createdAt      DateTime @default(now())
+
+  tenant  BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, anomalyId, createdAt])
+  @@index([tenantId, kind, createdAt])
+}
+
+/// The investigation of one finding: who owns it, what it is waiting for, what
+/// was checked, and which correction closed it.
+model AnomalyInvestigation {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String   @unique
+  /// open | investigating | awaiting_evidence | closed
+  status         String   @default("open")
+  assigneeId     String?
+  dueAt          DateTime?
+  /// genuine | false_positive | inconclusive
+  disposition    String?
+  dispositionNote String?
+  /// The correction or reversal that resolved the underlying condition.
+  linkedCorrectionType String?
+  linkedCorrectionId   String?
+  openedById     String
+  closedById     String?
+  closedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant     BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly    OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+  tasks      AnomalyInvestigationTask[]
+  comments   AnomalyInvestigationComment[]
+
+  @@index([tenantId, status, dueAt])
+  @@index([tenantId, assigneeId])
+}
+
+/// A checklist step on an investigation, so "checked" is a recorded fact.
+model AnomalyInvestigationTask {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  investigationId String
+  label          String
+  sequence       Int      @default(0)
+  doneById       String?
+  doneAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+
+  @@index([investigationId, sequence])
+}
+
+/// A comment on an investigation. Comments are never edited or deleted.
+model AnomalyInvestigationComment {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  investigationId String
+  authorId       String
+  body           String
+  createdAt      DateTime @default(now())
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+
+  @@index([investigationId, createdAt])
+}
+
+/// A time-boxed decision not to raise a rule again for one scope.
+///
+/// Suppression is how a known false positive is handled without pretending the
+/// rule is wrong for everyone: it needs a reason, an expiry and can be revoked,
+/// and a suppression never deletes the findings it covers.
+model AnomalySuppression {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  ruleKey      String
+  /// When set, only this entity is covered; otherwise the whole rule is.
+  entityType   String?
+  entityId     String?
+  reason       String
+  createdById  String
+  expiresAt    DateTime
+  revokedById  String?
+  revokedAt    DateTime?
+  revokeReason String?
+  createdAt    DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, ruleKey, expiresAt])
+}
+
+/// One scan attempt, manual or scheduled.
+///
+/// The run row is the alert-fatigue control: it records how many findings were
+/// seen, created, reopened, suppressed and notified, so a noisy rule can be seen
+/// and a scheduled scan that failed is not silent.
+model AnomalyScanRun {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  /// manual | scheduled
+  trigger     String   @default("manual")
+  /// running | completed | failed
+  status      String   @default("running")
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  scanned     Int      @default(0)
+  created     Int      @default(0)
+  reopened    Int      @default(0)
+  suppressed  Int      @default(0)
+  notified    Int      @default(0)
+  periodFrom  String?
+  periodTo    String?
+  error       String?
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, startedAt])
+}
+
+/// One AI-assisted explanation of a finding, generated against a specific evidence
+/// pack and kept for review.
+///
+/// A draft never changes a finding, a transaction or a balance: it is an explanation
+/// that a named person either accepts or rejects, and the pack hash proves which
+/// evidence the explanation was written from.
+model AnomalyInvestigationDraft {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  anomalyId      String
+  /// SHA-256 of the evidence pack the draft was generated from.
+  evidenceHash   String
+  evidence       String
+  promptVersion  String
+  schemaVersion  String
+  /// deterministic | external
+  source         String   @default("deterministic")
+  model          String
+  /// draft | reviewed | accepted | rejected
+  status         String   @default("draft")
+  /// The validated payload, stored exactly as reviewed.
+  payload        String
+  generatedById  String
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewReason   String?
+  /// Rejections are kept, so a second draft can be compared with the first.
+  supersededById String?
+  createdAt      DateTime @default(now())
+
+  tenant  BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  anomaly OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, anomalyId, createdAt])
+  @@index([tenantId, status])
+}
+
+model OperationalAnomaly {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  fingerprint     String
+  /// daily_shortage | daily_overage | repeated_shortage | unreviewed_account |
+  /// missing_account | large_transaction | repeated_reversal | expense_spike |
+  /// transfer_variance | stale_transfer | shift_variance |
+  /// repeated_shift_variance | unconfirmed_handover
+  ruleKey         String
+  /// high | medium | low
+  severity        String
+  /// open | acknowledged | resolved
+  status          String   @default("open")
+  title           String
+  summary         String
+  entityType      String
+  entityId        String
+  locationId      String?
+  workerId        String?
+  businessDate    DateTime?
+  metricValue     Decimal?
+  thresholdValue  Decimal?
+  evidence        String?
+  detectedAt      DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  firstSeenAt     DateTime @default(now())
+  /// SHA-256 of the evidence this finding was last seen with.
+  snapshotHash    String?
+  /// How many times a resolved finding came back.
+  reopenCount     Int      @default(0)
+  lastNotifiedAt  DateTime?
+  acknowledgedById String?
+  acknowledgedAt  DateTime?
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  events AnomalyFindingEvent[]
+  investigation AnomalyInvestigation?
+  drafts AnomalyInvestigationDraft[]
+
+  @@unique([tenantId, fingerprint])
+  @@index([tenantId, status, severity])
+  @@index([tenantId, ruleKey])
+  @@index([tenantId, businessDate])
+  @@index([locationId])
+  @@index([workerId])
 }
 
 model Expense {
@@ -162,6 +726,12 @@ model AuditLog {
   id         String   @id @default(cuid())
   tenantId   String?
   userId     String
+  /// Snapshot of the actor at the time of the action. A later rename or
+  /// removal must not rewrite who performed the historical action.
+  actorName  String?
+  actorRole  String?
+  /// user | customer | system
+  actorType  String?
   action     String
   entityType String
   entityId   String?
@@ -210,6 +780,11 @@ model Customer {
 
   accounts    SusuAccount[]
   assignments CollectorCustomerAssignment[]
+  disputes    CustomerDispute[]
+  messagingPreference CustomerMessagingPreference?
+  withdrawalRequests  CustomerWithdrawalRequest[]
+  customerMessages    CustomerMessageOutbox[]
+  messagingConsentChallenges MessagingConsentChallenge[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -238,6 +813,8 @@ model SusuAccount {
   commissions   Commission[]
   cardFees      CardFee[]
   assignments   CollectorCustomerAssignment[]
+  disputes      CustomerDispute[]
+  withdrawalRequests CustomerWithdrawalRequest[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -274,6 +851,149 @@ model SusuCycle {
   @@index([tenantId])
 }
 
+/// A customer's dispute about one recorded contribution or withdrawal.
+///
+/// The dispute is a review record, not a money movement. Resolving it never
+/// edits or reverses the financial row silently; an upheld outcome must be
+/// carried out through the existing correction/reversal control and referenced
+/// in `outcomeReference`.
+/// A stored evidence file.
+///
+/// The bytes live outside the database in a private directory; the row records
+/// what they are, who attached them, the SHA-256 of the exact content and how
+/// long they must be kept. Access is always re-checked against the subject, so a
+/// file reference cannot be traded for a download.
+model EvidenceAttachment {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  /// customerDispute | operationalAnomaly | offlineActionRequest
+  subjectType   String
+  subjectId     String
+  fileName      String
+  contentType   String
+  sizeBytes     Int
+  sha256        String
+  /// Opaque storage key inside the private evidence directory.
+  storageKey    String    @unique
+  uploadedById  String
+  uploadedByType String   @default("admin")
+  retentionUntil DateTime
+  deletedAt     DateTime?
+  deletedById   String?
+  createdAt     DateTime  @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, subjectType, subjectId])
+  @@index([retentionUntil])
+}
+
+/// A withdrawal the customer asked for from the portal.
+///
+/// This is a request, never a posting: the office decides, and approving it runs
+/// the same withdrawal action the staff screen uses. The amount is stored in
+/// integer pesewa so no rounding can happen between the request and the ledger.
+model CustomerWithdrawalRequest {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  reference      String
+  customerId     String
+  accountId      String
+  cycleId        String?
+  /// Integer pesewa. GH¢1.00 is 100.
+  amountPesewa   Int
+  reason         String
+  /// requested | approved | paid | rejected | cancelled | needs_review
+  status         String   @default("requested")
+  requestedById  String
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// The real withdrawal this request produced, when one was recorded.
+  resultingWithdrawalId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  account  SusuAccount     @relation(fields: [accountId], references: [id])
+
+  @@unique([tenantId, reference])
+  @@index([customerId, status])
+  @@index([tenantId, status, createdAt])
+}
+
+model CustomerDispute {
+  id               String   @id @default(cuid())
+  tenantId         String?
+  reference        String
+  customerId       String
+  accountId        String?
+  /// contribution | withdrawal
+  subjectType      String
+  subjectId        String
+  /// Snapshot of the transaction reference at the time of the dispute.
+  subjectReference String
+  subjectAmount    Decimal
+  /// Cycle number snapshotted when the dispute is opened.
+  cycleNumber      Int?
+  /// not_received | wrong_amount | duplicate_charge | unauthorised | other
+  category         String
+  details          String
+  /// Receipt, statement line or other evidence reference supplied by the customer.
+  customerEvidence String?
+  /// Evidence reference recorded by the administrator at resolution.
+  resolutionEvidence String?
+  /// open | under_review | awaiting_customer | resolved_upheld |
+  /// resolved_declined | cancelled
+  status           String   @default("open")
+  openedByType     String   @default("customer")
+  openedById       String
+  resolutionNote   String?
+  resolutionById   String?
+  resolvedAt       DateTime?
+  /// Optional correction/reversal reference recorded when an outcome is upheld.
+  outcomeReference String?
+  /// Who is working on it, how urgent it is and when it is due.
+  assignedToId     String?
+  /// low | normal | high | urgent
+  priority         String   @default("normal")
+  dueAt            DateTime?
+  escalatedAt      DateTime?
+  escalationNote   String?
+  createdAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  account  SusuAccount?    @relation(fields: [accountId], references: [id])
+  events   CustomerDisputeEvent[]
+
+  @@unique([tenantId, reference])
+  @@unique([tenantId, subjectType, subjectId])
+  @@index([tenantId, status])
+  @@index([customerId, createdAt])
+  @@index([accountId])
+}
+
+model CustomerDisputeEvent {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  disputeId String
+  /// customer | admin | system
+  actorType String
+  actorId   String?
+  action    String
+  note      String?
+  createdAt DateTime @default(now())
+
+  tenant  BusinessTenant? @relation(fields: [tenantId], references: [id])
+  dispute CustomerDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
 model Contribution {
   id             String    @id @default(cuid())
   tenantId       String?
@@ -287,6 +1007,10 @@ model Contribution {
   receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
   receivedByName String? // Free-text name of the staff who physically received the money
   recordedByName String? // Free-text name of the person who recorded the payment (display)
+  /// Enrolled device that submitted an offline collection. Null for online
+  /// office/collector recording, which is attributed to the authenticated user.
+  recordedDeviceId   String?
+  recordedDeviceName String?
   referenceId    String    @unique // Idempotency key - prevents duplicate submissions
   notes          String?
   createdAt      DateTime  @default(now())
@@ -599,6 +1323,494 @@ model OfflineTransaction {
 /// A single enrolled business on the platform. Every tenant-owned record
 /// carries a tenantId pointing here; all tenant data access resolves this
 /// record from the authenticated server session (never from browser input).
+/// A member of an association (for example a MoMo agents' association).
+/// Records are tenant-scoped and do not grant access to another business.
+model AssociationMember {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  memberCode    String
+  businessName  String
+  contactName   String
+  phone         String?
+  email         String?
+  region        String?
+  /// invited | active | suspended | withdrawn
+  status        String    @default("active")
+  joinedAt      DateTime?
+  notes         String?
+  /// Which association and zone own this membership. Nullable so the existing
+  /// tenant-wide register keeps working unchanged.
+  associationId String?
+  zoneId        String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant      BusinessTenant?            @relation(fields: [tenantId], references: [id])
+  association Association?               @relation(fields: [associationId], references: [id])
+  zone        AssociationZone?           @relation(fields: [zoneId], references: [id])
+  sponsorships AssociationSponsorship[]
+  trainings    AssociationTrainingRecord[]
+  trainingEnrolments TrainingEnrolment[]
+
+  @@unique([tenantId, memberCode])
+  @@unique([tenantId, phone])
+  @@index([tenantId, status])
+  @@index([tenantId, businessName])
+}
+
+/// An association that can span many member businesses.
+///
+/// The register rows below keep their own tenant for row-level scoping, while
+/// `associationId` says which association owns them. A business may operate the
+/// register for one association during the pilot; the entity exists so the model
+/// does not have to pretend a single business is an association.
+model Association {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  code           String
+  name           String
+  region         String?
+  /// active | inactive
+  status         String   @default("active")
+  charterVersion String?
+  contactEmail   String?
+  contactPhone   String?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  zones  AssociationZone[]
+  members AssociationMember[]
+  roles  AssociationRoleAssignment[]
+  courses TrainingCourse[]
+  consents AssociationConsentRecord[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+/// A zone or chapter inside an association. `parentZoneId` allows a region to
+/// contain districts without a new table.
+model AssociationZone {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  associationId String
+  parentZoneId  String?
+  code          String
+  name          String
+  region        String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  parent      AssociationZone?  @relation("ZoneHierarchy", fields: [parentZoneId], references: [id])
+  children    AssociationZone[] @relation("ZoneHierarchy")
+  members     AssociationMember[]
+  roles       AssociationRoleAssignment[]
+
+  @@unique([associationId, code])
+  @@index([associationId, parentZoneId])
+}
+
+/// What a person may do inside an association.
+///
+/// Deliberately separate from the business role: an association auditor should
+/// not inherit authority over a member business's money.
+model AssociationRoleAssignment {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  associationId String
+  zoneId        String?
+  userId        String
+  /// association_admin | zone_officer | member_viewer | auditor
+  role          String
+  grantedById   String
+  grantedAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  note          String?
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  zone        AssociationZone? @relation(fields: [zoneId], references: [id])
+
+  @@unique([associationId, userId, role])
+  @@index([tenantId, role])
+  @@index([userId, revokedAt])
+}
+
+/// A course an association delivers.
+///
+/// `passingScore` and `requiredAttendancePct` are the completion criteria: a
+/// learner is completed by the rules, not by somebody choosing a status.
+model TrainingCourse {
+  id                    String   @id @default(cuid())
+  tenantId              String?
+  associationId         String
+  code                  String
+  title                 String
+  version               String   @default("1")
+  description           String?
+  /// draft | published | retired
+  status                String   @default("draft")
+  passingScore          Int      @default(70)
+  requiredAttendancePct Int      @default(80)
+  /// How long an issued certificate stays valid.
+  validityMonths        Int      @default(12)
+  /// How long learner evidence is kept after the certificate expires.
+  retentionYears        Int      @default(5)
+  createdById           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  modules     TrainingModule[]
+  sessions    TrainingSession[]
+  assessments TrainingAssessment[]
+  enrolments  TrainingEnrolment[]
+
+  @@unique([associationId, code, version])
+  @@index([tenantId, status])
+}
+
+/// One learning unit inside a course, in order.
+model TrainingModule {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  courseId    String
+  position    Int
+  title       String
+  content     String?
+  resourceUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, position])
+  @@index([courseId])
+}
+
+/// A scheduled session a learner can attend.
+model TrainingSession {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  courseId        String
+  title           String
+  scheduledAt     DateTime
+  durationMinutes Int      @default(60)
+  location        String?
+  trainerName     String?
+  /// scheduled | held | cancelled
+  status          String   @default("scheduled")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant     BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course     TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  attendance TrainingAttendance[]
+
+  @@index([tenantId, courseId, scheduledAt])
+}
+
+/// A learner on a course.
+///
+/// The learner is either an association member contact or a staff user; both are
+/// optional so a record is never orphaned silently.
+model TrainingEnrolment {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  courseId    String
+  memberId    String?
+  userId      String?
+  learnerName String
+  /// enrolled | in_progress | completed | failed | withdrawn
+  status      String    @default("enrolled")
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  course      TrainingCourse       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  member      AssociationMember?   @relation(fields: [memberId], references: [id])
+  attendance  TrainingAttendance[]
+  attempts    TrainingAssessmentAttempt[]
+  certificate TrainingCertificate?
+
+  @@unique([courseId, memberId, userId])
+  @@index([tenantId, status])
+  @@index([courseId, learnerName])
+}
+
+/// Attendance at one session. Minutes are recorded so a partial attendance is
+/// visible rather than counted as a full one.
+model TrainingAttendance {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  sessionId   String
+  enrolmentId String
+  minutes     Int      @default(0)
+  attendedAt  DateTime @default(now())
+  markedById  String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  tenant    BusinessTenant?  @relation(fields: [tenantId], references: [id])
+  session   TrainingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enrolment TrainingEnrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, enrolmentId])
+  @@index([enrolmentId])
+}
+
+/// An assessment a course uses, with its pass mark.
+model TrainingAssessment {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  courseId     String
+  title        String
+  maxScore     Int      @default(100)
+  passingScore Int      @default(70)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  course   TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  attempts TrainingAssessmentAttempt[]
+
+  @@index([courseId])
+}
+
+/// One attempt at an assessment. The pass result is computed on write.
+model TrainingAssessmentAttempt {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  assessmentId String
+  enrolmentId  String
+  score        Int
+  passed       Boolean
+  attemptedAt  DateTime @default(now())
+  assessorName String?
+  note         String?
+
+  tenant     BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  assessment TrainingAssessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  enrolment  TrainingEnrolment    @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrolmentId, attemptedAt])
+  @@index([assessmentId])
+}
+
+/// An issued certificate.
+///
+/// The serial is the human reference and the token is what a third party uses to
+/// verify it; neither exposes contact details.
+model TrainingCertificate {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  enrolmentId       String    @unique
+  serial            String
+  verificationToken String    @unique
+  /// issued | revoked
+  status            String    @default("issued")
+  issuedAt          DateTime  @default(now())
+  expiresAt         DateTime
+  /// How long the certificate row itself is kept after expiry.
+  retainUntil       DateTime
+  revokedAt         DateTime?
+  revokedById       String?
+  revokedReason     String?
+  issuedById        String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant    BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  enrolment TrainingEnrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, serial])
+  @@index([tenantId, status, expiresAt])
+}
+
+/// A governance record: a membership agreement, a data-sharing consent or an
+/// access review. Expiry and withdrawal are first-class so an expired consent
+/// stops counting without deleting history.
+model AssociationConsentRecord {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  associationId String
+  memberId      String?
+  /// membership_agreement | data_sharing | access_review
+  subjectType   String
+  grantedById   String
+  grantedAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  withdrawnAt   DateTime?
+  documentRef   String?
+  note          String?
+
+  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
+  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, associationId, subjectType])
+  @@index([expiresAt])
+}
+
+/// A sponsor: the party that funds an association member's subscription.
+///
+/// A sponsor is its own entity so eligibility, limits and reporting can be
+/// answered by identity rather than by a free-text name.
+model Sponsor {
+  id              String   @id @default(cuid())
+  tenantId        String?
+  /// The sponsor's own business, when it has one. Used to refuse self-sponsorship.
+  subjectTenantId String?
+  name            String
+  /// individual | business | association
+  kind            String   @default("business")
+  contactName     String?
+  email           String?
+  phone           String?
+  taxId           String?
+  /// active | inactive
+  status          String   @default("active")
+  /// Most a sponsor may commit in one calendar year, in integer pesewa.
+  annualCapPesewa Int?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant        BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorships  AssociationSponsorship[]
+  fundings      SponsorshipFunding[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+}
+
+/// One movement of sponsor money against an agreed sponsorship.
+///
+/// Amounts are integer pesewa and every entry is append-only: a release is a new
+/// row, never an edit of an earlier one.
+model SponsorshipFunding {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  sponsorshipId String
+  sponsorId     String
+  /// allocation | release
+  kind          String   @default("allocation")
+  amountPesewa  Int
+  fundedAt      DateTime @default(now())
+  reference     String
+  note          String?
+  recordedById  String
+  createdAt     DateTime @default(now())
+
+  tenant      BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorship AssociationSponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+  sponsor     Sponsor                @relation(fields: [sponsorId], references: [id])
+
+  @@unique([tenantId, reference])
+  @@index([sponsorshipId, fundedAt])
+  @@index([sponsorId, fundedAt])
+}
+
+/// What sponsor money covers, and for which business.
+///
+/// The covered business keeps ownership of its own subscription and data; the
+/// sponsor funds it and gains no entitlement. This record is the only place the
+/// two are linked, which keeps the boundary visible.
+model SponsorshipCoverage {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  sponsorshipId  String
+  /// The member business whose subscription is covered.
+  subjectTenantId String
+  subscriptionId String?
+  periodStart    DateTime
+  periodEnd      DateTime
+  amountPesewa   Int
+  /// active | ended
+  status         String   @default("active")
+  note           String?
+  recordedById   String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant      BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  sponsorship AssociationSponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sponsorshipId, periodEnd])
+  @@index([subjectTenantId, periodEnd])
+}
+
+/// Sponsorship of one association member. This is a record of an agreed
+/// sponsorship only. It never charges, pays out or changes a subscription.
+model AssociationSponsorship {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  memberId     String
+  sponsorName  String
+  /// The sponsor entity, when one has been registered.
+  sponsorId    String?
+  /// The member business this sponsorship covers, when it is a tenant here.
+  subjectTenantId String?
+  /// Most this sponsorship may be funded with, in integer pesewa.
+  fundedCapPesewa Int?
+  planCode     String?
+  amount       Decimal   @default(0)
+  currency     String    @default("GHS")
+  /// pledged | active | ended | cancelled
+  status       String    @default("pledged")
+  startDate    DateTime?
+  endDate      DateTime?
+  reference    String?
+  notes        String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sponsor Sponsor? @relation(fields: [sponsorId], references: [id])
+  fundings SponsorshipFunding[]
+  coverages SponsorshipCoverage[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+  @@index([memberId, createdAt])
+  @@index([sponsorId])
+}
+
+/// Training completed or scheduled by an association member.
+model AssociationTrainingRecord {
+  id                   String    @id @default(cuid())
+  tenantId             String?
+  memberId             String
+  title                String
+  provider             String?
+  /// scheduled | completed | expired | cancelled
+  status               String    @default("completed")
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  certificateReference String?
+  notes                String?
+  createdById          String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([memberId, completedAt])
+}
+
 model BusinessTenant {
   id                 String    @id @default(cuid())
   code               String    @unique // server-generated, e.g. BIK-A1B2C3
@@ -607,6 +1819,14 @@ model BusinessTenant {
   contactPhone       String?
   contactEmail       String?
   address            String?
+  /// Business registration number shown on legal instruments. Optional because
+  /// existing tenants predate the field; participation onboarding requires it.
+  registrationNumber String?
+  /// DPC controller-registration state for this business. It never blocks
+  /// account creation and is not asserted as approval by BloomCore.
+  dpcRegistrationStatus    String    @default("not_provided") // not_provided | pending | registered | exempt
+  dpcRegistrationNumber    String?
+  dpcRegistrationCheckedAt DateTime?
   momoEnabled        Boolean   @default(false)
   susuEnabled        Boolean   @default(false)
   status             String    @default("PROVISIONING") // PROVISIONING | ACTIVE | SUSPENDED | ARCHIVED
@@ -622,6 +1842,55 @@ model BusinessTenant {
   users                        User[]
   locations                    Location[]
   dailyAccounts                DailyAccount[]
+  momoTransactions             MomoTransaction[]
+  branchAssetBalances          BranchAssetBalance[]
+  branchTransfers              BranchTransfer[]
+  shifts                       Shift[]
+  shiftHandovers               ShiftHandover[]
+  shiftRevisions               ShiftRevision[]
+  operationalPolicy            TenantOperationalPolicy?
+  offlineActionRequests        OfflineActionRequest[]
+  momoOfflineDrafts            MomoOfflineDraft[]
+  riskIntelligenceConsents    RiskIntelligenceConsent[]
+  agentRiskSignals            AgentRiskSignal[]
+  riskIntelligenceDisclosures RiskIntelligenceDisclosure[]
+  operationalAnomalies         OperationalAnomaly[]
+  customerDisputes             CustomerDispute[]
+  customerWithdrawalRequests   CustomerWithdrawalRequest[]
+  evidenceAttachments          EvidenceAttachment[]
+  customerDisputeEvents        CustomerDisputeEvent[]
+  associationMembers           AssociationMember[]
+  associations                 Association[]
+  sponsors                     Sponsor[]
+  sponsorshipFundings          SponsorshipFunding[]
+  sponsorshipCoverages         SponsorshipCoverage[]
+  anomalyFindingEvents         AnomalyFindingEvent[]
+  anomalyInvestigations        AnomalyInvestigation[]
+  anomalyInvestigationTasks    AnomalyInvestigationTask[]
+  anomalyInvestigationComments AnomalyInvestigationComment[]
+  anomalySuppressions         AnomalySuppression[]
+  anomalyScanRuns             AnomalyScanRun[]
+  anomalyInvestigationDrafts  AnomalyInvestigationDraft[]
+  aiInvestigationEntitlement  AiInvestigationEntitlement?
+  aiInvestigationUsages       AiInvestigationUsage[]
+  associationZones             AssociationZone[]
+  associationRoles             AssociationRoleAssignment[]
+  associationConsents          AssociationConsentRecord[]
+  trainingCourses              TrainingCourse[]
+  trainingModules              TrainingModule[]
+  trainingSessions             TrainingSession[]
+  trainingEnrolments           TrainingEnrolment[]
+  trainingAttendance           TrainingAttendance[]
+  trainingAssessments          TrainingAssessment[]
+  trainingAttempts             TrainingAssessmentAttempt[]
+  trainingCertificates         TrainingCertificate[]
+  associationSponsorships      AssociationSponsorship[]
+  associationTrainingRecords   AssociationTrainingRecord[]
+  customerMessagingPreferences CustomerMessagingPreference[]
+  messagingConfig              TenantMessagingConfig?
+  messagingTemplates           MessagingTemplate[]
+  messagingConsentChallenges   MessagingConsentChallenge[]
+  customerMessages             CustomerMessageOutbox[]
   expenses                     Expense[]
   auditLogs                    AuditLog[]
   customers                    Customer[]
@@ -649,6 +1918,13 @@ model BusinessTenant {
   zeliPaymentEvents            ZeliPaymentEvent[]
   zeliAiAuthorizations         ZeliAiTenantAuthorization[]
   zeliEntitlementEvents        ZeliEntitlementEvent[]
+  providerStatementImports      ProviderStatementImport[]
+  providerStatementRows         ProviderStatementRow[]
+  branchLiquiditySnapshots      BranchLiquiditySnapshot[]
+  branchLiquidityLines          BranchLiquidityLine[]
+  reconciliationCases           ReconciliationExceptionCase[]
+  reconciliationCaseLinks       ReconciliationExceptionLink[]
+  reconciliationCaseEvents      ReconciliationExceptionEvent[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -760,6 +2036,28 @@ model RateLimitCounter {
   updatedAt       DateTime @updatedAt
 
   @@index([expiresAt])
+}
+
+/// Cross-process execution lease for expensive singleton jobs.
+/// The owner id is a random UUID (not a secret); the fencing token increments
+/// on every takeover so a stale owner cannot continue mutating after expiry.
+model SystemJobLease {
+  id           String    @id @default(cuid())
+  key          String    @unique
+  ownerId      String
+  fencingToken Int       @default(0)
+  /// idle | running | released | expired
+  status       String    @default("idle")
+  acquiredAt   DateTime?
+  heartbeatAt  DateTime?
+  expiresAt    DateTime
+  releasedAt   DateTime?
+  /// success | failed | lost | none
+  lastOutcome  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, expiresAt])
 }
 
 /// Progressive failed-login state (1 min → 5 min → 15 min cooldowns).
@@ -903,6 +2201,8 @@ model ZeliConversation {
   userId    String
   userType  String        @default("user") // user | customer | platform
   title     String        @default("New conversation")
+  /// auto | manual. A manual rename is never overwritten by title generation.
+  titleSource String      @default("auto")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   deletedAt DateTime?
@@ -1092,6 +2392,60 @@ model ZeliProviderGatewayEvent {
 
 /// Configurable Zeli subscription catalogue. Prices are owner-configured; no
 /// price is seeded by the application.
+/// The platform's explicit activation of the dedicated AI Investigation package
+/// for one business.
+///
+/// A paid package alone is not enough: a Super Admin must activate it, with a
+/// reason. This row is the activation, and it is checked on every request together
+/// with the live subscription payment and period.
+model AiInvestigationEntitlement {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  /// active | revoked. Expiry is read from the package period on every request.
+  status          String   @default("active")
+  subscriptionId  String
+  planId          String
+  /// The package code the Super Admin activated, kept for the record.
+  planCode        String
+  activatedById   String
+  activatedByEmail String
+  activatedAt     DateTime @default(now())
+  /// Copied at activation for display; the live check uses the subscription.
+  expiresAt       DateTime
+  reason          String
+  revokedById     String?
+  revokedByEmail  String?
+  revokedAt       DateTime?
+  revokeReason    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// Monthly external-investigation usage for one business.
+///
+/// The package allowance is a safety limit, not a price: it is configured on the
+/// package by the platform, and this row is the counter that enforces it.
+model AiInvestigationUsage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  /// YYYY-MM (UTC).
+  period    String
+  requests  Int      @default(0)
+  limit     Int
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, period])
+  @@index([period])
+}
+
 model ZeliPlan {
   id               String   @id @default(cuid())
   code             String   @unique
@@ -1110,6 +2464,10 @@ model ZeliPlan {
   foundingPrice    Decimal?
   /// Zeli is included in every commercial package.
   zeliIncluded     Boolean  @default(true)
+  /// Set when this plan is a paid add-on rather than a base package.
+  /// Currently only `ai_investigation`: the dedicated AI investigation package.
+  /// An add-on payment never grants the base analytics entitlement.
+  addonKey         String?
   providerPlanCode String? // optional Paystack plan for recurring billing
   status           String   @default("draft") // draft | active | archived
   isPublic         Boolean  @default(false)
@@ -1121,6 +2479,8 @@ model ZeliPlan {
 
   subscriptions        ZeliSubscription[]
   foundingAllocations  FoundingAllocation[]
+
+  @@index([addonKey])
 
   @@index([status])
   @@index([isPublic])
@@ -1252,6 +2612,8 @@ model ZeliChargeAttempt {
   provider           String    @default("paystack")
   method             String    // mobile_money | hosted
   network            String?   // mtn | atl | vod
+  /// Hosted checkout method bound at initialisation: mobile_money | card | bank_transfer.
+  checkoutChannel    String?
   amount             Decimal
   currency           String
   /// initiating | pending | rejected | failed | unresolved | succeeded | abandoned
@@ -1370,6 +2732,133 @@ model ZeliAvailability {
   updatedAt   DateTime @updatedAt
 }
 
+
+// A3: an offline capture that must not post money by itself.
+//
+// Only a Susu contribution posts directly when it syncs. A withdrawal,
+// remittance or reversal captured offline becomes a request that an
+// administrator authorises online, because the decision to move money needs a
+// live session, fresh proof of identity and a reviewer.
+/// A MoMo day captured on a device while it was offline.
+///
+/// This is a DRAFT, never a posting. Syncing one changes no balance, ledger row,
+/// transaction or daily account: it parks the captured figures with the server so the
+/// worker can open them in the real daily-account form once the connection returns, and
+/// so an administrator can see that the day was captured late. Applying a draft is an
+/// ordinary online action that goes through the normal authorisation path, which is why
+/// this model has no money columns of its own — the figures live in `payloadJson` as
+/// integer pesewa and are re-read, never trusted, when they are applied.
+model MomoOfflineDraft {
+  id           String   @id @default(cuid())
+  tenantId     String
+  locationId   String
+  userId       String
+  deviceId     String
+  /// The business day the capture belongs to (UTC date at midnight).
+  businessDate DateTime
+  /// Canonical JSON of the captured figures, integer pesewa throughout.
+  payloadJson  String
+  /// SHA-256 of the canonical payload. A retry with a different body is refused.
+  payloadHash  String
+  idempotencyKey String
+  /// pending | applied | rejected | needs_review
+  status       String   @default("pending")
+  /// Why the server could not accept it, or why it overlaps an existing account.
+  conflictReason String?
+  /// The daily account the draft was applied into, when it was.
+  appliedAccountId String?
+  appliedAt    DateTime?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, businessDate])
+  @@index([userId, businessDate])
+}
+
+model OfflineActionRequest {
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  /// withdrawal | remittance | reversal
+  kind                String
+  /// Normalized JSON payload as captured on the device.
+  payloadJson         String
+  /// pending | needs_review | authorised | rejected | cancelled
+  status              String   @default("pending")
+  /// Why the request could not be posted when it was authorised, or why the
+  /// device flagged a conflict. Shown verbatim to the reviewer.
+  conflictReason      String?
+  deviceId            String?
+  requestedById       String
+  requestedAt         DateTime @default(now())
+  idempotencyKey      String
+  decidedById         String?
+  decidedAt           DateTime?
+  decisionNote        String?
+  resultingEntityType String?
+  resultingEntityId   String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, requestedAt])
+  @@index([requestedById, requestedAt])
+}
+
+// A2: tenant operational policy. One row per business, written only by an
+// administrator and audited. Absent row = product defaults (shifts optional,
+// no per-action actor proof).
+model TenantOperationalPolicy {
+  id                           String   @id @default(cuid())
+  tenantId                     String   @unique
+  /// When true a worker cannot submit a daily close without a closed shift for
+  /// the same employee, branch and business day.
+  shiftsRequired               Boolean  @default(false)
+  /// When true the actor must prove identity again (their own password) before a
+  /// sensitive count is submitted on a shared device: a shift count or a daily
+  /// close. The proof is a single-use step-up grant bound to that record.
+  actorProofForSensitiveCounts Boolean  @default(false)
+  /// Minutes of inactivity before the offline workspace locks itself. Null uses
+  /// the product default. Bounded 1..120 by the server.
+  offlineIdleLockMinutes       Int?
+  note                         String?
+  updatedById                  String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// A2: audited revision of a closed shift. The original figures are preserved in
+// this revision's snapshot; a shift is never silently rewritten.
+model ShiftRevision {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  shiftId       String
+  /// JSON snapshot of the shift figures before the revision.
+  beforeJson    String
+  /// JSON snapshot of the shift figures after the revision.
+  afterJson     String
+  /// cash | momo_float | both
+  fields        String
+  reason        String
+  requestedById String
+  approvedById  String
+  createdAt     DateTime  @default(now())
+
+  shift  Shift          @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, shiftId])
+  @@index([shiftId, createdAt])
+}
 
 // SEC-04: server-side, single-use step-up authorization grant.
 // Only a SHA-256 hash of the opaque bearer token is stored.
@@ -1616,4 +3105,811 @@ model ZeliUsagePeriod {
 
   @@unique([tenantId, period])
   @@index([period])
+}
+
+/// Customer consent and contact details for transactional receipts.
+/// WhatsApp is deliberately separate from the ordinary mobile number: a
+/// customer's phone is not assumed to be a WhatsApp account.
+model CustomerMessagingPreference {
+  id                 String    @id @default(cuid())
+  customerId         String    @unique
+  tenantId           String?
+  whatsappNumber     String?
+  /// unverified | verified
+  whatsappStatus     String    @default("unverified")
+  whatsappOptInAt    DateTime?
+  whatsappOptInSource String?
+  /// Proof the customer controls the number. Only set after a verified code or
+  /// an operator decision; never by self-assertion in the portal.
+  whatsappVerifiedAt DateTime?
+  /// otp | operator_assertion
+  whatsappVerificationMethod String?
+  whatsappOptOutAt   DateTime?
+  smsNumber          String?
+  /// unverified | verified
+  smsStatus          String    @default("unverified")
+  smsOptInAt         DateTime?
+  smsOptInSource     String?
+  smsVerifiedAt      DateTime?
+  /// otp | operator_assertion
+  smsVerificationMethod String?
+  smsOptOutAt        DateTime?
+  /// sms | whatsapp | null (no receipt channel)
+  preferredChannel   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([preferredChannel])
+}
+
+/// A business's own messaging decisions. Environment values remain the platform
+/// ceiling: a business switch can only narrow what the platform allows, never
+/// widen it, and delivery stays off until a provider and template are approved.
+model TenantMessagingConfig {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @unique
+  whatsappEnabled          Boolean  @default(false)
+  smsEnabled               Boolean  @default(false)
+  /// The approved template this business sends receipts with.
+  whatsappTemplateName     String?
+  whatsappTemplateLanguage String?
+  smsSenderId              String?
+  /// Why the business chose these settings, shown in the audit trail.
+  note                     String?
+  updatedById              String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+}
+
+/// One template a business has registered, with the provider's approval state.
+/// A message is only sent with a template marked approved: the queue refuses the
+/// alternative rather than sending free text under an unapproved identity.
+model MessagingTemplate {
+  id           String    @id @default(cuid())
+  tenantId     String
+  /// whatsapp | sms
+  channel      String
+  /// receipt | statement | dispute_update
+  purpose      String    @default("receipt")
+  name         String
+  language     String    @default("en_US")
+  /// draft | approved | rejected
+  status       String    @default("draft")
+  approvedAt   DateTime?
+  approvedById String?
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, channel, purpose, language])
+  @@index([tenantId, channel, status])
+}
+
+/// Proof that the customer controls the number they opted in with. The code is
+/// stored hashed, expires, is single-use and has a bounded attempt count, so a
+/// leaked row cannot be used to opt anyone in.
+model MessagingConsentChallenge {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  customerId   String
+  /// whatsapp | sms
+  channel      String
+  numberHash   String
+  numberMasked String
+  codeHash     String
+  /// pending | verified | superseded
+  status       String    @default("pending")
+  attempts     Int       @default(0)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([customerId, channel, status])
+  @@index([expiresAt])
+}
+
+/// Durable outbound customer-message queue. One row per receipt event and
+/// channel; the unique event key makes a repeated confirmation harmless.
+/// The recipient is stored encrypted and only a masked form is exposed.
+model CustomerMessageOutbox {
+  id                String    @id @default(cuid())
+  eventKey          String    @unique
+  tenantId          String?
+  customerId        String
+  /// sms | whatsapp
+  channel           String
+  /// receipt
+  purpose           String    @default("receipt")
+  reference         String
+  recipientEncrypted String
+  recipientMasked   String
+  /// Rendered template parameters and safe display fields. No PIN or OTP.
+  payload           String
+  /// pending | sending | accepted | sent | delivered | read | failed | rejected
+  status            String    @default("pending")
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime  @default(now())
+  providerId        String?
+  providerMessageId String?
+  lastError         String?
+  acceptedAt        DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  statusEvents CustomerMessageStatusEvent[]
+
+  @@index([tenantId, status])
+  @@index([status, nextAttemptAt])
+  @@index([customerId, createdAt])
+  @@index([providerMessageId])
+}
+
+/// Idempotent delivery-status events from a provider webhook.
+model CustomerMessageStatusEvent {
+  id          String    @id @default(cuid())
+  outboxId    String
+  eventId     String    @unique
+  status      String
+  occurredAt  DateTime
+  reason      String?
+  createdAt   DateTime  @default(now())
+
+  outbox CustomerMessageOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
+
+  @@index([outboxId, occurredAt])
+}
+
+// ============================================================================
+// PRIORITY A1 — RECONCILIATION, CASH AND FLOAT
+// ============================================================================
+
+/// One imported provider statement file.
+///
+/// An import is EVIDENCE ONLY. Nothing in this model or its rows is ever posted
+/// to the MoMo ledger, a daily account or any other financial record. A matched
+/// row links to an existing internal record for comparison; it never creates or
+/// edits one.
+model ProviderStatementImport {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  /// mtn | telecel | at_money
+  provider      String
+  fileName      String
+  /// SHA-256 of the uploaded bytes. A tenant can import a file once.
+  fileHash      String
+  fileSizeBytes Int?
+  /// JSON: provider header -> accepted column. Kept so a re-read is reproducible.
+  columnMapping String?
+  /// parsed | validated | rejected | reconciled
+  status        String    @default("parsed")
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  rowCount      Int       @default(0)
+  validRows     Int       @default(0)
+  invalidRows   Int       @default(0)
+  duplicateRows Int       @default(0)
+  matchedRows   Int       @default(0)
+  unmatchedRows Int       @default(0)
+  currency      String    @default("GHS")
+  note          String?
+  importedById  String
+  importedAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rows   ProviderStatementRow[]
+
+  @@unique([tenantId, fileHash])
+  @@index([tenantId, provider, createdAt])
+  @@index([tenantId, status])
+}
+
+/// One line of an imported provider statement, exactly as received.
+///
+/// `fingerprint` is a deterministic hash of provider, reference, timestamp,
+/// direction and amount. It is how a repeated line is detected across imports
+/// without discarding the evidence: the row is stored with status `duplicate`
+/// and points at the row it duplicates.
+model ProviderStatementRow {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  importId          String
+  rowNumber         Int
+  fingerprint       String
+  externalReference String?
+  transactionAt     DateTime?
+  /// in | out
+  direction         String?
+  amount            Decimal?
+  fee               Decimal?
+  balanceAfter      Decimal?
+  description       String?
+  /// The original line, truncated for evidence. Never rendered as HTML.
+  rawRow            String?
+  /// valid | invalid | duplicate | matched | unmatched | ignored
+  status            String    @default("valid")
+  validationError   String?
+  duplicateOfId     String?
+  /// momoTransaction | none
+  matchedEntityType String?
+  matchedEntityId   String?
+  /// exact_reference | amount_and_time | manual
+  matchType         String?
+  matchedAt         DateTime?
+  matchedById       String?
+  createdAt         DateTime  @default(now())
+
+  tenant BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  import ProviderStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@unique([importId, rowNumber])
+  @@index([tenantId, fingerprint])
+  @@index([importId, status])
+  @@index([tenantId, matchedEntityId])
+}
+
+/// A formal opening/closing liquidity snapshot for one branch and business day.
+///
+/// The three figures per asset are kept separate and are never collapsed:
+///   declared  — what the operator declared at the start of the day,
+///   adjusted  — declared plus transfers that moved value during the day,
+///   counted   — what was physically counted / observed at close.
+/// `variance` is counted minus adjusted and is the number an investigator works
+/// from. A snapshot is an INTERNAL record. No figure here is provider-confirmed.
+model BranchLiquiditySnapshot {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  locationId     String
+  businessDate   DateTime
+  dailyAccountId String?
+  /// draft | submitted | reviewed
+  status         String    @default("draft")
+  note           String?
+  recordedById   String
+  submittedById  String?
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant       BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location     Location                @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?           @relation(fields: [dailyAccountId], references: [id])
+  lines        BranchLiquidityLine[]
+
+  @@unique([tenantId, locationId, businessDate])
+  @@index([tenantId, businessDate])
+  @@index([tenantId, status])
+}
+
+/// One asset line of a branch liquidity snapshot.
+model BranchLiquidityLine {
+  id                 String   @id @default(cuid())
+  tenantId           String?
+  snapshotId         String
+  /// cash | mtn_float | telecel_float | at_money_float
+  assetType          String
+  openingDeclared    Decimal  @default(0)
+  /// Net movement from branch transfers during the day (may be negative).
+  transferAdjustment Decimal  @default(0)
+  expectedClose      Decimal  @default(0)
+  countedClose       Decimal  @default(0)
+  variance           Decimal  @default(0)
+  note               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant   BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  snapshot BranchLiquiditySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, assetType])
+  @@index([tenantId, assetType])
+}
+
+/// Unified reconciliation exception case.
+///
+/// One queue for every unresolved discrepancy: provider statement lines, branch
+/// liquidity variances, transfer variances, remittance differences and shift
+/// variances all link here. A case carries an owner, an age, evidence and a
+/// resolution. Resolving a case NEVER changes a financial record; the linked
+/// correction is recorded by its own authorised workflow and referenced here.
+model ReconciliationExceptionCase {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  caseNumber     String
+  /// provider_statement | branch_liquidity | branch_transfer | remittance | shift | daily_close | other
+  category       String
+  /// high | medium | low
+  severity       String    @default("medium")
+  /// open | investigating | awaiting_evidence | resolved | dismissed
+  status         String    @default("open")
+  title          String
+  description    String?
+  ownerId        String?
+  assignedAt     DateTime?
+  dueAt          DateTime?
+  evidence       String?
+  resolutionType String?
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  openedById     String
+  openedAt       DateTime  @default(now())
+  lastActivityAt DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant?               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  links  ReconciliationExceptionLink[]
+  events ReconciliationExceptionEvent[]
+
+  @@unique([tenantId, caseNumber])
+  @@index([tenantId, status, severity])
+  @@index([tenantId, category])
+  @@index([tenantId, ownerId])
+}
+
+/// A source record linked to an exception case. Polymorphic by design: a case
+/// can link to a provider statement row, a transfer, a daily account, a shift or
+/// a remittance without a nullable column per type.
+model ReconciliationExceptionLink {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  caseId      String
+  entityType  String
+  entityId    String
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  tenant BusinessTenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   ReconciliationExceptionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([caseId, createdAt])
+}
+
+/// Append-only case timeline. Every state change writes one row.
+model ReconciliationExceptionEvent {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  caseId    String
+  /// opened | assigned | status_changed | note | evidence | resolved | reopened | link_added
+  type      String
+  actorId   String
+  actorRole String?
+  note      String?
+  payload   String?
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   ReconciliationExceptionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@index([tenantId, type])
+}
+
+// ---------------------------------------------------------------------------
+// Shared agent risk intelligence (opt-in, governed, never a public blacklist)
+// ---------------------------------------------------------------------------
+
+/// A business's explicit decision to take part in shared risk intelligence.
+///
+/// Joining is a deliberate act by the business owner, recorded with the exact policy
+/// version they accepted. Leaving is equally deliberate: the row is kept, marked
+/// withdrawn, and its signals stop being shared. No business is enrolled implicitly.
+model RiskIntelligenceConsent {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  /// The policy text the owner accepted. A new version must be accepted again.
+  policyVersion  String
+  status         String    @default("active")
+  /// share_signals | query_only
+  scope          String    @default("share_signals")
+  consentedById  String
+  consentedAt    DateTime  @default(now())
+  withdrawnById  String?
+  withdrawnAt    DateTime?
+  withdrawReason String?
+  billingBasis   String?
+  /// ENG-08 participation gates, verified server-side before contribution.
+  eligibilityVerified           Boolean   @default(false)
+  controllerRegistrationChecked Boolean   @default(false)
+  /// ENG-07 business-level suspension, independent of consent withdrawal.
+  suspendedAt    DateTime?
+  suspensionReason String?
+  suspendedById  String?
+  /// ENG-07 expulsion for proven bad-faith reporting. An expelled business must
+  /// be explicitly reinstated by BloomCore under the published participation terms.
+  expelledAt      DateTime?
+  expulsionReason String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, policyVersion])
+  @@index([tenantId, status])
+  @@index([expelledAt], map: "RiskIntelligenceConsent_expelledAt_idx")
+}
+
+/// One risk signal contributed by one business about one agent.
+///
+/// The identity is a salted hash of a normalised agent identity, never a name, a phone
+/// number or a photograph. The originating business is stored so a signal can be
+/// withdrawn and so a disclosure can be audited, and is never shown to another business.
+model AgentRiskSignal {
+  id           String   @id @default(cuid())
+  /// The contributing business.
+  tenantId     String?
+  /// Salted hash of the normalised identity. Raw identity is never stored here.
+  subjectKey   String
+  /// Which identity fields went into the key, so the basis is reproducible.
+  keyBasis     String
+  /// Salt version used, so rotating the salt does not silently break matching.
+  saltVersion  Int      @default(1)
+  /// shortage | repeated_shortage | unreconciled_day | evidence_gap |
+  /// unconfirmed_handover | policy_breach
+  category     String
+  /// high | medium | low
+  severity     String
+  /// open | withdrawn | expired
+  status       String   @default("open")
+  /// The internal record that justified the signal. Never disclosed to another business.
+  sourceType   String
+  sourceId     String
+  /// Reference to the closed record and its supporting evidence, as read from
+  /// the source row at contribution time. Never disclosed to another business.
+  evidenceReference String?
+  /// Good-faith declaration made by the reporting administrator.
+  goodFaithDeclaredAt DateTime?
+  /// The administrator who submitted the signal (audit identity, not disclosed).
+  reportedById String?
+  internalNote String?
+  observedFrom DateTime
+  observedTo   DateTime
+  /// Signals fade: an old shortage says less about this month.
+  expiresAt    DateTime
+  /// ENG-02/ENG-04 lifecycle timestamps. Adding columns is additive.
+  withdrawnAt  DateTime?
+  frozenAt     DateTime?
+  disputedAt   DateTime?
+  resolvedAt   DateTime?
+  deletedAt    DateTime?
+  scrubbedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, subjectKey, sourceType, sourceId])
+  @@index([subjectKey, status])
+  @@index([tenantId, status])
+  @@index([expiresAt])
+}
+
+/// Every time one business is shown another business's aggregated signal.
+///
+/// A shared-risk product that cannot say who was shown what is not governed, so each
+/// disclosure is written before the caller sees the result.
+model RiskIntelligenceDisclosure {
+  id               String   @id @default(cuid())
+  tenantId         String?
+  subjectKey       String
+  /// Categories and coarse counts only; never the contributing businesses.
+  disclosed        String
+  /// Distinct contributing businesses behind the answer at the time.
+  contributorCount Int
+  viewerId         String
+  reason           String
+  createdAt        DateTime @default(now())
+  /// ENG-04: 24-month audit retention, then scrub or delete.
+  deletedAt        DateTime?
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([subjectKey, createdAt])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Shared agent risk intelligence — DPC governance safeguards (ENG-01..ENG-08)
+// Additive only. No existing table, column or record is removed or repurposed.
+// ---------------------------------------------------------------------------
+
+/// Global emergency control. A single row with id "global". When absent, the
+/// deployment follows its existing configuration (secret presence); an explicit
+/// row with enabled=false disables the feature immediately.
+model RiskGlobalControl {
+  id          String   @id
+  enabled     Boolean  @default(false)
+  reason      String
+  changedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// A valid objection or challenge freezes the matched subject for all key versions.
+model RiskSubjectFreeze {
+  id               String   @id @default(cuid())
+  subjectKey       String
+  /// frozen | upheld | rejected | restored
+  status           String   @default("frozen")
+  reason           String
+  caseRef          String?
+  frozenById       String
+  notifiedTenantId String?
+  frozenAt         DateTime @default(now())
+  resolvedAt       DateTime?
+  resolutionById   String?
+  /// upheld | rejected | restored — always reasoned and documented
+  resolution       String?
+  createdAt        DateTime @default(now())
+
+  @@index([subjectKey, status])
+  @@index([status, frozenAt])
+}
+
+/// Subject access, correction, objection, challenge and complaint/review cases.
+model SubjectRightsRequest {
+  id                     String   @id @default(cuid())
+  caseRef                String   @unique
+  tenantId               String
+  subjectKey             String?
+  subjectUserId          String?
+  /// access | correction | objection | challenge | complaint_review
+  type                   String
+  classification         String   @default("standard")
+  /// received | acknowledged | in_review | frozen | resolved | closed
+  status                 String   @default("received")
+  reviewerId             String?
+  identityVerified       Boolean  @default(false)
+  receivedAt             DateTime @default(now())
+  acknowledgedAt         DateTime?
+  ackDeadline            DateTime
+  resolutionDeadline     DateTime
+  extendedDeadline       DateTime?
+  extensionReason        String?
+  extensionApprovedById  String?
+  decision               String?
+  decisionReason         String?
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+  /// Version of the Ghana public-holiday calendar used to compute the
+  /// acknowledgement deadline, so the calculation is reproducible.
+  holidayCalendarVersion String?
+  /// Redacted JSON metadata only: never raw identity or another business's report.
+  evidence               String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([ackDeadline])
+  @@index([resolutionDeadline])
+}
+
+model RightsRequestCommunication {
+  id        String   @id @default(cuid())
+  requestId String
+  /// inbound | outbound
+  direction String
+  channel   String
+  content   String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+/// Versioned employee privacy notice. Text comes from the approved source document.
+model EmployeePrivacyNotice {
+  id            String   @id @default(cuid())
+  version       String   @unique
+  title         String
+  /// Exact approved text, so historical versions remain viewable.
+  documentText  String
+  documentHash  String
+  effectiveDate DateTime
+  policyVersion String
+  createdAt     DateTime @default(now())
+}
+
+/// Delivery evidence and acknowledgement, separate from business consent.
+model EmployeeNoticeAttestation {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  userId               String
+  noticeVersion        String
+  deliveryMethod       String
+  issuedAt             DateTime
+  deliveryEvidence     String
+  /// Exact hash of the notice version presented to the agent.
+  documentSha256       String?
+  /// delivered | acknowledged | declined
+  acknowledgementState String   @default("delivered")
+  acknowledgedAt       DateTime?
+  /// True only when acceptable delivery evidence exists and was verified. A
+  /// failed or returned delivery leaves this false even if a row is recorded.
+  verified             Boolean  @default(false)
+  verifiedAt           DateTime?
+  failureReason        String?
+  recordedById         String
+  policyVersion        String
+  createdAt            DateTime @default(now())
+
+  @@unique([tenantId, userId, noticeVersion])
+  @@index([tenantId, noticeVersion])
+  @@index([tenantId, verified], map: "EmployeeNoticeAttestation_verified_idx")
+}
+
+/// Electronic execution record bound to exact document version and SHA-256.
+model ParticipationAgreement {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  type                 String
+  title                String
+  version              String
+  effectiveDate        DateTime
+  /// Exact text presented to the signatory; historical versions are preserved.
+  documentText         String
+  documentSha256       String
+  documentRef          String
+  state                String   @default("draft")
+  signatoryId          String
+  signatoryName        String
+  signatoryRole        String
+  signatoryAuthority   String
+  authenticationMethod String
+  /// Verification evidence for the lawyer-approved authentication method.
+  authenticationEvidence String?
+  acceptedAt           DateTime?
+  countersignedById    String?
+  countersignedAt      DateTime?
+  executedAt           DateTime?
+  countersignatoryName       String?
+  countersignatoryCapacity   String?
+  /// SHA-256 over the final execution certificate (document hash + identities +
+  /// timestamps + state). Evidence only; it does not assert legal validity.
+  executionCertificateSha256 String?
+  supersededById       String?
+  createdAt            DateTime @default(now())
+
+  @@unique([tenantId, type, version])
+  @@index([tenantId, state])
+}
+
+/// Scoped legal hold over specifically identified records.
+model RiskLegalHold {
+  id              String   @id @default(cuid())
+  /// signal | subject | request
+  scopeType       String
+  scopeId         String
+  tenantId        String?
+  dpoReference    String
+  reason          String
+  authorisedById  String
+  createdAt       DateTime @default(now())
+  reviewDate      DateTime
+  caseClosureDate DateTime?
+  extensionUntil  DateTime?
+  extensionReason String?
+  releasedAt      DateTime?
+  releasedById    String?
+  releaseReason   String?
+
+  @@index([scopeType, scopeId])
+}
+
+/// Append-only history for global, business, signal and subject controls.
+model RiskControlEvent {
+  id        String   @id @default(cuid())
+  /// global | business | signal | subject
+  level     String
+  action    String
+  scopeId   String?
+  tenantId  String?
+  actorId   String
+  reason    String
+  outcome   String
+  /// JSON metadata only; each row is immutable.
+  history   String?
+  createdAt DateTime @default(now())
+
+  @@index([level, scopeId, createdAt])
+}
+
+/// Key metadata only. No secret value is ever stored in the application database.
+model RiskKeyVersion {
+  version     Int      @id
+  /// active | previous | retired
+  status      String
+  /// Provider-side reference or alias. Never a secret value.
+  providerRef String?
+  activatedAt DateTime @default(now())
+  retiredAt   DateTime?
+  retiredById String?
+
+  @@index([status])
+}
+
+/// Restricted privacy administrators/reviewers, checked server-side on every operation.
+model RiskPrivacyAccess {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  /// privacy_admin | privacy_reviewer | legacy dpo
+  role        String
+  grantedById String
+  reason      String
+  active      Boolean  @default(true)
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+/// Owner-confirmed public legal and infrastructure facts used by the controlled
+/// instruments. The registered name, company number and TIN remain code
+/// constants and are deliberately not editable here.
+model RiskOrganisationProfile {
+  id                        String   @id @default("bloomcore")
+  registeredOffice          String?
+  registeredOfficeConfirmed Boolean  @default(false)
+  privacyEmail              String?
+  signatoryName             String?
+  signatoryCapacity         String?
+  hostingProviders          String?
+  hostingRegions            String?
+  updatedById               String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+
+/// Durable evidence for outbound governance notifications and document delivery.
+/// No recipient address, secret, subject key or document content is stored here.
+model GovernanceDocumentDelivery {
+  id                String   @id @default(cuid())
+  eventType         String
+  /// agreement | notice | signal | rights
+  scopeType         String
+  scopeId           String
+  tenantId          String?
+  recipientUserId   String?
+  /// SHA-256 of the normalised destination address, not the address itself.
+  recipientHash     String
+  templateVersion   String
+  /// queued | sent | failed | skipped
+  status            String   @default("queued")
+  attempts          Int      @default(1)
+  providerMessageId String?
+  /// Generic provider status only; never a body, token or address.
+  lastError         String?
+  /// JSON retry metadata, append-only per row.
+  retryHistory      String?
+  createdAt         DateTime @default(now())
+  sentAt            DateTime?
+
+  @@unique([eventType, scopeId, recipientHash])
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
 }

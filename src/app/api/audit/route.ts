@@ -5,10 +5,17 @@ import {
   presentAuditEntry,
   type AuditEntityContext,
 } from "@/lib/audit-presentation";
+import {
+  enforceExportRateLimit,
+  exportRateLimitResponse,
+} from "@/lib/security/export-rate-limit";
 
 interface AuditRow {
   id: string;
   userId: string;
+  actorName: string | null;
+  actorRole: string | null;
+  actorType: string | null;
   action: string;
   entityType: string;
   entityId: string | null;
@@ -322,6 +329,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const limited = await enforceExportRateLimit("audit", ctx.userId, ctx.tenantId);
+  if (limited) return exportRateLimitResponse(limited);
+
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
   const limit = Math.min(
@@ -345,28 +355,50 @@ export async function GET(request: NextRequest) {
   const context = await buildAuditContext(logs as AuditRow[], ctx.tenantId);
 
   const actorIds = Array.from(new Set(logs.map((log) => log.userId)));
-  let actorNames = new Map<string, string>();
+  let actorsById = new Map<string, { fullName: string; role: string }>();
   try {
     const actors = await db.user.findMany({
       where: { tenantId: ctx.tenantId, id: { in: actorIds } },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, role: true },
     });
-    actorNames = new Map(actors.map((actor) => [actor.id, actor.fullName]));
+    actorsById = new Map(
+      actors.map((actor) => [actor.id, { fullName: actor.fullName, role: actor.role }])
+    );
+    const missing = actorIds.filter((id) => !actorsById.has(id));
+    if (missing.length > 0) {
+      const customers = await db.customer.findMany({
+        where: { tenantId: ctx.tenantId, id: { in: missing } },
+        select: { id: true, fullName: true },
+      });
+      for (const customer of customers) {
+        actorsById.set(customer.id, { fullName: customer.fullName, role: "customer" });
+      }
+    }
   } catch {
-    actorNames = new Map();
+    actorsById = new Map();
   }
 
-  const presented = logs.map((log) => ({
-    ...log,
-    presentation: presentAuditEntry({
-      action: log.action,
-      entityType: log.entityType,
-      entityId: log.entityId,
-      details: log.details,
-      actorName: actorNames.get(log.userId) ?? null,
-      entity: context.get(log.entityId ?? "") ?? null,
-    }),
-  }));
+  const presented = logs.map((log) => {
+    const liveActor = actorsById.get(log.userId) ?? null;
+    // The snapshot is authoritative for the historical action. A later rename
+    // must not rewrite who did it. Legacy rows without a snapshot fall back to
+    // the current account, then to an explicit unattributed state.
+    const actorName = log.actorName ?? liveActor?.fullName ?? null;
+    const actorRole = log.actorRole ?? liveActor?.role ?? null;
+    return {
+      ...log,
+      actorName,
+      actorRole,
+      presentation: presentAuditEntry({
+        action: log.action,
+        entityType: log.entityType,
+        entityId: log.entityId,
+        details: log.details,
+        actorName,
+        entity: context.get(log.entityId ?? "") ?? null,
+      }),
+    };
+  });
 
   return NextResponse.json({ logs: presented, total, page, limit });
 }

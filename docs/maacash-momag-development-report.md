@@ -1,0 +1,1493 @@
+# MaaCash — MoMAG Readiness Development Report
+
+**Repository:** `Delkay-byte/BloomCore-One`  
+**Production baseline:** `92d6d974e1e41d7b0586e823f9c000a0a7fe0925`  
+**Working branch:** `feat/maacash-momag-readiness`  
+**Mode:** local development only. Nothing pushed, merged, deployed or run against production payment services.
+
+## Current position
+
+The branch already contains seven capability commits beyond the baseline: MoMo operational ledger, branch cash/float transfers, shifts and handovers, customer statements/receipts, performance reporting, deterministic anomaly monitoring, and customer disputes.
+
+This report starts the new Workstream 0 review and records each feature from here forward.
+
+## Workstream 0 risk register
+
+| # | Risk | Current classification | Evidence and remaining gap |
+|---|---|---|---|
+| 1 | Aggregated MoMo figures conceal transaction-level discrepancies | **PARTIALLY ADDRESSED / DISCLOSED** | `MomoTransaction` and the per-day `ledgerMode` cutover exist. Workstream 1 adds an explicit verification state, supporting evidence and per-row cash/float effects, so a manual row can never be presented as provider-confirmed. Aggregate days remain supported but are labelled operator-declared and not transaction-proven; performance counts ledger-backed versus aggregate days and an anomaly flags mixed sources. Forcing every business onto the ledger remains a product decision. |
+| 2 | Best-effort audit records leave financial actions without evidence | **RESOLVED for money movements; residual control record** | Successful money changes now write audit evidence in the same transaction. `createAuditLog()` remains for non-financial/security events, and the final `finance.approval_applied` summary is still written after the already-audited reversal. |
+| 3 | Activity History omits meaningful actor identity | **RESOLVED for actor identity** | Audit rows now snapshot actor name, role and type at write time. Renames and removed accounts do not rewrite history. Device attribution remains part of 0.3. |
+| 4 | Offline shared-device recovery creates attribution and replay risk | **RESOLVED for attribution and replay; device trust remains a foundation** | Per-user IndexedDB scope, device ownership checks, global payload-bound idempotency and revoked-device refusal exist. Synced collections now store the verified device and commit with audit evidence. Device attestation/hardware binding is not claimed. |
+| 5 | Revenue and profit definitions can mislead | **RESOLVED** | Performance reporting uses operating revenue = commission + other income, discloses every headline definition, and continues to exclude debt recovery and principal volume. Daily screens now call the accountability figure an increase, not profit. |
+
+## Feature 0.1 — Atomic financial audit evidence
+
+**Status:** GREEN  
+**Commit:** `bb5e5e5`  
+**Test follow-up:** `bce2363` (browser fixture only)
+
+### Existing capability before changes
+
+Financial actions committed their money rows first, then called `createAuditLog()`. That helper catches every error and only logs to the server console. A database or storage failure could therefore leave a contribution, withdrawal, reversal, remittance or daily closing with no durable audit evidence.
+
+### What was implemented
+
+`createAuditLogTx()` is now used inside the same transaction as:
+
+- contribution recording;
+- withdrawal processing, including first-withdrawal commission;
+- contribution and withdrawal reversals;
+- collector remittance recording and reversal;
+- daily-account create, save, correction, submit, review and handover confirmation;
+- customer/account creation with the initial card fee;
+- financial approval request and rejection.
+
+A failed audit insert aborts the transaction. The money row and all side effects roll back.
+
+### Schema and migrations
+
+None. This feature changes transaction boundaries only.
+
+### Tests and results
+
+- New `tests/financial-audit-atomicity.test.ts` installs a SQLite trigger that aborts all `AuditLog` inserts.
+- Proven rollback for contribution, withdrawal, contribution reversal and daily-account submission.
+- Targeted financial/operational suite: **10 files, 103 tests passed**.
+- Full regression suite: **112 files, 1,274 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; one pre-existing unused-import warning in `susu-collector.actions.ts`.
+
+### Browser acceptance
+
+`e2e/momo-workflow.spec.ts` — worker opens the seeded daily account, enters a balanced reconciliation, submits it and reaches the submitted state. **1 passed.** The flow now explains a material opening balance when the seeded prior close triggers that control.
+
+### Security and tenant-isolation evidence
+
+- No tenant or session resolution changed.
+- Every audit row is written with the already-resolved session tenant and actor.
+- No client-supplied actor or tenant is introduced.
+- Step-up, dual-control and rate-limit checks precede the financial transaction as before.
+- No financial record is overwritten; corrections still create reversal/revision records.
+
+### Known limitations
+
+- Application-level audit rows are durable but not cryptographically immutable.
+- The `finance.approval_applied` summary remains a post-execution write. The underlying reversal is already audited atomically, so the money change is not unaudited.
+- A single-administrator exception row is still written after the correction transaction. The correction itself carries actor, reason and audit evidence in-transaction.
+
+### External approvals still required
+
+None for this local feature.
+
+### Next dependency
+
+0.2 — complete actor identity and device attribution in Activity History, before offline replay hardening.
+
+## Feature 0.2 — Durable audit actor identity
+
+**Status:** GREEN  
+**Commit:** `b34530a`
+
+### Existing capability before changes
+
+Activity History looked up the actor from the current `User` or `Customer` row by `userId`. Renaming an employee changed the displayed actor on old events; removing an account left legitimate historical events unattributed.
+
+### What was implemented
+
+- `AuditLog` now stores `actorName`, `actorRole` and `actorType` at write time.
+- Both `createAuditLog()` and `createAuditLogTx()` populate the snapshot. The atomic helper fails closed with the financial transaction if the snapshot cannot be written.
+- `/api/audit` prefers the stored snapshot, falls back to the live account for legacy rows, and keeps an explicit unattributed state when neither exists.
+- No client-supplied actor identity is accepted.
+
+### Schema and migrations
+
+- `prisma/schema.prisma` and `prisma/schema-pg.prisma`: nullable `actorName`, `actorRole`, `actorType` columns on `AuditLog`.
+- Additive migration `20261129_audit_actor_snapshot`.
+
+### Tests and results
+
+- New `tests/audit-actor-attribution.test.ts` proves:
+  - rename does not rewrite historical actor name/role;
+  - deleting the actor account preserves the snapshot;
+  - customer portal actions are attributed as `customer`, not staff.
+- Targeted audit suite: **5 files, 28 tests passed**.
+- Full regression suite: **113 files, 1,277 tests passed**.
+- TypeScript and touched-file ESLint: clean.
+
+### Browser acceptance
+
+Admin → Activity History shows a seeded historical actor snapshot (`Historic Actor · Admin`) after the current account was renamed. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Actor lookup remains tenant-scoped through the authenticated session/action context.
+- Audit rows keep the existing tenant column and the API still filters by `ctx.tenantId`.
+- Snapshot fields are written server-side only; they are not accepted from request input.
+- No historical audit rows are updated or deleted.
+
+### Known limitations
+
+- Legacy audit rows created before this migration have no snapshot and still depend on the live account.
+- Device identity is not yet stored on the audit row. That belongs to 0.3 and Workstream 1.
+
+### External approvals still required
+
+None.
+
+### Next dependency
+
+0.3 — offline shared-device attribution and replay hardening.
+
+## Feature 0.3 — Offline device attribution and atomic sync
+
+**Status:** GREEN  
+**Commit:** `f92cdbc`
+
+### Existing capability before changes
+
+The offline route already bound a queue key to the authenticated user, tenant, device and canonical payload, and rejected cross-tenant/cross-user reuse. However, the resulting `Contribution` carried only the user, not the device. The contribution, offline queue acknowledgement and audit row also committed in separate steps.
+
+### What was implemented
+
+- `Contribution` stores `recordedDeviceId` and `recordedDeviceName` for offline collections only.
+- The verified `DeviceEnrollment` is the source of both values; the client cannot supply them.
+- Contribution, allocations, actor-snapshotted audit row and `OfflineTransaction` acknowledgement commit in one transaction.
+- Audit details include the device identifier and name plus `source: offline_sync`.
+- A retry of an already-synced key returns the original result without a second contribution or audit row.
+- The existing per-user IndexedDB scope and device-ownership checks are unchanged.
+
+### Schema and migrations
+
+- `Contribution.recordedDeviceId`, `Contribution.recordedDeviceName` in both Prisma schemas.
+- Additive migration `20261130_contribution_device_attribution`.
+
+### Tests and results
+
+- New `tests/offline-sync-attribution.test.ts`:
+  - verified device and actor snapshot stored on the contribution;
+  - one audit row with device evidence;
+  - retry remains idempotent with one posting and one audit row;
+  - audit-storage failure posts no contribution and does not acknowledge the queue item.
+- Offline/security targeted suite: **6 files, 58 tests passed**.
+- Full regression suite: **114 files, 1,279 tests passed**.
+- TypeScript and touched-file ESLint: clean.
+
+### Browser acceptance
+
+Mobile collector offline status flow: Online → Offline → Online transitions without a false “Offline Active” state. **1 passed.** No offline financial queue was created in the browser test; the server route is covered by the integration tests above.
+
+### Security and tenant-isolation evidence
+
+- Device lookup remains scoped by `deviceId`, `userId` and `tenantId`, with `status = active`.
+- The 24-hour offline authorization window and revocation checks remain enforced.
+- The global idempotency key remains bound to the original user, device and canonical payload.
+- No client-supplied device name or actor identity is trusted.
+- No existing queue record is deleted or rewritten beyond its sync acknowledgement.
+
+### Known limitations
+
+- IndexedDB is ordinary browser storage. Per-user scoping prevents normal cross-account access, but it is not hardware-backed secure storage.
+- Device identity is recorded, not cryptographically attested. A rooted or instrumented device can still lie about its local clock or UI state.
+- Offline `collectionDate` still reflects the server posting time, not a separately verified device capture time. This is recorded as a follow-up for the ledger hardening work.
+- PostgreSQL replay tests were updated conceptually by the shared route but were not run locally without a disposable PostgreSQL target.
+
+### External approvals still required
+
+None for local implementation.
+
+### Next dependency
+
+0.4 — revenue/profit definitions and misleading report language.
+
+## Feature 0.4 — Revenue, recovery and accountability definitions
+
+**Status:** GREEN  
+**Commit:** `ef19ca7`
+
+### Existing capability before changes
+
+The performance report already calculated operating revenue as commission plus other income and excluded drafts, debt recovery and principal volume. However, the worker daily closing, correction form, admin dashboard, report detail and CSV still labelled the accountability increase as “profit”. That invited readers to treat debt recovery and accountability movement as accounting profit.
+
+### What was implemented
+
+- Daily screens now use **net accountability increase**, **increase retained** and **increase withdrawn / not retained**.
+- The daily report and correction form state the formula and that it is not accounting profit or revenue.
+- The report CSV header is now **Net Accountability Increase**.
+- Performance uses **Operating revenue**, with an expandable definition for revenue, expenses, net operating and cash movement.
+- `PerformanceReport.source` now carries those definitions so exports and screens share one explanation.
+- Internal compatibility fields such as `profitRetained` remain in the calculation API but are no longer user-facing labels.
+
+### Schema and migrations
+
+None.
+
+### Tests and results
+
+- `tests/financial-definitions.test.ts` guards the terminology across five screens and the CSV header.
+- Performance tests assert the disclosed definitions.
+- Targeted reports suite passed; full suite: **115 files, 1,282 tests**.
+- TypeScript and touched-file ESLint: 0 errors; existing effect warnings only.
+
+### Browser acceptance
+
+Daily report shows the accountability language and the “not accounting profit or revenue” explanation. Performance shows Operating revenue and opens “How each metric is defined”. **1 passed.**
+
+### Known limitations
+
+- Zeli’s conversational intent still recognises the word “profit”; its answer source correctly states that contributions are not profit.
+- Accounting profit cannot be calculated from this operational dataset alone because liabilities, receivables and full cost accounts are not present. The UI does not claim it.
+
+### External approvals still required
+
+None.
+
+### Next dependency
+
+0.5 — aggregate-vs-ledger integrity and disclosure.
+
+## Feature 0.5 — Aggregate close disclosure and mixed-source detection
+
+**Status:** GREEN  
+**Commit:** `1b7ddba`
+
+### Existing capability before changes
+
+Ledger mode existed per day, but an aggregate day looked the same as a transaction-backed day in reports. Performance did not distinguish the two bases, and an aggregate close with same-day ledger rows had no dedicated finding.
+
+### What was implemented
+
+- Daily report has a **Closing basis** card:
+  - Transaction ledger — derived from individual rows;
+  - Operator-declared aggregate — only day totals, with an explicit statement that it cannot prove every customer transaction was captured.
+- Report CSV includes a **Closing basis** column.
+- Performance report counts `ledgerDays` and `aggregateDays` in totals and per branch, displayed and exported.
+- New deterministic anomaly `mixed_aggregate_ledger` fires when a confirmed aggregate account has recorded ledger transactions for the same branch and date, including references as evidence.
+- No historical aggregate row is converted or back-filled.
+
+### Schema and migrations
+
+None.
+
+### Tests and results
+
+- Performance tests assert ledger/aggregate day counts.
+- Anomaly tests assert the mixed-source finding and that a ledger-backed account does not trigger it.
+- Terminology tests guard the aggregate disclosure text.
+- Full suite: **115 files, 1,283 tests**.
+- TypeScript and touched-file ESLint: 0 errors.
+
+### Browser acceptance
+
+Daily report shows the operator-declared aggregate warning; performance shows Aggregate days and the “no transaction-level proof” hint. **1 passed.**
+
+### Known limitations
+
+- Aggregate closing remains available. A business can still choose aggregate mode, so transaction-level completeness is not guaranteed for those days.
+- The anomaly identifies mixed sources; it does not decide which source is correct.
+- There is no automatic conversion of an aggregate day to ledger mode. Conversion would invent transaction detail and is deliberately prohibited.
+
+### External approvals still required
+
+A product decision is still required on whether new businesses should default to ledger mode and whether aggregate mode should eventually be retired.
+
+### Next dependency
+
+Workstream 1 — strengthen the independent transaction ledger to cover the remaining attribution, verification-state, statement and export requirements.
+
+## Workstream 1 — Independent transaction ledger hardening
+
+**Status:** GREEN  
+**Commit:** `29de177`
+
+### Existing capability before changes
+
+A tenant-scoped `MomoTransaction` ledger already existed with unique business references, per-tenant idempotency keys, employee and branch attribution, reversal and correction rows, posting history, a filterable admin screen and CSV export. Every row was described as “operator-recorded”, but the record itself had no explicit verification state, no evidence reference and no device attribution.
+
+### What was implemented
+
+- Every ledger row now carries a server-controlled verification state:
+  - **Operator-recorded** — manually captured, not provider-verified;
+  - **Imported statement** — reserved for a future statement import;
+  - **Provider-confirmed** — reserved for a future verified integration;
+  - **Disputed** — reserved for review.
+- Manual recording always writes `operator_recorded`. A client cannot promote its own submission to a provider-confirmed row; the value is not accepted from the form.
+- Optional **supporting evidence** text stores a receipt number, statement line or other held evidence. The UI states that this is a reference and does not verify the transaction with a network.
+- Optional `recordedDeviceId` / `recordedDeviceName` columns are ready for an enrolled offline device. Online web entry leaves them empty rather than inventing a device identity.
+- Cash and float effects are exposed per row:
+  - deposits: cash up, float down;
+  - cash-outs: cash down, float up;
+  - reversals carry the opposite effect so the pair nets to zero.
+- Reversals and corrections are always operator-recorded, even when correcting an imported or provider-confirmed row. A correction cannot inherit a stronger verification claim.
+- The admin ledger list and detail show verification state, effects, device and evidence. The worker ledger shows the verification badge and evidence reference.
+- CSV export adds cash effect, float effect, verification, recorded device and supporting evidence.
+
+### Schema and migration
+
+`prisma/migrations/20261201_momo_verification_state/migration.sql` adds, additively:
+
+- `MomoTransaction.verificationStatus` (default `operator_recorded`);
+- `recordedDeviceId`, `recordedDeviceName`;
+- `supportingEvidence`;
+- an index on `[tenantId, verificationStatus]`.
+
+Both SQLite and PostgreSQL Prisma schemas were updated. `prisma validate` passes for both. The SQLite test and E2E databases were pushed successfully. No historical row is rewritten: every existing row correctly defaults to operator-recorded.
+
+### Tests and results
+
+- New tests prove:
+  - every manual entry is `operator_recorded`;
+  - a client-supplied `provider_confirmed` value is ignored;
+  - supporting evidence is stored and returned;
+  - cash and float effects are correct for deposits and cash-outs;
+  - a reversal carries the opposite effect and nets to zero;
+  - the CSV discloses verification and effects.
+- `tests/momo-ledger.test.ts`: **25 passed**.
+- Full regression suite: **115 files, 1,285 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+Worker switched the seeded draft day to the ledger, recorded a GH₵120 deposit with supporting evidence, and saw the operator-recorded badge and evidence on the row. The administrator then opened the ledger and saw the same entry with its verification state. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Verification state is set by the server action, never trusted from the request.
+- Tenant, branch and employee scope are unchanged; all reads remain session-scoped.
+- Audit evidence remains atomic and now records the verification state and evidence reference.
+- Provider-confirmed remains impossible until a real integration exists, so the ledger cannot overstate certainty.
+- CSV escaping still neutralises formula-leading values.
+
+### Known limitations
+
+- No telco, aggregator or bank integration exists. Provider-confirmed and imported-statement states are defined but cannot yet be produced.
+- Online web entries do not have an enrolled device identity; device columns remain empty until device enrolment is wired to ledger entry.
+- Cash and float effects are derived operational views, not a full double-entry general ledger. They describe the ledger’s own effect model.
+- Statement import, reconciliation against a provider file and customer-facing MoMo statements are not implemented in this workstream.
+- PostgreSQL migration SQL was validated by schema and migration review, not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- MTN MoMo, Telecel Cash and AT Money API access, sandbox credentials and written confirmation of provider reference semantics before any row can be marked provider-confirmed.
+- Agreement on statement-import formats and evidence retention if imported statements are to become a supported source.
+
+### Next dependency
+
+Workstream 2 — extend the existing branch cash and float transfer lifecycle with the remaining approval, evidence and reporting requirements.
+
+## Workstream 2 — Branch cash and float transfer lifecycle
+
+**Status:** GREEN  
+**Commit:** `3c2a47e`
+
+### Existing capability before changes
+
+The branch transfer lifecycle already supported declared cash and per-network float, request, approval by a different administrator, rejection, dispatch, receipt, variance capture, dispute, investigation resolution, cancellation and append-only events. Transfers were reserved against the declared balance and high-value approvals required step-up.
+
+Two gaps remained:
+
+- The read-then-reserve balance check relied on the database default isolation level. SQLite serialises writes, but PostgreSQL at read committed could let two concurrent requests both pass before either committed.
+- The admin **Complete transfer** button set a pending state that the form block deliberately excluded, so a received transfer could not be completed from the screen even though the server action worked.
+
+### What was implemented
+
+- Balance reservation and draft request now run at **Serializable** isolation, with a bounded retry for serialization and write conflicts.
+- The admin **Complete transfer** button now calls the completion action directly.
+- Dispatch can record a **dispatch evidence** reference (waybill, count sheet, receipt number).
+- Receipt can record a **receipt evidence** reference in addition to the counted amount and variance note.
+- Both evidence references are stored on the transfer, written into the append-only event/audit trail where applicable, and shown on the transfer detail.
+- The evidence fields state that a reference does not confirm a provider balance.
+
+### Schema and migration
+
+`prisma/migrations/20261202_branch_transfer_evidence/migration.sql` adds, additively:
+
+- `BranchTransfer.dispatchEvidence`;
+- `BranchTransfer.receiptEvidence`.
+
+Existing rows keep `NULL`, read as “None recorded”. No historical transition is rewritten. Both Prisma schemas were updated and validated; SQLite test and E2E databases were pushed successfully.
+
+### Tests and results
+
+- The lifecycle test now records dispatch and receipt evidence and asserts both are returned on the transfer detail and that dispatch evidence appears in history.
+- Existing coverage still proves separation of duties, location roles, variance handling, cancellation release and the concurrent full-balance request result.
+- `tests/branch-transfers.test.ts`: **18 passed**.
+- Full regression suite: **115 files, 1,285 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warning only.
+
+### Browser acceptance
+
+An approved transfer was opened as an administrator. Dispatch was confirmed with `Waybill WB-E2E-1`; receipt was confirmed for GH₵300 with `Count sheet CS-E2E-1`; the transfer was then completed from the screen. Both evidence references and the completed state were visible. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Tenant and location scope are unchanged; a worker may only act from their assigned source or destination.
+- Approval still requires a different administrator, and step-up is unchanged.
+- Evidence is server-side validated at 300 characters or fewer and never treated as provider confirmation.
+- Serializable isolation plus retry closes the PostgreSQL over-reservation window that the previous default isolation level left open.
+
+### Known limitations
+
+- Evidence is a free-text reference; file attachments and document storage are not implemented.
+- Declared balances remain operator declarations. There is no telco, bank or aggregator balance feed.
+- Transfers move internal declared positions only; they do not initiate a real bank or mobile-money movement.
+- Serializable retry is bounded. A persistent conflict returns a clean failure rather than retrying indefinitely.
+- PostgreSQL serialization behaviour was reasoned from Prisma/database semantics and exercised on SQLite; it was not load-tested against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- Bank and telco integration agreements before any transfer can be confirmed against a real provider movement.
+- A retention policy for physical waybills and count sheets if evidence references are to be audited externally.
+
+### Next dependency
+
+Workstream 3 — extend shift accountability and handover with the remaining coverage and reporting requirements.
+
+## Workstream 3 — Shift accountability and two-sided handover
+
+**Status:** GREEN  
+**Commit:** `dd6201a`
+
+### Existing capability before changes
+
+Shifts were already optional sub-day accountability records with opening carry-forward, an assigned employee, two-sided handover, separate receiver confirmation, variance investigation with step-up, cancellation and a daily-account summary that is deliberately excluded from financial totals. Shift names supported morning, afternoon, evening and a custom option.
+
+### What was implemented
+
+- The outgoing count can only be submitted by the employee assigned to the shift. An administrator can no longer submit a physical count in that employee's name.
+- The receiving employee must still be the named receiver and must still be active at confirmation.
+- Both sides can record an evidence reference:
+  - outgoing: till slip, count sheet or handover evidence;
+  - incoming: count sheet, receipt or other evidence held.
+- Evidence is stored on the handover, written into the audit event and shown on the worker and administrator views.
+- A custom shift can now carry a tenant-defined name in the worker UI instead of always being labelled “Custom shift”. Scheduled start and end remain supported by the action and schema.
+- Shift figures remain excluded from daily-account totals, so the same cash is never counted twice.
+
+### Schema and migration
+
+`prisma/migrations/20261203_shift_handover_evidence/migration.sql` adds, additively:
+
+- `ShiftHandover.outgoingEvidence`;
+- `ShiftHandover.incomingEvidence`.
+
+Existing handovers keep `NULL`, read as “no evidence recorded”. Both Prisma schemas were updated and validated; SQLite test and E2E databases were pushed successfully.
+
+### Tests and results
+
+- Handover lifecycle now records and returns both evidence references.
+- New test proves an administrator cannot submit the outgoing count for an assigned employee.
+- New test proves a custom shift name and scheduled window are accepted.
+- Existing coverage still proves one person cannot be both sides, the receiver must belong to the branch, the receiver alone confirms, variances need an explanation, step-up is required to resolve, and tenant isolation holds.
+- `tests/shift-handover.test.ts`: **15 passed**.
+- Full regression suite: **115 files, 1,287 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+The outgoing worker closed an open shift with GH₵140 cash, GH₵610 float and `Till slip TS-W03`, handing over to a colleague. The receiving employee counted the same amounts, accepted the outstanding operations, recorded `Count sheet CS-W03`, and the shift closed. The administrator detail showed both evidence references. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Shift and handover access remains tenant-scoped and location-scoped.
+- The outgoing side is now personally attributed to the assigned employee; an administrator cannot impersonate that count.
+- The receiver check is enforced server-side and re-checks that the receiver is active.
+- A user cannot be both outgoing and incoming, and cannot confirm a handover assigned to someone else.
+- Evidence is bounded free text and is not treated as a provider or bank confirmation.
+
+### Known limitations
+
+- Shifts are optional but there is no tenant-level on/off switch or shift-template scheduler. A business can create zero, one or many shifts; nothing forces a shift to exist.
+- Shift names remain a fixed set plus a free-text custom label, not a fully managed per-tenant shift catalogue.
+- Evidence is a reference, not an uploaded document.
+- Shift balances are accountability snapshots and are intentionally not posted into the daily financial close.
+- PostgreSQL behaviour was schema-validated and reasoned, not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+None for the local accountability flow. A future document-storage or biometric/device-attestation feature would need separate retention and privacy approval.
+
+### Next dependency
+
+Workstream 4 — customer receipts, statements and the external messaging foundation.
+
+## Workstream 4 — Customer receipts and messaging foundation
+
+**Status:** GREEN  
+**Commit:** `33c9fa2`
+
+### Existing capability before changes
+
+Customers already had a date-filtered statement with opening/closing balance, CSV export, receipt lookup by the original transaction reference, a printable receipt, and a direct route to dispute a record. Receipts were tenant/customer scoped and did not expose a public enumeration endpoint. No SMS or WhatsApp capability existed.
+
+### What was implemented
+
+- A provider-neutral outbound message contract with SMS and WhatsApp channels, E.164 recipient validation, per-channel length limits, and a **mock adapter**.
+- The mock adapter never opens a network connection and never reports a message as sent. It returns `simulated`.
+- Deterministic receipt text for SMS and WhatsApp built only from the recorded receipt:
+  - business, transaction reference, amount and date;
+  - customer, account and cycle on WhatsApp;
+  - no claim that a contribution is profit or that a balance is provider-confirmed.
+- A **Receipt message preview** on every customer and admin receipt:
+  - SMS and WhatsApp previews;
+  - character count and limit;
+  - copy-to-clipboard;
+  - an explicit statement that nothing is sent and no delivery receipt exists.
+- Recipient masking helper for future logs.
+
+### Schema and migrations
+
+None. The preview is generated from the already-authorized receipt; nothing is stored or transmitted.
+
+### Tests and results
+
+- New `tests/receipt-messaging.test.ts` proves SMS/WhatsApp content, withdrawal wording, channel limits, E.164 validation, PII masking, and that the mock provider returns `simulated` rather than `sent`.
+- `tests/receipt-messaging.test.ts`: **3 passed**.
+- Full regression suite: **116 files, 1,290 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors.
+
+### Browser acceptance
+
+The customer opened the seeded contribution receipt, switched between SMS and WhatsApp previews, saw the GHS amount, reference, account and cycle, and saw the “Sandbox only. No SMS or WhatsApp message has been sent” notice. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The preview uses the receipt already returned by the customer-scoped action; it does not add a new lookup or enumeration path.
+- No phone number, message body or recipient list is persisted by this feature.
+- The mock provider cannot deliver, and there is no production messaging credential in the repository.
+- Message text is deterministic and cannot describe principal as revenue or a declared balance as provider-confirmed.
+
+### Known limitations
+
+- No SMS or WhatsApp message is sent. There is no provider account, sender ID, template approval or delivery receipt.
+- There is no outbox, retry queue, delivery-status table, consent record or opt-out handling yet.
+- The preview runs in the browser from data the customer is already allowed to see; it is not an audited messaging event.
+- Message localisation is English only.
+- The mock adapter validates E.164, but customer phone normalisation remains the existing customer-record rule.
+
+### External approvals still required
+
+- An approved SMS gateway contract, Ghana sender ID/shortcode registration and delivery-report access.
+- A WhatsApp Business Platform account, approved message templates and opt-in evidence before any WhatsApp send.
+- A consent, opt-out and retention policy approved by the business before real customer messaging is enabled.
+
+### Next dependency
+
+Workstream 5 — customer self-service and dispute hardening on top of the existing portal and dispute records.
+
+## Workstream 5 — Customer self-service and dispute hardening
+
+**Status:** GREEN  
+**Commit:** `c7945f8`
+
+### Existing capability before changes
+
+The customer portal already supported sign-in, statement and date filtering, receipt lookup, withdrawal status, profile/settings, and one dispute per recorded contribution or withdrawal. A dispute could be opened by the customer, reviewed by an administrator, paused for customer information, answered by the customer, cancelled before review, and resolved as upheld or declined. Disputes never changed money.
+
+### What was implemented
+
+- A dispute now snapshots the account **cycle number** when opened, so the record remains meaningful after the account moves to another cycle.
+- The customer can record an **evidence reference** when opening a dispute (receipt number, statement line or other held evidence).
+- The administrator can record the **evidence checked** when resolving.
+- Both evidence references are shown to the customer and the administrator, including after closure.
+- Customer and administrator audit entries carry the evidence reference and still declare `financialMutation: false`.
+- No dispute transition writes a contribution, withdrawal, commission or balance.
+
+### Schema and migration
+
+`prisma/migrations/20261204_dispute_evidence_cycle/migration.sql` adds, additively:
+
+- `CustomerDispute.cycleNumber`;
+- `CustomerDispute.customerEvidence`;
+- `CustomerDispute.resolutionEvidence`.
+
+Existing rows keep `NULL`, read as “not recorded”. No status, outcome or financial row is rewritten. Both Prisma schemas were validated and the SQLite test/E2E databases were pushed.
+
+### Tests and results
+
+- The lifecycle test now opens with customer evidence, asserts the cycle snapshot, resolves with administrator evidence, and asserts both are visible on the customer view.
+- Existing coverage still proves one dispute per transaction, tenant/customer isolation, transition rules, two-sided review and the audit trail.
+- `tests/customer-disputes.test.ts`: **6 passed**.
+- Full regression suite: **116 files, 1,290 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; existing data-loading effect warnings only.
+
+### Browser acceptance
+
+The customer raised a dispute from the contribution receipt with `Office slip OS-W05`. The administrator opened it from the dispute register, started review, and resolved it with `Contribution counterfoil OS-W05`. The customer then saw both evidence references and the cycle on the closed dispute. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Customer reads and writes remain scoped by customer, tenant and account ownership.
+- Administrator reads remain scoped by tenant and the Susu module guard.
+- The subject is re-resolved from the database; the client cannot attach a dispute to another customer's transaction.
+- Evidence is bounded free text, not an uploaded file.
+- The outcome still changes the review record only. Any correction remains a separate financial action with its own audit evidence.
+
+### Known limitations
+
+- `outcomeReference` is recorded as text. It is not yet validated against an actual reversal/correction row, so an administrator can enter a reference that does not exist.
+- Evidence is a reference only; there is no document upload or retention store.
+- A dispute remains one-per-transaction. A second concern needs a separate channel or a future linked case.
+- No automatic correction is performed when a dispute is upheld; the normal financial control must be used.
+- There is no dispute SLA timer or aging alert; the board is reviewed on demand.
+
+### External approvals still required
+
+None for the local review flow. A future evidence-upload feature would need storage, retention and customer-privacy approval.
+
+### Next dependency
+
+Workstream 6 — association foundation: membership, sponsored subscriptions and training records.
+
+## Workstream 6 — Association membership, sponsorship and training foundation
+
+**Status:** GREEN  
+**Commit:** `9662595`
+
+### Existing capability before changes
+
+There was no association register. Membership, sponsored packages and training records were not represented anywhere in MaaCash.
+
+### What was implemented
+
+- A tenant-scoped **member register** with member code, business name, contact, phone, email, region, join date and status. Member codes and phone numbers are unique inside a tenant, not globally.
+- **Sponsored package records**: sponsor, plan code, amount, currency, period, reference and status. A sponsorship is an agreement record only. It never charges, pays out, activates a Zeli subscription or writes a financial ledger row.
+- **Training records**: title, provider, status, completion, expiry, certificate reference and notes. The dashboard counts completed training and certificates expiring within 90 days.
+- Status changes for members and sponsorships are audited. Every association audit entry declares `financialMutation: false`.
+- A new administrator page at `/admin/association` with summary cards, member registration, sponsorship entry, training entry and the three registers.
+- A new “Association” navigation section.
+
+### Schema and migration
+
+`prisma/migrations/20261205_association_foundation/migration.sql` adds:
+
+- `AssociationMember`;
+- `AssociationSponsorship`;
+- `AssociationTrainingRecord`.
+
+All three are tenant-owned, with member children cascading from the member. Both Prisma schemas were validated; SQLite test and E2E databases were pushed. No existing table or financial row is changed.
+
+### Tests and results
+
+- New `tests/association-foundation.test.ts` proves:
+  - member creation and dashboard listing;
+  - duplicate member code refused inside a tenant but allowed in another tenant;
+  - sponsorship recording leaves MoMo transactions, contributions and Zeli subscriptions untouched;
+  - a sponsorship cannot reference another tenant's member;
+  - date-order validation and status transitions;
+  - training completion/expiry counting and invalid expiry refusal.
+- `tests/association-foundation.test.ts`: **6 passed**.
+- Full regression suite: **117 files, 1,296 tests passed**.
+- TypeScript: clean.
+- ESLint on touched files: 0 errors; one existing data-loading effect warning.
+
+### Browser acceptance
+
+The administrator registered `E2E Agents Association`, recorded a GH₵500 sponsorship from `MoMAG Support Fund`, and recorded `Float and fraud awareness` training. All three appeared in their registers. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Every action resolves the tenant from the administrator session; no tenant or creator ID is accepted from the client.
+- Member, sponsorship and training reads are tenant-scoped.
+- A sponsorship or training cannot attach to a member outside the caller's tenant.
+- Association records create no money movement, no subscription and no worker/customer access.
+- All writes are audited atomically with `createAuditLogTx`.
+
+### Known limitations
+
+- There is no cross-business association dashboard or platform-level association identity. Each tenant sees its own register.
+- Membership dues, invoicing, receipts and payment collection are not implemented.
+- Bulk import, member self-service, document upload and certificate files are not implemented.
+- A training record is not a regulatory certification and does not verify a provider.
+- Sponsorship amounts are records of an agreement, not proof of payment.
+- PostgreSQL migration SQL was schema-validated but not executed against a live PostgreSQL instance in this session.
+
+### External approvals still required
+
+- Agreement on whether the association is a separate legal tenant or a cross-tenant platform capability.
+- Dues/payment rules and receipts if membership becomes chargeable.
+- Training-provider and certificate-verification agreements before training is presented as accredited.
+
+### Next dependency
+
+Workstream 7 — BloomCore Identity OIDC readiness review against the existing platform SSO implementation.
+
+## Workstream 7 — BloomCore Identity OIDC readiness review
+
+**Status:** GREEN  
+**Commit:** `e762eb3`
+
+### Existing capability before changes
+
+Platform-console single sign-on against BloomCore Identity (Authentik/Control
+Center) already existed behind `PLATFORM_OIDC_ENABLED`, default OFF:
+
+- Authorization Code with PKCE (S256), server-side token exchange;
+- single-use `state`, `nonce` and verifier in an HMAC-signed, HttpOnly,
+  path-scoped flow cookie;
+- ID-token signature/issuer/audience/expiry/nonce/verified-email validation
+  against the IdP JWKS with RS/PS/ES only;
+- native platform session minting, `amr` mapping and MFA enforcement;
+- suspended-admin denial, forced-password-reset denial and platform audit
+  events;
+- refresh-token storage for central revocation and back-channel logout.
+
+### Gap found and fixed
+
+The callback URI was derived from the request origin when
+`PLATFORM_OIDC_REDIRECT_URI` was unset. A forged or rewritten `Host` header
+could therefore select a redirect the IdP had registered, undermining the
+authorization-code boundary.
+
+The login flow now requires an explicit `PLATFORM_OIDC_REDIRECT_URI` and, when
+`PLATFORM_OIDC_ALLOWED_REDIRECT_URIS` is set, an exact allowlist match. The
+request origin is ignored. A missing or non-allowlisted redirect disables the
+interactive login flow (404) but does **not** disable back-channel logout or
+central session revocation, which never use a browser redirect.
+
+### Tests and results
+
+- `tests/platform-oidc.test.ts`: **28 passed**, including new cases proving the
+  request origin cannot select the callback and that an off-allowlist redirect
+  makes the login flow unavailable.
+- `tests/platform-session-revocation.test.ts`: **11 passed**, confirming the
+  narrower login gate did not disable central revocation.
+- Full regression suite: **117 files, 1,298 tests passed**.
+- TypeScript: clean. ESLint on touched files: 0 errors.
+
+### Browser acceptance
+
+With a complete, allowlisted OIDC configuration, `/platform/login` rendered the
+“Sign in with BloomCore Identity” entry point pointing at
+`/platform/login/sso/start`. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The redirect URI is server configuration, never client or `Host` input.
+- PKCE verifier, state and nonce remain server-side in a signed, single-use,
+  path-scoped cookie.
+- Platform SSO mints only platform sessions; no tenant, worker or customer
+  session is created and no tenant data is read.
+- Back-channel logout and central revocation target SSO-derived platform
+  sessions of one immutable subject and never a local password session.
+
+### Known limitations
+
+- No live IdP or Control Center was contacted in this session. Validation used
+  the existing synthetic RSA/JWKS and fake-IdP tests plus a browser render.
+- The feature remains default OFF; production is untouched.
+- MFA strength is only as good as the IdP `amr` claim. A password-only IdP
+  session is refused only when `MFA_ENFORCEMENT=enforce`.
+- Refresh-token revocation applies only when the IdP issues refresh tokens
+  (`offline_access`).
+- The pending-link confirm step deliberately does not mint a session; one more
+  SSO click is required after linking.
+
+### External approvals still required
+
+- Final production issuer, client ID, client secret, redirect URI and allowlist
+  from BloomCore Identity.
+- A verified-email scope mapping in Authentik.
+- Registration of the exact production callback URI in the IdP.
+- Agreement on whether platform MFA is enforced at the IdP, locally, or both.
+
+### Next dependency
+
+Workstream 8 — Zeli anomaly detection foundation. The existing deterministic
+anomaly monitor remains the baseline; any model-based scoring requires an
+approved data set and false-positive review process.
+
+## Workstream 8 — Zeli anomaly detection foundation
+
+**Status:** GREEN  
+**Commit:** `d0135b3`
+
+### Existing capability before changes
+
+The anomaly monitor already produced deterministic findings from named
+threshold rules. Zeli had a deterministic business-insight engine, but no
+connection between operational findings and a Zeli advisory view.
+
+### What was implemented
+
+- A tenant-scoped **Zeli anomaly briefing** that groups active (open and
+  acknowledged) findings by employee first, then by branch, then as
+  unassigned.
+- A fixed, published **attention score** used only to order review:
+  high 42, medium 20, low 7, plus 8 per repeated finding for the same employee
+  or branch (capped at 24), capped at 100. High band starts at 70, elevated at
+  35. Resolved findings are excluded.
+- Each group shows its active/high counts, band, top rule and plain-language
+  reasons. The interface states that this is not a probability of fraud and
+  that no external model was called.
+- An `AnomalyScoringProvider` interface with **one** implementation,
+  `deterministic_rules`, which reports `modelUsed: false` and
+  `externalModel: false`. No model adapter is wired in.
+- The briefing is read-only: it never creates, acknowledges, resolves or
+  changes a finding, and creates no money movement.
+
+### Schema and migration
+
+No schema change. The briefing reads existing `OperationalAnomaly` rows and
+resolves employee and branch names inside the current tenant.
+
+### Tests and results
+
+- New `tests/zeli-anomaly-detection.test.ts` proves:
+  - a zero score and explicit no-findings state;
+  - fixed weights and band boundaries;
+  - repeat uplift and the 100-point cap;
+  - employee-first grouping, branch fallback and exclusion of resolved rows;
+  - the provider discloses no model and no external call;
+  - the action returns only the caller's tenant findings, with tenant-scoped
+    employee and branch names.
+- `tests/zeli-anomaly-detection.test.ts`: **6 passed**.
+- Full regression suite: **118 files, 1,304 tests passed**.
+- TypeScript: clean. ESLint: 0 errors; one existing admin-page effect warning.
+
+### Browser acceptance
+
+The administrator opened `/admin/anomalies` with a seeded high-severity
+finding. The Zeli briefing rendered “elevated attention · 42/100”, named the
+assigned employee, and showed the deterministic/no-model disclosure.
+**1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The action uses `requireTenantAdminMomo`; tenant identity comes from the
+  session.
+- Findings, employee names and branch names are all queried with the current
+  tenant ID.
+- The briefing is read-only and cannot acknowledge, resolve or mutate a
+  finding.
+- No customer record, provider credential or external request is involved.
+
+### Known limitations
+
+- The score is a rule-weighted review order, **not** a fraud probability,
+  credit score, prediction or AI classification.
+- It only re-orders existing deterministic findings; it does not detect new
+  patterns or use historical baselines beyond those rules.
+- The briefing reads at most 500 active findings and shows the top ten groups.
+- Scanning remains on request; no scheduler runs it automatically.
+- There is no model-backed provider, no training data, no feedback loop and no
+  automatic enforcement action.
+- The briefing is available to tenant administrators with the MoMo module; it
+  is not a customer-facing or platform-level view.
+
+### External approvals still required
+
+- A reviewed, labelled data set and a documented false-positive review process
+  before any model-backed scoring is introduced.
+- Fairness, explainability and appeal requirements for any scoring that could
+  affect a person's employment or standing.
+- A decision that any model output remains advisory, with a human reviewing
+  before money, employment or disciplinary action.
+- A vendor/data-processing agreement if an external model or service is ever
+  approved.
+
+### Next dependency
+
+Workstream 9 — external integration readiness: provider interfaces and
+non-delivering adapters for telco, messaging and payment status, without
+contacting production services.
+
+## Workstream 9 — External integration readiness
+
+**Status:** GREEN  
+**Commit:** `30ca735`
+
+### Existing capability before changes
+
+The receipt-message foundation had a non-delivering mock SMS/WhatsApp adapter.
+There was no single answer to which external integrations exist, which are
+simulated, and which are genuinely unavailable.
+
+### What was implemented
+
+- A **telco provider interface** (`TelcoProvider`) with exactly one
+  implementation, `UnavailableTelcoProvider`. It never contacts an aggregator,
+  never opens a socket and always returns `providerConfirmed: false`.
+- A unified **integration readiness** contract for messaging, telco statement
+  import and customer payment status. Every entry names its status, whether it
+  delivers outside MaaCash, and the approvals required before enabling it.
+- A read-only administrator page at `/admin/integrations`. It has no connect,
+  test-send or credential controls and renders no environment values.
+- An “Integrations” navigation entry.
+- The page states plainly that MoMo entries remain operator-recorded,
+  receipt/statement messages are preview-only, and no third-party payment
+  status is treated as proof of customer money movement.
+
+### Schema and migration
+
+No schema change. No credentials, provider tokens or customer recipients are
+stored.
+
+### Tests and results
+
+- New `tests/integration-readiness.test.ts` proves:
+  - the telco adapter returns `unavailable` and never provider confirmation;
+  - it makes no network call even when `fetch` is replaced with a throwing
+    stub;
+  - the messaging adapter stays in sandbox and returns `simulated`, never
+    `sent`;
+  - every readiness entry is non-delivering;
+  - provider and platform secrets do not appear in the readiness payload.
+- `tests/integration-readiness.test.ts`: **5 passed**.
+- The existing customer-facing branding guard also passes after wording was
+  kept free of provider-identity language.
+- Full regression suite: **119 files, 1,309 tests passed**.
+- TypeScript: clean. ESLint: 0 errors.
+
+### Browser acceptance
+
+The administrator opened `/admin/integrations` and saw all three integrations,
+the “No message is sent…” notice, the “Does not deliver” state and the
+provider-confirmation limitation. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- The page requires a tenant administrator; no customer, worker or collector
+  can reach it.
+- No integration row contains a credential, token, recipient or provider
+  balance.
+- No external request is made by the page, the readiness builder or the telco
+  adapter.
+- Provider confirmation cannot be produced through any UI path.
+
+### Known limitations
+
+- No telco, aggregator, SMS, WhatsApp or customer-payment provider is
+  integrated.
+- Readiness is a static capability declaration, not a live health probe.
+- There is no webhook receiver, retry queue, delivery receipt, consent/opt-out
+  store or statement-import worker.
+- Paystack remains limited to MaaCash subscription billing, not customer
+  contribution settlement.
+- Enabling a provider requires replacing an adapter and adding monitoring,
+  secrets management and failure handling.
+
+### External approvals still required
+
+- Telco/aggregator API agreement, statement format and reconciliation
+  ownership.
+- SMS/WhatsApp sender ID, pricing, consent, opt-out and retention rules.
+- A decision on whether customer contributions are collected electronically.
+- Webhook signature, replay-protection and settlement-reconciliation
+  agreements for any payment provider.
+- Data-protection review before any customer transaction data leaves MaaCash.
+
+### Next dependency
+
+Workstream 10 — reporting and business-intelligence hardening: consistent
+definitions, export safety and a review of aggregate-versus-ledger reporting.
+
+## Workstream 10 — Reporting and export hardening
+
+**Status:** GREEN  
+**Commit:** `6c0ca0b`
+
+### Existing capability before changes
+
+MaaCash had several CSV downloads across MoMo reports, Susu reports, money
+history, customer statements, performance and Zeli analytics. Escaping was
+implemented separately in each page:
+
+- some exports joined raw values with commas, so a name or note containing a
+  comma shifted every later column;
+- some quoted values but did not neutralise a leading `=`, `+`, `-` or `@`;
+- three files applied a formula guard, but each had its own copy and treated
+  negative money as text.
+
+The result was inconsistent: the same customer note could break one export and
+open as a formula in another.
+
+### What was implemented
+
+- One shared CSV module (`src/lib/csv.ts`) with:
+  - formula neutralisation for leading `=`, `@`, tab, carriage return and for
+    non-numeric `+`/`-` values;
+  - numeric preservation for plain positive and negative numbers, including
+    amounts such as `-350.50`;
+  - RFC-style quoting for commas, quotes and newlines;
+  - CRLF row separators and UTF-8 blobs.
+- Every export path now uses the shared builder or cell function:
+  - MoMo daily reports and MoMo money history;
+  - Susu reports (contributions and withdrawals), Susu contributions, Susu
+    money history and the customer Susu statement;
+  - the customer portal statement, performance report and Zeli analytics
+    export.
+- Duplicated local `csvSafe`/`csvCell` implementations were removed.
+
+### Schema and migration
+
+No schema change. No export contents or financial calculations changed; only
+cell formatting and escaping.
+
+### Tests and results
+
+- New `tests/csv-export.test.ts` proves:
+  - negative money stays numeric and is not turned into text;
+  - `=`, `@`, non-numeric `+`/`-` and tab-prefixed values are neutralised;
+  - commas, quotes, carriage returns and newlines are quoted correctly;
+  - `null`/`undefined` become empty cells;
+  - rows use CRLF and every cell is escaped.
+- `tests/csv-export.test.ts`: **4 passed**.
+- Full regression suite: **120 files, 1,313 tests passed**.
+- TypeScript: clean. ESLint: 0 errors; existing data-loading effect warnings
+  only.
+
+### Browser acceptance
+
+The administrator opened `/admin/reports` with seeded daily accounts and
+downloaded the CSV through the real browser. The file name, header row, CRLF
+separators and difference-status column were verified. **1 passed.**
+
+### Security and tenant-isolation evidence
+
+- Export data still comes from the same tenant-scoped server actions and
+  routes; this change does not add a query or widen a filter.
+- Formula prefixes in free-text fields can no longer execute as spreadsheet
+  formulas.
+- The Zeli export keeps its existing entitlement guard and aggregate-only
+  payload.
+- No new file, credential or customer record is stored by an export.
+
+### Known limitations
+
+- Exports are generated in the browser from the rows already loaded. A
+  paginated report exports the current result set, not the entire period.
+- Formula neutralisation uses a leading apostrophe, the common spreadsheet
+  convention. A determined user can still import data as text and choose to
+  interpret it; CSV is not a signed format.
+- Files are UTF-8 without a BOM, so some older spreadsheet versions may
+  misread accented names.
+- There is no server-side export audit trail, scheduled report delivery,
+  report template editor or BI warehouse.
+- Metric definitions remain displayed in the performance and statement views;
+  there is no single glossary page yet.
+
+### External approvals still required
+
+- Agreement on which reports are official management accounts and who signs
+  them off.
+- A retention and access policy for downloaded customer data.
+- A decision on scheduled report delivery and its consent/security model.
+- Finance approval before any exported figure is used for tax, lending or
+  regulatory filing.
+
+### Next dependency
+
+All ten workstreams are complete. Remaining work is meeting preparation,
+operator training and a controlled production rollout decision; production
+stays at the untouched baseline until that decision is made.
+
+## Workstream 11 — Mobile Money-first Paystack checkout
+
+**Status:** GREEN  
+**Commit:** `c64f995`
+
+### Gap found
+
+The hosted checkout sent `channels: ["mobile_money", "card", "bank_transfer"]`.
+Paystack's documented `channels` parameter limits the available methods but does
+not guarantee a default when several are supplied, so the hosted page could
+open on Card.
+
+### What was implemented
+
+- A pre-checkout selector: **Mobile Money (default)**, Card, and Bank Transfer
+  only when explicitly enabled for the account/currency.
+- The server initialises Paystack with exactly one channel, never the full set.
+- The selected channel is stored on `ZeliChargeAttempt.checkoutChannel`.
+- If an open checkout already exists, the selector is locked and the server
+  refuses a different method with `checkout_method_locked`; no second
+  reference or transaction is created.
+- Bank Transfer requires `PAYSTACK_CHECKOUT_BANK_TRANSFER=true` and GHS.
+- The UI states that authorisation happens on Paystack and never collects a
+  wallet number, PIN or OTP.
+
+### Schema and migration
+
+`prisma/migrations/20261206_paystack_checkout_channel/migration.sql` adds the
+nullable `ZeliChargeAttempt.checkoutChannel`; existing attempts stay NULL
+because their method cannot be proven.
+
+### Verification
+
+- `tests/paystack-hosted-checkout.test.ts`: **23 passed**, including default
+  Mobile Money, Card-only, Bank Transfer refusal/opt-in, method lock, existing
+  exactly-once webhook/callback tests and overview channel exposure.
+- Related subscription suites: **56 passed**.
+- Browser: Billing opened with Mobile Money selected, Card selectable, Bank
+  Transfer absent, URL unchanged and no payment started. **1 passed.**
+- TypeScript clean; ESLint 0 errors.
+
+## Workstream 12 — WhatsApp Business Cloud API foundation
+
+**Status:** GREEN for the local adapter and outbox; real delivery **AMBER**
+pending Meta template approval and an explicit owner decision to enable it.
+
+**Commit:** `bc7a3dc`
+
+### Credential classification
+
+The local environment contains a 286-character token beginning `EAA…`, plus a
+numeric WhatsApp Business Account ID and a numeric Phone Number ID. The shape
+is consistent with a Meta system-user access token for the WhatsApp Cloud API.
+No credential value was printed, logged, committed or sent to a browser.
+
+### What was implemented
+
+- A Meta Cloud API adapter that sends **approved utility templates only**,
+  returns the provider message ID, sanitises errors and classifies 429/5xx and
+  timeouts as retryable.
+- A durable `CustomerMessageOutbox` written in the same transaction as the
+  confirmed contribution or withdrawal. The unique event key prevents duplicate
+  messages; the recipient is encrypted and only a masked form is stored.
+- Consent is explicit and channel-specific: separate WhatsApp number, opt-in
+  timestamp/source, opt-out timestamp and preferred channel. The ordinary phone
+  number is never assumed to be WhatsApp.
+- Customer-portal receipt preferences, including SMS and WhatsApp opt-in/out.
+- A signed Meta webhook route: GET challenge, POST `X-Hub-Signature-256`
+  verification, idempotent `sent`/`delivered`/`read`/`failed` events.
+- Real delivery is OFF unless `WHATSAPP_DELIVERY_ENABLED=true`, all three
+  identifiers are present **and** the recipient is in
+  `WHATSAPP_DELIVERY_ALLOWLIST`. Local tests therefore never contact Meta.
+- The integration-readiness page now distinguishes “credentials present,
+  delivery disabled” from “sandbox”.
+
+### Schema and migration
+
+`prisma/migrations/20261207_customer_messaging/migration.sql` adds
+`CustomerMessagingPreference`, `CustomerMessageOutbox` and
+`CustomerMessageStatusEvent`. Both Prisma schemas validate.
+
+### Tests
+
+`tests/customer-messaging.test.ts`: **12 passed** — contribution creates one
+event, no consent creates none, opt-out blocks, duplicate confirmation is
+idempotent, withdrawal event, cross-tenant refusal, disabled delivery makes no
+network call, timeout stays retryable, rejected template is permanent,
+webhook replay is idempotent, signature verification and preference
+opt-in/opt-out.
+
+Browser: the customer opened Settings and saved WhatsApp receipt consent; the
+page showed “Currently opted in.” **1 passed.**
+
+### Missing external assets
+
+- Approval of the `maacash_receipt` utility template (or the configured
+  replacement) and its language.
+- Meta app webhook subscription, verify token and app secret.
+- Confirmation that the system-user token is long-lived and has
+  `whatsapp_business_messaging` permission for this WABA/Phone Number ID.
+- A written decision to enable delivery for real customers.
+
+### Limitations
+
+- No real WhatsApp message was sent in this session.
+- A successful Cloud API response is recorded as `accepted`, never as proof the
+  customer received it; only webhook events advance to sent/delivered/read.
+- Reversal notifications are supported by the outbox event type but are not
+  yet wired into the correction action.
+- Delivery is a bounded best-effort run, not a scheduler.
+
+## Workstream 13 — SMS provider foundation
+
+**Status:** GREEN for the interface, consent, outbox and mock; **AMBER** for
+real delivery because no SMS provider has been selected.
+
+**Commit:** `f051507`
+
+### What was implemented
+
+- A reusable `SmsProvider` interface with `sendSms`, provider message ID,
+  retryable/permanent classification and sanitised errors.
+- A `MockSmsProvider` fixed as the only adapter. It never opens a network
+  connection and always returns `simulated`, never `sent`.
+- SMS uses the same `CustomerMessageOutbox`, consent records, idempotent event
+  key and retry state as WhatsApp.
+- Confirmed contribution and withdrawal receipts include business name,
+  transaction type, amount, reference, date and account reference; no PIN, OTP
+  or internal risk assessment.
+- SMS readiness appears on `/admin/integrations` as **unavailable** until a
+  real provider is contracted.
+- `SMS_PROVIDER`, `SMS_DELIVERY_ENABLED` and `SMS_DELIVERY_ALLOWLIST` are
+  documented, but a provider name alone never makes delivery ready.
+
+### Tests
+
+`tests/sms-messaging.test.ts`: **7 passed** — mock never sends, invalid number
+rejected, configured name still not operational, opt-in queues one SMS, opt-out
+blocks, accepted provider response is recorded, and timeout stays retryable.
+Existing WhatsApp/consent tests continue at **12 passed**.
+
+Browser: the administrator saw the SMS readiness card marked unavailable with
+“Does not deliver”. **1 passed.**
+
+### Configuration required for a real provider
+
+- Selected provider and documented API endpoint.
+- Account ID / API key / sender ID.
+- Approved sender or short code for Ghana.
+- Delivery-report webhook and signature mechanism.
+- Per-message pricing, retry policy, consent/opt-out and retention rules.
+
+### Limitations
+
+- No SMS provider is integrated; no real SMS was sent.
+- No delivery-report webhook exists for SMS until a provider is chosen.
+- SMS messages use the same 320-character receipt body used by the preview.
+- The delivery runner is bounded and on-request, not a scheduler.
+
+## Workstream 14 — BloomCore Technologies attribution
+
+**Status:** GREEN  
+**Commit:** `732d7c7`
+
+### What was implemented
+
+- One shared `BloomCoreAttribution` component rendering **Powered by BloomCore
+  Technologies**, linking to `https://bloomcoretech.com` with
+  `target="_blank"` and `rel="noopener noreferrer"`.
+- Replaced duplicated “Built by BloomCore Technologies” text in the public
+  marketing footer, tenant admin shell, MoMo worker shell, Susu collector
+  shell, customer portal shell, platform shell, Zeli workspace, unified login,
+  admin and platform login forms, SSO confirmation, password recovery, first
+  login, workspace selection and all-access page.
+- The link sits in the existing page footer, not over financial actions, and
+  inherits responsive layout.
+
+### Tests
+
+`tests/bloomcore-attribution.test.ts`: **2 passed** — official HTTPS URL and
+safe new-tab attributes; every shell uses the shared component and no old
+hard-coded “Built by” text remains.
+
+Browser: the link pointed to `https://bloomcoretech.com` on the marketing site,
+admin login and authenticated admin shell, with `target=_blank` and
+`noopener`. **1 passed.**
+
+### Limitations
+
+- No logo or brand identity was changed.
+- The platform console uses the same neutral attribution; its dark styling is
+  inherited from the page background.
+
+## Workstream 15 — Automatic Zeli conversation titles
+
+**Status:** GREEN  
+**Commit:** `7a6d744`
+
+### What was implemented
+
+- A deterministic title generator that maps the first meaningful request to a
+  concise topic, with an optional month prefix (for example “November Business
+  Summary”).
+- No external model is called. Titles contain no customer names, phone/wallet
+  numbers, amounts or full financial questions.
+- Generation happens server-side after the first user message and only while
+  the conversation is still `New conversation` and its title source is `auto`.
+- `ZeliConversation.titleSource` distinguishes `auto` from `manual`.
+- `renameZeliConversation` now marks a title `manual`, so it is never replaced.
+- Short greetings and unclear messages receive the safe fallback
+  “Business Question”.
+
+### Schema and migration
+
+`prisma/migrations/20261208_zeli_conversation_title_source/migration.sql` adds
+`ZeliConversation.titleSource` with default `auto`. Existing rows keep their
+current title; a title that is not exactly `New conversation` is never changed.
+
+### Tests
+
+`tests/zeli-conversation-titles.test.ts`: **5 passed** — topic/month mapping,
+privacy stripping, one-time generation, manual-title preservation and greeting
+fallback. All turns ran against the deterministic local engine with no external
+fetch.
+
+### Limitations
+
+- The title is topic-based, not a full summary of a complex multi-topic
+  conversation.
+- A manually renamed conversation keeps its manual title even if the topic
+  changes, by design.
+- Existing rows are not back-filled.
+
+## Workstream 16 — Zeli History repair
+
+**Status:** GREEN  
+**Commit:** `7fc0054`
+
+### Root cause
+
+The header History control was hidden on desktop (`md:hidden`) and only toggled
+the existing mobile sidebar. On a laptop it was absent; on mobile it revealed a
+list with no loading state, no search and no explanation of scope. The sidebar
+also kept a stale title after a conversation was automatically titled.
+
+### What was implemented
+
+- A History button is now present on every viewport and opens an accessible
+  dialog (`role="dialog"`, `aria-modal`, Escape/backdrop close).
+- History is loaded through a tenant- and user-scoped server action, not from
+  client-supplied ids.
+- Search matches both conversation titles and message content, with a short
+  matched snippet and last-activity/creation timestamps.
+- The dialog has explicit loading, empty, no-match and error states.
+- Selecting a result loads that conversation and closes the dialog.
+- Conversation titles refresh in the sidebar immediately after a reply, so the
+  generated title from Workstream 15 appears without a reload.
+
+### Tests
+
+`tests/zeli-history.test.ts`: **3 passed** — user isolation, tenant isolation,
+title search, message-content search, snippets and metadata. Existing
+`tests/zeli-conversation-titles.test.ts` and `tests/zeli-conversation.test.ts`
+also pass (28 total in the focused run).
+
+Browser: admin signs in, asks a question, sees “November Business Summary”,
+opens History, searches by title, and sees the explicit no-match state.
+
+### Limitations
+
+- Search is a bounded `contains` query over the current user's conversations
+  (maximum 50 results); there is no full-text index or ranking.
+- No cross-tenant or platform-wide history is exposed.
+
+## Workstream 17 — Zeli response structure and reading quality
+
+**Status:** GREEN  
+**Commit:** `fd35a5a`
+
+### What was implemented
+
+- Removed the bracketed machine vocabulary (`[CALCULATED FACT]`,
+  `[PERIOD]`, `[LIMITATIONS]` and the other tags) from answers Zeli writes.
+- Answers now carry typed sections: **Key figures**, **What changed**,
+  **How to read this**, **Recommended next step** and **Not established**.
+- The Zeli message renderer presents those as labelled sections, using a list
+  for figures and paragraphs for interpretation and actions. Period, source,
+  freshness and limitations sit in a compact metadata block.
+- Structured sections, period, source, freshness and limitations are stored in
+  the assistant message metadata, so reopening a conversation renders the same
+  structure.
+- Older stored messages are translated on read by a legacy parser; their
+  bracketed labels are never shown and their content is not rewritten.
+- Plain prose (greetings, clarifications, external-provider answers) still
+  renders unchanged.
+- Copy remains the human-readable answer, with section headings instead of
+  tags.
+
+### Tests
+
+`tests/zeli-response-format.test.ts`: **4 passed** — human labels, old-answer
+translation (figures, pattern, action, period/source/freshness, limitations),
+plain prose passthrough and malformed stored sections.
+
+Existing Zeli suites were updated to assert human headings rather than machine
+tags. `tests/zeli-conversation.test.ts` also checks that structured sections
+and answer metadata are persisted and that stored content contains no machine
+labels.
+
+Browser: the live answer shows Key figures, How to read this and Limitations,
+with no `[CALCULATED FACT]` or `[PERIOD]` text.
+
+### Backwards compatibility and limitations
+
+- Historical messages are parsed for display only. The database is not
+  migrated and no answer text is rewritten.
+- External-provider or conversational answers do not receive typed sections;
+  they render as prose so nothing is fabricated.
+- The section labels describe the evidence type (figure, comparison,
+  interpretation, next step, unknown); they are not a confidence score.
+
+## Workstream 18 — Zeli thinking indicator
+
+**Status:** GREEN  
+**Commit:** `d4543eb`
+
+### What was implemented
+
+- The spinner in the conversation, composer button and inline status is gone.
+- A dedicated thinking indicator shows “Zeli is reading your records…” with
+  three dots. It is a `role="status"` live region with hidden explanatory text,
+  so screen readers announce the wait once rather than reading the animation.
+- The dots use `motion-safe` animation. When the operating system requests
+  reduced motion, the dots have no animation and the text still communicates
+  progress.
+- The indicator is removed on success, on a handled failure, and when the user
+  opens a different conversation or starts a new one.
+- A send token prevents a late server reply from appearing in a conversation
+  the user navigated to while it was pending. Navigation stops the visible
+  indicator immediately; the server action still completes safely but its
+  result is ignored.
+
+### Tests
+
+Browser: **2 passed**
+
+1. With reduced motion enabled, the indicator is announced, its dots have
+   `animation-name: none`, the answer renders and the status disappears.
+2. While the reply is deliberately delayed, starting a new conversation removes
+   the indicator immediately, and the delayed answer does not appear in the new
+   conversation.
+
+`npx tsc --noEmit` is clean and ESLint reports no errors (the existing
+`react-hooks/set-state-in-effect` warning in the history search effect remains).
+
+### Limitations
+
+- Server actions cannot be aborted mid-flight. Leaving a conversation hides the
+  indicator and discards the result, but the server may still finish computing
+  and recording the assistant message in the original conversation.
+- There is no elapsed-time or queue-position display.
+
+---
+
+# Consolidated close-out — Workstreams 11–18
+
+**Branch:** `feat/maacash-momag-readiness`  
+**Baseline:** `92d6d974e1e41d7b0586e823f9c000a0a7fe0925` (production, untouched)  
+**State:** local commits only — nothing pushed, merged, deployed or run against a live payment, WhatsApp or SMS service.
+
+| Workstream | Feature commit | Delivered |
+|---|---|---|
+| 11 — Paystack Mobile Money-first checkout | `c64f995` | Explicit method selection, Mobile Money default, only the selected channel is sent, checkout method locked once open, no duplicate transaction. |
+| 12 — WhatsApp receipt delivery | `bc7a3dc` | Meta Cloud provider, consent-gated receipt outbox, receipt events for contributions/withdrawals, template-only messages, signed webhook, sanitised failures. Delivery off by default. |
+| 13 — SMS foundation | `f051507` | Provider interface, non-delivering mock adapter, consent-gated SMS path, readiness row. No real SMS. |
+| 14 — BloomCore attribution | `732d7c7` | Shared footer/link to `https://bloomcoretech.com` across every shell, login, portal and marketing surface. |
+| 15 — Zeli titles | `7a6d744` | Deterministic, privacy-safe title from the first meaningful message; manual renames preserved; no external model. |
+| 16 — Zeli History repair | `7fc0054` | Accessible history dialog on every viewport, tenant/user-scoped title and content search, metadata, loading/empty/error states, stale-title refresh. |
+| 17 — Zeli response structure | `fd35a5a` | Machine tags removed; typed Key figures / What changed / How to read this / Recommended next step / Not established sections; persisted metadata; legacy messages translated on read. |
+| 18 — Zeli thinking state | `d4543eb` | Accessible live-region thinking indicator, reduced-motion safe, cleared on success/failure/navigation; late replies ignored after navigation. |
+
+## Final verification
+
+- **126 test files / 1,350 tests passed** (`npx vitest run`).
+- **`npx tsc --noEmit`:** clean.
+- **ESLint:** 0 errors; only pre-existing warnings (including the history-search effect warning and unused test variables).
+- Both SQLite and PostgreSQL Prisma schemas validate; new migrations are additive.
+- Browser checks passed for checkout method selection, WhatsApp consent, integrations readiness, attribution, Zeli titles/history/structure and the thinking state.
+- Working tree contains no secrets, customer data, database files or temporary test artefacts.
+- Production remains at `92d6d97`.
+
+## External items still required before any production enablement
+
+1. **Paystack** — confirm the business account has Mobile Money enabled for the intended currency; no live Paystack request was made in this work.
+2. **Meta WhatsApp** — approve the `maacash_receipt` template, provide the webhook verify token and app secret, confirm the system-user token has the required WhatsApp permission scope, and make a deliberate owner decision to set `WHATSAPP_DELIVERY_ENABLED=true`. Until then receipts remain simulated and nothing is sent.
+3. **SMS** — no provider has been selected. The mock never delivers and reports `simulated`.
+4. **Hosting/rollout** — a controlled deployment plan, migration window and production smoke test are still needed. No deployment has been performed.
+
+## Standing limitations
+
+- MoMo, transfers, shifts, disputes and association records remain operator-recorded; there is no telco/aggregator feed or provider-confirmed balance.
+- Messaging is template-only and consent-gated; there is no consent/opt-out history beyond the stored preference, and no delivery guarantee.
+- Zeli is rule-based. It is read-only, its sections are evidence labels rather than confidence scores, and it does not reason beyond authorised records.
+- History search is a bounded `contains` query, not a ranked full-text index.
+- Late Zeli replies finish server-side after navigation even though their UI result is discarded.

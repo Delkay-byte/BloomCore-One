@@ -68,18 +68,37 @@ export async function isSessionRecordActive(
   }
 }
 
+/**
+ * Activity timestamps are telemetry, not an authorisation decision. Revocation
+ * and absolute expiry are still checked on every request by
+ * `isSessionRecordActive()`. Amortising the write avoids one database round
+ * trip per request under load while keeping idle tracking accurate to within
+ * 15 seconds (well inside the 900-second production idle policy).
+ */
+const TOUCH_INTERVAL_MS = 15_000;
+const lastTouchedAt = new Map<string, number>();
+
 export async function touchSessionRecord(
   jti: string | undefined | null,
   now: number = Date.now()
 ): Promise<void> {
   if (!jti) return;
+  const last = lastTouchedAt.get(jti) ?? 0;
+  if (now - last < TOUCH_INTERVAL_MS) return;
+  lastTouchedAt.set(jti, now);
+  if (lastTouchedAt.size > 10_000) {
+    for (const [key, value] of lastTouchedAt) {
+      if (now - value > 60_000) lastTouchedAt.delete(key);
+    }
+  }
   try {
     await db.sessionRecord.updateMany({
       where: { id: jti, revokedAt: null },
       data: { lastSeenAt: new Date(now) },
     });
   } catch {
-    // Best effort: activity tracking must never block a request.
+    // Best effort: retry on the next request rather than blocking this one.
+    lastTouchedAt.delete(jti);
   }
 }
 

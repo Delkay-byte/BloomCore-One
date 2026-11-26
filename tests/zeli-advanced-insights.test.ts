@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { detectInsights, recommendationsFrom } from "@/lib/zeli/intelligence/insights";
 import type { AnalyticsSnapshot } from "@/lib/zeli/intelligence/metrics";
 
@@ -94,6 +94,9 @@ describe("advanced business insights", () => {
     expect(ids).toContain("contribution-consistency");
     expect(ids).toContain("reporting-gaps");
     expect(ids).toContain("collector-concentration");
+    expect(insights.find((row) => row.id === "contributions-change")?.detail).toContain(
+      "Contributions were"
+    );
     for (const insight of insights) {
       expect(insight.period).toBeTruthy();
       expect(insight.calculation).toBeTruthy();
@@ -102,6 +105,35 @@ describe("advanced business insights", () => {
       expect(insight.confidence).toMatch(/high|medium|low/);
       expect(insight.type).toBe("detected_pattern");
     }
+  });
+
+  it("does not count future days as missing trading days", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-19T12:00:00.000Z"));
+    const snapshot = baseSnapshot();
+    snapshot.period = {
+      start: "2026-11-01T00:00:00.000Z",
+      end: "2026-11-30T23:59:59.000Z",
+      label: "This month",
+      days: 30,
+    };
+    snapshot.series = Array.from({ length: 30 }).map((_, index) => ({
+      date: `2026-11-${String(index + 1).padStart(2, "0")}`,
+      contributions: index < 5 ? 100 : 0,
+      withdrawals: 0,
+      expenses: 0,
+      income: 0,
+      netCashFlow: index < 5 ? 100 : 0,
+      remittances: 0,
+      transactionCount: index < 5 ? 1 : 0,
+      activeAccounts: index < 5 ? 1 : 0,
+      newCustomers: 0,
+    }));
+    const gap = detectInsights(snapshot).find((row) => row.id === "reporting-gaps");
+    expect(gap?.detail).toContain("14 of 19 elapsed days in this month");
+    expect(gap?.detail).not.toContain("of 30 days");
+    expect(gap?.calculation).toContain("elapsed days");
+    vi.useRealTimers();
   });
 
   it("produces recommendations with evidence, period, confidence and human action", () => {

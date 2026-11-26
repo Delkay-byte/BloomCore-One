@@ -11,6 +11,8 @@ import {
   reviewDailyAccount,
 } from "@/lib/actions/daily-account.actions";
 import { resolveStoredDifference, statusLabel } from "@/lib/momo-reconciliation";
+import { getDailyAccountShiftSummary } from "@/lib/actions/shift.actions";
+import type { DailyAccountShiftAggregate } from "@/lib/shift-service";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 
@@ -22,6 +24,7 @@ interface AccountDetail {
   commission: number; debtsCollected: number; totalExpenses: number;
   closingMomoFloat: number; closingCash: number;
   calculatedDifference: number; differenceStatus: string;
+  ledgerMode?: string;
   reconciliationNote?: string | null;
   actualAmountReceived?: number | null;
   handoverDifference?: number | null;
@@ -36,6 +39,7 @@ export default function ReportDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [account, setAccount] = useState<AccountDetail | null>(null);
+  const [shiftSummary, setShiftSummary] = useState<DailyAccountShiftAggregate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -48,7 +52,14 @@ export default function ReportDetailPage() {
   useEffect(() => { loadAccount(); }, [params.id]);
 
   async function loadAccount() {
-    try { const data = await getDailyAccountById(params.id as string); setAccount(data as unknown as AccountDetail); }
+    try {
+      const [data, shifts] = await Promise.all([
+        getDailyAccountById(params.id as string),
+        getDailyAccountShiftSummary(params.id as string).catch(() => null),
+      ]);
+      setAccount(data as unknown as AccountDetail);
+      setShiftSummary(shifts);
+    }
     catch { setError("Failed to load report"); } finally { setLoading(false); }
   }
 
@@ -106,11 +117,11 @@ export default function ReportDetailPage() {
   const expectedClosing = stored.netModel
     ? openingTotal + netIncrease
     : actualClosing - difference;
-  const profitRetained = stored.netModel
+  const increaseRetained = stored.netModel
     ? Math.max(0, Math.min(actualClosing - openingTotal, netIncrease))
     : 0;
-  const profitNotRetained = stored.netModel
-    ? Math.max(0, netIncrease - profitRetained)
+  const increaseNotRetained = stored.netModel
+    ? Math.max(0, netIncrease - increaseRetained)
     : 0;
   const hasLegacyActivity =
     Number(account.totalCashIn) !== 0 ||
@@ -143,10 +154,23 @@ export default function ReportDetailPage() {
       {error && <Notice type="error" className="mb-4" message={error}>{error}</Notice>}
       {success && <Notice type="success" className="mb-4" message={success}>{success}</Notice>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 xl:grid-cols-4">
         <div className="card"><div className="text-sm text-slate-500">Business Date</div><div className="font-medium">{formatDate(account.businessDate)}</div></div>
         <div className="card"><div className="text-sm text-slate-500">Submitted At</div><div className="font-medium">{account.submittedAt ? formatDateTime(account.submittedAt) : "Not submitted"}</div></div>
         <div className="card"><div className="text-sm text-slate-500">Reviewed At</div><div className="font-medium">{account.reviewedAt ? formatDateTime(account.reviewedAt) : "Not reviewed"}</div></div>
+        <div className="card">
+          <div className="text-sm text-slate-500">Closing basis</div>
+          <div className="font-medium">
+            {account.ledgerMode === "ledger"
+              ? "Transaction ledger"
+              : "Operator-declared aggregate"}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {account.ledgerMode === "ledger"
+              ? "Commission, income and expenses were derived from individual recorded transactions."
+              : "Only day totals were recorded. This close cannot prove that every customer transaction was captured."}
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -184,7 +208,7 @@ export default function ReportDetailPage() {
               <span className="font-mono text-sm text-amber-950"><CediAmount amount={account.totalAirtimeSold} /></span>
             </div>
             <div className="flex justify-between border-t border-slate-200 pt-2">
-              <span className="text-sm font-semibold text-slate-700">Net daily profit / increase</span>
+              <span className="text-sm font-semibold text-slate-700">Net accountability increase</span>
               <span className="font-mono text-sm font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></span>
             </div>
             {hasLegacyActivity && (
@@ -207,14 +231,17 @@ export default function ReportDetailPage() {
           <h3 className="font-semibold mb-4">Account Check</h3>
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-200 p-3">
-              <div className="text-sm text-slate-600">Net daily profit / increase</div>
+              <div className="text-sm text-slate-600">Net accountability increase</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={netIncrease} showSign /></div>
-              <div className="text-xs text-slate-500 mt-1">Commission + debts collected − expenses</div>
+              <div className="text-xs text-slate-500 mt-1">
+                Commission + debt recovery + other income − approved expenses.
+                This is an accountability figure, not accounting profit or revenue.
+              </div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Expected closing accountability</div>
               <div className="text-lg font-bold text-slate-900"><CediAmount amount={expectedClosing} /></div>
-              <div className="text-xs text-slate-500 mt-1">Opening total + net daily profit / increase</div>
+              <div className="text-xs text-slate-500 mt-1">Opening total + net accountability increase</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-3">
               <div className="text-sm text-slate-600 mb-1">Actual closing accountability</div>
@@ -223,9 +250,9 @@ export default function ReportDetailPage() {
             </div>
             {stored.netModel && (
               <div className="rounded-lg border border-slate-200 p-3 text-sm">
-                <div className="flex justify-between"><span className="text-slate-600">Profit retained</span><span className="font-semibold"><CediAmount amount={profitRetained} /></span></div>
-                <div className="mt-1 flex justify-between"><span className="text-slate-600">Profit withdrawn / not retained</span><span className="font-semibold"><CediAmount amount={profitNotRetained} /></span></div>
-                <p className="mt-2 text-xs text-slate-500">Withdrawn profit is not a loss. A shortage is reported only below the opening capital floor.</p>
+                <div className="flex justify-between"><span className="text-slate-600">Increase retained at closing</span><span className="font-semibold"><CediAmount amount={increaseRetained} /></span></div>
+                <div className="mt-1 flex justify-between"><span className="text-slate-600">Increase withdrawn / not retained</span><span className="font-semibold"><CediAmount amount={increaseNotRetained} /></span></div>
+                <p className="mt-2 text-xs text-slate-500">An increase withdrawn is not a loss. A shortage is reported only below the opening capital floor.</p>
               </div>
             )}
             <div className="border-t pt-3">
@@ -357,6 +384,44 @@ export default function ReportDetailPage() {
           )}
         </div>
       </div>
+
+      {shiftSummary && shiftSummary.shiftCount > 0 && (
+        <section className="card mt-6">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h3 className="font-semibold">Shift accountability</h3>
+            <p className="text-xs text-slate-500">
+              {shiftSummary.shiftCount} shift{shiftSummary.shiftCount === 1 ? "" : "s"} ·{" "}
+              {shiftSummary.closedCount} closed · {shiftSummary.varianceCount} variance open
+            </p>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{shiftSummary.note}</p>
+          {(shiftSummary.totalCashVariance !== 0 || shiftSummary.totalFloatVariance !== 0) && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Handover variances on this day: cash{" "}
+              <CediAmount amount={shiftSummary.totalCashVariance} showSign /> · float{" "}
+              <CediAmount amount={shiftSummary.totalFloatVariance} showSign />.
+            </p>
+          )}
+          <ul className="mt-3 divide-y divide-slate-100">
+            {shiftSummary.shifts.map((shift) => (
+              <li key={shift.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-slate-800">
+                  <strong>{shift.label}</strong> · {shift.assignedUserName ?? "Unassigned"}
+                </span>
+                <span className="text-xs text-slate-600">
+                  {shift.status.replace(/_/g, " ")}
+                  {shift.cashVariance !== null && (
+                    <>
+                      {" "}· cash{" "}
+                      <CediAmount amount={shift.cashVariance} showSign />
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

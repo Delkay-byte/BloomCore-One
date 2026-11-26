@@ -6,19 +6,20 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
     await loginAdmin(page, ADMIN_A);
   });
 
-  test("shows the local mode banner and answers from records", async ({ page }) => {
+  test("answers from records with structured local sections", async ({ page }) => {
     await page.goto("/zeli");
-    await expect(page.getByText("Local mode.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Zeli", exact: true })).toBeVisible();
     await expect(
-      page.getByText("runs entirely inside MaaCash", { exact: false })
+      page.getByText("Zeli reads your authorised records", { exact: false })
     ).toBeVisible();
 
     await sendZeliMessage(page, "Summarise this month's contributions and withdrawals.");
-    await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Key figures" }).first()).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByText("Contributions:", { exact: false }).first()).toBeVisible();
-    await expect(page.getByText("Computed from your records").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How to read this" }).first()).toBeVisible();
+    await expect(page.getByText("Limitations").first()).toBeVisible();
   });
 
   test("answers an unsupported question with an honest local explanation", async ({ page }) => {
@@ -40,7 +41,7 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     await sendZeliMessage(page, "Summarise contributions and withdrawals for this month.");
-    await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Key figures" }).first()).toBeVisible({
       timeout: 30_000,
     });
 
@@ -61,25 +62,25 @@ test.describe("Zeli conversational workspace (provider disabled)", () => {
 
   test("creates, renames and deletes a conversation", async ({ page }) => {
     await page.goto("/zeli");
-    await page.getByRole("button", { name: "New" }).click();
+    await page.getByRole("button", { name: "New", exact: true }).click();
     await page.locator("#zeli-input").fill("Summarise remittance activity for this month.");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByText("CALCULATED FACT", { exact: false }).first()).toBeVisible({
+    await page.getByRole("button", { name: "Send question" }).click();
+    await expect(page.getByRole("heading", { name: "Key figures" }).first()).toBeVisible({
       timeout: 30_000,
     });
 
     await page.getByRole("button", { name: /^Rename / }).first().click();
     const renameDialog = page.getByRole("dialog", { name: "Rename conversation" });
     await expect(renameDialog).toBeVisible();
-    await renameDialog.getByLabel("Conversation title").fill("Renamed analytics chat");
-    await renameDialog.getByRole("button", { name: "Save title" }).click();
+    await renameDialog.getByLabel("Conversation name").fill("Renamed analytics chat");
+    await renameDialog.getByRole("button", { name: "Save name" }).click();
     await expect(page.getByText("Renamed analytics chat").first()).toBeVisible();
 
     const renamedItem = page.locator("aside li").filter({ hasText: "Renamed analytics chat" });
     await renamedItem.getByRole("button", { name: /^Delete / }).click();
-    const deleteDialog = page.getByRole("dialog", { name: "Delete this conversation?" });
+    const deleteDialog = page.getByRole("alertdialog", { name: "Delete this conversation?" });
     await expect(deleteDialog).toBeVisible();
-    await deleteDialog.getByRole("button", { name: "Delete conversation" }).click();
+    await deleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page.locator("aside").getByText("Renamed analytics chat")).toHaveCount(0);
   });
 

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getPlatformAdminOrNull } from "@/lib/platform-auth";
-import { oidcEnabled } from "@/lib/security/oidc";
+import { oidcLoginEnabled } from "@/lib/security/oidc";
 import PlatformLoginForm from "./PlatformLoginForm";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +54,7 @@ export default async function PlatformLoginPage({
 
   return (
     <PlatformLoginForm
-      ssoEnabled={oidcEnabled()}
+      ssoEnabled={oidcLoginEnabled()}
       ssoError={ssoError}
       ssoNotice={ssoNotice}
     />

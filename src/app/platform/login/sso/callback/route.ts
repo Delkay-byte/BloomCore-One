@@ -11,7 +11,7 @@ import {
   getOidcConfig,
   idpAmr,
   newOidcAttempt,
-  oidcEnabled,
+  oidcLoginEnabled,
   resolveLinking,
   ssoRedirectUri,
   signOidcBlob,
@@ -48,7 +48,7 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const loginUrl = new URL("/platform/login", url);
 
-  if (!oidcEnabled()) {
+  if (!oidcLoginEnabled()) {
     return new Response("Not Found", { status: 404 });
   }
 

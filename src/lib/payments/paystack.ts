@@ -22,6 +22,27 @@ import {
  */
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co";
+
+/**
+ * Test-only transport seam. A loopback URL is accepted ONLY in a test runtime;
+ * production always uses the fixed provider host. This keeps provider failures
+ * injectable without adding a user-controlled URL or SSRF surface.
+ */
+export function paystackBaseUrl(): string {
+  const override = process.env.PAYSTACK_BASE_URL;
+  if (override && process.env.NODE_ENV === "test") {
+    try {
+      const url = new URL(override);
+      if (["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
+        return override.replace(/\/$/, "");
+      }
+    } catch {
+      // Fall through to the fixed provider host.
+    }
+  }
+  return PAYSTACK_BASE_URL;
+}
+
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -220,7 +241,7 @@ async function request<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${PAYSTACK_BASE_URL}${path}`, {
+    const response = await fetch(`${paystackBaseUrl()}${path}`, {
       ...init,
       redirect: "error",
       signal: controller.signal,

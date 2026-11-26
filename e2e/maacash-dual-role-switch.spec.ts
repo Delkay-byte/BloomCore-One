@@ -66,7 +66,7 @@ test.describe("dual-role dashboard switching", () => {
       offlinePanel.getByText("Saved-record details could not be read")
     ).toHaveCount(0);
     await expect(
-      offlinePanel.getByText("Synced. No unsynchronized offline records on this device.")
+      offlinePanel.getByText("No unsynchronized offline records on this device.")
     ).toBeVisible({ timeout: 30_000 });
 
     // Switch back on the same session.
@@ -88,7 +88,7 @@ test.describe("dual-role dashboard switching", () => {
     await expect(
       page
         .getByRole("region", { name: "Offline records" })
-        .getByText("Synced. No unsynchronized offline records on this device.")
+        .getByText("No unsynchronized offline records on this device.")
     ).toBeVisible({ timeout: 30_000 });
   });
 

@@ -25,6 +25,13 @@ async function fillMoney(page: import("@playwright/test").Page, selector: string
 }
 
 async function fillCompleteDraft(page: import("@playwright/test").Page) {
+  // The seeded day's opening differs from the last recorded close, so the server
+  // requires an explanation before it will store the draft. Without it the save
+  // is rejected and only the local autosave survives, which is exactly the
+  // confusion this suite exists to prevent.
+  await page
+    .locator("#opening-adjustment-reason")
+    .fill("Opening cash re-counted at the start of the shift; prior close reviewed.");
   await fillMoney(page, "#opening-cash", "77.25");
   await fillMoney(page, "#opening-float", "123.50");
   await fillMoney(page, "#commission", "1.75");
@@ -51,9 +58,13 @@ test.describe("draft persistence", () => {
     await fillCompleteDraft(page);
 
     await page.getByRole("button", { name: "Save as Draft" }).click();
-    await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
-      timeout: 30_000,
-    });
+    // The in-page confirmation is the server's: it ends with "Last saved at" and a
+    // period. The local autosave indicator uses "· last saved at … on this
+    // device." and must never be accepted as proof of a server write.
+    await expect(
+      page.getByText(/Draft saved successfully\. Last saved at/).first()
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/We couldn't save your draft/)).toHaveCount(0);
 
     // Leave the page entirely, as a user would at the end of a shift.
     await page.goto("/worker/dashboard");
@@ -76,9 +87,9 @@ test.describe("draft persistence", () => {
     // Re-saving updates the same draft, not a duplicate record.
     await fillMoney(page, "#debts-collected", "6.00");
     await page.getByRole("button", { name: "Save as Draft" }).click();
-    await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(
+      page.getByText(/Draft saved successfully\. Last saved at/).first()
+    ).toBeVisible({ timeout: 30_000 });
     await page.reload();
     await waitForHydration(page, "#opening-cash");
     await expect(page.locator("#debts-collected")).toHaveValue("6");
@@ -104,27 +115,36 @@ test.describe("draft persistence", () => {
     await expect(page.locator("#reconciliation-note")).toHaveValue(/Local draft/);
   });
 
-  test("a failed server save reports an error, keeps the values and retries", async ({ page, context }) => {
+  test("a rejected server save reports an error, keeps the values and retries", async ({ page }) => {
     await loginWorker(page);
     await openDraft(page);
+    // A negative counted figure is rejected by the server, so this exercises the
+    // real failure path instead of a simulated network fault and proves the
+    // guarantee the UI makes.
     await fillMoney(page, "#opening-cash", "55.55");
-
-    // Take the browser offline: the server action never reaches the server.
-    await context.setOffline(true);
+    await fillMoney(page, "#debts-collected", "-5");
 
     await page.getByRole("button", { name: "Save as Draft" }).click();
-    await expect(
-      page.getByText(/We couldn't save your draft/).first()
-    ).toBeVisible({ timeout: 30_000 });
+    const failure = page.getByText(/We couldn't save your draft/).first();
+    await expect(failure).toBeVisible({ timeout: 30_000 });
+
+    // The values stay on the page and the control stays usable.
     await expect(page.locator("#opening-cash")).toHaveValue("55.55");
     await expect(page.getByRole("button", { name: "Save as Draft" })).toBeEnabled();
 
-    await context.setOffline(false);
-    await page.getByRole("button", { name: /Retry save/ }).click();
-    await expect(page.getByText(/Draft saved successfully/).first()).toBeVisible({
-      timeout: 30_000,
-    });
+    // Fixing the actual problem and saving again succeeds.
+    await fillMoney(page, "#debts-collected", "0");
+    await page
+      .locator("#opening-adjustment-reason")
+      .fill("Opening cash re-counted at the start of the shift; prior close reviewed.");
+    await page.getByRole("button", { name: "Save as Draft" }).click();
+    await expect(
+      page.getByText(/Draft saved successfully\. Last saved at/).first()
+    ).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("#opening-cash")).toHaveValue("55.55");
+    // The inline failure banner and its retry control are gone. The raised toast
+    // may still be on screen, so the assertion targets the banner's own control.
+    await expect(page.getByRole("button", { name: /Retry save/ })).toHaveCount(0);
   });
 
   test("rapid edits persist the latest value, not an older request", async ({ page }) => {

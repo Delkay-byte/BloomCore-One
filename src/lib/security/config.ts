@@ -108,8 +108,32 @@ export function mfaEncryptionKey(): Buffer {
  * This is the inverse of a fail-open bypass: the app still refuses every login
  * without a valid challenge; it simply refuses to start in that state.
  */
+/** Cloudflare-published deterministic test credentials. Never valid in production. */
+const TURNSTILE_TEST_KEYS = new Set([
+  "1x00000000000000000000AA",
+  "2x00000000000000000000AB",
+  "3x00000000000000000000FF",
+  "1x0000000000000000000000000000000AA",
+  "2x0000000000000000000000000000000AB",
+  "3x0000000000000000000000000000000FF",
+]);
+
+export function assertTurnstileEnvironmentSeparation(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const config = turnstileConfig();
+  if (
+    (config.siteKey && TURNSTILE_TEST_KEYS.has(config.siteKey)) ||
+    (config.secretKey && TURNSTILE_TEST_KEYS.has(config.secretKey))
+  ) {
+    throw new Error(
+      "Cloudflare Turnstile test credentials must never be used in a production runtime."
+    );
+  }
+}
+
 export function assertTurnstileConfigurationForProduction(): void {
   if (process.env.NODE_ENV !== "production") return;
+  assertTurnstileEnvironmentSeparation();
   const config = turnstileConfig();
   if (!config.enabled) return;
   if (!config.siteKey || !config.secretKey) {
@@ -209,4 +233,11 @@ export const RATE_LIMITS = {
   offlineSync: { limit: 120, windowMs: 60 * 1000 },
   /** Expensive public endpoints (health/readiness excluded), per IP. */
   publicExpensive: { limit: 30, windowMs: 10 * 60 * 1000 },
+  /** Export endpoints: sustained ceilings per authenticated actor and business scope. */
+  zeliExportSustained: { limit: 30, windowMs: 10 * 60 * 1000 },
+  zeliExportBurst: { limit: 4, windowMs: 10 * 1000 },
+  associationExportSustained: { limit: 20, windowMs: 10 * 60 * 1000 },
+  associationExportBurst: { limit: 3, windowMs: 10 * 1000 },
+  auditExportSustained: { limit: 120, windowMs: 10 * 60 * 1000 },
+  auditExportBurst: { limit: 12, windowMs: 10 * 1000 },
 } as const;

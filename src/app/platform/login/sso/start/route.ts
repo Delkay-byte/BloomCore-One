@@ -8,7 +8,7 @@ import {
   fetchDiscovery,
   getOidcConfig,
   newOidcFlow,
-  oidcEnabled,
+  oidcLoginEnabled,
   ssoRedirectUri,
   signOidcBlob,
 } from "@/lib/security/oidc";
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const config = getOidcConfig();
-  if (!oidcEnabled()) {
+  if (!oidcLoginEnabled()) {
     return new Response("Not Found", { status: 404 });
   }
 

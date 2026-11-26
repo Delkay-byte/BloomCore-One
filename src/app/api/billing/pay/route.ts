@@ -93,7 +93,15 @@ export async function POST(request: NextRequest) {
               provider: provider as MobileMoneyProvider,
             });
           })()
-        : payProvisionedSubscription(ctx, subscriptionId, { method: "hosted" });
+        : payProvisionedSubscription(ctx, subscriptionId, {
+            method: "hosted",
+            channel:
+              input.channel === "mobile_money" ||
+              input.channel === "card" ||
+              input.channel === "bank_transfer"
+                ? input.channel
+                : undefined,
+          });
 
     const settled = await result;
     return NextResponse.json({ ok: true, ...settled });

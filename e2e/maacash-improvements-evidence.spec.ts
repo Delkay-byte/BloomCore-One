@@ -106,13 +106,15 @@ test.describe("simplified MoMo closing and customer Account Number", () => {
   test("Zeli conversation delete uses an in-app modal", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/zeli");
-    await page.getByRole("button", { name: "New" }).click();
+    await page.getByRole("button", { name: "New", exact: true }).click();
     await page.waitForTimeout(500);
     await page.getByRole("button", { name: /^Delete / }).first().click();
-    const dialog = page.getByRole("dialog", { name: "Delete this conversation?" });
+    const dialog = page.getByRole("alertdialog", { name: "Delete this conversation?" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Delete conversation" })).toBeVisible();
+    // The destructive action is labelled "Delete"; the safe option is
+    // "Keep conversation", which is the non-destructive default.
+    await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
     await shot(page, "zeli-delete-modal", 390);
-    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.getByRole("button", { name: "Keep conversation" }).click();
   });
 });

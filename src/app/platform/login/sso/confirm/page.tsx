@@ -5,11 +5,12 @@ import { BrandLockup } from "@/components/brand/Brand";
 import Notice from "@/components/ui/Notice";
 import {
   attemptExpired,
-  oidcEnabled,
+  oidcLoginEnabled,
   verifyOidcBlob,
   type OidcAttempt,
 } from "@/lib/security/oidc";
 import { confirmPlatformSsoLink } from "./actions";
+import BloomCoreAttribution from "@/components/brand/BloomCoreAttribution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export default async function SsoConfirmPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!oidcEnabled()) notFound();
+  if (!oidcLoginEnabled()) notFound();
 
   const params = await searchParams;
   const attemptToken = typeof params.attempt === "string" ? params.attempt : "";
@@ -114,9 +115,9 @@ export default async function SsoConfirmPage({
           )}
         </div>
 
-        <p className="text-center text-xs text-brand-400 mt-8">
-          Built by BloomCore Technologies
-        </p>
+        <div className="mt-8 text-center">
+          <BloomCoreAttribution />
+        </div>
       </div>
     </div>
   );

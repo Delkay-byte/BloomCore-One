@@ -372,6 +372,18 @@ export async function middleware(request: NextRequest) {
     return next();
   }
 
+  // Next 16 emits speculative router prefetches as browser-initiated RSC
+  // requests. They bypass page JavaScript and the service worker, so they
+  // cannot carry the tab proof. They are never a user navigation: answer with
+  // a data-free 404 so the router discards them. Real requests still fail
+  // closed through the guards below.
+  if (
+    request.headers.get("next-router-prefetch") === "1" &&
+    !request.headers.get("x-bloomcore-tab-proof")
+  ) {
+    return new Response(null, { status: 404 });
+  }
+
   // Customer portal: completely separate session, never mixed with staff
   if (pathname.startsWith("/customer")) {
     const customerClaims = await resolveClaims(

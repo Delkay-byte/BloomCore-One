@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getApiTenantContext, type TenantContext } from "@/lib/tenant";
-import { createAuditLog } from "@/lib/audit";
+import { createAuditLog, createAuditLogTx } from "@/lib/audit";
 import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-origin";
 import { lockAccountForUpdate } from "@/lib/db-lock";
 import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
@@ -464,6 +464,8 @@ export async function POST(request: NextRequest) {
           channel,
           collectorId: effectiveCollectorId,
           recordedById: ctx.userId,
+          recordedDeviceId: device.deviceId,
+          recordedDeviceName: device.deviceName,
           referenceId: contributionReference(idempotencyKey),
           notes,
         },
@@ -476,11 +478,52 @@ export async function POST(request: NextRequest) {
         })),
       });
 
-      return {
+      const result = {
         contributionId: contribution.id,
         daysAllocated: allocations.length,
         allocatedAmount: Number(allocatedAmount),
       };
+
+      // The posting, its audit evidence and the local queue acknowledgement are
+      // one unit. A crash can no longer leave a posted contribution without an
+      // audit row, or a synced queue item without a posting.
+      await createAuditLogTx(tx, {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: "susu.contribution_recorded",
+        entityType: "contribution",
+        entityId: contribution.id,
+        details: {
+          accountId,
+          amount,
+          channel,
+          daysAllocated: result.daysAllocated,
+          idempotencyKey,
+          source: "offline_sync",
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          recordedById: ctx.userId,
+        },
+      });
+
+      const acknowledged = await tx.offlineTransaction.updateMany({
+        where: {
+          idempotencyKey,
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          deviceId: device.deviceId,
+        },
+        data: {
+          status: "synced",
+          syncedAt: new Date(),
+          serverResult: JSON.stringify(result),
+        },
+      });
+      if (acknowledged.count !== 1) {
+        throw new Error("OFFLINE_QUEUE_RESERVATION_MISSING");
+      }
+
+      return result;
       });
     } catch (error) {
       // The unique `referenceId` is the ledger's idempotency guard. If an
@@ -515,15 +558,18 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    // 8. Record the offline transaction as synced (tenant scoped)
-    await db.offlineTransaction.update({
-      where: { idempotencyKey },
-      data: {
-        status: "synced",
-        syncedAt: new Date(),
-        serverResult: JSON.stringify(result),
-      },
-    });
+    // 8. A reconciled duplicate already has the original posting and audit.
+    //    Its queue row still needs the stored result so the device can clear it.
+    if (reconciled) {
+      await db.offlineTransaction.update({
+        where: { idempotencyKey },
+        data: {
+          status: "synced",
+          syncedAt: new Date(),
+          serverResult: JSON.stringify(result),
+        },
+      });
+    }
 
     // 9. Extend the offline window. The response carries the server timestamp so
     // the device can reconcile its local expiry without another request.
@@ -532,25 +578,6 @@ export async function POST(request: NextRequest) {
       where: { id: device.id },
       data: { lastSyncAt: renewedAt, authorizedAt: renewedAt },
     });
-
-    // 10. Audit (a reconciled retry already recorded the original posting)
-    if (!reconciled) {
-      await createAuditLog({
-        userId: ctx.userId,
-        action: "susu.contribution_recorded",
-        entityType: "contribution",
-        entityId: result.contributionId,
-        details: {
-          accountId,
-          amount,
-          channel,
-          daysAllocated: result.daysAllocated,
-          idempotencyKey,
-          source: "offline_sync",
-          deviceId,
-        },
-      });
-    }
 
     return NextResponse.json({
       success: true,
@@ -578,7 +605,7 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    console.error("[offline-sync]", err);
+    console.error("[offline-sync]", err instanceof Error ? err.name : "UnknownError", (err as { code?: unknown })?.code ?? "no-code");
     return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }

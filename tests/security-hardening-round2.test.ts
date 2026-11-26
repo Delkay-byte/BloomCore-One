@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { execFileSync } from "child_process";
 import path from "path";
 import { NextRequest } from "next/server";
@@ -29,11 +30,22 @@ afterEach(() => {
 });
 
 describe("SEC-05 client identity attribution", () => {
-  it("prefers the edge-set cf-connecting-ip", () => {
+  // Synthetic test-only secret. No production value is used or printed.
+  const EDGE_SECRET = "test-only-edge-secret-for-unit-tests-0123456789";
+  const proof = (ip: string) =>
+    createHmac("sha256", EDGE_SECRET).update(ip).digest("hex");
+  const edgeHeaders = (ip: string, extra: Record<string, string> = {}) =>
+    new Headers({
+      "cf-connecting-ip": ip,
+      "x-bloomcore-edge-auth": proof(ip),
+      ...extra,
+    });
+
+  it("prefers the edge-proven cf-connecting-ip", () => {
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
     delete process.env.TRUST_TRUE_CLIENT_IP;
-    const headers = new Headers({
-      "cf-connecting-ip": "198.51.100.9",
+    const headers = edgeHeaders("198.51.100.9", {
       "true-client-ip": "203.0.113.7",
       "x-forwarded-for": "1.2.3.4",
       "x-real-ip": "5.6.7.8",
@@ -41,35 +53,83 @@ describe("SEC-05 client identity attribution", () => {
     expect(getClientIp(headers)).toEqual({ ip: "198.51.100.9", source: "cf-connecting-ip" });
   });
 
+  it("rejects a forged cf-connecting-ip without an edge proof", () => {
+    vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
+    const headers = new Headers({
+      "cf-connecting-ip": "198.51.100.9",
+      "x-bloomcore-edge-auth": proof("203.0.113.7"),
+    });
+    expect(getClientIp(headers)).toEqual({ ip: null, source: "untrusted" });
+  });
+
+  it("rejects a proof computed with a different secret", () => {
+    vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
+    const forged = createHmac("sha256", "another-test-secret-0123456789abcdef")
+      .update("198.51.100.9")
+      .digest("hex");
+    expect(
+      getClientIp(
+        new Headers({
+          "cf-connecting-ip": "198.51.100.9",
+          "x-bloomcore-edge-auth": forged,
+        })
+      )
+    ).toEqual({ ip: null, source: "untrusted" });
+  });
+
   it("ignores a forged true-client-ip by default", () => {
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
     delete process.env.TRUST_TRUE_CLIENT_IP;
     const result = getClientIp(new Headers({ "true-client-ip": "203.0.113.7" }));
     expect(result).toEqual({ ip: null, source: "untrusted" });
   });
 
-  it("uses true-client-ip only when an operator opts in", () => {
+  it("uses true-client-ip only when an operator opts in AND the edge proves it", () => {
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
     vi.stubEnv("TRUST_TRUE_CLIENT_IP", "true");
-    expect(getClientIp(new Headers({ "true-client-ip": "203.0.113.7" }))).toEqual({
-      ip: "203.0.113.7",
-      source: "true-client-ip",
-    });
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
+    const ip = "203.0.113.7";
+    expect(
+      getClientIp(
+        new Headers({
+          "true-client-ip": ip,
+          "x-bloomcore-edge-auth": proof(ip),
+        })
+      )
+    ).toEqual({ ip, source: "true-client-ip" });
   });
 
   it("never derives identity from a forwarded chain", () => {
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", EDGE_SECRET);
     const result = getClientIp(
-      new Headers({ "x-forwarded-for": "1.2.3.4", "x-real-ip": "5.6.7.8", forwarded: "for=9.9.9.9" })
+      new Headers({
+        "x-forwarded-for": "1.2.3.4",
+        "x-real-ip": "5.6.7.8",
+        forwarded: "for=9.9.9.9",
+        "cf-connecting-ip": "198.51.100.9",
+      })
     );
     expect(result.ip).toBeNull();
+  });
+
+  it("treats everything as untrusted without a configured edge secret", () => {
+    vi.stubEnv("TRUSTED_PROXY_HEADERS", "true");
+    vi.stubEnv("EDGE_PROXY_SECRET", "");
+    expect(getClientIp(edgeHeaders("198.51.100.9"))).toEqual({
+      ip: null,
+      source: "untrusted",
+    });
   });
 
   it("treats everything as untrusted without a trusted proxy", () => {
     vi.stubEnv("TRUSTED_PROXY_HEADERS", "false");
     delete process.env.RENDER;
     delete process.env.RENDER_SERVICE_ID;
-    expect(getClientIp(new Headers({ "cf-connecting-ip": "9.9.9.9" }))).toEqual({
+    expect(getClientIp(edgeHeaders("9.9.9.9"))).toEqual({
       ip: null,
       source: "untrusted",
     });

@@ -23,8 +23,13 @@
     "test:security": "vitest run tests/security-hardening.test.ts tests/financial-security.test.ts tests/admin-recovery.test.ts tests/offline-isolation.test.ts tests/staff-status.test.ts tests/tenant-isolation.test.ts",
     "test:e2e": "node scripts/prepare-e2e.mjs && playwright test",
     "test:e2e:ui": "node scripts/prepare-e2e.mjs && playwright test --ui",
+    "test:e2e:deployment": "playwright test --config=playwright.deployment.config.ts",
     "db:generate:pg": "prisma generate --schema=prisma/schema-pg.prisma",
-    "db:migrate:status": "prisma migrate status --config prisma.pg.config.ts"
+    "db:migrate:status": "prisma migrate status --config prisma.pg.config.ts",
+    "test:prepare": "node scripts/prepare-unit-db.mjs",
+    "pretest": "node scripts/prepare-unit-db.mjs",
+    "test:pg": "node scripts/prepare-pg-db.mjs && vitest run --config vitest.pg.config.ts",
+    "test:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.1",
@@ -72,6 +77,7 @@
       "brace-expansion": "5.0.12"
     },
     "js-yaml": "4.3.2",
-    "vite": "8.2.6"
+    "vite": "8.2.6",
+    "effect": "3.22.1"
   }
 }

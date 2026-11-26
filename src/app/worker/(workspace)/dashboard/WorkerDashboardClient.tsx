@@ -12,6 +12,8 @@ import {
   PlayCircle,
 } from "lucide-react";
 import CediAmount from "@/components/CediAmount";
+import OfflineMomoCapture from "@/components/OfflineMomoCapture";
+
 import Notice from "@/components/ui/Notice";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { createDailyAccount } from "@/lib/actions/daily-account.actions";
@@ -34,6 +36,7 @@ interface Props {
   userName: string;
   locationId: string | null;
   locationName: string | null;
+  userId: string;
   accounts: DailyAccountView[];
 }
 
@@ -48,6 +51,7 @@ export default function WorkerDashboardClient({
   userName,
   locationId,
   locationName,
+  userId,
   accounts,
 }: Props) {
   const handleRedirect = useRedirectHandler();
@@ -180,6 +184,9 @@ export default function WorkerDashboardClient({
           </div>
         )}
       </section>
+
+      {/* Counter Companion retired from the normal launch workflow. See docs/product/counter-companion.md. */}
+      <OfflineMomoCapture locationId={locationId} userId={userId} />
 
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Recent reports</h2>

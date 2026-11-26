@@ -9,7 +9,7 @@ import { verifyPlatformPassword } from "@/lib/platform-auth";
 import {
   confirmLinking,
   getOidcConfig,
-  oidcEnabled,
+  oidcLoginEnabled,
   attemptExpired,
   verifyOidcBlob,
   type OidcAttempt,
@@ -40,7 +40,7 @@ const DUMMY_HASH =
   "$2b$12$Liry.nw.u149hj.S6S6JfexTBF7uu1EZY8StKjQTA39/jdAco3ZLK"; // no timing oracle for unknown accounts
 
 export async function confirmPlatformSsoLink(formData: FormData): Promise<void> {
-  if (!oidcEnabled()) redirect("/platform/login");
+  if (!oidcLoginEnabled()) redirect("/platform/login");
 
   const attemptToken = String(formData.get("attempt") ?? "");
   const password = String(formData.get("password") ?? "");

@@ -161,7 +161,7 @@ describe("conversation context and follow-ups", () => {
     expect(followUp.intent).toBe("contributions_withdrawals");
     expect(followUp.period).toBe("previous_month");
     expect(followUp.text).toContain("Previous month");
-    expect(followUp.text).toContain("CALCULATED FACT");
+    expect(followUp.text).toContain("Key figures");
   });
 
   it("resolves a follow-up that ends with a full stop", async () => {
@@ -196,7 +196,7 @@ describe("conversation context and follow-ups", () => {
 
     expect(followUp.contextUsed).toBe(true);
     expect(followUp.intent).toBe("why_changed");
-    expect(followUp.text).toContain("CALCULATED FACT");
+    expect(followUp.text).toContain("Key figures");
   });
 
   it("asks one clarifying question and completes it on the next turn", async () => {
@@ -220,7 +220,7 @@ describe("conversation context and follow-ups", () => {
 
     expect(completed.contextUsed).toBe(true);
     expect(completed.intent).toBe("remittances");
-    expect(completed.text).toContain("CALCULATED FACT");
+    expect(completed.text).toContain("Key figures");
   });
 
   it("does not inherit context across unrelated social turns", async () => {
@@ -314,16 +314,18 @@ describe("grounding, roles and history", () => {
     expect(result.intent).toBe("income_expenses");
     expect(result.text).toContain("Recorded cash income");
     expect(result.text).toContain("Recorded expenses");
-    expect(result.text).toContain("CALCULATED FACT");
+    expect(result.text).toContain("Key figures");
   });
 
   it("persists history with intent, period and mode metadata", async () => {
     const { conversation, identity } = await adminConversation();
-    await runZeliTurn({
+    const first = await runZeliTurn({
       identity,
       conversationId: conversation.id,
       question: "Summarise this month's activity",
     });
+    expect(first.text).toContain("For this month");
+    expect(first.text).not.toContain("For This month");
     await runZeliTurn({
       identity,
       conversationId: conversation.id,
@@ -341,6 +343,10 @@ describe("grounding, roles and history", () => {
     expect(meta.period).toBe("previous_month");
     expect(meta.conversationMode).toBe("local");
     expect(secondAnswer.provider).toBe("internal");
+    expect(Array.isArray(meta.sections)).toBe(true);
+    expect(meta.sections.length).toBeGreaterThan(0);
+    expect(meta.answerMeta.source).toBeTruthy();
+    expect(secondAnswer.content).not.toMatch(/\[(CALCULATED FACT|DETECTED PATTERN|AUTOMATED INTERPRETATION|SUGGESTED ACTION|UNVERIFIED HYPOTHESIS|PERIOD|SOURCE|FRESHNESS|LIMITATIONS)\]/);
   });
 
   it("keeps worker and collector questions inside their role", async () => {
