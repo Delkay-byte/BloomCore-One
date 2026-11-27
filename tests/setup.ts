@@ -133,6 +133,11 @@ export async function cleanDatabase() {
     prisma.associationMember.deleteMany(),
     prisma.associationZone.deleteMany(),
     prisma.association.deleteMany(),
+    // Phase 8 support rows reference users and tenants, so they are removed
+    // before either parent disappears.
+    prisma.supportMessage.deleteMany(),
+    prisma.supportEvent.deleteMany(),
+    prisma.supportRequest.deleteMany(),
     prisma.auditLog.deleteMany(),
     prisma.passwordResetToken.deleteMany(),
     prisma.emailVerificationToken.deleteMany(),

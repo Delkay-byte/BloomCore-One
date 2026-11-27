@@ -48,6 +48,14 @@ export const STEP_UP_PURPOSES = [
   "collector.lifecycle",
   "tenant.admin_access_reset",
   "capability.change",
+  // Phase 8: staff offboarding/reactivation and privileged staff assignment
+  // changes. Bound to the target staff user so a grant cannot be replayed for
+  // a different person.
+  "staff.lifecycle",
+  "staff.assignment",
+  // Phase 8: bulk download of an administrative dataset (staff directory).
+  // Bound to the dataset name so a grant for one export cannot authorise another.
+  "admin.export",
   "platform.mfa_recovery",
 ] as const;
 

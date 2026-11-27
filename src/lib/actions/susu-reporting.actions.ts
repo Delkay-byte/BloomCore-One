@@ -8,6 +8,7 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { enforceExportRateLimit } from "@/lib/security/export-rate-limit";
 import { csvCell, buildCsv } from "@/lib/csv";
+import { createAuditLog } from "@/lib/audit";
 
 const MAX_EXPORT_ROWS = 50_000;
 type Money = number;
@@ -24,6 +25,35 @@ async function requireReportIdentity(): Promise<TenantContext> {
   if (!ctx) throw new Error("UNAUTHENTICATED");
   if (!ctx.modules.includes("susu")) throw new Error("FORBIDDEN_MODULE");
   return ctx;
+}
+
+/**
+ * Record a completed report export before the CSV is returned. Phase 8 closed
+ * the Phase 6 gap where exported financial reports left no audit trail.
+ */
+async function finishExport(
+  identity: ReportIdentity,
+  params: { report: string; branchId?: string; dateFrom?: string; dateTo?: string },
+  filename: string,
+  csv: string,
+  rowCount: number
+): Promise<{ success: boolean; error?: string; data?: { filename: string; csv: string } }> {
+  await createAuditLog({
+    userId: identity.userId,
+    tenantId: identity.tenantId,
+    branchId: params.branchId ?? null,
+    action: "finance.susu_report_exported",
+    entityType: "susu_report",
+    entityId: params.report,
+    details: {
+      report: params.report,
+      rowCount,
+      dateFrom: params.dateFrom ?? null,
+      dateTo: params.dateTo ?? null,
+      format: "csv",
+    },
+  });
+  return { success: true, data: { filename, csv } };
 }
 
 function toMoney(value: unknown): Money {
@@ -1072,7 +1102,7 @@ export async function exportSusuReport(params: {
         row.reversalOfId ?? "",
       ]),
     ]);
-    return { success: true, data: { filename, csv } };
+    return finishExport(identity, params, filename, csv, rows.length);
   }
 
   if (params.report === "branches") {
@@ -1102,7 +1132,7 @@ export async function exportSusuReport(params: {
         b.openDiscrepancies,
       ]),
     ]);
-    return { success: true, data: { filename, csv } };
+    return finishExport(identity, params, filename, csv, report.data!.branches.length);
   }
 
   if (params.report === "collectors") {
@@ -1131,7 +1161,7 @@ export async function exportSusuReport(params: {
         c.outstandingAmount,
       ]),
     ]);
-    return { success: true, data: { filename, csv } };
+    return finishExport(identity, params, filename, csv, report.data!.collectors.length);
   }
 
   if (params.report === "cycles") {
@@ -1191,7 +1221,7 @@ export async function exportSusuReport(params: {
         row.withdrawalAmount,
       ]),
     ]);
-    return { success: true, data: { filename, csv } };
+    return finishExport(identity, params, filename, csv, rows.length);
   }
 
   return { success: false, error: "Unsupported report." };
