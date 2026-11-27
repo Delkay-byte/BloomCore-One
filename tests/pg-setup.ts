@@ -16,6 +16,13 @@ const prisma = createPrismaClient(target.url);
 export { prisma };
 
 export async function cleanDatabase() {
+  await prisma.reconciliationAdjustment.deleteMany();
+  await prisma.reconciliationLine.deleteMany();
+  await prisma.dailyCollectorClosing.deleteMany();
+  await prisma.reconciliationExceptionEvent.deleteMany();
+  await prisma.reconciliationExceptionLink.deleteMany();
+  await prisma.reconciliationExceptionCase.deleteMany();
+  await prisma.susuReconciliation.deleteMany();
   await prisma.contributionAllocation.deleteMany();
   await prisma.remittanceDiscrepancy.deleteMany();
   await prisma.remittanceContribution.deleteMany();

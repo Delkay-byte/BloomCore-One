@@ -78,6 +78,8 @@ model Location {
   incomingTransfers  BranchTransfer[]          @relation("TransferDestination")
   shifts             Shift[]
   liquiditySnapshots BranchLiquiditySnapshot[]
+  susuReconciliations SusuReconciliation[]
+  dailyCollectorClosings DailyCollectorClosing[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1184,6 +1186,9 @@ model Collector {
   contributions    Contribution[]
   remittances      CollectorRemittance[]
   assignmentEvents CollectorAssignmentEvent[]
+  reconciliations SusuReconciliation[]
+  dailyClosings  DailyCollectorClosing[]
+  exceptionCases ReconciliationExceptionCase[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1549,16 +1554,260 @@ model OfflineSyncAttempt {
   resolution     String?
   resolvedAt     DateTime?
   resolvedById   String?
-  createdAt      DateTime  @default(now())
+  /// The reconciliation session currently reviewing this attempt (optional).
+  reconciliationId String?
+  createdAt      DateTime @default(now())
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  reconciliation SusuReconciliation? @relation(fields: [reconciliationId], references: [id])
 
   @@index([tenantId, createdAt])
   @@index([tenantId, outcome, createdAt])
   @@index([tenantId, retryable, createdAt])
   @@index([idempotencyKey])
   @@index([userId, createdAt])
+  @@index([reconciliationId, createdAt])
 }
+
+/// A reconciliation session: one bounded attempt to compare what was recorded
+/// against what was physically collected, declared, handed over, received and
+/// verified for one branch over one period.
+///
+/// Session types:
+///   daily_close   — daily collector closing (operational handover).
+///   branch_close  — branch-level reconciliation across collectors.
+///   remittance    — reconciliation against a formal Phase 3 remittance.
+///   sync          — offline synchronization exceptions.
+///   other         — contribution inconsistencies or other Susu exceptions.
+///
+/// Statuses:
+///   open            — session created, lines not yet finalised.
+///   matching        — difference detection is running / in progress.
+///   reviewed        — all lines reviewed by an authorised reviewer.
+///   case_created    — exception case(s) raised for unresolved differences.
+///   closed          — session closed; no further lines may be added.
+///
+/// A session is an audit boundary: it never edits a financial record. It only
+/// observes server-side records and records the observed differences.
+model SusuReconciliation {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  /// Branch this session covers. null = company-wide (only company-wide admins).
+  branchId      String?
+  /// Set for a daily_close session scoped to one collector.
+  collectorId   String?
+  /// daily_close | branch_close | remittance | sync | other
+  type          String
+  /// open | matching | matched | reviewed | case_created | closed
+  status        String   @default("open")
+  /// Period covered by the session (both bounds inclusive, UTC day granularity).
+  periodStart   DateTime
+  periodEnd     DateTime
+
+  /// Financial summary (definitionVersion 1). Computed from server-side records
+  /// on each matching run and stored so the exact figures that justified any
+  /// downstream case are preserved.
+  summaryJson   String   @default("{}")
+  /// Version of the financial definitions used to build summaryJson.
+  definitionVersion Int  @default(1)
+  /// Number of completed detection runs. Concurrency guard for status=matching.
+  runCount      Int      @default(0)
+  lastRunAt     DateTime?
+  lastRunById   String?
+
+  openedById    String
+  openedAt      DateTime @default(now())
+  closedAt      DateTime?
+  closedById    String?
+  closeReason   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  branch        Location?         @relation(fields: [branchId], references: [id])
+  collector     Collector?        @relation(fields: [collectorId], references: [id])
+  lines         ReconciliationLine[]
+  adjustments   ReconciliationAdjustment[]
+  syncAttempts  OfflineSyncAttempt[]
+  cases         ReconciliationExceptionCase[]
+  dailyClosings DailyCollectorClosing[]
+
+  @@index([tenantId, status, type])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, periodStart])
+  @@index([tenantId, type, openedAt])
+  @@index([branchId, openedAt])
+}
+
+model DailyCollectorClosing {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  branchId       String?
+  collectorId    String
+  /// UTC midnight of the business day this closing covers.
+  closingDate    DateTime
+  /// open | declared | handed_over | received | balanced | exception
+  status         String   @default("open")
+
+  expectedCash            Decimal @default(0)
+  contributionsRecorded   Decimal @default(0)
+  contributionsSynced     Decimal @default(0)
+  contributionsPending    Decimal @default(0)
+  pendingSyncCount        Int     @default(0)
+  failedSyncCount         Int     @default(0)
+
+  declaredCash            Decimal?
+  declaredAt              DateTime?
+  declaredById            String?
+  declarationNote         String?
+  declarationEvidenceRef  String?
+
+  handoverAmount          Decimal?
+  handedOverAt            DateTime?
+  handedOverById          String?
+  handoverEvidenceRef     String?
+
+  receivedAmount          Decimal?
+  receivedAt              DateTime?
+  receivedById            String?
+  receiptNote             String?
+  receiptEvidenceRef      String?
+
+  varianceExpectedVsDeclared Decimal @default(0)
+  varianceDeclaredVsReceived Decimal @default(0)
+  varianceExpectedVsReceived Decimal @default(0)
+  outstandingAmount          Decimal @default(0)
+
+  /// Reconciliation session that reviewed this closing (optional).
+  sessionId        String?
+  /// Exception case raised for the difference (optional).
+  exceptionCaseId  String?
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant        BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  branch        Location?                  @relation(fields: [branchId], references: [id])
+  collector     Collector                  @relation(fields: [collectorId], references: [id])
+  session       SusuReconciliation?        @relation(fields: [sessionId], references: [id])
+  exceptionCase ReconciliationExceptionCase? @relation(fields: [exceptionCaseId], references: [id])
+
+  @@unique([tenantId, collectorId, closingDate])
+  @@index([tenantId, branchId, closingDate])
+  @@index([tenantId, status, closingDate])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, exceptionCaseId])
+}
+
+/// One line inside a reconciliation session: one linked source record plus the
+/// observed declared, received and verified amounts and the resulting variance.
+///
+/// entityType is polymorphic: contribution | collector_remittance |
+/// offline_transaction | withdrawal | daily_account | other.
+/// status: matched | unmatched | shortfall | overage | duplicate |
+/// missing_evidence | sync_failure | reviewed
+model ReconciliationLine {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  branchId     String?
+  collectorId  String?
+  sessionId    String
+  /// The source record this line observes (never edited by this session).
+  entityType   String
+  entityId     String
+  /// Stable business fingerprint inside the session (see above).
+  fingerprint  String
+  /// Revision of this fingerprint. Revision 1 is the first observation.
+  revision     Int      @default(1)
+  /// What the records say should have been collected/handed over.
+  expectedAmount   Decimal?
+  /// What was physically declared by the collector.
+  declaredAmount   Decimal?
+  /// What was physically handed over by the collector.
+  physicalAmount   Decimal?
+  /// What office staff actually received and counted.
+  receivedAmount   Decimal?
+  /// What finance independently verified.
+  verifiedAmount   Decimal?
+  /// expectedAmount - (verifiedAmount ?? receivedAmount ?? physicalAmount ??
+  /// declaredAmount ?? 0). Positive = shortfall, negative = overage.
+  variance         Decimal @default(0)
+  /// Classification (never an accusation).
+  status           String
+  /// low | medium | high — operational priority, not a risk score.
+  severity         String?
+  /// Human-readable classification reason.
+  reason           String?
+  /// Supporting detail (reference ids, reasons, previous amounts) as JSON.
+  metadataJson     String?
+  /// Whether this revision has been reviewed by an authorised person.
+  reviewedAt       DateTime?
+  reviewedById     String?
+  /// Link to an exception case raised for this line (optional; one case may
+  /// cover many lines).
+  exceptionCaseId  String?
+  /// Last detection run that observed this business fingerprint.
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant      BusinessTenant?       @relation(fields: [tenantId], references: [id])
+  session     SusuReconciliation    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exception   ReconciliationExceptionCase? @relation(fields: [exceptionCaseId], references: [id])
+
+  @@unique([sessionId, fingerprint, revision])
+  @@index([tenantId, sessionId, status])
+  @@index([sessionId, entityType, entityId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, status, createdAt])
+}
+
+/// A recorded but non-posting reconciliation adjustment: the observed corrective
+/// figure that justifies a downstream correction, linked to the authorised
+/// correction/reversal that actually posts it. Never edits a financial record
+/// directly.
+///
+/// type: remittance_reversal | daily_account_correction | contribution_reversal
+/// withdrawal_adjustment | other
+/// status: proposed | linked | completed | rejected
+model ReconciliationAdjustment {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  sessionId   String
+  /// The correction workflow this adjustment references (remittance reversal,
+  /// daily account correction, etc.). referenceType/referenceId are polymorphic.
+  adjustmentType String
+  referenceType  String
+  referenceId    String
+  /// The amounts that justify the correction (observed, not posted here).
+  declaredAmount Decimal?
+  correctedAmount Decimal?
+  variance       Decimal   @default(0)
+  /// proposed | linked | completed | rejected
+  status         String   @default("proposed")
+  reason         String?
+  evidenceRef    String?
+  /// Exception case this correction is attached to (optional).
+  caseId         String?
+  proposedById   String
+  proposedAt     DateTime @default(now())
+  linkedById     String?
+  linkedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant   BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  session  SusuReconciliation @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sessionId, status])
+  @@index([sessionId, referenceType, referenceId])
+  @@index([tenantId, caseId])
+}
+
+/// Phase 2: offline sync attempt trace, extended so a reconciliation session
+/// can claim a failed or pending sync attempt for review. The original retryable
+/// flag and outcome are preserved; only an administrator may resolve/dismiss.
 
 // =====================
 // PLATFORM / MULTI-TENANCY
@@ -2155,6 +2404,10 @@ model BusinessTenant {
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
   offlineSyncAttempts          OfflineSyncAttempt[]
+  susuReconciliations          SusuReconciliation[]
+  dailyCollectorClosings       DailyCollectorClosing[]
+  reconciliationLines          ReconciliationLine[]
+  reconciliationAdjustments    ReconciliationAdjustment[]
   zeliEntitlements             ZeliEntitlement[]
   zeliAccess                   ZeliTenantAccess?
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]
@@ -3753,21 +4006,47 @@ model BranchLiquidityLine {
 /// resolution. Resolving a case NEVER changes a financial record; the linked
 /// correction is recorded by its own authorised workflow and referenced here.
 model ReconciliationExceptionCase {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   tenantId       String?
+  /// Branch this case covers. null = company-wide (only company-wide admins).
+  branchId       String?
+  /// Collector whose field work the case concerns (enables collector access).
+  collectorId    String?
+  /// Reconciliation session that produced this case (optional).
+  sourceSessionId String?
   caseNumber     String
-  /// provider_statement | branch_liquidity | branch_transfer | remittance | shift | daily_close | other
+  /// provider_statement | branch_liquidity | branch_transfer | remittance |
+  /// shift | daily_close | contribution | offline_sync | withdrawal |
+  /// sync | other
   category       String
-  /// high | medium | low
+  /// low | medium | high — operational priority, never a fraud score.
   severity       String    @default("medium")
-  /// open | investigating | awaiting_evidence | resolved | dismissed
+  /// See lifecycle above.
   status         String    @default("open")
   title          String
   description    String?
+  /// Absolute amount at stake, captured when the case is opened. Reporting must
+  /// not re-derive it from a mutable financial record.
+  amountAtStake  Decimal?
   ownerId        String?
   assignedAt     DateTime?
   dueAt          DateTime?
   evidence       String?
+  escalatedAt    DateTime?
+  escalationLevel Int      @default(0)
+  reopenCount    Int       @default(0)
+
+  /// Proposed resolution awaiting independent approval (high severity or
+  /// amount at or above the policy threshold).
+  resolutionProposedById   String?
+  resolutionProposedAt     DateTime?
+  proposedResolutionType   String?
+  proposedResolutionNote   String?
+  proposedEvidenceRef      String?
+  /// Independent approver of the proposed resolution.
+  resolutionApprovedById   String?
+  resolutionApprovedAt     DateTime?
+
   resolutionType String?
   resolutionNote String?
   resolvedById   String?
@@ -3778,14 +4057,22 @@ model ReconciliationExceptionCase {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  tenant BusinessTenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  links  ReconciliationExceptionLink[]
-  events ReconciliationExceptionEvent[]
+  tenant       BusinessTenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collector    Collector?                     @relation(fields: [collectorId], references: [id])
+  sourceSession SusuReconciliation?           @relation(fields: [sourceSessionId], references: [id])
+  links        ReconciliationExceptionLink[]
+  events       ReconciliationExceptionEvent[]
+  lines        ReconciliationLine[]
+  closings     DailyCollectorClosing[]
 
   @@unique([tenantId, caseNumber])
   @@index([tenantId, status, severity])
   @@index([tenantId, category])
   @@index([tenantId, ownerId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, dueAt, status])
+  @@index([tenantId, sourceSessionId])
 }
 
 /// A source record linked to an exception case. Polymorphic by design: a case
@@ -3813,10 +4100,18 @@ model ReconciliationExceptionEvent {
   id        String   @id @default(cuid())
   tenantId  String?
   caseId    String
-  /// opened | assigned | status_changed | note | evidence | resolved | reopened | link_added
+  /// opened | assigned | reassigned | status_changed | note | evidence |
+  /// escalated | resolution_proposed | resolution_approved | resolved |
+  /// rejected | reopened | link_added | collector_response
   type      String
   actorId   String
   actorRole String?
+  /// Previous and new case status, so the history is self-describing without
+  /// parsing payload JSON.
+  fromStatus String?
+  toStatus   String?
+  reason     String?
+  evidenceRef String?
   note      String?
   payload   String?
   createdAt DateTime @default(now())

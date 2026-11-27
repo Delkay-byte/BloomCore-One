@@ -23,6 +23,7 @@ export const EVIDENCE_SUBJECT_TYPES = [
   "operationalAnomaly",
   "offlineActionRequest",
   "withdrawalRequest",
+  "reconciliationExceptionCase",
 ] as const;
 export type EvidenceSubjectType = (typeof EVIDENCE_SUBJECT_TYPES)[number];
 
