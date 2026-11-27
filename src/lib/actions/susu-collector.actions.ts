@@ -17,10 +17,11 @@ import { validateStatusTransition } from "@/lib/security/status";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { lockAccountForUpdate } from "@/lib/db-lock";
+import { validateRemittanceAmount } from "@/lib/finance/remittance";
 import {
-  expectedRemittanceAmount,
-  validateRemittanceAmount,
-} from "@/lib/finance/remittance";
+  allocateToContributions,
+  computeCollectorObligation,
+} from "@/lib/finance/remittance-settlement";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
 import { resolveBranchScope, resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
@@ -502,30 +503,13 @@ export async function recordRemittance(params: {
       }
     }
 
-    const existingRemittances = await tx.collectorRemittance.findMany({
-      where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
-      select: { createdAt: true },
-      orderBy: { createdAt: "desc" },
-      take: 1,
-    });
-
-    const lastRemittanceDate =
-      existingRemittances.length > 0
-        ? existingRemittances[0].createdAt
-        : new Date(0);
-
-    // Reversed contributions were never actually collected, so they must not
-    // inflate the expected cash handover.
-    const unremittedContributions = await tx.contribution.findMany({
-      where: {
-        collectorId,
-        tenantId: ctx.tenantId,
-        collectionDate: { gt: lastRemittanceDate },
-        reversedAt: null,
-      },
-    });
-
-    const expectedAmount = expectedRemittanceAmount(unremittedContributions);
+    // ONE definition of what the collector still owes: the shared settlement
+    // engine. It excludes reversed contributions (`reversedAt: null`) and
+    // reversed/returned remittances, counts cash actually received once custody
+    // was confirmed, and therefore carries a shortfall forward instead of
+    // silently dropping it. The field declaration path reads the same engine.
+    const obligation = await computeCollectorObligation(tx, ctx.tenantId, collectorId);
+    const expectedAmount = obligation.outstanding;
     const variance = expectedAmount - remitted;
     const referenceId = `REM-${randomBytes(8).toString("hex")}`;
 
@@ -544,6 +528,16 @@ export async function recordRemittance(params: {
         requestHash,
         notes,
       },
+    });
+
+    // Counter handovers are part of the same chain as field declarations: link
+    // the cash to the contributions it settles (FIFO, partial allowed), so the
+    // Contribution -> remittance evidence survives a later reversal.
+    await allocateToContributions(tx, {
+      tenantId: ctx.tenantId,
+      collectorId,
+      remittanceId: remittance.id,
+      amount: remitted,
     });
 
     await createAuditLogTx(tx, {
@@ -1047,4 +1041,6 @@ export async function registerCustomerByCollector(params: {
   };
 }
 
-export * from "./susu-remittance.actions";
+// Phase 3 remittance lifecycle actions live in their own "use server" module
+// (susu-remittance.actions.ts) and are imported from there directly. A wildcard
+// re-export is invalid in a "use server" file and breaks the production build.

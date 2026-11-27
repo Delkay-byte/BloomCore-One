@@ -1271,6 +1271,7 @@ model CollectorRemittance {
   @@index([status])
   @@index([createdAt])
   @@index([referenceId])
+  @@index([tenantId])
   @@index([branchId])
   @@index([method])
   @@index([receivingBranchId])
@@ -1307,11 +1308,18 @@ model CollectorAssignmentEvent {
   @@index([actorId, createdAt])
 }
 
+/// Money a remittance declaration settles, per contribution. `amount` may be
+/// LESS than the contribution's own amount: a partial handover settles part of
+/// a contribution now and the remainder in a later declaration. The same
+/// contribution may therefore appear in more than one declaration, but each
+/// (remittance, contribution) pair appears once and the allocated total may
+/// never exceed the contribution amount (enforced server-side inside the
+/// collector's settlement lock).
 model RemittanceContribution {
   id             String   @id @default(cuid())
   tenantId       String?
   remittanceId   String
-  contributionId String   @unique
+  contributionId String
   amount         Decimal
   createdAt      DateTime @default(now())
 
@@ -1320,6 +1328,7 @@ model RemittanceContribution {
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([remittanceId, contributionId])
   @@index([remittanceId])
   @@index([contributionId])
   @@index([tenantId])

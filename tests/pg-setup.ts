@@ -17,6 +17,8 @@ export { prisma };
 
 export async function cleanDatabase() {
   await prisma.contributionAllocation.deleteMany();
+  await prisma.remittanceDiscrepancy.deleteMany();
+  await prisma.remittanceContribution.deleteMany();
   await prisma.contribution.deleteMany();
   await prisma.withdrawal.deleteMany();
   await prisma.commission.deleteMany();

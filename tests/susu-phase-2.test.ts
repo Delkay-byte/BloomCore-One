@@ -629,10 +629,9 @@ describe("Period-based performance", () => {
   it("collector cannot view another collector's performance", async () => {
     const { collector: me, user: meUser } = await createCollector(adminId, "active");
     const { collector: other } = await createCollector(adminId, "active");
-    const tenantId = (
-      await prisma.user.findUnique({ where: { id: adminId } })
-    )?.tenantId!;
-    await setCollectorSession(meUser.id, tenantId);
+    const admin = await prisma.user.findUniqueOrThrow({ where: { id: adminId } });
+    if (!admin.tenantId) throw new Error("test admin has no tenant");
+    await setCollectorSession(meUser.id, admin.tenantId);
     await expect(
       getCollectorPerformance({ collectorId: other.id, period: "daily" })
     ).rejects.toThrow();

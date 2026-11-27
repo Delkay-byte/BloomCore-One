@@ -55,8 +55,16 @@ CREATE INDEX "CollectorAssignmentEvent_actorId_createdAt_idx"
 -- contribution (evidence only — collectionDate remains the server posting time).
 -- ---------------------------------------------------------------------------
 ALTER TABLE "Contribution" ADD COLUMN "capturedAt" TIMESTAMP(3);
-ALTER TABLE "Contribution" ALTER COLUMN "localTimestamp" SET DEFAULT CURRENT_TIMESTAMP;
 CREATE INDEX "Contribution_capturedAt_idx" ON "Contribution"("capturedAt");
+
+-- INTEGRATION CORRECTION (phases 1-3 integration agent):
+-- The original Phase 2 migration rewrote the default of a `localTimestamp`
+-- column on "Contribution". "Contribution" has never had that column; the
+-- capture timestamp lives on "OfflineTransaction" and already defaults to
+-- CURRENT_TIMESTAMP (see 20260824_add_offline_device_enrollment). That
+-- statement could therefore never run, so it is replaced by this note rather
+-- than being left to fail the whole migration chain. No schema change is lost:
+-- "Contribution" gains only the additive "capturedAt" evidence column above.
 
 -- ---------------------------------------------------------------------------
 -- Offline sync attempt trace: rejected/failed syncs visible to authorized

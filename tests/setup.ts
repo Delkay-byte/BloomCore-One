@@ -26,6 +26,10 @@ export async function cleanDatabase() {
   // BusinessTenant. Each test file runs sequentially, so this cannot race.
   await prisma.$transaction([
     prisma.contributionAllocation.deleteMany(),
+    // Phase 3: remittance links and discrepancies reference contributions and
+    // remittances, so they must go first (links are RESTRICT on the contribution).
+    prisma.remittanceDiscrepancy.deleteMany(),
+    prisma.remittanceContribution.deleteMany(),
     prisma.contribution.deleteMany(),
     prisma.withdrawal.deleteMany(),
     // Phase 2: append-only assignment history references assignments, so it must
