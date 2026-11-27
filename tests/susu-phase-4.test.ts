@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, cleanDatabase } from "./setup";
 
 const { ctxHolder } = vi.hoisted(() => ({
-  ctxHolder: { current: null as null | Record<string, unknown> },
+  ctxHolder: {
+    current: null as null | Record<string, unknown>,
+    queue: [] as Array<Record<string, unknown>>,
+  },
 }));
 
 vi.mock("next/headers", () => ({
@@ -19,10 +22,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/tenant", () => ({
-  requireTenantAdmin: async () => ctxHolder.current,
-  requireTenantAdminSusu: async () => ctxHolder.current,
-  requireTenantCustomer: async () => ctxHolder.current,
-  getApiTenantContext: async () => ctxHolder.current,
+  requireTenantAdmin: async () => ctxHolder.queue.shift() ?? ctxHolder.current,
+  requireTenantAdminSusu: async () => ctxHolder.queue.shift() ?? ctxHolder.current,
+  requireTenantCustomer: async () => ctxHolder.queue.shift() ?? ctxHolder.current,
+  getApiTenantContext: async () => ctxHolder.queue.shift() ?? ctxHolder.current,
 }));
 
 import {
@@ -48,8 +51,8 @@ let customerId: string;
 let accountId: string;
 let cycleId: string;
 
-function asAdmin(user: { id: string; email: string }) {
-  ctxHolder.current = {
+function adminCtx(user: { id: string; email: string }): Record<string, unknown> {
+  return {
     tenantId,
     tenantName: "Phase 4 Tenant",
     tenantCode: "P4",
@@ -58,6 +61,10 @@ function asAdmin(user: { id: string; email: string }) {
     role: "admin",
     modules: ["susu"],
   };
+}
+
+function asAdmin(user: { id: string; email: string }) {
+  ctxHolder.current = adminCtx(user);
 }
 
 function asCustomer() {
@@ -385,6 +392,64 @@ describe("staged high-value withdrawal", () => {
     const result = await getHighValueWithdrawalQueue();
     expect(result.success).toBe(true);
     expect(result.requests?.some((r) => r.id === id)).toBe(true);
+  });
+
+  it("allows two distinct concurrent approvals to complete the threshold", async () => {
+    await configurePolicy({ requiredApprovals: 2, separationOfDuties: false });
+    asCustomer();
+    const id = await createHighValueRequest();
+    const adminC = await createAdmin(`p4-c-${Math.random().toString(36).slice(2, 8)}@test.local`, "Admin C");
+    const [tokenA, tokenC] = await Promise.all([
+      grant({
+        purpose: "withdrawal.approve",
+        subjectId: adminA.id,
+        targetType: "customerWithdrawalRequest",
+        targetId: id,
+        context: { amountMinor: "20000", currency: "GHS" },
+      }),
+      grant({
+        purpose: "withdrawal.approve",
+        subjectId: adminC.id,
+        targetType: "customerWithdrawalRequest",
+        targetId: id,
+        context: { amountMinor: "20000", currency: "GHS" },
+      }),
+    ]);
+    ctxHolder.queue.push(adminCtx(adminA), adminCtx(adminC));
+    const results = await Promise.all([
+      approveWithdrawalRequest({ id, stepUpToken: tokenA }),
+      approveWithdrawalRequest({ id, stepUpToken: tokenC }),
+    ]);
+    expect(results.filter((r) => r.success)).toHaveLength(2);
+    expect(await prisma.withdrawalApproval.count({ where: { requestId: id, status: "approved" } })).toBe(2);
+    const row = await prisma.customerWithdrawalRequest.findUniqueOrThrow({ where: { id } });
+    expect(row.status).toBe("awaiting_payment");
+  });
+
+  it("allows only one of two concurrent payments", async () => {
+    await configurePolicy({ separationOfDuties: false });
+    asCustomer();
+    const id = await createHighValueRequest();
+    asAdmin(adminA);
+    const approvalToken = await grant({
+      purpose: "withdrawal.approve",
+      subjectId: adminA.id,
+      targetType: "customerWithdrawalRequest",
+      targetId: id,
+      context: { amountMinor: "20000", currency: "GHS" },
+    });
+    expect((await approveWithdrawalRequest({ id, stepUpToken: approvalToken })).success).toBe(true);
+    const [payA, payB] = await Promise.all([
+      grant({ purpose: "withdrawal.pay", subjectId: adminA.id, targetType: "susuAccount", targetId: accountId, context: { amountMinor: "20000", currency: "GHS" } }),
+      grant({ purpose: "withdrawal.pay", subjectId: adminB.id, targetType: "susuAccount", targetId: accountId, context: { amountMinor: "20000", currency: "GHS" } }),
+    ]);
+    ctxHolder.queue.push(adminCtx(adminA), adminCtx(adminB));
+    const attempts = await Promise.all([
+      payWithdrawalRequest({ id, stepUpToken: payA, paymentMethod: "cash", paymentReference: "PAY-C-A" }),
+      payWithdrawalRequest({ id, stepUpToken: payB, paymentMethod: "cash", paymentReference: "PAY-C-B" }),
+    ]);
+    expect(attempts.filter((r) => r.success)).toHaveLength(1);
+    expect(await prisma.withdrawal.count()).toBe(1);
   });
 
   it("denies a cross-tenant request id", async () => {
