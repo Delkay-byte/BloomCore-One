@@ -1115,6 +1115,8 @@ model Contribution {
   @@index([referenceId])
   @@index([tenantId])
   @@index([branchId])
+  // Reporting access path: tenant + branch + collection window.
+  @@index([tenantId, branchId, collectionDate])
 }
 
 model ContributionAllocation {
@@ -1173,6 +1175,8 @@ model Withdrawal {
   @@index([referenceId])
   @@index([tenantId])
   @@index([branchId])
+  // Reporting access path: tenant + branch + created window.
+  @@index([tenantId, branchId, createdAt])
 }
 
 model Commission {
@@ -1354,6 +1358,9 @@ model CollectorRemittance {
   @@index([branchId])
   @@index([method])
   @@index([receivingBranchId])
+  // Reporting access paths.
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, collectorId, status])
 }
 
 /// Append-only history of collector/customer assignments, transfers and

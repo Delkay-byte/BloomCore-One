@@ -14,7 +14,7 @@ import { consumeRateLimit, type RateLimitPolicy } from "./rate-limit";
  * state; the sustained bucket bounds total volume for legitimate use.
  */
 
-export type ExportKind = "zeliAnalytics" | "association" | "audit";
+export type ExportKind = "zeliAnalytics" | "association" | "audit" | "susuReport";
 
 const POLICIES: Record<
   ExportKind,
@@ -32,6 +32,11 @@ const POLICIES: Record<
   },
   audit: {
     scope: "export_audit",
+    sustained: RATE_LIMITS.auditExportSustained,
+    burst: RATE_LIMITS.auditExportBurst,
+  },
+  susuReport: {
+    scope: "export_susu_report",
     sustained: RATE_LIMITS.auditExportSustained,
     burst: RATE_LIMITS.auditExportBurst,
   },
