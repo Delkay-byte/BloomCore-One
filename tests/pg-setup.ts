@@ -25,6 +25,11 @@ export async function cleanDatabase() {
   await prisma.cardFee.deleteMany();
   await prisma.collectorCustomerAssignment.deleteMany();
   await prisma.collectorRemittance.deleteMany();
+  // Phase 4 children and policy rows must be removed before their parents.
+  await prisma.withdrawalApproval.deleteMany();
+  await prisma.withdrawalPolicyHistory.deleteMany();
+  await prisma.withdrawalPolicy.deleteMany();
+  await prisma.stepUpGrant.deleteMany();
   await prisma.customerWithdrawalRequest.deleteMany();
   await prisma.evidenceAttachment.deleteMany();
   await prisma.susuCycle.deleteMany();

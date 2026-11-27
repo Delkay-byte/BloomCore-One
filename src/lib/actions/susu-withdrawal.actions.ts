@@ -18,7 +18,7 @@ import {
   claimStepUpGrant,
   StepUpDeniedError,
 } from "@/lib/security/step-up";
-import { stepUpSessionBinding } from "@/lib/security/step-up";
+import { stepUpSessionBinding, type StepUpPurpose } from "@/lib/security/step-up";
 import { resolveBranchScope, resolveWriteBranch, isBranchlessTenant } from "@/lib/branch";
 
 export interface ActionResponse {
@@ -57,10 +57,24 @@ export async function processWithdrawal(params: {
   stepUpToken?: string;
   /** Branch responsible for the payment; verified against server-side scope. */
   branchId?: string;
+  /** Phase 4: purpose-bound step-up for a distinct payment action. */
+  stepUpPurpose?: StepUpPurpose;
+  /** Phase 4: payment evidence recorded on the withdrawal itself. */
+  payment?: {
+    requestId?: string;
+    method: string;
+    reference: string;
+    evidenceRef?: string;
+    reasonCode?: string;
+    paidById?: string;
+    paidAt?: Date;
+    acknowledgedById?: string;
+    acknowledgedAt?: Date;
+  };
 }): Promise<ActionResponse> {
   const ctx = await requireTenantAdminSusu();
 
-  const { accountId, requestedAmount, notes, idempotencyKey, stepUpToken, branchId } = params;
+  const { accountId, requestedAmount, notes, idempotencyKey, stepUpToken, branchId, stepUpPurpose, payment } = params;
   const session = await getAdminSession();
 
   // Monetary validation: finite, positive, at most two decimal places.
@@ -138,7 +152,7 @@ export async function processWithdrawal(params: {
         subjectType: "user",
         subjectId: ctx.userId,
         sessionId: stepUpSessionBinding(session, ctx.userId),
-        purpose: "susu.withdrawal",
+        purpose: stepUpPurpose ?? "susu.withdrawal",
         targetType: "susuAccount",
         targetId: account.id,
         context: {
@@ -240,6 +254,15 @@ export async function processWithdrawal(params: {
         data: {
           tenantId: ctx.tenantId,
           branchId: responsibleBranchId,
+          requestId: payment?.requestId ?? null,
+          paymentMethod: payment?.method ?? null,
+          paymentReference: payment?.reference ?? null,
+          evidenceRef: payment?.evidenceRef ?? null,
+          reasonCode: payment?.reasonCode ?? undefined,
+          paidById: payment?.paidById ?? ctx.userId,
+          paidAt: payment?.paidAt ?? new Date(),
+          acknowledgedById: payment?.acknowledgedById ?? undefined,
+          acknowledgedAt: payment?.acknowledgedAt ?? undefined,
           accountId: account.id,
           cycleId: cycleRow.id,
           requestedAmount: amount,

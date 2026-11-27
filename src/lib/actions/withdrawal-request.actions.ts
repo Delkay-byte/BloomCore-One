@@ -8,6 +8,7 @@ import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
 import { resolveBranchScope, resolveCustomerRequestBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
+import { DEFAULT_WITHDRAWAL_POLICY, evaluateWithdrawalPolicy, policyFromRow } from "@/lib/withdrawal-policy";
 import {
   OPEN_WITHDRAWAL_REQUEST_STATUSES,
   cycleAvailablePesewa,
@@ -46,6 +47,14 @@ export interface WithdrawalRequestView {
   resultingWithdrawalId: string | null;
   /** Set when the request is waiting on the customer to do something. */
   nextStep: string | null;
+  /** Phase 4 fields for staged enterprise controls. */
+  highValue: boolean;
+  requiredApprovals: number;
+  approvalCount: number;
+  paymentMethod: string | null;
+  paymentReference: string | null;
+  evidenceRef: string | null;
+  paidAt: string | null;
 }
 
 export interface WithdrawalRequestResponse {
@@ -62,6 +71,9 @@ const STATUS_LABELS_LOCAL: Record<WithdrawalRequestStatus, string> = {
   rejected: "Declined",
   cancelled: "Cancelled by you",
   needs_review: "Needs a person to review",
+  awaiting_payment: "Approved, awaiting payment",
+  disputed: "Disputed",
+  reversed: "Reversed",
 };
 
 function statusLabel(status: string): string {
@@ -88,6 +100,13 @@ interface RequestRow {
   decidedAt: Date | null;
   decisionNote: string | null;
   resultingWithdrawalId: string | null;
+  highValue: boolean;
+  requiredApprovals: number;
+  approvals?: Array<{ id: string; status: string }>;
+  paymentMethod: string | null;
+  paymentReference: string | null;
+  evidenceRef: string | null;
+  paidAt: Date | null;
   account: { accountId: string };
 }
 
@@ -108,6 +127,13 @@ function toView(row: RequestRow): WithdrawalRequestView {
     decisionNote: row.decisionNote,
     resultingWithdrawalId: row.resultingWithdrawalId,
     nextStep: nextStepFor(row.status),
+    highValue: row.highValue,
+    requiredApprovals: row.requiredApprovals,
+    approvalCount: row.approvals?.filter((a) => a.status === "approved").length ?? 0,
+    paymentMethod: row.paymentMethod,
+    paymentReference: row.paymentReference,
+    evidenceRef: row.evidenceRef,
+    paidAt: row.paidAt?.toISOString() ?? null,
   };
 }
 
@@ -122,6 +148,13 @@ const requestSelect = {
   decidedAt: true,
   decisionNote: true,
   resultingWithdrawalId: true,
+  highValue: true,
+  requiredApprovals: true,
+  paymentMethod: true,
+  paymentReference: true,
+  evidenceRef: true,
+  paidAt: true,
+  approvals: { select: { id: true, status: true } },
   account: { select: { accountId: true } },
 } as const;
 
@@ -205,6 +238,11 @@ export async function requestWithdrawal(input: {
     };
   }
 
+  const policyRow = await db.withdrawalPolicy.findUnique({ where: { tenantId: ctx.tenantId } });
+  const policy = policyRow ? policyFromRow(policyRow) : DEFAULT_WITHDRAWAL_POLICY;
+  const evaluation = evaluateWithdrawalPolicy(policy, pesewa);
+  if (!evaluation.allowed) return { success: false, error: evaluation.reason ?? "This withdrawal is not allowed." };
+
   const reference = `WRQ-${randomBytes(6).toString("hex").toUpperCase()}`;
   const branchId = await resolveCustomerRequestBranch(ctx, account.id);
   if (!branchId && !(await isBranchlessTenant(ctx))) {
@@ -226,6 +264,9 @@ export async function requestWithdrawal(input: {
         reason: parsed.data.reason,
         status: "requested",
         requestedById: ctx.userId,
+        highValue: evaluation.highValue,
+        requiredApprovals: evaluation.requiredApprovals,
+        policyVersion: policyRow ? 2 : 1,
       },
       select: requestSelect,
     });
@@ -241,6 +282,8 @@ export async function requestWithdrawal(input: {
         accountId: account.accountId,
         amountPesewa: pesewa,
         availablePesewa: available,
+        highValue: evaluation.highValue,
+        requiredApprovals: evaluation.requiredApprovals,
         financialMutation: false,
       },
     });
