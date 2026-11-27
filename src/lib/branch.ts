@@ -22,11 +22,26 @@ export type BranchScope =
   | { kind: "limited"; branchIds: string[]; roles: string[] };
 
 export async function resolveBranchScope(ctx: TenantContext): Promise<BranchScope> {
-  if (ctx.role === "admin") {
+  return resolveUserBranchScope(ctx.tenantId, ctx.userId, ctx.role);
+}
+
+/**
+ * Branch scope for an arbitrary tenant user.
+ *
+ * Reconciliation reassigns cases to another staff member, so the assignee's
+ * scope must be resolved without a session context. The rules are identical to
+ * the acting-user path above; this function is the single implementation.
+ */
+export async function resolveUserBranchScope(
+  tenantId: string,
+  userId: string,
+  role: string
+): Promise<BranchScope> {
+  if (role === "admin") {
     const memberships = await db.branchMembership.findMany({
       where: {
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
+        tenantId,
+        userId,
         status: "active",
         role: { in: ["branch_manager", "finance"] },
       },
@@ -40,9 +55,9 @@ export async function resolveBranchScope(ctx: TenantContext): Promise<BranchScop
     };
   }
 
-  if (ctx.role === "collector") {
+  if (role === "collector") {
     const collector = await db.collector.findFirst({
-      where: { tenantId: ctx.tenantId, userId: ctx.userId, status: "active" },
+      where: { tenantId, userId, status: "active" },
       select: { branchId: true },
     });
     return {
@@ -56,12 +71,7 @@ export async function resolveBranchScope(ctx: TenantContext): Promise<BranchScop
   // They may hold an explicit finance membership; otherwise scope is empty and
   // every access check fails closed.
   const memberships = await db.branchMembership.findMany({
-    where: {
-      tenantId: ctx.tenantId,
-      userId: ctx.userId,
-      status: "active",
-      role: "finance",
-    },
+    where: { tenantId, userId, status: "active", role: "finance" },
     select: { locationId: true, role: true },
   });
   return {
@@ -69,6 +79,20 @@ export async function resolveBranchScope(ctx: TenantContext): Promise<BranchScop
     branchIds: [...new Set(memberships.map((m) => m.locationId))],
     roles: [...new Set(memberships.map((m) => m.role))],
   };
+}
+
+/** True when the user holds this active branch role. Never trusts the client. */
+export async function hasActiveBranchRole(
+  tenantId: string,
+  userId: string,
+  branchId: string,
+  role: "branch_manager" | "finance"
+): Promise<boolean> {
+  const membership = await db.branchMembership.findFirst({
+    where: { tenantId, userId, locationId: branchId, status: "active", role },
+    select: { id: true },
+  });
+  return Boolean(membership);
 }
 
 /**

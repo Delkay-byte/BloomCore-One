@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
@@ -90,6 +90,14 @@ export default function CollectorShell({
                       <Sparkles size={15} aria-hidden /> Zeli Assistant
                     </Link>
                   )}
+                  <Link
+                    href="/collector/reconciliation"
+                    role="menuitem"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <ClipboardCheck size={15} aria-hidden /> My reconciliation
+                  </Link>
                   <Link
                     href="/collector/settings"
                     role="menuitem"

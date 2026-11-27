@@ -86,6 +86,8 @@ export const navSections: NavSection[] = [
         icon: Banknote,
       },
       { href: "/susu/admin/remittances", label: "Money Handed In", icon: Vault },
+      { href: "/susu/admin/reconciliation", label: "Reconciliation", icon: Scale },
+      { href: "/susu/admin/reconciliation/daily-closing", label: "Daily Closing", icon: Clock3 },
       { href: "/susu/admin/approvals", label: "Approvals", icon: ShieldCheck },
       {
         href: "/susu/admin/offline-requests",

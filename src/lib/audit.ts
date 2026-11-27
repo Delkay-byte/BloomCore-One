@@ -204,6 +204,7 @@ export async function createAuditLogTx(
     data: {
       userId,
       tenantId: tenantId ?? undefined,
+      branchId: branchId ?? undefined,
       ...actor,
       action,
       entityType,
