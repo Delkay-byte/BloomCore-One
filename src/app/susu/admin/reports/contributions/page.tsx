@@ -5,7 +5,7 @@ import Notice from "@/components/ui/Notice";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getContributionReport } from "@/lib/actions/susu-reporting.actions";
-import { buildCsv, csvBlob } from "@/lib/csv";
+import ExportReportButton from "../_components/ExportReportButton";
 import { formatDateTime, formatCedi } from "@/lib/utils";
 import CediAmount from "@/components/CediAmount";
 import { PromptDialog } from "@/components/ui/Modal";
@@ -52,28 +52,6 @@ export default function SusuContributionsReportPage() {
     };
   }, [page, limit, dateFrom, dateTo, channel, reversalStatus]);
 
-  function handleExportCsv() {
-    const rows = [result?.contributions ?? []].flat().map((row) => [
-      row.collectionDate ? new Date(row.collectionDate).toISOString().slice(0, 10) : "",
-      row.referenceId,
-      row.account?.customerId ?? "",
-      row.account?.fullName ?? "",
-      row.collector?.fullName ?? "",
-      row.channel,
-      row.amount,
-      row.status,
-    ]);
-    const headers = ["Date", "Reference", "Customer ID", "Customer", "Collector", "Channel", "Amount (GH₵)", "Status"];
-    const csv = buildCsv([headers, ...rows]);
-    const blob = csvBlob([headers, ...rows]);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `susu-contributions-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -81,7 +59,15 @@ export default function SusuContributionsReportPage() {
           <h1 className="text-2xl font-bold text-slate-900">Susu Contribution Report</h1>
           <p className="text-slate-500 mt-1">Reversal-aware contribution reporting</p>
         </div>
-        <button onClick={handleExportCsv} className="btn btn-secondary btn-sm">Export CSV</button>
+        <ExportReportButton
+          report="contributions"
+          filters={{
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            channel: channel || undefined,
+            reversalStatus: reversalStatus === "all" ? undefined : reversalStatus,
+          }}
+        />
       </div>
 
       {error && (

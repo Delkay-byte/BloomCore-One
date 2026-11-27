@@ -5,6 +5,7 @@ import Notice from "@/components/ui/Notice";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getCollectorPerformanceReport, getSusuReportOptions } from "@/lib/actions/susu-reporting.actions";
+import ExportReportButton from "../_components/ExportReportButton";
 import CediAmount from "@/components/CediAmount";
 
 export default function SusuCollectorsReportPage() {
@@ -58,6 +59,14 @@ export default function SusuCollectorsReportPage() {
           <h1 className="text-2xl font-bold text-slate-900">Susu Collector Performance</h1>
           <p className="text-slate-500 mt-1">Reversal-aware contribution and remittance performance</p>
         </div>
+        <ExportReportButton
+          report="collectors"
+          filters={{
+            branchId: branchId || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+          }}
+        />
       </div>
 
       {error && (

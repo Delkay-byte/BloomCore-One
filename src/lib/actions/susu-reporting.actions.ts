@@ -781,11 +781,22 @@ export async function getCustomerStatement(accountId: string, params?: {
   };
 }
 
-/** Cycle report: per-cycle summary using real cycle definitions. */
+/**
+ * Cycle report: per-cycle summary using real cycle definitions.
+ *
+ * Branch semantics (Phase 7 integration): a cycle belongs to exactly one
+ * `SusuAccount`, and `SusuAccount.branchId` is that account's branch of record,
+ * so a cycle can never span branches. A branch filter therefore selects cycles
+ * whose account belongs to the branch, and the per-cycle contribution,
+ * allocation and withdrawal figures are narrowed to the same branch so a
+ * branch-scoped reader never receives another branch's aggregate money.
+ * Company-wide readers keep the unmodified tenant-wide figures.
+ */
 export async function getCycleReport(params?: {
   page?: number;
   limit?: number;
   accountId?: string;
+  branchId?: string;
   status?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -797,6 +808,8 @@ export async function getCycleReport(params?: {
       id: string;
       cycleNumber: number;
       status: string;
+      branchId: string | null;
+      branchName: string | null;
       account: { accountId: string; customerId: string; fullName: string };
       startDate: Date;
       endDate: Date;
@@ -818,14 +831,18 @@ export async function getCycleReport(params?: {
     return { success: false, error: error instanceof Error ? error.message : "Unauthorized" };
   }
 
-  // SusuAccount and SusuCycle carry no branch attribution, so cycle reporting is
-  // tenant-scoped only. Branch attribution lives on Contribution, not on the
-  // account/cycle, and is reported separately in the branch report.
   const page = params?.page || 1;
   const limit = Math.min(params?.limit || 50, 200);
   const skip = (page - 1) * limit;
 
+  // Branch scope is resolved server-side; a caller can only narrow it.
+  const scope = await resolveBranchScope(identity);
+  const branch = branchWhere(scope, params?.branchId);
+  if (branch.error) return { success: false, error: branch.error };
+  const branchFilter = branch.where.branchId;
+
   const where: Record<string, unknown> = { tenantId: identity.tenantId };
+  if (branchFilter !== undefined) where.account = { branchId: branchFilter };
   if (params?.accountId) where.accountId = params.accountId;
   if (params?.status) where.status = params.status;
   if (params?.dateFrom) {
@@ -849,7 +866,7 @@ export async function getCycleReport(params?: {
   ]);
 
   const result: Array<{
-    id: string; cycleNumber: number; status: string;
+    id: string; cycleNumber: number; status: string; branchId: string | null; branchName: string | null;
     account: { accountId: string; customerId: string; fullName: string };
     startDate: Date; endDate: Date;
     dailyContribution: Money;
@@ -859,19 +876,38 @@ export async function getCycleReport(params?: {
     openDiscrepancies: number;
   }> = [];
 
+  // The id is what scope is enforced on; the name is what a person reads. One
+  // lookup for the page keeps the export and the screen honest without N+1.
+  const branchIds = [...new Set(cycles.map((c) => c.account.branchId).filter((id): id is string => Boolean(id)))];
+  const branchRows = branchIds.length
+    ? await db.location.findMany({
+        where: { tenantId: identity.tenantId, id: { in: branchIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const branchNames = new Map(branchRows.map((row) => [row.id, row.name]));
+
   for (const cycle of cycles) {
     const contribWhere: Record<string, unknown> = {
       cycleId: cycle.id,
       tenantId: identity.tenantId,
     };
+    const withdrawalWhere: Record<string, unknown> = {
+      cycleId: cycle.id,
+      tenantId: identity.tenantId,
+    };
+    if (branchFilter !== undefined) {
+      contribWhere.branchId = branchFilter;
+      withdrawalWhere.branchId = branchFilter;
+    }
+    const allocationWhere: Record<string, unknown> = {
+      contribution: { cycleId: cycle.id, tenantId: identity.tenantId, ...(branchFilter !== undefined ? { branchId: branchFilter } : {}) },
+    };
     const [contribs, reversedResult, allocations, withdrawals] = await Promise.all([
       db.contribution.findMany({ where: contribWhere, select: { amount: true, reversalOfId: true } }),
       db.contribution.aggregate({ where: { ...contribWhere, reversalOfId: { not: null } }, _sum: { amount: true } }),
-      db.contributionAllocation.aggregate({
-        where: { contribution: { cycleId: cycle.id, tenantId: identity.tenantId } },
-        _sum: { amount: true },
-      }),
-      db.withdrawal.aggregate({ where: { cycleId: cycle.id, tenantId: identity.tenantId }, _sum: { netAmount: true }, _count: true }),
+      db.contributionAllocation.aggregate({ where: allocationWhere, _sum: { amount: true } }),
+      db.withdrawal.aggregate({ where: withdrawalWhere, _sum: { netAmount: true }, _count: true }),
     ]);
 
     const contributionsAmount = sumMoney(contribs);
@@ -882,6 +918,8 @@ export async function getCycleReport(params?: {
       id: cycle.id,
       cycleNumber: cycle.cycleNumber,
       status: cycle.status,
+      branchId: cycle.account.branchId ?? null,
+      branchName: cycle.account.branchId ? branchNames.get(cycle.account.branchId) ?? null : null,
       account: {
         accountId: cycle.account.accountId,
         customerId: cycle.account.customer.customerId,
@@ -1091,6 +1129,66 @@ export async function exportSusuReport(params: {
         c.receivedAmount,
         c.verifiedAmount,
         c.outstandingAmount,
+      ]),
+    ]);
+    return { success: true, data: { filename, csv } };
+  }
+
+  if (params.report === "cycles") {
+    // The screen paginates; the export must still contain the complete filtered
+    // set, so it walks every page up to the documented cap.
+    const pageSize = 200;
+    const rows: Array<NonNullable<Awaited<ReturnType<typeof getCycleReport>>["data"]>["cycles"][number]> = [];
+    let pageNumber = 1;
+    let total = 0;
+    for (;;) {
+      const report = await getCycleReport({
+        page: pageNumber,
+        limit: pageSize,
+        branchId: params.branchId,
+        accountId: params.accountId,
+        status: params.status,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+      });
+      if (!report.success) return { success: false, error: report.error };
+      total = report.data!.pagination.total;
+      if (total > MAX_EXPORT_ROWS) {
+        return { success: false, error: "Result set too large for export. Narrow the filters." };
+      }
+      const batch = report.data!.cycles;
+      rows.push(...batch);
+      if (batch.length === 0 || rows.length >= total) break;
+      pageNumber += 1;
+    }
+    // The total is authoritative; a short read means the set grew mid-export.
+    if (rows.length < total) {
+      return { success: false, error: "Result set changed during export. Try again." };
+    }
+
+    const csv = buildCsv([
+      [
+        "Cycle", "Status", "Branch", "Customer", "Account", "Start", "End",
+        "Daily Contribution (GH₵)", "Contributions", "Contribution Amount (GH₵)",
+        "Reversed (GH₵)", "Net (GH₵)", "Allocated (GH₵)", "Withdrawals",
+        "Withdrawal Amount (GH₵)",
+      ],
+      ...rows.map((row) => [
+        row.cycleNumber,
+        row.status,
+        row.branchName ?? row.branchId ?? "",
+        row.account.fullName,
+        row.account.accountId,
+        row.startDate.toISOString().slice(0, 10),
+        row.endDate.toISOString().slice(0, 10),
+        row.dailyContribution,
+        row.contributionsRecorded,
+        row.contributionsAmount,
+        row.reversedAmount,
+        row.netContributions,
+        row.allocatedAmount,
+        row.withdrawalCount,
+        row.withdrawalAmount,
       ]),
     ]);
     return { success: true, data: { filename, csv } };

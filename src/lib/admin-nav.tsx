@@ -89,6 +89,7 @@ export const navSections: NavSection[] = [
         label: "Withdrawal Requests",
         icon: Banknote,
       },
+      { href: "/susu/admin/withdrawal-controls", label: "Withdrawal Controls", icon: ShieldCheck },
       { href: "/susu/admin/remittances", label: "Money Handed In", icon: Vault },
       { href: "/susu/admin/reconciliation", label: "Reconciliation", icon: Scale },
       { href: "/susu/admin/reconciliation/daily-closing", label: "Daily Closing", icon: Clock3 },
@@ -100,7 +101,7 @@ export const navSections: NavSection[] = [
       },
       { href: "/susu/admin/disputes", label: "Disputes", icon: MessageSquareWarning },
       { href: "/susu/admin/history", label: "Money & History", icon: BookText },
-      { href: "/susu/admin/reports", label: "Reports", icon: FileBarChart },
+      { href: "/susu/admin/reports/overview", label: "Reports & Analytics", icon: FileBarChart },
     ],
   },
   {

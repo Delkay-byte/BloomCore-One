@@ -5,6 +5,7 @@ import Notice from "@/components/ui/Notice";
 import { useEffect, useState } from "react";
 import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import { getBranchReport, getSusuReportOptions } from "@/lib/actions/susu-reporting.actions";
+import ExportReportButton from "../_components/ExportReportButton";
 import CediAmount from "@/components/CediAmount";
 
 export default function SusuBranchesReportPage() {
@@ -58,6 +59,14 @@ export default function SusuBranchesReportPage() {
           <h1 className="text-2xl font-bold text-slate-900">Susu Branch Report</h1>
           <p className="text-slate-500 mt-1">Branch-level contribution and remittance position</p>
         </div>
+        <ExportReportButton
+          report="branches"
+          filters={{
+            branchId: branchId || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+          }}
+        />
       </div>
 
       {error && (
