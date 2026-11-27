@@ -1011,6 +1011,10 @@ model Contribution {
   /// office/collector recording, which is attributed to the authenticated user.
   recordedDeviceId   String?
   recordedDeviceName String?
+  /// Original device capture time for an offline collection. Evidence only:
+  /// financial ordering and period reporting use `collectionDate`, which is the
+  /// server posting time and cannot be supplied by the client.
+  capturedAt         DateTime?
   referenceId    String    @unique // Idempotency key - prevents duplicate submissions
   notes          String?
   createdAt      DateTime  @default(now())
@@ -1124,7 +1128,15 @@ model Collector {
   id        String   @id @default(cuid())
   tenantId  String?
   userId    String   @unique
-  status    String   @default("active") // active | inactive
+  /// Lifecycle: active | inactive | suspended. Only `active` may perform new
+  /// collection operations. `suspended` is a control action and `inactive` an
+  /// employment state; the distinction is preserved, and neither deletes the
+  /// collector or rewrites their historical financial attribution.
+  status    String   @default("active")
+  /// Why the last lifecycle change happened. Written only by an administrator.
+  statusReason      String?
+  statusChangedAt   DateTime?
+  statusChangedById String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1132,11 +1144,13 @@ model Collector {
   assignments   CollectorCustomerAssignment[]
   contributions Contribution[]
   remittances   CollectorRemittance[]
+  assignmentEvents CollectorAssignmentEvent[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([status])
   @@index([tenantId])
+  @@index([tenantId, status])
 }
 
 model CollectorCustomerAssignment {
@@ -1148,18 +1162,31 @@ model CollectorCustomerAssignment {
   assignedAt   DateTime  @default(now())
   unassignedAt DateTime?
   active       Boolean   @default(true)
+  /// Mirrors `accountId` while this assignment is active and is NULL once it is
+  /// released. The unique index makes "at most one active collector per account"
+  /// a database invariant on both SQLite and PostgreSQL (NULL rows never
+  /// collide), instead of a pre-check that two concurrent requests can both pass.
+  activeAccountKey String? @unique
+  /// Administrator who created the current assignment/transfer.
+  assignedById String?
 
   collector Collector   @relation(fields: [collectorId], references: [id])
   customer  Customer    @relation(fields: [customerId], references: [id])
   account   SusuAccount @relation(fields: [accountId], references: [id])
+  events    CollectorAssignmentEvent[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
-  @@unique([collectorId, accountId])
+  // The same collector/account pair may reappear across history (for example
+  // after a deactivation/reactivation cycle), so the pair itself is NOT unique.
+  // At most one ACTIVE assignment per account is enforced instead by
+  // `activeAccountKey`, which is NULL when inactive (NULL rows never collide
+  // in a unique index on SQLite or PostgreSQL).
   @@index([collectorId])
   @@index([customerId])
   @@index([accountId])
   @@index([tenantId])
+  @@index([tenantId, active])
 }
 
 model CollectorRemittance {
@@ -1192,6 +1219,37 @@ model CollectorRemittance {
   @@index([referenceId])
   @@index([tenantId])
   @@unique([tenantId, idempotencyKey])
+}
+
+/// Append-only history of collector/customer assignments, transfers and
+/// releases. Exactly one row is written per change, so the previous collector,
+/// new collector, actor, timestamp and reason survive even when the assignment
+/// row itself is deactivated or reactivated.
+model CollectorAssignmentEvent {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  assignmentId String
+  customerId   String
+  accountId    String
+  /// Collector the assignment belongs to after the event.
+  collectorId  String?
+  previousCollectorId String?
+  newCollectorId      String?
+  /// assigned | reactivated | transferred | unassigned
+  kind         String
+  reason       String?
+  actorId      String
+  createdAt    DateTime @default(now())
+
+  assignment CollectorCustomerAssignment @relation(fields: [assignmentId], references: [id])
+  collector  Collector?                  @relation(fields: [collectorId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, accountId, createdAt])
+  @@index([assignmentId, createdAt])
+  @@index([collectorId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 /// Immutable snapshot of a daily account before an administrative correction.
@@ -1299,7 +1357,10 @@ model OfflineTransaction {
   maxRetries     Int       @default(5)
   failureReason  String?
   serverResult   String? // JSON server response after sync
-  localTimestamp DateTime  @default(now()) // When created on device
+  localTimestamp DateTime  @default(now()) // When first received by the server
+  /// Original device capture time supplied with the payload and validated
+  /// against server bounds. Never used for financial ordering.
+  capturedAt     DateTime?
   syncStartedAt  DateTime?
   syncedAt       DateTime? // When server confirmed
   createdAt      DateTime  @default(now())
@@ -1314,6 +1375,51 @@ model OfflineTransaction {
   @@index([type])
   @@index([createdAt])
   @@index([tenantId])
+  @@index([tenantId, status, createdAt])
+}
+
+/// Append-only trace of every offline contribution synchronization outcome,
+/// including rejected and failed attempts that never reach OfflineTransaction.
+/// Only safe context is stored: no encrypted payload, no device key, and no
+/// authentication material. Collectors cannot read or write these rows; only an
+/// authorized tenant administrator can review or resolve them.
+model OfflineSyncAttempt {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  /// contribution | request
+  kind           String    @default("contribution")
+  /// accepted | already_synced | rejected | failed
+  outcome        String
+  /// Stable machine code, e.g. assignment_not_found, invalid_amount, device_revoked.
+  reasonCode     String?
+  /// Human-readable reason safe to show an administrator.
+  reason         String?
+  /// Whether an authorized administrator may safely retry the attempt.
+  retryable      Boolean   @default(false)
+  httpStatus     Int?
+  userId         String
+  deviceId       String?
+  idempotencyKey String?
+  accountId      String?
+  collectorId    String?
+  amount         Decimal?
+  capturedAt     DateTime?
+  payloadDigest  String?
+  retriedAt      DateTime?
+  retriedById    String?
+  /// resolved | dismissed
+  resolution     String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdAt      DateTime  @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, outcome, createdAt])
+  @@index([tenantId, retryable, createdAt])
+  @@index([idempotencyKey])
+  @@index([userId, createdAt])
 }
 
 // =====================
@@ -1904,9 +2010,11 @@ model BusinessTenant {
   collectors                   Collector[]
   collectorCustomerAssignments CollectorCustomerAssignment[]
   collectorRemittances         CollectorRemittance[]
+  collectorAssignmentEvents    CollectorAssignmentEvent[]
   passwordResetTokens          PasswordResetToken[]
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
+  offlineSyncAttempts          OfflineSyncAttempt[]
   zeliEntitlements             ZeliEntitlement[]
   zeliAccess                   ZeliTenantAccess?
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]

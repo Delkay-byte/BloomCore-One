@@ -495,10 +495,8 @@ export async function reassignCustomer(params: {
       });
     }
 
-    const existingNew = await tx.collectorCustomerAssignment.findUnique({
-      where: {
-        collectorId_accountId: { collectorId: newCollectorId, accountId },
-      },
+    const existingNew = await tx.collectorCustomerAssignment.findFirst({
+      where: { collectorId: newCollectorId, accountId, tenantId: ctx.tenantId },
     });
 
     if (existingNew) {

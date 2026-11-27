@@ -362,57 +362,25 @@ export async function toggleCollectorStatus(
 
 /**
  * Assign a customer to a collector. All three ids must be same-tenant.
+ *
+ * Delegates to the atomic assignment implementation in susu-assignment.ts,
+ * which enforces single-tenant ownership, active-collector eligibility, and
+ * the database invariant that at most one active assignment exists per
+ * account (`activeAccountKey`). Append-only history is recorded by the
+ * delegate.
  */
 export async function assignCustomerToCollector(params: {
   collectorId: string;
   customerId: string;
   accountId: string;
 }): Promise<ActionResponse> {
-  const ctx = await requireTenantAdminSusu();
   const { collectorId, customerId, accountId } = params;
 
-  for (const [model, id] of [
-    ["collector", collectorId],
-    ["customer", customerId],
-    ["susuAccount", accountId],
-  ] as const) {
-    if (!(await assertTenantEntity(model, id, ctx))) {
-      return { success: false, error: "Record not found" };
-    }
-  }
-
-  const existing = await db.collectorCustomerAssignment.findUnique({
-    where: { collectorId_accountId: { collectorId, accountId } },
-  });
-
-  if (existing) {
-    if (existing.active) {
-      return {
-        success: false,
-        error: "Customer is already assigned to this collector",
-      };
-    }
-    await db.collectorCustomerAssignment.update({
-      where: { id: existing.id },
-      data: { active: true },
-    });
-  } else {
-    await db.collectorCustomerAssignment.create({
-      data: { tenantId: ctx.tenantId, collectorId, customerId, accountId },
-    });
-  }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.customer_assigned_to_collector",
-    entityType: "collector_assignment",
-    entityId: collectorId,
-    details: { customerId, accountId },
-  });
-
-  revalidatePath("/susu/admin/customers");
-  revalidatePath("/susu/admin/collectors");
-  return { success: true };
+  // Import locally to keep this module's surface stable; the delegate
+  // re-derives the tenant context from the session and asserts ownership on
+  // every referenced entity before writing.
+  const { assignCustomerToCollector: assignAtomic } = await import("./susu-assignment");
+  return assignAtomic({ collectorId, customerId, accountId });
 }
 
 /**
