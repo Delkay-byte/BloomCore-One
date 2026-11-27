@@ -55,7 +55,9 @@ export interface OfflineRequestView {
   } | null;
 }
 
-export const OFFLINE_REQUEST_STATUS_LABELS: Record<string, string> = {
+// Not exported: a "use server" module may only export async functions. This map is
+// an implementation detail used by the action responses below.
+const OFFLINE_REQUEST_STATUS_LABELS: Record<string, string> = {
   pending: "Waiting for authorisation",
   needs_review: "Needs review",
   authorised: "Authorised",

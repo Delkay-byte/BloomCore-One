@@ -17,12 +17,18 @@ import { validateStatusTransition } from "@/lib/security/status";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { lockAccountForUpdate } from "@/lib/db-lock";
+import { validateRemittanceAmount } from "@/lib/finance/remittance";
 import {
-  expectedRemittanceAmount,
-  validateRemittanceAmount,
-} from "@/lib/finance/remittance";
+  allocateToContributions,
+  computeCollectorObligation,
+} from "@/lib/finance/remittance-settlement";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
+import { resolveBranchScope, resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
+import {
+  isRetryableWriteConflict,
+  onboardCustomerWithAccount,
+} from "@/lib/susu/onboarding";
 import {
   consumeFinancialApproval,
   decideDualControl,
@@ -45,32 +51,8 @@ export interface ActionResponse {
   approvalId?: string;
 }
 
-/** Next unused global customer identifier (see susu-customer.actions.ts). */
-async function nextCustomerId(): Promise<string> {
-  const total = await db.customer.count();
-  for (let i = total + 1; i < total + 1000; i++) {
-    const candidate = `BIK-C-${String(i).padStart(6, "0")}`;
-    const taken = await db.customer.findUnique({
-      where: { customerId: candidate },
-      select: { id: true },
-    });
-    if (!taken) return candidate;
-  }
-  return `BIK-C-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
-
-async function nextAccountId(): Promise<string> {
-  const total = await db.susuAccount.count();
-  for (let i = total + 1; i < total + 1000; i++) {
-    const candidate = `BIK-S-${String(i).padStart(6, "0")}`;
-    const taken = await db.susuAccount.findUnique({
-      where: { accountId: candidate },
-      select: { id: true },
-    });
-    if (!taken) return candidate;
-  }
-  return `BIK-S-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
+// Phase 7: identifier allocation and row insertion now live in
+// `@/lib/susu/onboarding`, shared with the office form and the bulk importer.
 
 /**
  * Create a new collector user and collector record, inside the tenant.
@@ -106,6 +88,13 @@ export async function createCollector(
   }
 
   const passwordHash = await hashPassword(password);
+  const branchId = await resolveWriteBranch(
+    ctx,
+    (formData.get("branchId") as string)?.trim() || undefined
+  );
+  if (!branchId && !(await isBranchlessTenant(ctx))) {
+    return { success: false, error: "Select a branch for this collector" };
+  }
 
   const created = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
@@ -124,7 +113,7 @@ export async function createCollector(
     });
 
     const collector = await tx.collector.create({
-      data: { tenantId: ctx.tenantId, userId: user.id, status: "active" },
+      data: { tenantId: ctx.tenantId, userId: user.id, branchId, status: "active" },
     });
 
     return { user, collector };
@@ -362,57 +351,25 @@ export async function toggleCollectorStatus(
 
 /**
  * Assign a customer to a collector. All three ids must be same-tenant.
+ *
+ * Delegates to the atomic assignment implementation in susu-assignment.ts,
+ * which enforces single-tenant ownership, active-collector eligibility, and
+ * the database invariant that at most one active assignment exists per
+ * account (`activeAccountKey`). Append-only history is recorded by the
+ * delegate.
  */
 export async function assignCustomerToCollector(params: {
   collectorId: string;
   customerId: string;
   accountId: string;
 }): Promise<ActionResponse> {
-  const ctx = await requireTenantAdminSusu();
   const { collectorId, customerId, accountId } = params;
 
-  for (const [model, id] of [
-    ["collector", collectorId],
-    ["customer", customerId],
-    ["susuAccount", accountId],
-  ] as const) {
-    if (!(await assertTenantEntity(model, id, ctx))) {
-      return { success: false, error: "Record not found" };
-    }
-  }
-
-  const existing = await db.collectorCustomerAssignment.findUnique({
-    where: { collectorId_accountId: { collectorId, accountId } },
-  });
-
-  if (existing) {
-    if (existing.active) {
-      return {
-        success: false,
-        error: "Customer is already assigned to this collector",
-      };
-    }
-    await db.collectorCustomerAssignment.update({
-      where: { id: existing.id },
-      data: { active: true },
-    });
-  } else {
-    await db.collectorCustomerAssignment.create({
-      data: { tenantId: ctx.tenantId, collectorId, customerId, accountId },
-    });
-  }
-
-  await createAuditLog({
-    userId: ctx.userId,
-    action: "susu.customer_assigned_to_collector",
-    entityType: "collector_assignment",
-    entityId: collectorId,
-    details: { customerId, accountId },
-  });
-
-  revalidatePath("/susu/admin/customers");
-  revalidatePath("/susu/admin/collectors");
-  return { success: true };
+  // Import locally to keep this module's surface stable; the delegate
+  // re-derives the tenant context from the session and asserts ownership on
+  // every referenced entity before writing.
+  const { assignCustomerToCollector: assignAtomic } = await import("./susu-assignment");
+  return assignAtomic({ collectorId, customerId, accountId });
 }
 
 /**
@@ -497,6 +454,16 @@ export async function recordRemittance(params: {
     where: { id: collectorId, tenantId: ctx.tenantId },
   });
   if (!collector) return { success: false, error: "Collector not found" };
+  if (
+    collector.branchId &&
+    !(await assertBranchAccess(ctx, collector.branchId, "write"))
+  ) {
+    return { success: false, error: "This collector has no active branch in your scope" };
+  }
+  if (!collector.branchId && !(await isBranchlessTenant(ctx))) {
+    return { success: false, error: "Select a branch for this remittance" };
+  }
+  const branchId = collector.branchId ?? null;
 
   const remittance = await db.$transaction(async (tx) => {
     // Serialize remittance recording for this collector so two concurrent
@@ -516,36 +483,20 @@ export async function recordRemittance(params: {
       }
     }
 
-    const existingRemittances = await tx.collectorRemittance.findMany({
-      where: { collectorId, tenantId: ctx.tenantId, reversedAt: null },
-      select: { createdAt: true },
-      orderBy: { createdAt: "desc" },
-      take: 1,
-    });
-
-    const lastRemittanceDate =
-      existingRemittances.length > 0
-        ? existingRemittances[0].createdAt
-        : new Date(0);
-
-    // Reversed contributions were never actually collected, so they must not
-    // inflate the expected cash handover.
-    const unremittedContributions = await tx.contribution.findMany({
-      where: {
-        collectorId,
-        tenantId: ctx.tenantId,
-        collectionDate: { gt: lastRemittanceDate },
-        reversedAt: null,
-      },
-    });
-
-    const expectedAmount = expectedRemittanceAmount(unremittedContributions);
+    // ONE definition of what the collector still owes: the shared settlement
+    // engine. It excludes reversed contributions (`reversedAt: null`) and
+    // reversed/returned remittances, counts cash actually received once custody
+    // was confirmed, and therefore carries a shortfall forward instead of
+    // silently dropping it. The field declaration path reads the same engine.
+    const obligation = await computeCollectorObligation(tx, ctx.tenantId, collectorId);
+    const expectedAmount = obligation.outstanding;
     const variance = expectedAmount - remitted;
     const referenceId = `REM-${randomBytes(8).toString("hex")}`;
 
     const remittance = await tx.collectorRemittance.create({
       data: {
         tenantId: ctx.tenantId,
+        branchId,
         collectorId,
         expectedAmount,
         remittedAmount: remitted,
@@ -557,6 +508,16 @@ export async function recordRemittance(params: {
         requestHash,
         notes,
       },
+    });
+
+    // Counter handovers are part of the same chain as field declarations: link
+    // the cash to the contributions it settles (FIFO, partial allowed), so the
+    // Contribution -> remittance evidence survives a later reversal.
+    await allocateToContributions(tx, {
+      tenantId: ctx.tenantId,
+      collectorId,
+      remittanceId: remittance.id,
+      amount: remitted,
     });
 
     await createAuditLogTx(tx, {
@@ -779,9 +740,12 @@ export async function reverseRemittance(params: {
  */
 export async function getCollectors() {
   const ctx = await requireTenantAdminSusu();
+  const scope = await resolveBranchScope(ctx);
+  const branchFilter =
+    scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {};
 
   return db.collector.findMany({
-    where: { tenantId: ctx.tenantId },
+    where: { tenantId: ctx.tenantId, ...branchFilter },
     include: {
       user: {
         select: {
@@ -810,6 +774,14 @@ export async function getCollectors() {
  */
 export async function getCollectorById(id: string) {
   const ctx = await requireTenantAdminSusu();
+  const scope = await resolveBranchScope(ctx);
+  if (scope.kind === "limited") {
+    const owned = await db.collector.findFirst({
+      where: { id, tenantId: ctx.tenantId, branchId: { in: scope.branchIds } },
+      select: { id: true },
+    });
+    if (!owned) return null;
+  }
 
   return db.collector.findFirst({
     where: { id, tenantId: ctx.tenantId },
@@ -863,7 +835,9 @@ export async function getRemittances(params?: {
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
+  const scope = await resolveBranchScope(ctx);
   const where: Record<string, unknown> = { tenantId: ctx.tenantId };
+  if (scope.kind === "limited") where.branchId = { in: scope.branchIds };
   if (params?.collectorId) where.collectorId = params.collectorId;
   if (params?.status) where.status = params.status;
 
@@ -913,7 +887,7 @@ export async function registerCustomerByCollector(params: {
 
   const collector = await db.collector.findFirst({
     where: { userId: ctx.userId, tenantId: ctx.tenantId, status: "active" },
-    select: { id: true },
+    select: { id: true, branchId: true },
   });
   if (!collector) {
     return {
@@ -953,86 +927,90 @@ export async function registerCustomerByCollector(params: {
     }
   }
 
-  const customerId = await nextCustomerId();
-  const accountId = await nextAccountId();
+  // Field onboarding goes through the same primitive as the office form so the
+  // account carries its branch, its opening provenance and exactly one active
+  // cycle regardless of who registered the customer. The write is retried when a
+  // concurrent registration wins an identifier; the unique index is the arbiter.
+  let result: {
+    customer: Awaited<ReturnType<typeof db.customer.create>>;
+    susuAccount: Awaited<ReturnType<typeof db.susuAccount.create>>;
+  } | null = null;
+  for (let attempt = 0; attempt < 5 && !result; attempt++) {
+    try {
+      result = await db.$transaction(async (tx) => {
+        const { customer, account } = await onboardCustomerWithAccount(tx, {
+          tenantId: ctx.tenantId,
+          fullName,
+          phone,
+          address,
+          dailyContribution,
+          branchId: collector.branchId,
+          channel: "field",
+          actorId: ctx.userId,
+        });
 
-  const result = await db.$transaction(async (tx) => {
-    const customer = await tx.customer.create({
-      data: {
-        tenantId: ctx.tenantId,
-        customerId,
-        fullName,
-        phone,
-        address,
-        status: "active",
-      },
-    });
+        await tx.cardFee.create({
+          data: {
+            tenantId: ctx.tenantId,
+            accountId: account.id,
+            amount: cardFee,
+            recordedById: ctx.userId,
+            notes: "Initial card purchase",
+          },
+        });
 
-    const susuAccount = await tx.susuAccount.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId,
-        customerId: customer.id,
-        dailyContribution,
-        status: "active",
-        cardCustody: "customer",
-      },
-    });
+        await tx.collectorCustomerAssignment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            collectorId: collector.id,
+            customerId: customer.id,
+            accountId: account.id,
+            active: true,
+            activeAccountKey: account.id,
+          },
+        });
 
-    const now = new Date();
-    const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
+        await createAuditLogTx(tx, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          branchId: collector.branchId,
+          action: "susu.customer_created_by_collector",
+          entityType: "customer",
+          entityId: customer.id,
+          details: {
+            customerId: customer.customerId,
+            fullName: customer.fullName,
+            dailyContribution,
+            collectorId: collector.id,
+            collectorName: ctx.userId,
+          },
+        });
 
-    await tx.susuCycle.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId: susuAccount.id,
-        cycleNumber: 1,
-        startDate: cycleStart,
-        endDate: cycleEnd,
-        dailyContribution,
-        status: "active",
-        commissionCharged: false,
-      },
-    });
+        return { customer, susuAccount: account };
+      });
+    } catch (error) {
+      const retryable = isRetryableWriteConflict(error);
+      if (retryable && attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        continue;
+      }
+      console.error(
+        "[collector-register] failed",
+        error instanceof Error ? error.message.slice(0, 160) : "unknown"
+      );
+      return {
+        success: false,
+        error: "The customer could not be registered. Please try again.",
+      };
+    }
+  }
 
-    await tx.cardFee.create({
-      data: {
-        tenantId: ctx.tenantId,
-        accountId: susuAccount.id,
-        amount: cardFee,
-        recordedById: ctx.userId,
-        notes: "Initial card purchase",
-      },
-    });
-
-    await tx.collectorCustomerAssignment.create({
-      data: {
-        tenantId: ctx.tenantId,
-        collectorId: collector.id,
-        customerId: customer.id,
-        accountId: susuAccount.id,
-        active: true,
-      },
-    });
-
-    await createAuditLogTx(tx, {
-      userId: ctx.userId,
-      tenantId: ctx.tenantId,
-      action: "susu.customer_created_by_collector",
-      entityType: "customer",
-      entityId: customer.id,
-      details: {
-        customerId: customer.customerId,
-        fullName: customer.fullName,
-        dailyContribution,
-        collectorId: collector.id,
-        collectorName: ctx.userId,
-      },
-    });
-
-    return { customer, susuAccount };
-  });
+  if (!result) {
+    return {
+      success: false,
+      error: "The customer could not be registered. Please try again.",
+    };
+  }
 
   revalidatePath("/collector/dashboard");
   revalidatePath("/susu/admin/customers");
@@ -1046,3 +1024,7 @@ export async function registerCustomerByCollector(params: {
     },
   };
 }
+
+// Phase 3 remittance lifecycle actions live in their own "use server" module
+// (susu-remittance.actions.ts) and are imported from there directly. A wildcard
+// re-export is invalid in a "use server" file and breaks the production build.

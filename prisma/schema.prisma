@@ -14,41 +14,41 @@ datasource db {
 // =====================
 
 model User {
-  id                 String    @id @default(cuid())
-  tenantId           String?
-  email              String    @unique
-  fullName           String
-  phone              String?
-  role               String    @default("worker") // admin | worker | collector (primary role)
-  status             String    @default("active")
-  passwordHash       String
-  forcePasswordReset Boolean   @default(false)
-  emailVerified      Boolean   @default(true)
-  emailVerifiedAt    DateTime?
-  passwordPolicyVersion Int    @default(0)
-  momoEnabled        Boolean   @default(false) // Module capability: MoMo worker
-  susuEnabled        Boolean   @default(false) // Module capability: Susu collector
-  tokenVersion       Int       @default(0) // Bumped to invalidate existing sessions
-  mfaEnabled         Boolean   @default(false)
-  mfaSecret          String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
-  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
-  mfaEnrolledAt      DateTime?
-  mfaLastUsedAt      DateTime?
-  mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
-  locationId         String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  email                 String    @unique
+  fullName              String
+  phone                 String?
+  role                  String    @default("worker") // admin | worker | collector (primary role)
+  status                String    @default("active")
+  passwordHash          String
+  forcePasswordReset    Boolean   @default(false)
+  emailVerified         Boolean   @default(true)
+  emailVerifiedAt       DateTime?
+  passwordPolicyVersion Int       @default(0)
+  momoEnabled           Boolean   @default(false) // Module capability: MoMo worker
+  susuEnabled           Boolean   @default(false) // Module capability: Susu collector
+  tokenVersion          Int       @default(0) // Bumped to invalidate existing sessions
+  mfaEnabled            Boolean   @default(false)
+  mfaSecret             String? // AES-256-GCM encrypted TOTP secret
+  mfaRecoveryCodes      String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt    DateTime? // SEC-15: pending TOTP secret issued at this time
+  mfaEnrolledAt         DateTime?
+  mfaLastUsedAt         DateTime?
+  mfaLastTotpStep       Int? // Last accepted TOTP step (replay prevention)
+  locationId            String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  location              Location?            @relation(fields: [locationId], references: [id])
-  dailyAccounts         DailyAccount[]
-  collector             Collector?
-  passwordResetTokens   PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
-  devices               DeviceEnrollment[]
-  recordedContributions Contribution[]       @relation("RecordedContributions")
-  receivedContributions Contribution[]       @relation("ReceivedContributions")
-  recordedMomoTransactions MomoTransaction[] @relation("MomoTransactionRecordedBy")
+  location                 Location?                @relation(fields: [locationId], references: [id])
+  dailyAccounts            DailyAccount[]
+  collector                Collector?
+  passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  devices                  DeviceEnrollment[]
+  recordedContributions    Contribution[]           @relation("RecordedContributions")
+  receivedContributions    Contribution[]           @relation("ReceivedContributions")
+  recordedMomoTransactions MomoTransaction[]        @relation("MomoTransactionRecordedBy")
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -70,14 +70,17 @@ model Location {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  users         User[]
-  dailyAccounts DailyAccount[]
-  momoTransactions MomoTransaction[]
-  assetBalances BranchAssetBalance[]
-  outgoingTransfers BranchTransfer[] @relation("TransferSource")
-  incomingTransfers BranchTransfer[] @relation("TransferDestination")
-  shifts Shift[]
+  users              User[]
+  dailyAccounts      DailyAccount[]
+  momoTransactions   MomoTransaction[]
+  assetBalances      BranchAssetBalance[]
+  outgoingTransfers  BranchTransfer[]          @relation("TransferSource")
+  incomingTransfers  BranchTransfer[]          @relation("TransferDestination")
+  shifts             Shift[]
   liquiditySnapshots BranchLiquiditySnapshot[]
+  susuReconciliations SusuReconciliation[]
+  dailyCollectorClosings DailyCollectorClosing[]
+  supportRequests      SupportRequest[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -94,33 +97,33 @@ model DailyAccount {
   workerId     String
   businessDate DateTime
 
-  openingMomoFloat       Decimal @default(0)
-  openingCash            Decimal @default(0)
-  additionalCashReceived Decimal @default(0)
-  additionalMomoFloat    Decimal @default(0)
-  totalCashIn            Decimal @default(0)
-  totalCashOut           Decimal @default(0)
-  totalAirtimeSold       Decimal @default(0)
-  totalCashReceived      Decimal @default(0)
-  totalCashPaid          Decimal @default(0)
-  commission             Decimal @default(0)
-  debtsCollected         Decimal @default(0)
-  otherIncome            Decimal @default(0)
-  closingMomoFloat       Decimal @default(0)
-  closingCash            Decimal @default(0)
-  totalExpenses          Decimal @default(0)
-  calculatedMomoVariance Decimal @default(0)
-  calculatedCashVariance Decimal @default(0)
-  calculatedDifference   Decimal @default(0)
-  differenceStatus       String  @default("balanced")
+  openingMomoFloat       Decimal   @default(0)
+  openingCash            Decimal   @default(0)
+  additionalCashReceived Decimal   @default(0)
+  additionalMomoFloat    Decimal   @default(0)
+  totalCashIn            Decimal   @default(0)
+  totalCashOut           Decimal   @default(0)
+  totalAirtimeSold       Decimal   @default(0)
+  totalCashReceived      Decimal   @default(0)
+  totalCashPaid          Decimal   @default(0)
+  commission             Decimal   @default(0)
+  debtsCollected         Decimal   @default(0)
+  otherIncome            Decimal   @default(0)
+  closingMomoFloat       Decimal   @default(0)
+  closingCash            Decimal   @default(0)
+  totalExpenses          Decimal   @default(0)
+  calculatedMomoVariance Decimal   @default(0)
+  calculatedCashVariance Decimal   @default(0)
+  calculatedDifference   Decimal   @default(0)
+  differenceStatus       String    @default("balanced")
   reconciliationNote     String?
   // Physical handover confirmation. Separate from accounting review: a reviewed
   // account does not prove the money was received.
-  actualAmountReceived Decimal?
-  handoverDifference   Decimal?
-  handoverNote         String?
-  handoverConfirmedAt  DateTime?
-  handoverConfirmedBy  String?
+  actualAmountReceived   Decimal?
+  handoverDifference     Decimal?
+  handoverNote           String?
+  handoverConfirmedAt    DateTime?
+  handoverConfirmedBy    String?
 
   status           String    @default("draft")
   submittedAt      DateTime?
@@ -138,23 +141,23 @@ model DailyAccount {
   //               transactions never enter the accountability formula.
   // The mode is set once, explicitly, before any ledger entry is recorded. A
   // historical aggregate row is never converted or back-filled silently.
-  ledgerMode               String    @default("aggregate")
-  ledgerCutoverAt          DateTime?
+  ledgerMode              String    @default("aggregate")
+  ledgerCutoverAt         DateTime?
   // Where this day's opening figures came from: manual | carried | manual_adjusted
-  openingBalanceSource     String    @default("manual")
-  carriedFromAccountId     String?
-  openingAdjustmentReason  String?
+  openingBalanceSource    String    @default("manual")
+  carriedFromAccountId    String?
+  openingAdjustmentReason String?
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  location  Location               @relation(fields: [locationId], references: [id])
-  worker    User                   @relation(fields: [workerId], references: [id])
-  expenses  Expense[]
-  revisions DailyAccountRevision[]
+  location           Location                  @relation(fields: [locationId], references: [id])
+  worker             User                      @relation(fields: [workerId], references: [id])
+  expenses           Expense[]
+  revisions          DailyAccountRevision[]
   liquiditySnapshots BranchLiquiditySnapshot[]
-  momoTransactions MomoTransaction[]
-  shifts Shift[]
+  momoTransactions   MomoTransaction[]
+  shifts             Shift[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -179,7 +182,7 @@ model DailyAccount {
 /// its original values and only changes status; the successor or reversal row
 /// carries the linkage so the full history stays auditable.
 model MomoTransaction {
-  id                    String    @id @default(cuid())
+  id                    String   @id @default(cuid())
   tenantId              String?
   locationId            String
   dailyAccountId        String?
@@ -189,14 +192,14 @@ model MomoTransaction {
   /// other_income | expense
   type                  String
   /// mtn | telecel | at_money | other | unassigned
-  network               String    @default("unassigned")
+  network               String   @default("unassigned")
   /// inflow | outflow | neutral | reversal
   direction             String
-  amount                Decimal   @default(0)
+  amount                Decimal  @default(0)
   /// Provider/business commission earned on this transaction. A day-total
   /// commission row (type=commission) takes precedence over per-transaction
   /// commission so the same money is never counted twice.
-  commissionAmount      Decimal   @default(0)
+  commissionAmount      Decimal  @default(0)
   businessDate          DateTime
   occurredAt            DateTime
   /// Operator business reference; unique per tenant.
@@ -204,30 +207,30 @@ model MomoTransaction {
   /// Provider reference when the operator has one. Optional and non-verified.
   externalReference     String?
   /// manual_operator | statement_import | provider_api (future sources)
-  recordingSource       String    @default("manual_operator")
+  recordingSource       String   @default("manual_operator")
   /// operator_recorded | statement_imported | provider_confirmed | disputed
   /// Only an integration may set provider_confirmed. Manual entry cannot.
-  verificationStatus    String    @default("operator_recorded")
+  verificationStatus    String   @default("operator_recorded")
   /// Enrolled device that captured the entry, when one is available.
   recordedDeviceId      String?
   recordedDeviceName    String?
   /// Free-text pointer to the receipt, statement line or other evidence.
   supportingEvidence    String?
   /// recorded | reversed | corrected | reversal
-  status                String    @default("recorded")
+  status                String   @default("recorded")
   idempotencyKey        String
-  reversesTransactionId String?   @unique
+  reversesTransactionId String?  @unique
   correctsTransactionId String?
   correctionReason      String?
   note                  String?
   recordedById          String
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
-  location     Location        @relation(fields: [locationId], references: [id])
-  dailyAccount DailyAccount?   @relation(fields: [dailyAccountId], references: [id])
-  worker       User            @relation("MomoTransactionRecordedBy", fields: [workerId], references: [id])
+  tenant       BusinessTenant?  @relation(fields: [tenantId], references: [id])
+  location     Location         @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?    @relation(fields: [dailyAccountId], references: [id])
+  worker       User             @relation("MomoTransactionRecordedBy", fields: [workerId], references: [id])
   reversalOf   MomoTransaction? @relation("MomoTransactionReversal", fields: [reversesTransactionId], references: [id])
   reversal     MomoTransaction? @relation("MomoTransactionReversal")
 
@@ -275,69 +278,69 @@ model BranchAssetBalance {
 /// event row, and the transfer row carries the current state plus the actor of
 /// every completed step.
 model BranchTransfer {
-  id                String    @id @default(cuid())
-  tenantId          String?
-  reference         String
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  reference             String
   /// cash | mtn_float | telecel_float | at_money_float
-  assetType         String
+  assetType             String
   /// mtn | telecel | at_money | none (derived from the asset type)
-  network           String    @default("none")
-  sourceLocationId  String
+  network               String    @default("none")
+  sourceLocationId      String
   destinationLocationId String
-  amount            Decimal
+  amount                Decimal
   /// draft | requested | approved | dispatched | received | completed |
   /// rejected | cancelled | disputed | variance_investigation
-  status            String    @default("requested")
-  purpose           String?
-  notes             String?
-  initiatedById     String
-  requestedAt       DateTime?
-  approvedById      String?
-  approvedAt        DateTime?
-  dispatchedById    String?
-  dispatchedAt      DateTime?
+  status                String    @default("requested")
+  purpose               String?
+  notes                 String?
+  initiatedById         String
+  requestedAt           DateTime?
+  approvedById          String?
+  approvedAt            DateTime?
+  dispatchedById        String?
+  dispatchedAt          DateTime?
   /// Receipt number, waybill or other evidence held for the dispatch.
-  dispatchEvidence  String?
-  receivedById      String?
-  receivedAt        DateTime?
-  actualAmountReceived Decimal?
+  dispatchEvidence      String?
+  receivedById          String?
+  receivedAt            DateTime?
+  actualAmountReceived  Decimal?
   /// Receipt number, count sheet or other evidence held at the destination.
-  receiptEvidence   String?
-  variance          Decimal?
-  varianceReason    String?
+  receiptEvidence       String?
+  variance              Decimal?
+  varianceReason        String?
   /// Sanctioned partial settlement. `settledAmount` is the value finally
   /// accepted at the destination; `outstandingAmount` is the remainder that the
   /// follow-up transfer or a write-back resolution must cover. This is never a
   /// silent reduction of the dispatched amount: the original `amount` stays.
-  settlementStatus  String?
-  settledAmount     Decimal?
-  outstandingAmount Decimal?
-  followUpTransferId String?
-  parentTransferId   String?
-  settledById       String?
-  settledAt         DateTime?
+  settlementStatus      String?
+  settledAmount         Decimal?
+  outstandingAmount     Decimal?
+  followUpTransferId    String?
+  parentTransferId      String?
+  settledById           String?
+  settledAt             DateTime?
 
   /// The transfer that settles the remaining balance of this one (many
   /// follow-ups may settle one original, so this side is not unique).
-  followUps      BranchTransfer[] @relation("TransferFollowUp")
+  followUps          BranchTransfer[] @relation("TransferFollowUp")
   /// Set when this transfer was created to settle an earlier partial receipt.
-  parentTransfer BranchTransfer?  @relation("TransferFollowUp", fields: [parentTransferId], references: [id])
-  rejectedById      String?
-  rejectedAt        DateTime?
-  rejectionReason   String?
-  cancelledById     String?
-  cancelledAt       DateTime?
+  parentTransfer     BranchTransfer?  @relation("TransferFollowUp", fields: [parentTransferId], references: [id])
+  rejectedById       String?
+  rejectedAt         DateTime?
+  rejectionReason    String?
+  cancelledById      String?
+  cancelledAt        DateTime?
   cancellationReason String?
-  resolvedById      String?
-  resolvedAt        DateTime?
-  resolutionNote    String?
-  idempotencyKey    String
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  resolvedById       String?
+  resolvedAt         DateTime?
+  resolutionNote     String?
+  idempotencyKey     String
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
-  source      Location        @relation("TransferSource", fields: [sourceLocationId], references: [id])
-  destination Location        @relation("TransferDestination", fields: [destinationLocationId], references: [id])
+  tenant      BusinessTenant?       @relation(fields: [tenantId], references: [id])
+  source      Location              @relation("TransferSource", fields: [sourceLocationId], references: [id])
+  destination Location              @relation("TransferDestination", fields: [destinationLocationId], references: [id])
   events      BranchTransferEvent[]
 
   @@unique([tenantId, reference])
@@ -371,36 +374,36 @@ model BranchTransferEvent {
 /// snapshots: their opening/closing figures are never added into the daily
 /// account's reconciliation, so the two records cannot double count.
 model Shift {
-  id             String   @id @default(cuid())
-  tenantId       String?
-  locationId     String
-  dailyAccountId String?
-  reference      String
-  businessDate   DateTime
+  id                      String    @id @default(cuid())
+  tenantId                String?
+  locationId              String
+  dailyAccountId          String?
+  reference               String
+  businessDate            DateTime
   /// morning | afternoon | evening | custom
-  name           String
-  label          String?
-  assignedUserId String
+  name                    String
+  label                   String?
+  assignedUserId          String
   /// draft | open | awaiting_handover | variance_open | closed | cancelled
-  status         String   @default("draft")
-  scheduledStart DateTime?
-  scheduledEnd   DateTime?
-  openingCash    Decimal  @default(0)
-  openingMomoFloat Decimal @default(0)
+  status                  String    @default("draft")
+  scheduledStart          DateTime?
+  scheduledEnd            DateTime?
+  openingCash             Decimal   @default(0)
+  openingMomoFloat        Decimal   @default(0)
   /// manual | carried | manual_adjusted
-  openingSource  String   @default("manual")
-  carriedFromShiftId String?
+  openingSource           String    @default("manual")
+  carriedFromShiftId      String?
   openingAdjustmentReason String?
-  closingCash    Decimal?
-  closingMomoFloat Decimal?
-  closingNotes   String?
-  openedById     String?
-  openedAt       DateTime?
-  closedById     String?
-  closedAt       DateTime?
-  createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  closingCash             Decimal?
+  closingMomoFloat        Decimal?
+  closingNotes            String?
+  openedById              String?
+  openedAt                DateTime?
+  closedById              String?
+  closedAt                DateTime?
+  createdById             String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   tenant       BusinessTenant? @relation(fields: [tenantId], references: [id])
   location     Location        @relation(fields: [locationId], references: [id])
@@ -421,35 +424,35 @@ model Shift {
 /// figures separately. A difference is preserved as a variance and stays open
 /// until an administrator resolves it.
 model ShiftHandover {
-  id                  String   @id @default(cuid())
-  tenantId            String?
-  shiftId             String
-  reference           String
-  outgoingUserId      String
-  outgoingCash        Decimal
-  outgoingMomoFloat   Decimal
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  shiftId               String
+  reference             String
+  outgoingUserId        String
+  outgoingCash          Decimal
+  outgoingMomoFloat     Decimal
   outstandingOperations String?
-  outgoingNotes       String?
+  outgoingNotes         String?
   /// Count sheet, till slip or other evidence held for the outgoing count.
-  outgoingEvidence    String?
-  incomingUserId      String?
-  incomingCash        Decimal?
-  incomingMomoFloat   Decimal?
-  operationsAccepted  Boolean?
-  incomingNotes       String?
+  outgoingEvidence      String?
+  incomingUserId        String?
+  incomingCash          Decimal?
+  incomingMomoFloat     Decimal?
+  operationsAccepted    Boolean?
+  incomingNotes         String?
   /// Count sheet, receipt or other evidence held for the receiving count.
-  incomingEvidence    String?
-  cashVariance        Decimal?
-  floatVariance       Decimal?
-  varianceReason      String?
+  incomingEvidence      String?
+  cashVariance          Decimal?
+  floatVariance         Decimal?
+  varianceReason        String?
   /// awaiting_receipt | confirmed | variance_open | resolved
-  status              String   @default("awaiting_receipt")
-  confirmedAt         DateTime?
-  resolvedById        String?
-  resolvedAt          DateTime?
-  resolutionNote      String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status                String    @default("awaiting_receipt")
+  confirmedAt           DateTime?
+  resolvedById          String?
+  resolvedAt            DateTime?
+  resolutionNote        String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
   shift  Shift           @relation(fields: [shiftId], references: [id], onDelete: Cascade)
@@ -504,29 +507,29 @@ model AnomalyFindingEvent {
 /// The investigation of one finding: who owns it, what it is waiting for, what
 /// was checked, and which correction closed it.
 model AnomalyInvestigation {
-  id             String   @id @default(cuid())
-  tenantId       String?
-  anomalyId      String   @unique
+  id                   String    @id @default(cuid())
+  tenantId             String?
+  anomalyId            String    @unique
   /// open | investigating | awaiting_evidence | closed
-  status         String   @default("open")
-  assigneeId     String?
-  dueAt          DateTime?
+  status               String    @default("open")
+  assigneeId           String?
+  dueAt                DateTime?
   /// genuine | false_positive | inconclusive
-  disposition    String?
-  dispositionNote String?
+  disposition          String?
+  dispositionNote      String?
   /// The correction or reversal that resolved the underlying condition.
   linkedCorrectionType String?
   linkedCorrectionId   String?
-  openedById     String
-  closedById     String?
-  closedAt       DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  openedById           String
+  closedById           String?
+  closedAt             DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  tenant     BusinessTenant?    @relation(fields: [tenantId], references: [id])
-  anomaly    OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
-  tasks      AnomalyInvestigationTask[]
-  comments   AnomalyInvestigationComment[]
+  tenant   BusinessTenant?               @relation(fields: [tenantId], references: [id])
+  anomaly  OperationalAnomaly            @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+  tasks    AnomalyInvestigationTask[]
+  comments AnomalyInvestigationComment[]
 
   @@index([tenantId, status, dueAt])
   @@index([tenantId, assigneeId])
@@ -534,16 +537,16 @@ model AnomalyInvestigation {
 
 /// A checklist step on an investigation, so "checked" is a recorded fact.
 model AnomalyInvestigationTask {
-  id             String   @id @default(cuid())
-  tenantId       String?
+  id              String    @id @default(cuid())
+  tenantId        String?
   investigationId String
-  label          String
-  sequence       Int      @default(0)
-  doneById       String?
-  doneAt         DateTime?
-  createdAt      DateTime @default(now())
+  label           String
+  sequence        Int       @default(0)
+  doneById        String?
+  doneAt          DateTime?
+  createdAt       DateTime  @default(now())
 
-  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  tenant        BusinessTenant?      @relation(fields: [tenantId], references: [id])
   investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
 
   @@index([investigationId, sequence])
@@ -551,14 +554,14 @@ model AnomalyInvestigationTask {
 
 /// A comment on an investigation. Comments are never edited or deleted.
 model AnomalyInvestigationComment {
-  id             String   @id @default(cuid())
-  tenantId       String?
+  id              String   @id @default(cuid())
+  tenantId        String?
   investigationId String
-  authorId       String
-  body           String
-  createdAt      DateTime @default(now())
+  authorId        String
+  body            String
+  createdAt       DateTime @default(now())
 
-  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  tenant        BusinessTenant?      @relation(fields: [tenantId], references: [id])
   investigation AnomalyInvestigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
 
   @@index([investigationId, createdAt])
@@ -570,7 +573,7 @@ model AnomalyInvestigationComment {
 /// rule is wrong for everyone: it needs a reason, an expiry and can be revoked,
 /// and a suppression never deletes the findings it covers.
 model AnomalySuppression {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   tenantId     String?
   ruleKey      String
   /// When set, only this entity is covered; otherwise the whole rule is.
@@ -582,7 +585,7 @@ model AnomalySuppression {
   revokedById  String?
   revokedAt    DateTime?
   revokeReason String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -595,22 +598,22 @@ model AnomalySuppression {
 /// seen, created, reopened, suppressed and notified, so a noisy rule can be seen
 /// and a scheduled scan that failed is not silent.
 model AnomalyScanRun {
-  id          String   @id @default(cuid())
-  tenantId    String?
+  id         String    @id @default(cuid())
+  tenantId   String?
   /// manual | scheduled
-  trigger     String   @default("manual")
+  trigger    String    @default("manual")
   /// running | completed | failed
-  status      String   @default("running")
-  startedAt   DateTime @default(now())
-  finishedAt  DateTime?
-  scanned     Int      @default(0)
-  created     Int      @default(0)
-  reopened    Int      @default(0)
-  suppressed  Int      @default(0)
-  notified    Int      @default(0)
-  periodFrom  String?
-  periodTo    String?
-  error       String?
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  scanned    Int       @default(0)
+  created    Int       @default(0)
+  reopened   Int       @default(0)
+  suppressed Int       @default(0)
+  notified   Int       @default(0)
+  periodFrom String?
+  periodTo   String?
+  error      String?
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -624,7 +627,7 @@ model AnomalyScanRun {
 /// that a named person either accepts or rejects, and the pack hash proves which
 /// evidence the explanation was written from.
 model AnomalyInvestigationDraft {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   tenantId       String?
   anomalyId      String
   /// SHA-256 of the evidence pack the draft was generated from.
@@ -633,10 +636,10 @@ model AnomalyInvestigationDraft {
   promptVersion  String
   schemaVersion  String
   /// deterministic | external
-  source         String   @default("deterministic")
+  source         String    @default("deterministic")
   model          String
   /// draft | reviewed | accepted | rejected
-  status         String   @default("draft")
+  status         String    @default("draft")
   /// The validated payload, stored exactly as reviewed.
   payload        String
   generatedById  String
@@ -645,7 +648,7 @@ model AnomalyInvestigationDraft {
   reviewReason   String?
   /// Rejections are kept, so a second draft can be compared with the first.
   supersededById String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   tenant  BusinessTenant?    @relation(fields: [tenantId], references: [id])
   anomaly OperationalAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
@@ -655,48 +658,48 @@ model AnomalyInvestigationDraft {
 }
 
 model OperationalAnomaly {
-  id              String   @id @default(cuid())
-  tenantId        String?
-  fingerprint     String
+  id               String    @id @default(cuid())
+  tenantId         String?
+  fingerprint      String
   /// daily_shortage | daily_overage | repeated_shortage | unreviewed_account |
   /// missing_account | large_transaction | repeated_reversal | expense_spike |
   /// transfer_variance | stale_transfer | shift_variance |
   /// repeated_shift_variance | unconfirmed_handover
-  ruleKey         String
+  ruleKey          String
   /// high | medium | low
-  severity        String
+  severity         String
   /// open | acknowledged | resolved
-  status          String   @default("open")
-  title           String
-  summary         String
-  entityType      String
-  entityId        String
-  locationId      String?
-  workerId        String?
-  businessDate    DateTime?
-  metricValue     Decimal?
-  thresholdValue  Decimal?
-  evidence        String?
-  detectedAt      DateTime @default(now())
-  lastSeenAt      DateTime @default(now())
-  firstSeenAt     DateTime @default(now())
+  status           String    @default("open")
+  title            String
+  summary          String
+  entityType       String
+  entityId         String
+  locationId       String?
+  workerId         String?
+  businessDate     DateTime?
+  metricValue      Decimal?
+  thresholdValue   Decimal?
+  evidence         String?
+  detectedAt       DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  firstSeenAt      DateTime  @default(now())
   /// SHA-256 of the evidence this finding was last seen with.
-  snapshotHash    String?
+  snapshotHash     String?
   /// How many times a resolved finding came back.
-  reopenCount     Int      @default(0)
-  lastNotifiedAt  DateTime?
+  reopenCount      Int       @default(0)
+  lastNotifiedAt   DateTime?
   acknowledgedById String?
-  acknowledgedAt  DateTime?
-  resolvedById    String?
-  resolvedAt      DateTime?
-  resolutionNote  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  acknowledgedAt   DateTime?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
-  events AnomalyFindingEvent[]
+  tenant        BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  events        AnomalyFindingEvent[]
   investigation AnomalyInvestigation?
-  drafts AnomalyInvestigationDraft[]
+  drafts        AnomalyInvestigationDraft[]
 
   @@unique([tenantId, fingerprint])
   @@index([tenantId, status, severity])
@@ -725,6 +728,8 @@ model Expense {
 model AuditLog {
   id         String   @id @default(cuid())
   tenantId   String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId   String?
   userId     String
   /// Snapshot of the actor at the time of the action. A later rename or
   /// removal must not rewrite who performed the historical action.
@@ -745,6 +750,7 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@index([tenantId])
+  @@index([branchId])
 }
 
 // =====================
@@ -764,6 +770,28 @@ model Customer {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // ---------------------------------------------------------------------
+  // Phase 7 — onboarding and migration attribution.
+  //
+  // A customer is a TENANT-WIDE identity. None of these fields decides which
+  // branch or account the person belongs to; they record how the relationship
+  // started so a paper register can be audited later.
+  // ---------------------------------------------------------------------
+  /// The business's OWN reference for this person (passbook number, register
+  /// line, previous-system key). Deliberately NOT unique and never used as a
+  /// hard identity key: two real people can be typed with the same reference,
+  /// and MaaCash must not refuse a customer because of it. An exact match is a
+  /// duplicate signal for a human to review.
+  externalReference  String?
+  /// office | field | import | portal | legacy
+  registeredVia      String?
+  /// Staff user who onboarded the customer. NULL for legacy/portal rows.
+  registeredById     String?
+  /// Branch in which onboarding happened. Attribution only.
+  registeredBranchId String?
+  /// Free-text note captured at registration or import.
+  notes              String?
+
   // Customer Portal
   portalEnabled            Boolean   @default(false)
   portalPasswordHash       String?
@@ -772,18 +800,18 @@ model Customer {
   tokenVersion             Int       @default(0) // Bumped to invalidate existing customer sessions
   mfaEnabled               Boolean   @default(false)
   mfaSecret                String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
-  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
+  mfaRecoveryCodes         String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt       DateTime? // SEC-15: pending TOTP secret issued at this time
   mfaEnrolledAt            DateTime?
   mfaLastUsedAt            DateTime?
   mfaLastTotpStep          Int? // Last accepted TOTP step (replay prevention)
 
-  accounts    SusuAccount[]
-  assignments CollectorCustomerAssignment[]
-  disputes    CustomerDispute[]
-  messagingPreference CustomerMessagingPreference?
-  withdrawalRequests  CustomerWithdrawalRequest[]
-  customerMessages    CustomerMessageOutbox[]
+  accounts                   SusuAccount[]
+  assignments                CollectorCustomerAssignment[]
+  disputes                   CustomerDispute[]
+  messagingPreference        CustomerMessagingPreference?
+  withdrawalRequests         CustomerWithdrawalRequest[]
+  customerMessages           CustomerMessageOutbox[]
   messagingConsentChallenges MessagingConsentChallenge[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -793,6 +821,8 @@ model Customer {
   @@index([phone])
   @@index([email])
   @@index([tenantId])
+  @@index([tenantId, externalReference])
+  @@index([tenantId, registeredBranchId])
 }
 
 model SusuAccount {
@@ -806,14 +836,37 @@ model SusuAccount {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  customer      Customer                      @relation(fields: [customerId], references: [id])
-  cycles        SusuCycle[]
-  contributions Contribution[]
-  withdrawals   Withdrawal[]
-  commissions   Commission[]
-  cardFees      CardFee[]
-  assignments   CollectorCustomerAssignment[]
-  disputes      CustomerDispute[]
+  // ---------------------------------------------------------------------
+  // Phase 7 — account-level branch attribution and migration provenance.
+  //
+  // Branch belongs to the ACCOUNT, not the customer: one person may hold
+  // accounts in several branches. NULL means the historical record could not
+  // be confidently attributed and is preserved as LEGACY_UNASSIGNED rather
+  // than guessed.
+  // ---------------------------------------------------------------------
+  /// Branch responsible for this account. NULL = legacy/unassigned.
+  branchId                 String?
+  /// The date the account actually opened at the business. May predate
+  /// MaaCash, so it is kept separately from createdAt.
+  openingDate              DateTime?
+  /// office | field | import | legacy
+  openedVia                String?
+  /// Staff user who opened the account.
+  openedById               String?
+  /// The account number as written in the business's own book or previous
+  /// system, when it is not the canonical MaaCash identifier.
+  externalAccountReference String?
+  /// Import batch that created this account, when it was migrated.
+  importBatchId            String?
+
+  customer           Customer                      @relation(fields: [customerId], references: [id])
+  cycles             SusuCycle[]
+  contributions      Contribution[]
+  withdrawals        Withdrawal[]
+  commissions        Commission[]
+  cardFees           CardFee[]
+  assignments        CollectorCustomerAssignment[]
+  disputes           CustomerDispute[]
   withdrawalRequests CustomerWithdrawalRequest[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -822,6 +875,9 @@ model SusuAccount {
   @@index([accountId])
   @@index([status])
   @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, externalAccountReference])
+  @@index([importBatchId])
 }
 
 model SusuCycle {
@@ -864,23 +920,23 @@ model SusuCycle {
 /// long they must be kept. Access is always re-checked against the subject, so a
 /// file reference cannot be traded for a download.
 model EvidenceAttachment {
-  id            String    @id @default(cuid())
-  tenantId      String?
+  id             String    @id @default(cuid())
+  tenantId       String?
   /// customerDispute | operationalAnomaly | offlineActionRequest
-  subjectType   String
-  subjectId     String
-  fileName      String
-  contentType   String
-  sizeBytes     Int
-  sha256        String
+  subjectType    String
+  subjectId      String
+  fileName       String
+  contentType    String
+  sizeBytes      Int
+  sha256         String
   /// Opaque storage key inside the private evidence directory.
-  storageKey    String    @unique
-  uploadedById  String
-  uploadedByType String   @default("admin")
+  storageKey     String    @unique
+  uploadedById   String
+  uploadedByType String    @default("admin")
   retentionUntil DateTime
-  deletedAt     DateTime?
-  deletedById   String?
-  createdAt     DateTime  @default(now())
+  deletedAt      DateTime?
+  deletedById    String?
+  createdAt      DateTime  @default(now())
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -894,79 +950,97 @@ model EvidenceAttachment {
 /// the same withdrawal action the staff screen uses. The amount is stored in
 /// integer pesewa so no rounding can happen between the request and the ledger.
 model CustomerWithdrawalRequest {
-  id             String   @id @default(cuid())
-  tenantId       String?
-  reference      String
-  customerId     String
-  accountId      String
-  cycleId        String?
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId              String?
+  reference             String
+  customerId            String
+  accountId             String
+  cycleId               String?
   /// Integer pesewa. GH¢1.00 is 100.
-  amountPesewa   Int
-  reason         String
+  amountPesewa          Int
+  reason                String
   /// requested | approved | paid | rejected | cancelled | needs_review
-  status         String   @default("requested")
-  requestedById  String
-  decidedById    String?
-  decidedAt      DateTime?
-  decisionNote   String?
+  status                String    @default("requested")
+  requestedById         String
+  decidedById           String?
+  decidedAt             DateTime?
+  decisionNote          String?
   /// The real withdrawal this request produced, when one was recorded.
   resultingWithdrawalId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
-  customer Customer        @relation(fields: [customerId], references: [id])
-  account  SusuAccount     @relation(fields: [accountId], references: [id])
+  tenant               BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  customer             Customer             @relation(fields: [customerId], references: [id])
+  account              SusuAccount          @relation(fields: [accountId], references: [id])
+  highValue            Boolean              @default(false)
+  requiredApprovals    Int                  @default(0)
+  policyVersion        Int?
+  approvedById         String?
+  approvedAt           DateTime?
+  paymentInitiatedById String?
+  paymentInitiatedAt   DateTime?
+  paymentMethod        String?
+  paymentReference     String?
+  paidAt               DateTime?
+  evidenceRef          String?
+  reasonCode           String?
+  acknowledgedAt       DateTime?
+  acknowledgedById     String?
+  approvals            WithdrawalApproval[]
 
   @@unique([tenantId, reference])
   @@index([customerId, status])
   @@index([tenantId, status, createdAt])
+  @@index([branchId])
 }
 
 model CustomerDispute {
-  id               String   @id @default(cuid())
-  tenantId         String?
-  reference        String
-  customerId       String
-  accountId        String?
+  id                 String    @id @default(cuid())
+  tenantId           String?
+  reference          String
+  customerId         String
+  accountId          String?
   /// contribution | withdrawal
-  subjectType      String
-  subjectId        String
+  subjectType        String
+  subjectId          String
   /// Snapshot of the transaction reference at the time of the dispute.
-  subjectReference String
-  subjectAmount    Decimal
+  subjectReference   String
+  subjectAmount      Decimal
   /// Cycle number snapshotted when the dispute is opened.
-  cycleNumber      Int?
+  cycleNumber        Int?
   /// not_received | wrong_amount | duplicate_charge | unauthorised | other
-  category         String
-  details          String
+  category           String
+  details            String
   /// Receipt, statement line or other evidence reference supplied by the customer.
-  customerEvidence String?
+  customerEvidence   String?
   /// Evidence reference recorded by the administrator at resolution.
   resolutionEvidence String?
   /// open | under_review | awaiting_customer | resolved_upheld |
   /// resolved_declined | cancelled
-  status           String   @default("open")
-  openedByType     String   @default("customer")
-  openedById       String
-  resolutionNote   String?
-  resolutionById   String?
-  resolvedAt       DateTime?
+  status             String    @default("open")
+  openedByType       String    @default("customer")
+  openedById         String
+  resolutionNote     String?
+  resolutionById     String?
+  resolvedAt         DateTime?
   /// Optional correction/reversal reference recorded when an outcome is upheld.
-  outcomeReference String?
+  outcomeReference   String?
   /// Who is working on it, how urgent it is and when it is due.
-  assignedToId     String?
+  assignedToId       String?
   /// low | normal | high | urgent
-  priority         String   @default("normal")
-  dueAt            DateTime?
-  escalatedAt      DateTime?
-  escalationNote   String?
-  createdAt        DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  priority           String    @default("normal")
+  dueAt              DateTime?
+  escalatedAt        DateTime?
+  escalationNote     String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
-  customer Customer        @relation(fields: [customerId], references: [id])
-  account  SusuAccount?    @relation(fields: [accountId], references: [id])
+  tenant   BusinessTenant?        @relation(fields: [tenantId], references: [id])
+  customer Customer               @relation(fields: [customerId], references: [id])
+  account  SusuAccount?           @relation(fields: [accountId], references: [id])
   events   CustomerDisputeEvent[]
 
   @@unique([tenantId, reference])
@@ -995,34 +1069,41 @@ model CustomerDisputeEvent {
 }
 
 model Contribution {
-  id             String    @id @default(cuid())
-  tenantId       String?
-  accountId      String
-  cycleId        String
-  amount         Decimal // Total amount collected in this event
-  collectionDate DateTime
-  channel        String // collector | direct_office
-  collectorId    String? // Reference to Collector if collected via collector
-  recordedById   String // User who recorded the payment
-  receivedById   String? // Staff (User) who recorded/authorised the office payment (audit)
-  receivedByName String? // Free-text name of the staff who physically received the money
-  recordedByName String? // Free-text name of the person who recorded the payment (display)
+  id                 String    @id @default(cuid())
+  tenantId           String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId           String?
+  accountId          String
+  cycleId            String
+  amount             Decimal // Total amount collected in this event
+  collectionDate     DateTime
+  channel            String // collector | direct_office
+  collectorId        String? // Reference to Collector if collected via collector
+  recordedById       String // User who recorded the payment
+  receivedById       String? // Staff (User) who recorded/authorised the office payment (audit)
+  receivedByName     String? // Free-text name of the staff who physically received the money
+  recordedByName     String? // Free-text name of the person who recorded the payment (display)
   /// Enrolled device that submitted an offline collection. Null for online
   /// office/collector recording, which is attributed to the authenticated user.
   recordedDeviceId   String?
   recordedDeviceName String?
-  referenceId    String    @unique // Idempotency key - prevents duplicate submissions
-  notes          String?
-  createdAt      DateTime  @default(now())
-  reversedAt     DateTime?
-  reversalOfId   String?   @unique // Original record when this row is a reversal
+  /// Original device capture time for an offline collection. Evidence only:
+  /// financial ordering and period reporting use `collectionDate`, which is the
+  /// server posting time and cannot be supplied by the client.
+  capturedAt         DateTime?
+  referenceId        String    @unique // Idempotency key - prevents duplicate submissions
+  notes              String?
+  createdAt          DateTime  @default(now())
+  reversedAt         DateTime?
+  reversalOfId       String?   @unique // Original record when this row is a reversal
 
-  account     SusuAccount              @relation(fields: [accountId], references: [id])
-  cycle       SusuCycle                @relation(fields: [cycleId], references: [id])
-  collector   Collector?               @relation(fields: [collectorId], references: [id])
-  recordedBy  User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
-  receivedBy  User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
-  allocations ContributionAllocation[]
+  account         SusuAccount              @relation(fields: [accountId], references: [id])
+  cycle           SusuCycle                @relation(fields: [cycleId], references: [id])
+  collector       Collector?               @relation(fields: [collectorId], references: [id])
+  recordedBy      User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
+  receivedBy      User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
+  allocations     ContributionAllocation[]
+  remittanceLinks RemittanceContribution[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1034,6 +1115,9 @@ model Contribution {
   @@index([receivedById])
   @@index([referenceId])
   @@index([tenantId])
+  @@index([branchId])
+  // Reporting access path: tenant + branch + collection window.
+  @@index([tenantId, branchId, collectionDate])
 }
 
 model ContributionAllocation {
@@ -1056,6 +1140,8 @@ model ContributionAllocation {
 model Withdrawal {
   id               String    @id @default(cuid())
   tenantId         String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId         String?
   accountId        String
   cycleId          String
   requestedAmount  Decimal // What the customer asked to withdraw
@@ -1073,13 +1159,25 @@ model Withdrawal {
   account SusuAccount @relation(fields: [accountId], references: [id])
   cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  tenant           BusinessTenant? @relation(fields: [tenantId], references: [id])
+  requestId        String?
+  paymentMethod    String?
+  paymentReference String?
+  paidById         String?
+  paidAt           DateTime?
+  evidenceRef      String?
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  reasonCode       String?
 
   @@index([accountId])
   @@index([cycleId])
   @@index([createdAt])
   @@index([referenceId])
   @@index([tenantId])
+  @@index([branchId])
+  // Reporting access path: tenant + branch + created window.
+  @@index([tenantId, branchId, createdAt])
 }
 
 model Commission {
@@ -1121,59 +1219,122 @@ model CardFee {
 }
 
 model Collector {
-  id        String   @id @default(cuid())
-  tenantId  String?
-  userId    String   @unique
-  status    String   @default("active") // active | inactive
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String    @id @default(cuid())
+  tenantId          String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId          String?
+  userId            String    @unique
+  /// Lifecycle: active | inactive | suspended. Only `active` may perform new
+  /// collection operations. `suspended` is a control action and `inactive` an
+  /// employment state; the distinction is preserved, and neither deletes the
+  /// collector or rewrites their historical financial attribution.
+  status            String    @default("active")
+  /// Why the last lifecycle change happened. Written only by an administrator.
+  statusReason      String?
+  statusChangedAt   DateTime?
+  statusChangedById String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user          User                          @relation(fields: [userId], references: [id])
-  assignments   CollectorCustomerAssignment[]
-  contributions Contribution[]
-  remittances   CollectorRemittance[]
+  user             User                          @relation(fields: [userId], references: [id])
+  assignments      CollectorCustomerAssignment[]
+  contributions    Contribution[]
+  remittances      CollectorRemittance[]
+  assignmentEvents CollectorAssignmentEvent[]
+  reconciliations SusuReconciliation[]
+  dailyClosings  DailyCollectorClosing[]
+  exceptionCases ReconciliationExceptionCase[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([status])
   @@index([tenantId])
+  @@index([branchId])
+  @@index([tenantId, status])
 }
 
 model CollectorCustomerAssignment {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  collectorId  String
-  customerId   String
-  accountId    String
-  assignedAt   DateTime  @default(now())
-  unassignedAt DateTime?
-  active       Boolean   @default(true)
+  id               String    @id @default(cuid())
+  tenantId         String?
+  collectorId      String
+  customerId       String
+  accountId        String
+  assignedAt       DateTime  @default(now())
+  unassignedAt     DateTime?
+  active           Boolean   @default(true)
+  /// Mirrors `accountId` while this assignment is active and is NULL once it is
+  /// released. The unique index makes "at most one active collector per account"
+  /// a database invariant on both SQLite and PostgreSQL (NULL rows never
+  /// collide), instead of a pre-check that two concurrent requests can both pass.
+  activeAccountKey String?   @unique
+  /// Administrator who created the current assignment/transfer.
+  assignedById     String?
 
-  collector Collector   @relation(fields: [collectorId], references: [id])
-  customer  Customer    @relation(fields: [customerId], references: [id])
-  account   SusuAccount @relation(fields: [accountId], references: [id])
+  collector Collector                  @relation(fields: [collectorId], references: [id])
+  customer  Customer                   @relation(fields: [customerId], references: [id])
+  account   SusuAccount                @relation(fields: [accountId], references: [id])
+  events    CollectorAssignmentEvent[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
-  @@unique([collectorId, accountId])
+  // The same collector/account pair may reappear across history (for example
+  // after a deactivation/reactivation cycle), so the pair itself is NOT unique.
+  // At most one ACTIVE assignment per account is enforced instead by
+  // `activeAccountKey`, which is NULL when inactive (NULL rows never collide
+  // in a unique index on SQLite or PostgreSQL).
   @@index([collectorId])
   @@index([customerId])
   @@index([accountId])
   @@index([tenantId])
+  @@index([tenantId, active])
 }
 
 model CollectorRemittance {
-  id             String    @id @default(cuid())
+  id             String  @id @default(cuid())
   tenantId       String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId       String?
   collectorId    String
-  expectedAmount Decimal // Sum of recorded collections
-  remittedAmount Decimal // Amount physically brought to office
-  variance       Decimal // expected - remitted
-  status         String    @default("pending") // pending | reconciled | discrepancy
-  recordedById   String // Admin who recorded
-  referenceId    String    @unique // Server-issued reference shown in reports
-  // SEC-06: client idempotency key scoped to the tenant. Retries with the same
-  // key return the original row; reuse with different parameters is rejected.
+  expectedAmount Decimal
+  remittedAmount Decimal
+  variance       Decimal
+  status         String  @default("draft")
+
+  method               String    @default("cash")
+  provider             String?
+  transactionReference String?
+  transactionAt        DateTime?
+  evidenceRef          String?
+  declarationNote      String?
+  declaredById         String?
+  submittedAt          DateTime?
+  declaredAmount       Decimal?
+
+  handoverAmount       Decimal?
+  handoverAt           DateTime?
+  receiverId           String?
+  receivingBranchId    String?
+  custodyConfirmedAt   DateTime?
+  custodyConfirmedById String?
+
+  receivedAmount     Decimal?
+  receivedAt         DateTime?
+  receivedById       String?
+  receiptNote        String?
+  receiptEvidenceRef String?
+
+  verifiedAmount          Decimal?
+  verifiedAt              DateTime?
+  verifiedById            String?
+  verificationNote        String?
+  verificationEvidenceRef String?
+
+  outstandingAmount    Decimal @default(0)
+  disputedAmount       Decimal @default(0)
+  reconciliationStatus String  @default("pending")
+
+  recordedById   String
+  referenceId    String    @unique
   idempotencyKey String?
   requestHash    String?
   notes          String?
@@ -1181,17 +1342,112 @@ model CollectorRemittance {
   reversedById   String?
   reversalReason String?
   createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  collector Collector @relation(fields: [collectorId], references: [id])
+  collector     Collector                @relation(fields: [collectorId], references: [id])
+  contributions RemittanceContribution[]
+  discrepancies RemittanceDiscrepancy[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, idempotencyKey])
   @@index([collectorId])
   @@index([status])
   @@index([createdAt])
   @@index([referenceId])
   @@index([tenantId])
-  @@unique([tenantId, idempotencyKey])
+  @@index([branchId])
+  @@index([method])
+  @@index([receivingBranchId])
+  // Reporting access paths.
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, collectorId, status])
+}
+
+/// Append-only history of collector/customer assignments, transfers and
+/// releases. Exactly one row is written per change, so the previous collector,
+/// new collector, actor, timestamp and reason survive even when the assignment
+/// row itself is deactivated or reactivated.
+model CollectorAssignmentEvent {
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  assignmentId        String
+  customerId          String
+  accountId           String
+  /// Collector the assignment belongs to after the event.
+  collectorId         String?
+  previousCollectorId String?
+  newCollectorId      String?
+  /// assigned | reactivated | transferred | unassigned
+  kind                String
+  reason              String?
+  actorId             String
+  createdAt           DateTime @default(now())
+
+  assignment CollectorCustomerAssignment @relation(fields: [assignmentId], references: [id])
+  collector  Collector?                  @relation(fields: [collectorId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, accountId, createdAt])
+  @@index([assignmentId, createdAt])
+  @@index([collectorId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+/// Money a remittance declaration settles, per contribution. `amount` may be
+/// LESS than the contribution's own amount: a partial handover settles part of
+/// a contribution now and the remainder in a later declaration. The same
+/// contribution may therefore appear in more than one declaration, but each
+/// (remittance, contribution) pair appears once and the allocated total may
+/// never exceed the contribution amount (enforced server-side inside the
+/// collector's settlement lock).
+model RemittanceContribution {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  remittanceId   String
+  contributionId String
+  amount         Decimal
+  createdAt      DateTime @default(now())
+
+  remittance   CollectorRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  contribution Contribution        @relation(fields: [contributionId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([remittanceId, contributionId])
+  @@index([remittanceId])
+  @@index([contributionId])
+  @@index([tenantId])
+}
+
+model RemittanceDiscrepancy {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  remittanceId      String
+  type              String
+  expectedAmount    Decimal
+  declaredAmount    Decimal
+  receivedAmount    Decimal?
+  verifiedAmount    Decimal?
+  variance          Decimal
+  reason            String
+  status            String    @default("open")
+  responsibleParty  String?
+  evidenceRef       String?
+  resolutionActorId String?
+  resolutionAt      DateTime?
+  resolutionNotes   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  remittance CollectorRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([remittanceId])
+  @@index([status])
+  @@index([tenantId])
 }
 
 /// Immutable snapshot of a daily account before an administrative correction.
@@ -1220,17 +1476,17 @@ model DailyAccountRevision {
 // =====================
 
 model EmailVerificationToken {
-  id        String    @id @default(cuid())
-  tenantId  String?
-  userId    String
-  tokenHash String    @unique // SHA-256 hash of the raw token - never store raw token
+  id                   String    @id @default(cuid())
+  tenantId             String?
+  userId               String
+  tokenHash            String    @unique // SHA-256 hash of the raw token - never store raw token
   // SEC-14: hash of the normalized destination address this token was issued
   // for. Verification refuses when it differs from the account's current
   // normalized address. Null on legacy rows, which are invalidated.
   destinationEmailHash String?
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  expiresAt            DateTime
+  usedAt               DateTime?
+  createdAt            DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1289,6 +1545,8 @@ model DeviceEnrollment {
 model OfflineTransaction {
   id             String    @id @default(cuid())
   tenantId       String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId       String?
   deviceId       String
   userId         String
   type           String // "contribution" | "daily_account_draft"
@@ -1299,7 +1557,10 @@ model OfflineTransaction {
   maxRetries     Int       @default(5)
   failureReason  String?
   serverResult   String? // JSON server response after sync
-  localTimestamp DateTime  @default(now()) // When created on device
+  localTimestamp DateTime  @default(now()) // When first received by the server
+  /// Original device capture time supplied with the payload and validated
+  /// against server bounds. Never used for financial ordering.
+  capturedAt     DateTime?
   syncStartedAt  DateTime?
   syncedAt       DateTime? // When server confirmed
   createdAt      DateTime  @default(now())
@@ -1314,7 +1575,350 @@ model OfflineTransaction {
   @@index([type])
   @@index([createdAt])
   @@index([tenantId])
+  @@index([branchId])
+  @@index([tenantId, status, createdAt])
 }
+
+/// Append-only trace of every offline contribution synchronization outcome,
+/// including rejected and failed attempts that never reach OfflineTransaction.
+/// Only safe context is stored: no encrypted payload, no device key, and no
+/// authentication material. Collectors cannot read or write these rows; only an
+/// authorized tenant administrator can review or resolve them.
+model OfflineSyncAttempt {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  /// contribution | request
+  kind           String    @default("contribution")
+  /// accepted | already_synced | rejected | failed
+  outcome        String
+  /// Stable machine code, e.g. assignment_not_found, invalid_amount, device_revoked.
+  reasonCode     String?
+  /// Human-readable reason safe to show an administrator.
+  reason         String?
+  /// Whether an authorized administrator may safely retry the attempt.
+  retryable      Boolean   @default(false)
+  httpStatus     Int?
+  userId         String
+  deviceId       String?
+  idempotencyKey String?
+  accountId      String?
+  collectorId    String?
+  amount         Decimal?
+  capturedAt     DateTime?
+  payloadDigest  String?
+  retriedAt      DateTime?
+  retriedById    String?
+  /// resolved | dismissed
+  resolution     String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  /// The reconciliation session currently reviewing this attempt (optional).
+  reconciliationId String?
+  createdAt      DateTime @default(now())
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  reconciliation SusuReconciliation? @relation(fields: [reconciliationId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, outcome, createdAt])
+  @@index([tenantId, retryable, createdAt])
+  @@index([idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([reconciliationId, createdAt])
+}
+
+/// A reconciliation session: one bounded attempt to compare what was recorded
+/// against what was physically collected, declared, handed over, received and
+/// verified for one branch over one period.
+///
+/// Session types:
+///   daily_close   — daily collector closing (operational handover).
+///   branch_close  — branch-level reconciliation across collectors.
+///   remittance    — reconciliation against a formal Phase 3 remittance.
+///   sync          — offline synchronization exceptions.
+///   other         — contribution inconsistencies or other Susu exceptions.
+///
+/// Statuses:
+///   open            — session created, lines not yet finalised.
+///   matching        — difference detection is running / in progress.
+///   reviewed        — all lines reviewed by an authorised reviewer.
+///   case_created    — exception case(s) raised for unresolved differences.
+///   closed          — session closed; no further lines may be added.
+///
+/// A session is an audit boundary: it never edits a financial record. It only
+/// observes server-side records and records the observed differences.
+/// A reconciliation session: one bounded attempt to compare what was recorded
+/// against what was physically collected, declared, handed over, received and
+/// verified for one branch (or one collector-day) over one period.
+///
+/// Session types:
+///   daily_close   — daily collector closing (operational handover).
+///   branch_close  — branch-level reconciliation across collectors.
+///   remittance    — reconciliation against formal Phase 3 remittances.
+///   sync          — offline synchronization exceptions.
+///   other         — contribution inconsistencies or other Susu exceptions.
+///
+/// Statuses: open | matching | matched | reviewed | case_created | closed.
+/// A closed session is terminal and immutable. Detection may run again only
+/// while the session is open or matched.
+///
+/// A session is an audit boundary: it never edits a financial record. It only
+/// observes server-side records and records the observed differences.
+model SusuReconciliation {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  /// Branch this session covers. null = company-wide (only company-wide admins).
+  branchId      String?
+  /// Set for a daily_close session scoped to one collector.
+  collectorId   String?
+  /// daily_close | branch_close | remittance | sync | other
+  type          String
+  /// open | matching | matched | reviewed | case_created | closed
+  status        String   @default("open")
+  /// Period covered by the session (both bounds inclusive, UTC day granularity).
+  periodStart   DateTime
+  periodEnd     DateTime
+
+  /// Financial summary (definitionVersion 1). Computed from server-side records
+  /// on each matching run and stored so the exact figures that justified any
+  /// downstream case are preserved.
+  summaryJson   String   @default("{}")
+  /// Version of the financial definitions used to build summaryJson.
+  definitionVersion Int  @default(1)
+  /// Number of completed detection runs. Concurrency guard for status=matching.
+  runCount      Int      @default(0)
+  lastRunAt     DateTime?
+  lastRunById   String?
+
+  openedById    String
+  openedAt      DateTime @default(now())
+  closedAt      DateTime?
+  closedById    String?
+  closeReason   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  branch        Location?         @relation(fields: [branchId], references: [id])
+  collector     Collector?        @relation(fields: [collectorId], references: [id])
+  lines         ReconciliationLine[]
+  adjustments   ReconciliationAdjustment[]
+  syncAttempts  OfflineSyncAttempt[]
+  cases         ReconciliationExceptionCase[]
+  dailyClosings DailyCollectorClosing[]
+
+  @@index([tenantId, status, type])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, periodStart])
+  @@index([tenantId, type, openedAt])
+  @@index([branchId, openedAt])
+}
+
+/// Daily collector closing: the operational handover record for one collector
+/// on one business day. It is deliberately separate from a formal Phase 3
+/// remittance, which is an independent finance-verified settlement instrument.
+///
+/// Lifecycle: open -> declared -> handed_over -> received -> balanced|exception.
+/// A closing never edits a contribution or remittance.
+///
+/// Financial definitions:
+///   expectedCash              server-recorded non-reversed contributions for
+///                             the collector on the closing day.
+///   contributionsRecorded     same as expectedCash, kept explicit for display.
+///   contributionsSynced       recorded contributions captured offline and now
+///                             accepted by the server (recordedDeviceId set).
+///   contributionsPending      known amounts still awaiting a successful sync.
+///   declaredCash              cash the collector says they hold.
+///   handoverAmount            cash the collector physically handed over.
+///   receivedAmount            cash office staff physically counted and received.
+///   varianceExpectedVsDeclared expectedCash - declaredCash (positive=shortfall).
+///   varianceDeclaredVsReceived declaredCash - receivedAmount.
+///   varianceExpectedVsReceived expectedCash - receivedAmount.
+///   outstandingAmount          expectedCash - receivedAmount once received,
+///                             never negative (overage is reported separately).
+model DailyCollectorClosing {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  branchId       String?
+  collectorId    String
+  /// UTC midnight of the business day this closing covers.
+  closingDate    DateTime
+  /// open | declared | handed_over | received | balanced | exception
+  status         String   @default("open")
+
+  expectedCash            Decimal @default(0)
+  contributionsRecorded   Decimal @default(0)
+  contributionsSynced     Decimal @default(0)
+  contributionsPending    Decimal @default(0)
+  pendingSyncCount        Int     @default(0)
+  failedSyncCount         Int     @default(0)
+
+  declaredCash            Decimal?
+  declaredAt              DateTime?
+  declaredById            String?
+  declarationNote         String?
+  declarationEvidenceRef  String?
+
+  handoverAmount          Decimal?
+  handedOverAt            DateTime?
+  handedOverById          String?
+  handoverEvidenceRef     String?
+
+  receivedAmount          Decimal?
+  receivedAt              DateTime?
+  receivedById            String?
+  receiptNote             String?
+  receiptEvidenceRef      String?
+
+  varianceExpectedVsDeclared Decimal @default(0)
+  varianceDeclaredVsReceived Decimal @default(0)
+  varianceExpectedVsReceived Decimal @default(0)
+  outstandingAmount          Decimal @default(0)
+
+  /// Reconciliation session that reviewed this closing (optional).
+  sessionId        String?
+  /// Exception case raised for the difference (optional).
+  exceptionCaseId  String?
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant        BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  branch        Location?                  @relation(fields: [branchId], references: [id])
+  collector     Collector                  @relation(fields: [collectorId], references: [id])
+  session       SusuReconciliation?        @relation(fields: [sessionId], references: [id])
+  exceptionCase ReconciliationExceptionCase? @relation(fields: [exceptionCaseId], references: [id])
+
+  @@unique([tenantId, collectorId, closingDate])
+  @@index([tenantId, branchId, closingDate])
+  @@index([tenantId, status, closingDate])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, exceptionCaseId])
+}
+
+/// One line inside a reconciliation session: one linked source record plus the
+/// observed declared, received and verified amounts and the resulting variance.
+///
+/// entityType is polymorphic: contribution | collector_remittance |
+/// offline_transaction | withdrawal | daily_account | other.
+/// status: matched | unmatched | shortfall | overage | duplicate |
+/// missing_evidence | sync_failure | reviewed
+/// One observed source record inside a reconciliation session.
+///
+/// fingerprint identifies the business fact (for example
+/// remittance:<id> or daily_closing:<id>:declared_vs_received). revision
+/// increments only when an earlier revision is already reviewed or attached to
+/// an exception case and the observed amounts have since changed. Earlier
+/// revisions are never overwritten: they remain the evidence trail.
+///
+/// entityType is polymorphic: contribution | collector_remittance |
+/// remittance_discrepancy | daily_closing | offline_sync_attempt |
+/// offline_transaction | withdrawal_exception | other.
+///
+/// status: matched | unmatched | shortfall | overage | duplicate |
+/// missing_evidence | sync_failure | pending_sync | reviewed.
+model ReconciliationLine {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  branchId     String?
+  collectorId  String?
+  sessionId    String
+  /// The source record this line observes (never edited by this session).
+  entityType   String
+  entityId     String
+  /// Stable business fingerprint inside the session (see above).
+  fingerprint  String
+  /// Revision of this fingerprint. Revision 1 is the first observation.
+  revision     Int      @default(1)
+  /// What the records say should have been collected/handed over.
+  expectedAmount   Decimal?
+  /// What was physically declared by the collector.
+  declaredAmount   Decimal?
+  /// What was physically handed over by the collector.
+  physicalAmount   Decimal?
+  /// What office staff actually received and counted.
+  receivedAmount   Decimal?
+  /// What finance independently verified.
+  verifiedAmount   Decimal?
+  /// expectedAmount - (verifiedAmount ?? receivedAmount ?? physicalAmount ??
+  /// declaredAmount ?? 0). Positive = shortfall, negative = overage.
+  variance         Decimal @default(0)
+  /// Classification (never an accusation).
+  status           String
+  /// low | medium | high — operational priority, not a risk score.
+  severity         String?
+  /// Human-readable classification reason.
+  reason           String?
+  /// Supporting detail (reference ids, reasons, previous amounts) as JSON.
+  metadataJson     String?
+  /// Whether this revision has been reviewed by an authorised person.
+  reviewedAt       DateTime?
+  reviewedById     String?
+  /// Link to an exception case raised for this line (optional; one case may
+  /// cover many lines).
+  exceptionCaseId  String?
+  /// Last detection run that observed this business fingerprint.
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant      BusinessTenant?       @relation(fields: [tenantId], references: [id])
+  session     SusuReconciliation    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exception   ReconciliationExceptionCase? @relation(fields: [exceptionCaseId], references: [id])
+
+  @@unique([sessionId, fingerprint, revision])
+  @@index([tenantId, sessionId, status])
+  @@index([sessionId, entityType, entityId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, status, createdAt])
+}
+
+/// A recorded but non-posting reconciliation adjustment: the observed corrective
+/// figure that justifies a downstream correction, linked to the authorised
+/// correction/reversal that actually posts it. Never edits a financial record
+/// directly.
+///
+/// type: remittance_reversal | daily_account_correction | contribution_reversal
+/// withdrawal_adjustment | other
+/// status: proposed | linked | completed | rejected
+model ReconciliationAdjustment {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  sessionId   String
+  /// The correction workflow this adjustment references (remittance reversal,
+  /// daily account correction, etc.). referenceType/referenceId are polymorphic.
+  adjustmentType String
+  referenceType  String
+  referenceId    String
+  /// The amounts that justify the correction (observed, not posted here).
+  declaredAmount Decimal?
+  correctedAmount Decimal?
+  variance       Decimal   @default(0)
+  /// proposed | linked | completed | rejected
+  status         String   @default("proposed")
+  reason         String?
+  evidenceRef    String?
+  /// Exception case this correction is attached to (optional).
+  caseId         String?
+  proposedById   String
+  proposedAt     DateTime @default(now())
+  linkedById     String?
+  linkedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant   BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  session  SusuReconciliation @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sessionId, status])
+  @@index([sessionId, referenceType, referenceId])
+  @@index([tenantId, caseId])
+}
+
+/// Phase 2: offline sync attempt trace, extended so a reconciliation session
+/// can claim a failed or pending sync attempt for review. The original retryable
+/// flag and outcome are preserved; only an administrator may resolve/dismiss.
 
 // =====================
 // PLATFORM / MULTI-TENANCY
@@ -1346,11 +1950,11 @@ model AssociationMember {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant      BusinessTenant?            @relation(fields: [tenantId], references: [id])
-  association Association?               @relation(fields: [associationId], references: [id])
-  zone        AssociationZone?           @relation(fields: [zoneId], references: [id])
-  sponsorships AssociationSponsorship[]
-  trainings    AssociationTrainingRecord[]
+  tenant             BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  association        Association?                @relation(fields: [associationId], references: [id])
+  zone               AssociationZone?            @relation(fields: [zoneId], references: [id])
+  sponsorships       AssociationSponsorship[]
+  trainings          AssociationTrainingRecord[]
   trainingEnrolments TrainingEnrolment[]
 
   @@unique([tenantId, memberCode])
@@ -1380,11 +1984,11 @@ model Association {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
-  zones  AssociationZone[]
-  members AssociationMember[]
-  roles  AssociationRoleAssignment[]
-  courses TrainingCourse[]
+  tenant   BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  zones    AssociationZone[]
+  members  AssociationMember[]
+  roles    AssociationRoleAssignment[]
+  courses  TrainingCourse[]
   consents AssociationConsentRecord[]
 
   @@unique([tenantId, code])
@@ -1405,10 +2009,10 @@ model AssociationZone {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
-  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
-  parent      AssociationZone?  @relation("ZoneHierarchy", fields: [parentZoneId], references: [id])
-  children    AssociationZone[] @relation("ZoneHierarchy")
+  tenant      BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  association Association                 @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  parent      AssociationZone?            @relation("ZoneHierarchy", fields: [parentZoneId], references: [id])
+  children    AssociationZone[]           @relation("ZoneHierarchy")
   members     AssociationMember[]
   roles       AssociationRoleAssignment[]
 
@@ -1433,8 +2037,8 @@ model AssociationRoleAssignment {
   revokedAt     DateTime?
   note          String?
 
-  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
-  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  tenant      BusinessTenant?  @relation(fields: [tenantId], references: [id])
+  association Association      @relation(fields: [associationId], references: [id], onDelete: Cascade)
   zone        AssociationZone? @relation(fields: [zoneId], references: [id])
 
   @@unique([associationId, userId, role])
@@ -1466,8 +2070,8 @@ model TrainingCourse {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  tenant      BusinessTenant? @relation(fields: [tenantId], references: [id])
-  association Association     @relation(fields: [associationId], references: [id], onDelete: Cascade)
+  tenant      BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  association Association          @relation(fields: [associationId], references: [id], onDelete: Cascade)
   modules     TrainingModule[]
   sessions    TrainingSession[]
   assessments TrainingAssessment[]
@@ -1490,7 +2094,7 @@ model TrainingModule {
   updatedAt   DateTime @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
-  course TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course TrainingCourse  @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([courseId, position])
   @@index([courseId])
@@ -1511,8 +2115,8 @@ model TrainingSession {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  tenant     BusinessTenant? @relation(fields: [tenantId], references: [id])
-  course     TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tenant     BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  course     TrainingCourse       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   attendance TrainingAttendance[]
 
   @@index([tenantId, courseId, scheduledAt])
@@ -1536,9 +2140,9 @@ model TrainingEnrolment {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  tenant      BusinessTenant?     @relation(fields: [tenantId], references: [id])
-  course      TrainingCourse       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  member      AssociationMember?   @relation(fields: [memberId], references: [id])
+  tenant      BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  course      TrainingCourse              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  member      AssociationMember?          @relation(fields: [memberId], references: [id])
   attendance  TrainingAttendance[]
   attempts    TrainingAssessmentAttempt[]
   certificate TrainingCertificate?
@@ -1561,8 +2165,8 @@ model TrainingAttendance {
   note        String?
   createdAt   DateTime @default(now())
 
-  tenant    BusinessTenant?  @relation(fields: [tenantId], references: [id])
-  session   TrainingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tenant    BusinessTenant?   @relation(fields: [tenantId], references: [id])
+  session   TrainingSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   enrolment TrainingEnrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, enrolmentId])
@@ -1580,8 +2184,8 @@ model TrainingAssessment {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
-  course   TrainingCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tenant   BusinessTenant?             @relation(fields: [tenantId], references: [id])
+  course   TrainingCourse              @relation(fields: [courseId], references: [id], onDelete: Cascade)
   attempts TrainingAssessmentAttempt[]
 
   @@index([courseId])
@@ -1599,9 +2203,9 @@ model TrainingAssessmentAttempt {
   assessorName String?
   note         String?
 
-  tenant     BusinessTenant?      @relation(fields: [tenantId], references: [id])
-  assessment TrainingAssessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  enrolment  TrainingEnrolment    @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  tenant     BusinessTenant?    @relation(fields: [tenantId], references: [id])
+  assessment TrainingAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  enrolment  TrainingEnrolment  @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
   @@index([enrolmentId, attemptedAt])
   @@index([assessmentId])
@@ -1685,9 +2289,9 @@ model Sponsor {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  tenant        BusinessTenant?        @relation(fields: [tenantId], references: [id])
-  sponsorships  AssociationSponsorship[]
-  fundings      SponsorshipFunding[]
+  tenant       BusinessTenant?          @relation(fields: [tenantId], references: [id])
+  sponsorships AssociationSponsorship[]
+  fundings     SponsorshipFunding[]
 
   @@unique([tenantId, name])
   @@index([tenantId, status])
@@ -1726,21 +2330,21 @@ model SponsorshipFunding {
 /// sponsor funds it and gains no entitlement. This record is the only place the
 /// two are linked, which keeps the boundary visible.
 model SponsorshipCoverage {
-  id             String   @id @default(cuid())
-  tenantId       String?
-  sponsorshipId  String
+  id              String   @id @default(cuid())
+  tenantId        String?
+  sponsorshipId   String
   /// The member business whose subscription is covered.
   subjectTenantId String
-  subscriptionId String?
-  periodStart    DateTime
-  periodEnd      DateTime
-  amountPesewa   Int
+  subscriptionId  String?
+  periodStart     DateTime
+  periodEnd       DateTime
+  amountPesewa    Int
   /// active | ended
-  status         String   @default("active")
-  note           String?
-  recordedById   String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  status          String   @default("active")
+  note            String?
+  recordedById    String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   tenant      BusinessTenant?        @relation(fields: [tenantId], references: [id])
   sponsorship AssociationSponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
@@ -1752,33 +2356,33 @@ model SponsorshipCoverage {
 /// Sponsorship of one association member. This is a record of an agreed
 /// sponsorship only. It never charges, pays out or changes a subscription.
 model AssociationSponsorship {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  memberId     String
-  sponsorName  String
+  id              String    @id @default(cuid())
+  tenantId        String?
+  memberId        String
+  sponsorName     String
   /// The sponsor entity, when one has been registered.
-  sponsorId    String?
+  sponsorId       String?
   /// The member business this sponsorship covers, when it is a tenant here.
   subjectTenantId String?
   /// Most this sponsorship may be funded with, in integer pesewa.
   fundedCapPesewa Int?
-  planCode     String?
-  amount       Decimal   @default(0)
-  currency     String    @default("GHS")
+  planCode        String?
+  amount          Decimal   @default(0)
+  currency        String    @default("GHS")
   /// pledged | active | ended | cancelled
-  status       String    @default("pledged")
-  startDate    DateTime?
-  endDate      DateTime?
-  reference    String?
-  notes        String?
-  createdById  String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  status          String    @default("pledged")
+  startDate       DateTime?
+  endDate         DateTime?
+  reference       String?
+  notes           String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
-  member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  sponsor Sponsor? @relation(fields: [sponsorId], references: [id])
-  fundings SponsorshipFunding[]
+  tenant    BusinessTenant?       @relation(fields: [tenantId], references: [id])
+  member    AssociationMember     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sponsor   Sponsor?              @relation(fields: [sponsorId], references: [id])
+  fundings  SponsorshipFunding[]
   coverages SponsorshipCoverage[]
 
   @@unique([tenantId, reference])
@@ -1804,7 +2408,7 @@ model AssociationTrainingRecord {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  tenant BusinessTenant?   @relation(fields: [tenantId], references: [id])
   member AssociationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, status])
@@ -1812,32 +2416,32 @@ model AssociationTrainingRecord {
 }
 
 model BusinessTenant {
-  id                 String    @id @default(cuid())
-  code               String    @unique // server-generated, e.g. BIK-A1B2C3
-  name               String
-  legalName          String?
-  contactPhone       String?
-  contactEmail       String?
-  address            String?
+  id                       String    @id @default(cuid())
+  code                     String    @unique // server-generated, e.g. BIK-A1B2C3
+  name                     String
+  legalName                String?
+  contactPhone             String?
+  contactEmail             String?
+  address                  String?
   /// Business registration number shown on legal instruments. Optional because
   /// existing tenants predate the field; participation onboarding requires it.
-  registrationNumber String?
+  registrationNumber       String?
   /// DPC controller-registration state for this business. It never blocks
   /// account creation and is not asserted as approval by BloomCore.
   dpcRegistrationStatus    String    @default("not_provided") // not_provided | pending | registered | exempt
   dpcRegistrationNumber    String?
   dpcRegistrationCheckedAt DateTime?
-  momoEnabled        Boolean   @default(false)
-  susuEnabled        Boolean   @default(false)
-  status             String    @default("PROVISIONING") // PROVISIONING | ACTIVE | SUSPENDED | ARCHIVED
-  onboardingStatus   String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | COMPLETED
-  primaryAdminUserId String?
-  activatedAt        DateTime?
-  suspendedAt        DateTime?
-  suspensionReason   String?
-  archivedAt         DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  momoEnabled              Boolean   @default(false)
+  susuEnabled              Boolean   @default(false)
+  status                   String    @default("PROVISIONING") // PROVISIONING | ACTIVE | SUSPENDED | ARCHIVED
+  onboardingStatus         String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | COMPLETED
+  primaryAdminUserId       String?
+  activatedAt              DateTime?
+  suspendedAt              DateTime?
+  suspensionReason         String?
+  archivedAt               DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   users                        User[]
   locations                    Location[]
@@ -1851,9 +2455,9 @@ model BusinessTenant {
   operationalPolicy            TenantOperationalPolicy?
   offlineActionRequests        OfflineActionRequest[]
   momoOfflineDrafts            MomoOfflineDraft[]
-  riskIntelligenceConsents    RiskIntelligenceConsent[]
-  agentRiskSignals            AgentRiskSignal[]
-  riskIntelligenceDisclosures RiskIntelligenceDisclosure[]
+  riskIntelligenceConsents     RiskIntelligenceConsent[]
+  agentRiskSignals             AgentRiskSignal[]
+  riskIntelligenceDisclosures  RiskIntelligenceDisclosure[]
   operationalAnomalies         OperationalAnomaly[]
   customerDisputes             CustomerDispute[]
   customerWithdrawalRequests   CustomerWithdrawalRequest[]
@@ -1868,11 +2472,11 @@ model BusinessTenant {
   anomalyInvestigations        AnomalyInvestigation[]
   anomalyInvestigationTasks    AnomalyInvestigationTask[]
   anomalyInvestigationComments AnomalyInvestigationComment[]
-  anomalySuppressions         AnomalySuppression[]
-  anomalyScanRuns             AnomalyScanRun[]
-  anomalyInvestigationDrafts  AnomalyInvestigationDraft[]
-  aiInvestigationEntitlement  AiInvestigationEntitlement?
-  aiInvestigationUsages       AiInvestigationUsage[]
+  anomalySuppressions          AnomalySuppression[]
+  anomalyScanRuns              AnomalyScanRun[]
+  anomalyInvestigationDrafts   AnomalyInvestigationDraft[]
+  aiInvestigationEntitlement   AiInvestigationEntitlement?
+  aiInvestigationUsages        AiInvestigationUsage[]
   associationZones             AssociationZone[]
   associationRoles             AssociationRoleAssignment[]
   associationConsents          AssociationConsentRecord[]
@@ -1904,9 +2508,17 @@ model BusinessTenant {
   collectors                   Collector[]
   collectorCustomerAssignments CollectorCustomerAssignment[]
   collectorRemittances         CollectorRemittance[]
+  collectorAssignmentEvents    CollectorAssignmentEvent[]
+  remittanceContributions      RemittanceContribution[]
+  remittanceDiscrepancies      RemittanceDiscrepancy[]
   passwordResetTokens          PasswordResetToken[]
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
+  offlineSyncAttempts          OfflineSyncAttempt[]
+  susuReconciliations          SusuReconciliation[]
+  dailyCollectorClosings       DailyCollectorClosing[]
+  reconciliationLines          ReconciliationLine[]
+  reconciliationAdjustments    ReconciliationAdjustment[]
   zeliEntitlements             ZeliEntitlement[]
   zeliAccess                   ZeliTenantAccess?
   zeliAnalyticsDaily           ZeliAnalyticsDaily[]
@@ -1918,13 +2530,17 @@ model BusinessTenant {
   zeliPaymentEvents            ZeliPaymentEvent[]
   zeliAiAuthorizations         ZeliAiTenantAuthorization[]
   zeliEntitlementEvents        ZeliEntitlementEvent[]
-  providerStatementImports      ProviderStatementImport[]
-  providerStatementRows         ProviderStatementRow[]
-  branchLiquiditySnapshots      BranchLiquiditySnapshot[]
-  branchLiquidityLines          BranchLiquidityLine[]
-  reconciliationCases           ReconciliationExceptionCase[]
-  reconciliationCaseLinks       ReconciliationExceptionLink[]
-  reconciliationCaseEvents      ReconciliationExceptionEvent[]
+  providerStatementImports     ProviderStatementImport[]
+  providerStatementRows        ProviderStatementRow[]
+  branchLiquiditySnapshots     BranchLiquiditySnapshot[]
+  branchLiquidityLines         BranchLiquidityLine[]
+  reconciliationCases          ReconciliationExceptionCase[]
+  reconciliationCaseLinks      ReconciliationExceptionLink[]
+  reconciliationCaseEvents     ReconciliationExceptionEvent[]
+  customerImportBatches        CustomerImportBatch[]
+  customerImportRows           CustomerImportRow[]
+  customerImportRowEvents      CustomerImportRowEvent[]
+  supportRequests              SupportRequest[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -1935,27 +2551,28 @@ model BusinessTenant {
 /// Platform operator identity (BloomCore). Completely separate from tenant
 /// User accounts: own table, own cookie, own guard. Never a tenant admin.
 model PlatformSuperAdmin {
-  id                 String    @id @default(cuid())
-  email              String    @unique
-  fullName           String
-  passwordHash       String
-  status             String    @default("active") // active | inactive
-  forcePasswordReset Boolean   @default(false)
-  passwordPolicyVersion Int    @default(0)
-  tokenVersion       Int       @default(0)
-  mfaEnabled         Boolean   @default(false)
-  mfaSecret          String? // AES-256-GCM encrypted TOTP secret
-  mfaRecoveryCodes   String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
-  mfaPendingSecretAt DateTime? // SEC-15: pending TOTP secret issued at this time
-  mfaEnrolledAt      DateTime?
-  mfaLastUsedAt      DateTime?
-  mfaLastTotpStep    Int? // Last accepted TOTP step (replay prevention)
-  lastLoginAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  fullName              String
+  passwordHash          String
+  status                String    @default("active") // active | inactive
+  forcePasswordReset    Boolean   @default(false)
+  passwordPolicyVersion Int       @default(0)
+  tokenVersion          Int       @default(0)
+  mfaEnabled            Boolean   @default(false)
+  mfaSecret             String? // AES-256-GCM encrypted TOTP secret
+  mfaRecoveryCodes      String? // Legacy JSON array (migrated to MfaRecoveryCode rows)
+  mfaPendingSecretAt    DateTime? // SEC-15: pending TOTP secret issued at this time
+  mfaEnrolledAt         DateTime?
+  mfaLastUsedAt         DateTime?
+  mfaLastTotpStep       Int? // Last accepted TOTP step (replay prevention)
+  lastLoginAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   auditLogs PlatformAuditLog[]
   oidcLinks PlatformOidcLink[]
+  assignedSupportRequests SupportRequest[] @relation("SupportAssignment")
 
   @@index([status])
 }
@@ -2093,17 +2710,17 @@ model TurnstileTokenUse {
 /// browser; only the public JWK is stored. A credential is bound to exactly one
 /// server-side SessionRecord.
 model TabCredential {
-  id            String   @id @default(cuid())
-  sessionId     String   @unique
-  subjectType   String
-  subjectId     String
-  tenantId      String?
-  module        String
-  amr           String
-  payloadJson   String
-  publicKeyJwk  String
-  createdAt     DateTime @default(now())
-  lastUsedAt    DateTime @default(now())
+  id           String   @id @default(cuid())
+  sessionId    String   @unique
+  subjectType  String
+  subjectId    String
+  tenantId     String?
+  module       String
+  amr          String
+  payloadJson  String
+  publicKeyJwk String
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
 
   @@index([subjectType, subjectId])
 }
@@ -2196,17 +2813,17 @@ model AccountRecoveryRequest {
 /// A private assistant conversation. Ownership is tenant + authenticated user;
 /// no cross-tenant or cross-user lookup is permitted.
 model ZeliConversation {
-  id        String        @id @default(cuid())
-  tenantId  String?
-  userId    String
-  userType  String        @default("user") // user | customer | platform
-  title     String        @default("New conversation")
+  id          String        @id @default(cuid())
+  tenantId    String?
+  userId      String
+  userType    String        @default("user") // user | customer | platform
+  title       String        @default("New conversation")
   /// auto | manual. A manual rename is never overwritten by title generation.
-  titleSource String      @default("auto")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  deletedAt DateTime?
-  messages  ZeliMessage[]
+  titleSource String        @default("auto")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+  messages    ZeliMessage[]
 
   @@index([tenantId, userId, updatedAt])
   @@index([deletedAt])
@@ -2399,26 +3016,26 @@ model ZeliProviderGatewayEvent {
 /// reason. This row is the activation, and it is checked on every request together
 /// with the live subscription payment and period.
 model AiInvestigationEntitlement {
-  id              String   @id @default(cuid())
-  tenantId        String   @unique
+  id               String    @id @default(cuid())
+  tenantId         String    @unique
   /// active | revoked. Expiry is read from the package period on every request.
-  status          String   @default("active")
-  subscriptionId  String
-  planId          String
+  status           String    @default("active")
+  subscriptionId   String
+  planId           String
   /// The package code the Super Admin activated, kept for the record.
-  planCode        String
-  activatedById   String
+  planCode         String
+  activatedById    String
   activatedByEmail String
-  activatedAt     DateTime @default(now())
+  activatedAt      DateTime  @default(now())
   /// Copied at activation for display; the live check uses the subscription.
-  expiresAt       DateTime
-  reason          String
-  revokedById     String?
-  revokedByEmail  String?
-  revokedAt       DateTime?
-  revokeReason    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  expiresAt        DateTime
+  reason           String
+  revokedById      String?
+  revokedByEmail   String?
+  revokedAt        DateTime?
+  revokeReason     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -2477,11 +3094,10 @@ model ZeliPlan {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  subscriptions        ZeliSubscription[]
-  foundingAllocations  FoundingAllocation[]
+  subscriptions       ZeliSubscription[]
+  foundingAllocations FoundingAllocation[]
 
   @@index([addonKey])
-
   @@index([status])
   @@index([isPublic])
 }
@@ -2610,8 +3226,8 @@ model ZeliChargeAttempt {
   tenantId           String
   subscriptionId     String
   provider           String    @default("paystack")
-  method             String    // mobile_money | hosted
-  network            String?   // mtn | atl | vod
+  method             String // mobile_money | hosted
+  network            String? // mtn | atl | vod
   /// Hosted checkout method bound at initialisation: mobile_money | card | bank_transfer.
   checkoutChannel    String?
   amount             Decimal
@@ -2703,17 +3319,17 @@ model ZeliProviderUsage {
 /// Scalar tenant/user references keep the table additive and independent; the
 /// application re-checks tenant, role and status on every request.
 model ZeliTeamTester {
-  id                    String    @id @default(cuid())
-  tenantId              String
-  userId                String
-  status                String    @default("active") // active | revoked
-  disclosureVersion     String?
-  disclosureAcceptedAt  DateTime?
-  grantedById           String?
-  revokedById           String?
-  reason                String
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  tenantId             String
+  userId               String
+  status               String    @default("active") // active | revoked
+  disclosureVersion    String?
+  disclosureAcceptedAt DateTime?
+  grantedById          String?
+  revokedById          String?
+  reason               String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@unique([tenantId, userId])
   @@index([tenantId, status])
@@ -2732,7 +3348,6 @@ model ZeliAvailability {
   updatedAt   DateTime @updatedAt
 }
 
-
 // A3: an offline capture that must not post money by itself.
 //
 // Only a Susu contribution posts directly when it syncs. A withdrawal,
@@ -2749,30 +3364,30 @@ model ZeliAvailability {
 /// this model has no money columns of its own — the figures live in `payloadJson` as
 /// integer pesewa and are re-read, never trusted, when they are applied.
 model MomoOfflineDraft {
-  id           String   @id @default(cuid())
-  tenantId     String
-  locationId   String
-  userId       String
-  deviceId     String
+  id               String    @id @default(cuid())
+  tenantId         String
+  locationId       String
+  userId           String
+  deviceId         String
   /// The business day the capture belongs to (UTC date at midnight).
-  businessDate DateTime
+  businessDate     DateTime
   /// Canonical JSON of the captured figures, integer pesewa throughout.
-  payloadJson  String
+  payloadJson      String
   /// SHA-256 of the canonical payload. A retry with a different body is refused.
-  payloadHash  String
-  idempotencyKey String
+  payloadHash      String
+  idempotencyKey   String
   /// pending | applied | rejected | needs_review
-  status       String   @default("pending")
+  status           String    @default("pending")
   /// Why the server could not accept it, or why it overlaps an existing account.
-  conflictReason String?
+  conflictReason   String?
   /// The daily account the draft was applied into, when it was.
   appliedAccountId String?
-  appliedAt    DateTime?
-  reviewedById String?
-  reviewedAt   DateTime?
-  reviewNote   String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  appliedAt        DateTime?
+  reviewedById     String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   tenant BusinessTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -2782,39 +3397,60 @@ model MomoOfflineDraft {
 }
 
 model OfflineActionRequest {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   tenantId            String?
+  /// Branch responsible at creation. Never rewritten by later transfers.
+  branchId            String?
   /// withdrawal | remittance | reversal
   kind                String
   /// Normalized JSON payload as captured on the device.
   payloadJson         String
   /// pending | needs_review | authorised | rejected | cancelled
-  status              String   @default("pending")
+  status              String    @default("pending")
   /// Why the request could not be posted when it was authorised, or why the
   /// device flagged a conflict. Shown verbatim to the reviewer.
   conflictReason      String?
   deviceId            String?
   requestedById       String
-  requestedAt         DateTime @default(now())
+  requestedAt         DateTime  @default(now())
   idempotencyKey      String
   decidedById         String?
   decidedAt           DateTime?
   decisionNote        String?
   resultingEntityType String?
   resultingEntityId   String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status, requestedAt])
   @@index([requestedById, requestedAt])
+  @@index([branchId])
 }
 
 // A2: tenant operational policy. One row per business, written only by an
 // administrator and audited. Absent row = product defaults (shifts optional,
 // no per-action actor proof).
+model BranchMembership {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  userId     String
+  locationId String
+  /// branch_manager | finance
+  role       String   @default("branch_manager")
+  /// active | inactive. Inactive membership removes access; it never erases history.
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, userId, locationId, role])
+  @@index([tenantId, userId, status])
+  @@index([locationId])
+  @@index([tenantId])
+}
+
 model TenantOperationalPolicy {
   id                           String   @id @default(cuid())
   tenantId                     String   @unique
@@ -2839,7 +3475,7 @@ model TenantOperationalPolicy {
 // A2: audited revision of a closed shift. The original figures are preserved in
 // this revision's snapshot; a shift is never silently rewritten.
 model ShiftRevision {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   tenantId      String?
   shiftId       String
   /// JSON snapshot of the shift figures before the revision.
@@ -2851,9 +3487,9 @@ model ShiftRevision {
   reason        String
   requestedById String
   approvedById  String
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime @default(now())
 
-  shift  Shift          @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  shift  Shift           @relation(fields: [shiftId], references: [id], onDelete: Cascade)
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId, shiftId])
@@ -2963,6 +3599,56 @@ model PlatformApprovalRequest {
 
 // Residual E: maker-checker control for sensitive financial operations.
 // `exceptionUsed` records the approved single-administrator exception.
+model WithdrawalPolicy {
+  id                        String   @id @default(cuid())
+  tenantId                  String   @unique
+  active                    Boolean  @default(true)
+  minAmountPesewa           Int      @default(0)
+  maxAmountPesewa           Int      @default(99999999)
+  highValueThresholdPesewa  Int?
+  highValueRequiresApproval Boolean  @default(false)
+  requiredApprovals         Int      @default(0)
+  separationOfDuties        Boolean  @default(false)
+  requireStepUp             Boolean  @default(true)
+  requirePaymentEvidence    Boolean  @default(false)
+  requiredEvidenceFields    String   @default("[]")
+  note                      String?
+  updatedById               String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([tenantId, active])
+}
+
+model WithdrawalPolicyHistory {
+  id          String   @id @default(cuid())
+  tenantId    String
+  policyId    String
+  snapshot    String
+  changedById String
+  changeNote  String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([policyId])
+}
+
+model WithdrawalApproval {
+  id         String    @id @default(cuid())
+  tenantId   String
+  requestId  String
+  approverId String
+  status     String    @default("approved") // approved | rejected
+  note       String?
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
+
+  request CustomerWithdrawalRequest @relation(fields: [requestId], references: [id])
+
+  @@unique([tenantId, requestId, approverId])
+  @@index([tenantId, requestId, status])
+}
+
 model FinancialApproval {
   id            String    @id @default(cuid())
   tenantId      String
@@ -2984,30 +3670,30 @@ model FinancialApproval {
 }
 
 model AccountEnquiry {
-  id              String   @id @default(cuid())
-  businessName    String
-  contactName     String
-  phone           String
-  email           String?
-  locationCount   Int?
-  interestedPlan  String?
-  message         String?
-  status          String   @default("new") // new | contacted | qualified | provisioned | converted | rejected
+  id               String    @id @default(cuid())
+  businessName     String
+  contactName      String
+  phone            String
+  email            String?
+  locationCount    Int?
+  interestedPlan   String?
+  message          String?
+  status           String    @default("new") // new | contacted | qualified | provisioned | converted | rejected
   /// DEMO_REQUEST (demonstration form) or ACCOUNT_REQUEST (pricing page).
-  enquiryType     String   @default("ACCOUNT_REQUEST")
+  enquiryType      String    @default("ACCOUNT_REQUEST")
   /// What the business wants to manage: momo | susu | both.
-  modules         String?
-  source          String?
-  notes           String?
-  reviewedById    String?
-  reviewedAt      DateTime?
+  modules          String?
+  source           String?
+  notes            String?
+  reviewedById     String?
+  reviewedAt       DateTime?
   /// Set when Platform Super Admin provisions the business from this enquiry.
-  tenantId        String?
-  convertedAt     DateTime?
+  tenantId         String?
+  convertedAt      DateTime?
   assignedPlanCode String?
-  billingTerm     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  billingTerm      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
@@ -3075,18 +3761,18 @@ model TenantNotification {
 /// repeated webhook, status check or retry can never send a second message.
 /// `payload` holds the already-computed, non-secret message fields only.
 model PlatformEmailOutbox {
-  id          String    @id @default(cuid())
-  eventKey    String    @unique
-  kind        String    @default("payment_received")
-  recipient   String
+  id        String    @id @default(cuid())
+  eventKey  String    @unique
+  kind      String    @default("payment_received")
+  recipient String
   /// pending | sent | failed
-  status      String    @default("pending")
-  attempts    Int       @default(0)
-  lastError   String?
-  payload     String
-  sentAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  status    String    @default("pending")
+  attempts  Int       @default(0)
+  lastError String?
+  payload   String
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([status, updatedAt])
 }
@@ -3094,14 +3780,14 @@ model PlatformEmailOutbox {
 /// Tenant-wide Zeli request allowance for one calendar month. The conditional
 /// increment makes concurrent requests unable to exceed the plan allowance.
 model ZeliUsagePeriod {
-  id          String   @id @default(cuid())
-  tenantId    String
+  id        String   @id @default(cuid())
+  tenantId  String
   /// YYYY-MM (UTC). Quotas reset on the first day of each calendar month.
-  period      String
-  requests    Int      @default(0)
-  limit       Int
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
+  period    String
+  requests  Int      @default(0)
+  limit     Int
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 
   @@unique([tenantId, period])
   @@index([period])
@@ -3111,35 +3797,35 @@ model ZeliUsagePeriod {
 /// WhatsApp is deliberately separate from the ordinary mobile number: a
 /// customer's phone is not assumed to be a WhatsApp account.
 model CustomerMessagingPreference {
-  id                 String    @id @default(cuid())
-  customerId         String    @unique
-  tenantId           String?
-  whatsappNumber     String?
+  id                         String    @id @default(cuid())
+  customerId                 String    @unique
+  tenantId                   String?
+  whatsappNumber             String?
   /// unverified | verified
-  whatsappStatus     String    @default("unverified")
-  whatsappOptInAt    DateTime?
-  whatsappOptInSource String?
+  whatsappStatus             String    @default("unverified")
+  whatsappOptInAt            DateTime?
+  whatsappOptInSource        String?
   /// Proof the customer controls the number. Only set after a verified code or
   /// an operator decision; never by self-assertion in the portal.
-  whatsappVerifiedAt DateTime?
+  whatsappVerifiedAt         DateTime?
   /// otp | operator_assertion
   whatsappVerificationMethod String?
-  whatsappOptOutAt   DateTime?
-  smsNumber          String?
+  whatsappOptOutAt           DateTime?
+  smsNumber                  String?
   /// unverified | verified
-  smsStatus          String    @default("unverified")
-  smsOptInAt         DateTime?
-  smsOptInSource     String?
-  smsVerifiedAt      DateTime?
+  smsStatus                  String    @default("unverified")
+  smsOptInAt                 DateTime?
+  smsOptInSource             String?
+  smsVerifiedAt              DateTime?
   /// otp | operator_assertion
-  smsVerificationMethod String?
-  smsOptOutAt        DateTime?
+  smsVerificationMethod      String?
+  smsOptOutAt                DateTime?
   /// sms | whatsapp | null (no receipt channel)
-  preferredChannel   String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  preferredChannel           String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
@@ -3214,7 +3900,7 @@ model MessagingConsentChallenge {
   consumedAt   DateTime?
   createdAt    DateTime  @default(now())
 
-  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
 
   @@index([customerId, channel, status])
@@ -3225,36 +3911,36 @@ model MessagingConsentChallenge {
 /// channel; the unique event key makes a repeated confirmation harmless.
 /// The recipient is stored encrypted and only a masked form is exposed.
 model CustomerMessageOutbox {
-  id                String    @id @default(cuid())
-  eventKey          String    @unique
-  tenantId          String?
-  customerId        String
+  id                 String    @id @default(cuid())
+  eventKey           String    @unique
+  tenantId           String?
+  customerId         String
   /// sms | whatsapp
-  channel           String
+  channel            String
   /// receipt
-  purpose           String    @default("receipt")
-  reference         String
+  purpose            String    @default("receipt")
+  reference          String
   recipientEncrypted String
-  recipientMasked   String
+  recipientMasked    String
   /// Rendered template parameters and safe display fields. No PIN or OTP.
-  payload           String
+  payload            String
   /// pending | sending | accepted | sent | delivered | read | failed | rejected
-  status            String    @default("pending")
-  attempts          Int       @default(0)
-  nextAttemptAt     DateTime  @default(now())
-  providerId        String?
-  providerMessageId String?
-  lastError         String?
-  acceptedAt        DateTime?
-  sentAt            DateTime?
-  deliveredAt       DateTime?
-  readAt            DateTime?
-  failedAt          DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  status             String    @default("pending")
+  attempts           Int       @default(0)
+  nextAttemptAt      DateTime  @default(now())
+  providerId         String?
+  providerMessageId  String?
+  lastError          String?
+  acceptedAt         DateTime?
+  sentAt             DateTime?
+  deliveredAt        DateTime?
+  readAt             DateTime?
+  failedAt           DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
+  customer     Customer                     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant       BusinessTenant?              @relation(fields: [tenantId], references: [id])
   statusEvents CustomerMessageStatusEvent[]
 
   @@index([tenantId, status])
@@ -3265,13 +3951,13 @@ model CustomerMessageOutbox {
 
 /// Idempotent delivery-status events from a provider webhook.
 model CustomerMessageStatusEvent {
-  id          String    @id @default(cuid())
-  outboxId    String
-  eventId     String    @unique
-  status      String
-  occurredAt  DateTime
-  reason      String?
-  createdAt   DateTime  @default(now())
+  id         String   @id @default(cuid())
+  outboxId   String
+  eventId    String   @unique
+  status     String
+  occurredAt DateTime
+  reason     String?
+  createdAt  DateTime @default(now())
 
   outbox CustomerMessageOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
 
@@ -3316,7 +4002,7 @@ model ProviderStatementImport {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant BusinessTenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   rows   ProviderStatementRow[]
 
   @@unique([tenantId, fileHash])
@@ -3394,9 +4080,9 @@ model BranchLiquiditySnapshot {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  tenant       BusinessTenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  location     Location                @relation(fields: [locationId], references: [id])
-  dailyAccount DailyAccount?           @relation(fields: [dailyAccountId], references: [id])
+  tenant       BusinessTenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location     Location              @relation(fields: [locationId], references: [id])
+  dailyAccount DailyAccount?         @relation(fields: [dailyAccountId], references: [id])
   lines        BranchLiquidityLine[]
 
   @@unique([tenantId, locationId, businessDate])
@@ -3435,22 +4121,59 @@ model BranchLiquidityLine {
 /// variances all link here. A case carries an owner, an age, evidence and a
 /// resolution. Resolving a case NEVER changes a financial record; the linked
 /// correction is recorded by its own authorised workflow and referenced here.
+/// Unified reconciliation exception case.
+///
+/// Governs both the pre-existing provider-statement/branch-liquidity cases and
+/// Susu reconciliation cases. Statuses:
+///   open | assigned | under_review | awaiting_evidence | escalated |
+///   resolution_proposed | resolved | rejected | dismissed | reopened.
+/// rejected and dismissed are distinct: rejected means the discrepancy was
+/// wrong/not actionable; dismissed means a duplicate or administrative close.
+///
+/// A case never edits a financial record. A correction is performed by its own
+/// authorised reversal workflow and linked here.
 model ReconciliationExceptionCase {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   tenantId       String?
+  /// Branch this case covers. null = company-wide (only company-wide admins).
+  branchId       String?
+  /// Collector whose field work the case concerns (enables collector access).
+  collectorId    String?
+  /// Reconciliation session that produced this case (optional).
+  sourceSessionId String?
   caseNumber     String
-  /// provider_statement | branch_liquidity | branch_transfer | remittance | shift | daily_close | other
+  /// provider_statement | branch_liquidity | branch_transfer | remittance |
+  /// shift | daily_close | contribution | offline_sync | withdrawal |
+  /// sync | other
   category       String
-  /// high | medium | low
+  /// low | medium | high — operational priority, never a fraud score.
   severity       String    @default("medium")
-  /// open | investigating | awaiting_evidence | resolved | dismissed
+  /// See lifecycle above.
   status         String    @default("open")
   title          String
   description    String?
+  /// Absolute amount at stake, captured when the case is opened. Reporting must
+  /// not re-derive it from a mutable financial record.
+  amountAtStake  Decimal?
   ownerId        String?
   assignedAt     DateTime?
   dueAt          DateTime?
   evidence       String?
+  escalatedAt    DateTime?
+  escalationLevel Int      @default(0)
+  reopenCount    Int       @default(0)
+
+  /// Proposed resolution awaiting independent approval (high severity or
+  /// amount at or above the policy threshold).
+  resolutionProposedById   String?
+  resolutionProposedAt     DateTime?
+  proposedResolutionType   String?
+  proposedResolutionNote   String?
+  proposedEvidenceRef      String?
+  /// Independent approver of the proposed resolution.
+  resolutionApprovedById   String?
+  resolutionApprovedAt     DateTime?
+
   resolutionType String?
   resolutionNote String?
   resolvedById   String?
@@ -3461,14 +4184,22 @@ model ReconciliationExceptionCase {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  tenant BusinessTenant?               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  links  ReconciliationExceptionLink[]
-  events ReconciliationExceptionEvent[]
+  tenant       BusinessTenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collector    Collector?                     @relation(fields: [collectorId], references: [id])
+  sourceSession SusuReconciliation?           @relation(fields: [sourceSessionId], references: [id])
+  links        ReconciliationExceptionLink[]
+  events       ReconciliationExceptionEvent[]
+  lines        ReconciliationLine[]
+  closings     DailyCollectorClosing[]
 
   @@unique([tenantId, caseNumber])
   @@index([tenantId, status, severity])
   @@index([tenantId, category])
   @@index([tenantId, ownerId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, collectorId, status])
+  @@index([tenantId, dueAt, status])
+  @@index([tenantId, sourceSessionId])
 }
 
 /// A source record linked to an exception case. Polymorphic by design: a case
@@ -3496,10 +4227,18 @@ model ReconciliationExceptionEvent {
   id        String   @id @default(cuid())
   tenantId  String?
   caseId    String
-  /// opened | assigned | status_changed | note | evidence | resolved | reopened | link_added
+  /// opened | assigned | reassigned | status_changed | note | evidence |
+  /// escalated | resolution_proposed | resolution_approved | resolved |
+  /// rejected | reopened | link_added | collector_response
   type      String
   actorId   String
   actorRole String?
+  /// Previous and new case status, so the history is self-describing without
+  /// parsing payload JSON.
+  fromStatus String?
+  toStatus   String?
+  reason     String?
+  evidenceRef String?
   note      String?
   payload   String?
   createdAt DateTime @default(now())
@@ -3521,32 +4260,32 @@ model ReconciliationExceptionEvent {
 /// version they accepted. Leaving is equally deliberate: the row is kept, marked
 /// withdrawn, and its signals stop being shared. No business is enrolled implicitly.
 model RiskIntelligenceConsent {
-  id             String    @id @default(cuid())
-  tenantId       String?
+  id                            String    @id @default(cuid())
+  tenantId                      String?
   /// The policy text the owner accepted. A new version must be accepted again.
-  policyVersion  String
-  status         String    @default("active")
+  policyVersion                 String
+  status                        String    @default("active")
   /// share_signals | query_only
-  scope          String    @default("share_signals")
-  consentedById  String
-  consentedAt    DateTime  @default(now())
-  withdrawnById  String?
-  withdrawnAt    DateTime?
-  withdrawReason String?
-  billingBasis   String?
+  scope                         String    @default("share_signals")
+  consentedById                 String
+  consentedAt                   DateTime  @default(now())
+  withdrawnById                 String?
+  withdrawnAt                   DateTime?
+  withdrawReason                String?
+  billingBasis                  String?
   /// ENG-08 participation gates, verified server-side before contribution.
   eligibilityVerified           Boolean   @default(false)
   controllerRegistrationChecked Boolean   @default(false)
   /// ENG-07 business-level suspension, independent of consent withdrawal.
-  suspendedAt    DateTime?
-  suspensionReason String?
-  suspendedById  String?
+  suspendedAt                   DateTime?
+  suspensionReason              String?
+  suspendedById                 String?
   /// ENG-07 expulsion for proven bad-faith reporting. An expelled business must
   /// be explicitly reinstated by BloomCore under the published participation terms.
-  expelledAt      DateTime?
-  expulsionReason String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  expelledAt                    DateTime?
+  expulsionReason               String?
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -3560,45 +4299,45 @@ model RiskIntelligenceConsent {
 /// number or a photograph. The originating business is stored so a signal can be
 /// withdrawn and so a disclosure can be audited, and is never shown to another business.
 model AgentRiskSignal {
-  id           String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   /// The contributing business.
-  tenantId     String?
+  tenantId            String?
   /// Salted hash of the normalised identity. Raw identity is never stored here.
-  subjectKey   String
+  subjectKey          String
   /// Which identity fields went into the key, so the basis is reproducible.
-  keyBasis     String
+  keyBasis            String
   /// Salt version used, so rotating the salt does not silently break matching.
-  saltVersion  Int      @default(1)
+  saltVersion         Int       @default(1)
   /// shortage | repeated_shortage | unreconciled_day | evidence_gap |
   /// unconfirmed_handover | policy_breach
-  category     String
+  category            String
   /// high | medium | low
-  severity     String
+  severity            String
   /// open | withdrawn | expired
-  status       String   @default("open")
+  status              String    @default("open")
   /// The internal record that justified the signal. Never disclosed to another business.
-  sourceType   String
-  sourceId     String
+  sourceType          String
+  sourceId            String
   /// Reference to the closed record and its supporting evidence, as read from
   /// the source row at contribution time. Never disclosed to another business.
-  evidenceReference String?
+  evidenceReference   String?
   /// Good-faith declaration made by the reporting administrator.
   goodFaithDeclaredAt DateTime?
   /// The administrator who submitted the signal (audit identity, not disclosed).
-  reportedById String?
-  internalNote String?
-  observedFrom DateTime
-  observedTo   DateTime
+  reportedById        String?
+  internalNote        String?
+  observedFrom        DateTime
+  observedTo          DateTime
   /// Signals fade: an old shortage says less about this month.
-  expiresAt    DateTime
+  expiresAt           DateTime
   /// ENG-02/ENG-04 lifecycle timestamps. Adding columns is additive.
-  withdrawnAt  DateTime?
-  frozenAt     DateTime?
-  disputedAt   DateTime?
-  resolvedAt   DateTime?
-  deletedAt    DateTime?
-  scrubbedAt   DateTime?
-  createdAt    DateTime @default(now())
+  withdrawnAt         DateTime?
+  frozenAt            DateTime?
+  disputedAt          DateTime?
+  resolvedAt          DateTime?
+  deletedAt           DateTime?
+  scrubbedAt          DateTime?
+  createdAt           DateTime  @default(now())
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -3613,7 +4352,7 @@ model AgentRiskSignal {
 /// A shared-risk product that cannot say who was shown what is not governed, so each
 /// disclosure is written before the caller sees the result.
 model RiskIntelligenceDisclosure {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   tenantId         String?
   subjectKey       String
   /// Categories and coarse counts only; never the contributing businesses.
@@ -3622,7 +4361,7 @@ model RiskIntelligenceDisclosure {
   contributorCount Int
   viewerId         String
   reason           String
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
   /// ENG-04: 24-month audit retention, then scrub or delete.
   deletedAt        DateTime?
 
@@ -3652,20 +4391,20 @@ model RiskGlobalControl {
 
 /// A valid objection or challenge freezes the matched subject for all key versions.
 model RiskSubjectFreeze {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   subjectKey       String
   /// frozen | upheld | rejected | restored
-  status           String   @default("frozen")
+  status           String    @default("frozen")
   reason           String
   caseRef          String?
   frozenById       String
   notifiedTenantId String?
-  frozenAt         DateTime @default(now())
+  frozenAt         DateTime  @default(now())
   resolvedAt       DateTime?
   resolutionById   String?
   /// upheld | rejected | restored — always reasoned and documented
   resolution       String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([subjectKey, status])
   @@index([status, frozenAt])
@@ -3673,19 +4412,19 @@ model RiskSubjectFreeze {
 
 /// Subject access, correction, objection, challenge and complaint/review cases.
 model SubjectRightsRequest {
-  id                     String   @id @default(cuid())
-  caseRef                String   @unique
+  id                     String    @id @default(cuid())
+  caseRef                String    @unique
   tenantId               String
   subjectKey             String?
   subjectUserId          String?
   /// access | correction | objection | challenge | complaint_review
   type                   String
-  classification         String   @default("standard")
+  classification         String    @default("standard")
   /// received | acknowledged | in_review | frozen | resolved | closed
-  status                 String   @default("received")
+  status                 String    @default("received")
   reviewerId             String?
-  identityVerified       Boolean  @default(false)
-  receivedAt             DateTime @default(now())
+  identityVerified       Boolean   @default(false)
+  receivedAt             DateTime  @default(now())
   acknowledgedAt         DateTime?
   ackDeadline            DateTime
   resolutionDeadline     DateTime
@@ -3701,8 +4440,8 @@ model SubjectRightsRequest {
   holidayCalendarVersion String?
   /// Redacted JSON metadata only: never raw identity or another business's report.
   evidence               String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([ackDeadline])
@@ -3737,7 +4476,7 @@ model EmployeePrivacyNotice {
 
 /// Delivery evidence and acknowledgement, separate from business consent.
 model EmployeeNoticeAttestation {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   tenantId             String
   userId               String
   noticeVersion        String
@@ -3747,16 +4486,16 @@ model EmployeeNoticeAttestation {
   /// Exact hash of the notice version presented to the agent.
   documentSha256       String?
   /// delivered | acknowledged | declined
-  acknowledgementState String   @default("delivered")
+  acknowledgementState String    @default("delivered")
   acknowledgedAt       DateTime?
   /// True only when acceptable delivery evidence exists and was verified. A
   /// failed or returned delivery leaves this false even if a row is recorded.
-  verified             Boolean  @default(false)
+  verified             Boolean   @default(false)
   verifiedAt           DateTime?
   failureReason        String?
   recordedById         String
   policyVersion        String
-  createdAt            DateTime @default(now())
+  createdAt            DateTime  @default(now())
 
   @@unique([tenantId, userId, noticeVersion])
   @@index([tenantId, noticeVersion])
@@ -3764,35 +4503,35 @@ model EmployeeNoticeAttestation {
 
 /// Electronic execution record bound to exact document version and SHA-256.
 model ParticipationAgreement {
-  id                 String   @id @default(cuid())
-  tenantId           String
-  type               String
-  title              String
-  version            String
-  effectiveDate      DateTime
+  id                         String    @id @default(cuid())
+  tenantId                   String
+  type                       String
+  title                      String
+  version                    String
+  effectiveDate              DateTime
   /// Exact text presented to the signatory; historical versions are preserved.
-  documentText       String
-  documentSha256     String
-  documentRef        String
-  state              String   @default("draft")
-  signatoryId        String
-  signatoryName      String
-  signatoryRole      String
-  signatoryAuthority String
-  authenticationMethod String
+  documentText               String
+  documentSha256             String
+  documentRef                String
+  state                      String    @default("draft")
+  signatoryId                String
+  signatoryName              String
+  signatoryRole              String
+  signatoryAuthority         String
+  authenticationMethod       String
   /// Verification evidence for the lawyer-approved authentication method.
-  authenticationEvidence String?
-  acceptedAt         DateTime?
-  countersignedById  String?
-  countersignedAt    DateTime?
-  executedAt         DateTime?
-  countersignatoryName     String?
-  countersignatoryCapacity String?
+  authenticationEvidence     String?
+  acceptedAt                 DateTime?
+  countersignedById          String?
+  countersignedAt            DateTime?
+  executedAt                 DateTime?
+  countersignatoryName       String?
+  countersignatoryCapacity   String?
   /// SHA-256 over the final execution certificate (document hash + identities +
   /// timestamps + state). Evidence only; it does not assert legal validity.
   executionCertificateSha256 String?
-  supersededById     String?
-  createdAt          DateTime @default(now())
+  supersededById             String?
+  createdAt                  DateTime  @default(now())
 
   @@unique([tenantId, type, version])
   @@index([tenantId, state])
@@ -3800,7 +4539,7 @@ model ParticipationAgreement {
 
 /// Scoped legal hold over specifically identified records.
 model RiskLegalHold {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   /// signal | subject | request
   scopeType       String
   scopeId         String
@@ -3808,7 +4547,7 @@ model RiskLegalHold {
   dpoReference    String
   reason          String
   authorisedById  String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
   reviewDate      DateTime
   caseClosureDate DateTime?
   extensionUntil  DateTime?
@@ -3840,12 +4579,12 @@ model RiskControlEvent {
 
 /// Key metadata only. No secret value is ever stored in the application database.
 model RiskKeyVersion {
-  version     Int      @id
+  version     Int       @id
   /// active | previous | retired
   status      String
   /// Provider-side reference or alias. Never a secret value.
   providerRef String?
-  activatedAt DateTime @default(now())
+  activatedAt DateTime  @default(now())
   retiredAt   DateTime?
   retiredById String?
 
@@ -3854,15 +4593,15 @@ model RiskKeyVersion {
 
 /// Restricted privacy administrators/reviewers, checked server-side on every operation.
 model RiskPrivacyAccess {
-  id          String   @id @default(cuid())
-  userId      String   @unique
+  id          String    @id @default(cuid())
+  userId      String    @unique
   /// privacy_admin | privacy_reviewer | legacy dpo
   role        String
   grantedById String
   reason      String
-  active      Boolean  @default(true)
+  active      Boolean   @default(true)
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 }
 
 /// Owner-confirmed public legal and infrastructure facts used by the controlled
@@ -3882,11 +4621,10 @@ model RiskOrganisationProfile {
   updatedAt                 DateTime @updatedAt
 }
 
-
 /// Durable evidence for outbound governance notifications and document delivery.
 /// No recipient address, secret, subject key or document content is stored here.
 model GovernanceDocumentDelivery {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   eventType         String
   /// agreement | notice | signal | rights
   scopeType         String
@@ -3897,17 +4635,316 @@ model GovernanceDocumentDelivery {
   recipientHash     String
   templateVersion   String
   /// queued | sent | failed | skipped
-  status            String   @default("queued")
-  attempts          Int      @default(1)
+  status            String    @default("queued")
+  attempts          Int       @default(1)
   providerMessageId String?
   /// Generic provider status only; never a body, token or address.
   lastError         String?
   /// JSON retry metadata, append-only per row.
   retryHistory      String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
   sentAt            DateTime?
 
   @@unique([eventType, scopeId, recipientHash])
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
+}
+
+// =====================
+// SUSU PHASE 7 — CUSTOMER ONBOARDING AND DATA MIGRATION
+// =====================
+
+/// One staged migration of existing customer/account records from a
+/// spreadsheet into MaaCash.
+///
+/// A batch is the durable unit of intent. It holds no customer data: only the
+/// operator's declared plan, the integrity of the uploaded file and the
+/// outcome counters. Row-level data lives in CustomerImportRow.
+///
+/// Lifecycle (`status`):
+///   staged              file parsed, headers identified, mapping not applied
+///   validated           every row classified (valid/invalid/duplicate/review)
+///   ready               no row is waiting for a human decision
+///   committing          a commit holds the lease and is writing records
+///   committed           every resolved row has a terminal outcome
+///   partially_committed commit stopped with some rows still pending/failed
+///   failed              commit aborted; rows keep their own outcomes
+///   cancelled           operator abandoned the batch
+model CustomerImportBatch {
+  id         String  @id @default(cuid())
+  tenantId   String?
+  /// Destination branch when branchMode = "single_branch".
+  branchId   String?
+  /// single_branch | row_column
+  branchMode String  @default("single_branch")
+  /// Operator's label, e.g. "Kumasi paper register 2019".
+  name       String
+  /// csv — macro-enabled spreadsheets are never accepted.
+  sourceFormat  String @default("csv")
+  fileName      String
+  /// SHA-256 of the uploaded bytes. Uploading the same bytes again resumes the
+  /// existing batch instead of silently creating a second copy.
+  fileHash      String
+  fileSizeBytes Int
+  /// The exact uploaded text.
+  ///
+  /// Retained so a mapping change can be re-validated deterministically and so
+  /// the operator can later retrieve the file they actually imported. It is
+  /// bounded (4 MB) at upload, lives only inside this tenant, and is deleted
+  /// with the batch. Bounded duplicate of the row data on purpose: the rows are
+  /// the audit evidence, the source text is the reproducibility evidence.
+  sourceText    String?
+  /// SHA-256 of the parsed header row, so a re-map cannot read a different file.
+  headerHash    String
+  /// JSON array of the header cells in file order.
+  headers       String
+  /// JSON object: MaaCash field -> column index. Durable so a re-read is reproducible.
+  columnMapping String?
+  /// staged | validated | ready | committing | committed | partially_committed | failed | cancelled
+  status        String  @default("staged")
+
+  totalRows            Int @default(0)
+  validRows            Int @default(0)
+  invalidRows          Int @default(0)
+  /// Rows that will create a brand-new customer.
+  newCustomerRows      Int @default(0)
+  /// Rows that attach a new account to a customer already in MaaCash.
+  existingCustomerRows Int @default(0)
+  /// Rows already present in MaaCash (same account, or same customer reference).
+  duplicateRows        Int @default(0)
+  /// Rows that cannot be committed until a person decides (possible match/conflict).
+  reviewRows           Int @default(0)
+
+  importedCustomers Int @default(0)
+  importedAccounts  Int @default(0)
+  linkedRows        Int @default(0)
+  skippedRows       Int @default(0)
+  failedRows        Int @default(0)
+
+  /// SHA-256 over the branch mode, the mapping and every row decision. The
+  /// operator must echo this value to confirm, which proves the preview they
+  /// saw is the plan being committed.
+  planHash       String?
+  initiatedById  String
+  validatedAt    DateTime?
+  confirmedAt    DateTime?
+  confirmedById  String?
+  /// Unique per accepted confirmation. Repeating the same token is a no-op; a
+  /// different token after the batch advanced is refused.
+  commitToken       String?
+  commitStartedAt   DateTime?
+  /// While this is in the future another process may not start a commit.
+  commitLeaseUntil  DateTime?
+  committedAt       DateTime?
+  committedById     String?
+  /// Operator-readable reason a commit stopped. Never a stack trace.
+  failureReason     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant BusinessTenant?          @relation(fields: [tenantId], references: [id])
+  rows   CustomerImportRow[]
+  events CustomerImportRowEvent[]
+
+  @@unique([tenantId, fileHash])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, branchId])
+  @@index([tenantId, initiatedById])
+}
+
+/// One spreadsheet row: the source values, the classification, the human
+/// decision and the outcome.
+///
+/// The original cell values are kept (not the derived ones) so a reviewer can
+/// always see what the business actually wrote. `rawRow` is truncated evidence
+/// and is never rendered as HTML.
+model CustomerImportRow {
+  id        String @id @default(cuid())
+  tenantId  String?
+  batchId   String
+  rowNumber Int
+
+  rawRow            String?
+  customerName      String?
+  phone             String?
+  /// Comparison-only normalized form. The display value above is preserved.
+  phoneNormalized   String?
+  email             String?
+  externalReference String?
+  address           String?
+  notes             String?
+  accountNumber     String?
+  dailyContribution Decimal?
+  openingDate       DateTime?
+  /// Branch code or name exactly as written in the spreadsheet.
+  branchRef         String?
+  /// Collector e-mail or full name exactly as written in the spreadsheet.
+  collectorRef      String?
+
+  /// new_customer | new_account_existing_customer | exact_duplicate |
+  /// possible_customer_duplicate | account_conflict | customer_conflict | invalid
+  classification    String  @default("invalid")
+  /// JSON array of { code, message } validation problems.
+  issues            String?
+  /// JSON array of human-readable reasons a match was found.
+  matchReasons      String?
+  matchedCustomerId String?
+  matchedAccountId  String?
+
+  /// Resolved destination branch (tenant-owned and authorized).
+  branchId    String?
+  collectorId String?
+
+  /// create_new | link_existing | exclude. NULL means "waiting for a decision".
+  resolution     String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  /// pending | imported | linked | skipped | failed. NULL until committed.
+  outcome           String?
+  outcomeMessage    String?
+  createdCustomerId String?
+  createdAccountId  String?
+  committedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch  CustomerImportBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  tenant BusinessTenant?          @relation(fields: [tenantId], references: [id])
+  events CustomerImportRowEvent[]
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, classification])
+  @@index([batchId, outcome])
+  @@index([tenantId, matchedCustomerId])
+  @@index([tenantId, matchedAccountId])
+}
+
+/// Append-only history of every decision and outcome recorded for one
+/// imported row. Re-resolving a row never erases the previous decision.
+model CustomerImportRowEvent {
+  id       String  @id @default(cuid())
+  tenantId String?
+  batchId  String
+  rowId    String
+  /// classified | resolved | commit_started | imported | linked | skipped | failed
+  kind   String
+  actorId String?
+  fromResolution String?
+  toResolution   String?
+  note     String?
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  batch  CustomerImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row    CustomerImportRow   @relation(fields: [rowId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, batchId, createdAt])
+  @@index([rowId, createdAt])
+}
+
+
+// =====================
+// PHASE 8 - ENTERPRISE ADMINISTRATION AND SUPPORT
+// =====================
+
+/// A tenant support request. References are unique so a tenant can quote one
+/// reference and support can locate it without searching by personal data.
+///
+/// Every query in the application filters by the tenant resolved from the
+/// server session; a request id or reference supplied by a browser is never
+/// trusted as proof of access. Internal notes live in SupportMessage with
+/// visibility = "internal" and are excluded from all tenant-facing queries.
+model SupportRequest {
+  id              String    @id @default(cuid())
+  tenantId        String?
+  /// Branch the request concerns, when the submitting user has one. Optional:
+  /// company-wide requests are valid.
+  branchId        String?
+  reference       String    @unique
+  submittedById   String
+  /// account_access | contribution | remittance | withdrawal | reporting |
+  /// import | staff | other
+  category        String    @default("other")
+  /// low | normal | high | urgent
+  priority        String    @default("normal")
+  /// open | acknowledged | in_progress | escalated | resolved | closed
+  status          String    @default("open")
+  subject         String
+  description     String
+
+  /// Platform administrator currently handling the request. Reassignment is
+  /// recorded in SupportEvent; a later platform-account change never rewrites
+  /// who handled the request.
+  assignedAgentId String?
+  assignedAt      DateTime?
+  escalatedAt     DateTime?
+  escalationLevel Int       @default(0)
+
+  resolvedAt      DateTime?
+  resolvedAgentId String?
+  resolutionNote  String?
+  closedAt        DateTime?
+  reopenedCount   Int       @default(0)
+
+  lastActivityAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  branch        Location?           @relation(fields: [branchId], references: [id])
+  assignedAgent PlatformSuperAdmin? @relation("SupportAssignment", fields: [assignedAgentId], references: [id])
+  messages      SupportMessage[]
+  events        SupportEvent[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([status, priority, createdAt])
+  @@index([assignedAgentId, status])
+  @@index([tenantId, branchId])
+  @@index([tenantId, createdAt])
+}
+
+/// One message on a support request. Visibility is the only switch between
+/// tenant-visible replies and internal notes; every tenant-facing query pins it
+/// to "tenant" in the database predicate, not in the UI.
+model SupportMessage {
+  id            String   @id @default(cuid())
+  requestId     String
+  /// tenant | platform | system
+  authorType    String
+  authorUserId  String?
+  authorAgentId String?
+  /// tenant | internal
+  visibility    String   @default("tenant")
+  body          String
+  createdAt     DateTime @default(now())
+
+  request SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@index([requestId, visibility])
+}
+
+/// Append-only lifecycle history for a support request (assignment, status
+/// changes, escalation, resolution and reopening). Nothing here is deleted.
+model SupportEvent {
+  id            String   @id @default(cuid())
+  requestId     String
+  /// created | acknowledged | assigned | status_changed | escalated |
+  /// replied | internal_note | resolved | reopened | closed
+  type          String
+  actorType     String
+  actorUserId   String?
+  actorAgentId  String?
+  fromStatus    String?
+  toStatus      String?
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  request SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@index([type, createdAt])
 }

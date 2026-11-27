@@ -1,8 +1,13 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireTenantAdminSusu, requireTenantCustomer } from "@/lib/tenant";
+import { requireTenantAdminSusu, requireTenantCollector, requireTenantCustomer } from "@/lib/tenant";
+import {
+  canReadCase,
+  resolveReconciliationActor,
+} from "@/lib/finance/reconciliation-access";
 import { createAuditLogTx } from "@/lib/audit";
+import { resolveBranchScope } from "@/lib/branch";
 import {
   EVIDENCE_MAX_BYTES,
   isEvidenceSubjectType,
@@ -74,7 +79,12 @@ function toView(row: {
 async function authoriseSubject(
   subjectType: EvidenceSubjectType,
   subjectId: string
-): Promise<{ tenantId: string; allowed: boolean; reason?: string; actor: "customer" | "admin" }> {
+): Promise<{
+  tenantId: string;
+  allowed: boolean;
+  reason?: string;
+  actor: "customer" | "admin" | "collector";
+}> {
   if (subjectType === "customerDispute") {
     const customerCtx = await requireTenantCustomer().catch(() => null);
     if (customerCtx) {
@@ -101,7 +111,68 @@ async function authoriseSubject(
       return { tenantId: customerCtx.tenantId, allowed: true, actor: "customer" };
     }
   }
+  if (subjectType === "reconciliationExceptionCase") {
+    const actor = await resolveReconciliationActor();
+    const row = await db.reconciliationExceptionCase.findFirst({
+      where: { id: subjectId, tenantId: actor.ctx.tenantId },
+      select: {
+        id: true,
+        tenantId: true,
+        branchId: true,
+        collectorId: true,
+        ownerId: true,
+        status: true,
+      },
+    });
+    if (!row) {
+      return {
+        tenantId: actor.ctx.tenantId,
+        allowed: false,
+        reason: "That exception case was not found.",
+        actor: actor.kind === "collector" ? "collector" : "admin",
+      };
+    }
+    if (!canReadCase(actor, row)) {
+      return {
+        tenantId: actor.ctx.tenantId,
+        allowed: false,
+        reason: "That exception case was not found.",
+        actor: actor.kind === "collector" ? "collector" : "admin",
+      };
+    }
+    if (["resolved", "rejected", "dismissed"].includes(row.status)) {
+      return {
+        tenantId: actor.ctx.tenantId,
+        allowed: false,
+        reason: "A closed case cannot take new evidence; reopen it first.",
+        actor: actor.kind === "collector" ? "collector" : "admin",
+      };
+    }
+    return {
+      tenantId: actor.ctx.tenantId,
+      allowed: true,
+      actor: actor.kind === "collector" ? "collector" : "admin",
+    };
+  }
   const adminCtx = await requireTenantAdminSusu();
+  if (subjectType === "withdrawalRequest") {
+    const request = await db.customerWithdrawalRequest.findFirst({
+      where: { id: subjectId, tenantId: adminCtx.tenantId },
+      select: { branchId: true },
+    });
+    if (!request) {
+      return { tenantId: adminCtx.tenantId, allowed: false, reason: "That request was not found.", actor: "admin" };
+    }
+    const scope = await resolveBranchScope(adminCtx);
+    if (
+      scope.kind === "limited" &&
+      request.branchId &&
+      !scope.branchIds.includes(request.branchId)
+    ) {
+      return { tenantId: adminCtx.tenantId, allowed: false, reason: "That request is outside your branch.", actor: "admin" };
+    }
+    return { tenantId: adminCtx.tenantId, allowed: true, actor: "admin" };
+  }
   if (subjectType === "customerDispute") {
     const dispute = await db.customerDispute.findFirst({
       where: { id: subjectId, tenantId: adminCtx.tenantId },
@@ -197,8 +268,10 @@ export async function uploadEvidence(input: {
 async function callerId(): Promise<{ id: string }> {
   const customer = await requireTenantCustomer().catch(() => null);
   if (customer) return { id: customer.userId };
-  const admin = await requireTenantAdminSusu();
-  return { id: admin.userId };
+  const admin = await requireTenantAdminSusu().catch(() => null);
+  if (admin) return { id: admin.userId };
+  const collector = await requireTenantCollector();
+  return { id: collector.userId };
 }
 
 export async function getEvidenceForSubject(

@@ -25,13 +25,29 @@ export async function cleanDatabase() {
   // foreign keys: financial children before parents, tenant-owned rows before
   // BusinessTenant. Each test file runs sequentially, so this cannot race.
   await prisma.$transaction([
+    prisma.customerImportRowEvent.deleteMany(),
+    prisma.customerImportRow.deleteMany(),
+    prisma.customerImportBatch.deleteMany(),
     prisma.contributionAllocation.deleteMany(),
+    // Phase 3: remittance links and discrepancies reference contributions and
+    // remittances, so they must go first (links are RESTRICT on the contribution).
+    prisma.remittanceDiscrepancy.deleteMany(),
+    prisma.remittanceContribution.deleteMany(),
     prisma.contribution.deleteMany(),
     prisma.withdrawal.deleteMany(),
+    // Phase 2: append-only assignment history references assignments, so it must
+    // be cleaned before assignments themselves.
+    prisma.collectorAssignmentEvent.deleteMany(),
+    prisma.collectorCustomerAssignment.deleteMany(),
     prisma.commission.deleteMany(),
     prisma.cardFee.deleteMany(),
-    prisma.collectorCustomerAssignment.deleteMany(),
     prisma.collectorRemittance.deleteMany(),
+    // Phase 4: approvals reference withdrawal requests; policy history and
+    // step-up grants must not leak between fixtures.
+    prisma.withdrawalApproval.deleteMany(),
+    prisma.withdrawalPolicyHistory.deleteMany(),
+    prisma.withdrawalPolicy.deleteMany(),
+    prisma.stepUpGrant.deleteMany(),
     prisma.customerWithdrawalRequest.deleteMany(),
     prisma.evidenceAttachment.deleteMany(),
     prisma.susuCycle.deleteMany(),
@@ -44,6 +60,18 @@ export async function cleanDatabase() {
     prisma.messagingTemplate.deleteMany(),
     prisma.tenantMessagingConfig.deleteMany(),
     prisma.customerMessagingPreference.deleteMany(),
+    // Phase 5 rows reference collectors, sessions and each other, so they must
+    // be removed before the collector and customer parents.
+    prisma.offlineActionRequest.deleteMany(),
+    prisma.offlineSyncAttempt.deleteMany(),
+    prisma.offlineTransaction.deleteMany(),
+    prisma.reconciliationAdjustment.deleteMany(),
+    prisma.reconciliationLine.deleteMany(),
+    prisma.dailyCollectorClosing.deleteMany(),
+    prisma.susuReconciliation.deleteMany(),
+    prisma.reconciliationExceptionEvent.deleteMany(),
+    prisma.reconciliationExceptionLink.deleteMany(),
+    prisma.reconciliationExceptionCase.deleteMany(),
     prisma.customer.deleteMany(),
     prisma.collector.deleteMany(),
     prisma.expense.deleteMany(),
@@ -55,9 +83,6 @@ export async function cleanDatabase() {
     prisma.branchLiquiditySnapshot.deleteMany(),
     prisma.providerStatementRow.deleteMany(),
     prisma.providerStatementImport.deleteMany(),
-    prisma.reconciliationExceptionEvent.deleteMany(),
-    prisma.reconciliationExceptionLink.deleteMany(),
-    prisma.reconciliationExceptionCase.deleteMany(),
     prisma.momoOfflineDraft.deleteMany(),
     prisma.rightsRequestCommunication.deleteMany(),
     prisma.subjectRightsRequest.deleteMany(),
@@ -108,11 +133,14 @@ export async function cleanDatabase() {
     prisma.associationMember.deleteMany(),
     prisma.associationZone.deleteMany(),
     prisma.association.deleteMany(),
+    // Phase 8 support rows reference users and tenants, so they are removed
+    // before either parent disappears.
+    prisma.supportMessage.deleteMany(),
+    prisma.supportEvent.deleteMany(),
+    prisma.supportRequest.deleteMany(),
     prisma.auditLog.deleteMany(),
     prisma.passwordResetToken.deleteMany(),
     prisma.emailVerificationToken.deleteMany(),
-    prisma.offlineActionRequest.deleteMany(),
-    prisma.offlineTransaction.deleteMany(),
     prisma.deviceEnrollment.deleteMany(),
     prisma.zeliTeamTester.deleteMany(),
     prisma.zeliProviderUsage.deleteMany(),

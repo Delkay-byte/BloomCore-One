@@ -49,6 +49,7 @@ async function resetDatabase() {
     TRUNCATE TABLE "FoundingAllocation","TenantNotification","ZeliUsagePeriod","AccountEnquiry","FinancialApproval","PlatformApprovalRequest","SecurityAlert","SecurityEventRecord","StepUpGrant","MfaRecoveryCode","AccountRecoveryRequest","SessionRecord","TabCredential","TabProofNonce","MfaChallengeUse","TurnstileTokenUse",
       "AuthThrottle","RateLimitCounter","PlatformAuditLog","PlatformSuperAdmin",
       "OfflineTransaction","DeviceEnrollment","PasswordResetToken","AuditLog",
+      "CustomerImportRowEvent","CustomerImportRow","CustomerImportBatch",
       "Expense","DailyAccount","ContributionAllocation","Commission","CardFee",
       "Withdrawal","Contribution","SusuCycle","SusuAccount","CollectorRemittance",
       "CollectorCustomerAssignment","Collector","Customer","Location","User",

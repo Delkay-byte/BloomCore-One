@@ -294,7 +294,14 @@ describe("SEC-06 remittance money rules", () => {
     expect(block).toContain("validateRemittanceAmount");
     expect(block).toContain("await db.$transaction(async (tx)");
     expect(block).toContain("lockAccountForUpdate(tx, `collector-remittance:${collectorId}`)");
-    expect(block).toContain("reversedAt: null");
+    // Phases 1-3 integration: the reversed-row exclusion lives in the single
+    // shared obligation engine that both the counter handover and the field
+    // declaration read, instead of a second copy of the rule in this action.
+    expect(block).toContain("computeCollectorObligation(tx, ctx.tenantId, collectorId)");
+    expect(block).toContain("allocateToContributions(tx,");
+    const engine = read("src/lib/finance/remittance-settlement.ts");
+    expect(engine).toContain("reversedAt: null");
+    expect(engine).toContain("export async function computeCollectorObligation");
     expect(block).toContain("finance:remittance_record");
   });
 });

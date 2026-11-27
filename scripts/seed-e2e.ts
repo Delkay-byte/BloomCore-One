@@ -269,13 +269,20 @@ async function main() {
     },
   });
   const collector = await prisma.collector.create({
-    data: { id: "e2e-collector", tenantId: tenantA.id, userId: collectorUser.id, status: "active" },
+    data: {
+      id: "e2e-collector",
+      tenantId: tenantA.id,
+      userId: collectorUser.id,
+      branchId: locationA.id,
+      status: "active",
+    },
   });
   await prisma.collector.create({
     data: {
       id: "e2e-dual-collector",
       tenantId: tenantA.id,
       userId: dualRoleUser.id,
+      branchId: locationA.id,
       status: "active",
     },
   });
@@ -342,6 +349,7 @@ async function main() {
   await prisma.collectorRemittance.create({
     data: {
       tenantId: tenantA.id,
+      branchId: locationA.id,
       collectorId: collector.id,
       expectedAmount: 500,
       remittedAmount: 470,

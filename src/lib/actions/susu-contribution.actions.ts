@@ -17,6 +17,7 @@ import { randomBytes } from "crypto";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { lockAccountForUpdate } from "@/lib/db-lock";
+import { resolveBranchScope, resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
 
 export interface ActionResponse {
   success: boolean;
@@ -66,6 +67,8 @@ export async function recordContribution(params: {
   notes?: string;
   /** Client-generated retry key. The same key never records twice. */
   idempotencyKey?: string;
+  /** Optional branch hint. Never trusted without server-side scope validation. */
+  branchId?: string;
 }): Promise<ActionResponse> {
   const {
     accountId,
@@ -78,6 +81,7 @@ export async function recordContribution(params: {
     recordedByName,
     notes,
     idempotencyKey,
+    branchId: requestedBranchId,
   } = params;
 
   // ── 1. Authenticate + resolve tenant ────────────────────────────────
@@ -155,6 +159,36 @@ export async function recordContribution(params: {
       recordedById = clientRecordedById;
     } else {
       recordedById = ctx.userId;
+    }
+  }
+
+  // ── 3a. Branch responsibility at creation time ─────────────────────
+  let effectiveBranchId: string | null;
+  if (effectiveCollectorId) {
+    const collectorRow = await db.collector.findFirst({
+      where: { id: effectiveCollectorId, tenantId: ctx.tenantId },
+      select: { branchId: true },
+    });
+    if (
+      collectorRow?.branchId &&
+      !(await assertBranchAccess(ctx, collectorRow.branchId, "write"))
+    ) {
+      return { success: false, error: "This collector has no active branch in your scope" };
+    }
+    if (!collectorRow?.branchId && !(await isBranchlessTenant(ctx))) {
+      return { success: false, error: "Select a branch for this collection" };
+    }
+    effectiveBranchId = collectorRow?.branchId ?? null;
+  } else {
+    effectiveBranchId = await resolveWriteBranch(ctx, requestedBranchId ?? undefined);
+    if (!effectiveBranchId && !(await isBranchlessTenant(ctx))) {
+      return {
+        success: false,
+        error:
+          (await resolveBranchScope(ctx)).kind === "all"
+            ? "Select a branch for this contribution"
+            : "No active branch is available in your scope",
+      };
     }
   }
 
@@ -302,6 +336,7 @@ export async function recordContribution(params: {
     const contribution = await tx.contribution.create({
       data: {
         tenantId: ctx.tenantId,
+        branchId: effectiveBranchId,
         accountId: account.id,
         cycleId: cycle.id,
         amount,
@@ -432,8 +467,11 @@ export async function getContributions(params?: {
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
-  // Tenant scope is always applied.
+  // Tenant scope is always applied. Scope-reduced identities never see a
+  // branch they do not hold a persisted membership for.
+  const scope = await resolveBranchScope(ctx);
   const where: Record<string, unknown> = { tenantId: ctx.tenantId };
+  if (scope.kind === "limited") where.branchId = { in: scope.branchIds };
   if (params?.accountId) where.accountId = params.accountId;
   if (params?.cycleId) where.cycleId = params.cycleId;
   if (params?.channel) where.channel = params.channel;

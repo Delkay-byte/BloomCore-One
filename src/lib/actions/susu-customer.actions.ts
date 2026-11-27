@@ -14,6 +14,7 @@ import { normalizeGhanaPhone } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { validateStatusTransition } from "@/lib/security/status";
 import { buildSusuReceipt, buildSusuStatement, type SusuReceipt } from "@/lib/susu-statements";
+import { onboardCustomerWithAccount } from "@/lib/susu/onboarding";
 
 export interface ActionResponse {
   success: boolean;
@@ -31,32 +32,9 @@ export interface ActionResponse {
 // value. Two tenants creating a customer concurrently cannot collide.
 // ---------------------------------------------------------------------------
 
-async function nextCustomerId(): Promise<string> {
-  const total = await db.customer.count();
-  for (let i = total + 1; i < total + 1000; i++) {
-    const candidate = `BIK-C-${String(i).padStart(6, "0")}`;
-    const taken = await db.customer.findUnique({
-      where: { customerId: candidate },
-      select: { id: true },
-    });
-    if (!taken) return candidate;
-  }
-  // Extremely unlikely: fall back to a random suffix rather than fail.
-  return `BIK-C-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
-
-async function nextAccountId(): Promise<string> {
-  const total = await db.susuAccount.count();
-  for (let i = total + 1; i < total + 1000; i++) {
-    const candidate = `BIK-S-${String(i).padStart(6, "0")}`;
-    const taken = await db.susuAccount.findUnique({
-      where: { accountId: candidate },
-      select: { id: true },
-    });
-    if (!taken) return candidate;
-  }
-  return `BIK-S-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
+// Phase 7 moved allocation and insertion into `@/lib/susu/onboarding` so the
+// office form, the collector app and the bulk importer all issue identifiers
+// from one implementation instead of three near-copies.
 
 export async function createCustomer(
   formData: FormData
@@ -95,59 +73,28 @@ export async function createCustomer(
     susuAccount: Awaited<ReturnType<typeof db.susuAccount.create>>;
   } | null = null;
   let customerId = "";
-  let accountId = "";
 
   for (let attempt = 0; attempt < 10 && !created; attempt++) {
-    customerId = await nextCustomerId();
-    accountId = await nextAccountId();
     try {
       created = await db.$transaction(async (tx) => {
-        const customer = await tx.customer.create({
-          data: {
-            tenantId: ctx.tenantId,
-            customerId,
-            fullName,
-            phone,
-            address,
-            status: "active",
-          },
+        const { customer, account } = await onboardCustomerWithAccount(tx, {
+          tenantId: ctx.tenantId,
+          fullName,
+          phone,
+          address,
+          dailyContribution,
+          channel: "office",
+          actorId: ctx.userId,
         });
-
-        const susuAccount = await tx.susuAccount.create({
-          data: {
-            tenantId: ctx.tenantId,
-            accountId,
-            customerId: customer.id,
-            dailyContribution,
-            status: "active",
-            cardCustody: "customer",
-          },
-        });
+        customerId = customer.customerId;
 
         await tx.cardFee.create({
           data: {
             tenantId: ctx.tenantId,
-            accountId: susuAccount.id,
+            accountId: account.id,
             amount: cardFee,
             recordedById: ctx.userId,
             notes: "Initial card purchase",
-          },
-        });
-
-        const now = new Date();
-        const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const cycleEnd = new Date(now.getFullYear(), now.getMonth(), 31);
-
-        await tx.susuCycle.create({
-          data: {
-            tenantId: ctx.tenantId,
-            accountId: susuAccount.id,
-            cycleNumber: 1,
-            startDate: cycleStart,
-            endDate: cycleEnd,
-            dailyContribution,
-            status: "active",
-            commissionCharged: false,
           },
         });
 
@@ -157,10 +104,15 @@ export async function createCustomer(
           action: "susu.customer_created",
           entityType: "customer",
           entityId: customer.id,
-          details: { customerId, fullName, dailyContribution, cardFee },
+          details: {
+            customerId: customer.customerId,
+            fullName,
+            dailyContribution,
+            cardFee,
+          },
         });
 
-        return { customer, susuAccount };
+        return { customer, susuAccount: account };
       }, { timeout: 20000, maxWait: 10000 });
     } catch (error) {
       const code =
@@ -495,10 +447,8 @@ export async function reassignCustomer(params: {
       });
     }
 
-    const existingNew = await tx.collectorCustomerAssignment.findUnique({
-      where: {
-        collectorId_accountId: { collectorId: newCollectorId, accountId },
-      },
+    const existingNew = await tx.collectorCustomerAssignment.findFirst({
+      where: { collectorId: newCollectorId, accountId, tenantId: ctx.tenantId },
     });
 
     if (existingNew) {

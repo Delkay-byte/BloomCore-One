@@ -25,6 +25,9 @@ export type StepUpSubjectType = "user" | "platform";
 
 export const STEP_UP_PURPOSES = [
   "susu.withdrawal",
+  // Phase 4: staged withdrawal approval and payment each need their own grant.
+  "withdrawal.approve",
+  "withdrawal.pay",
   "susu.remittance.reverse",
   "susu.contribution.reverse",
   "susu.withdrawal.reverse",
@@ -40,8 +43,19 @@ export const STEP_UP_PURPOSES = [
   "staff.password_reset",
   "worker.password_reset",
   "collector.password_reset",
+  // Phase 2: collector lifecycle changes (activate / deactivate / suspend /
+  // reactivate). Bound to the collector being changed and the acting admin.
+  "collector.lifecycle",
   "tenant.admin_access_reset",
   "capability.change",
+  // Phase 8: staff offboarding/reactivation and privileged staff assignment
+  // changes. Bound to the target staff user so a grant cannot be replayed for
+  // a different person.
+  "staff.lifecycle",
+  "staff.assignment",
+  // Phase 8: bulk download of an administrative dataset (staff directory).
+  // Bound to the dataset name so a grant for one export cannot authorise another.
+  "admin.export",
   "platform.mfa_recovery",
 ] as const;
 
