@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ClipboardCheck, LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, LifeBuoy, Settings, Sparkles } from "lucide-react";
 import ConfirmSignOutButton from "@/components/ConfirmSignOutButton";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { AppBrand } from "@/components/brand/AppBrand";
@@ -97,6 +97,14 @@ export default function CollectorShell({
                     className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
                   >
                     <ClipboardCheck size={15} aria-hidden /> My reconciliation
+                  </Link>
+                  <Link
+                    href="/susu/support"
+                    role="menuitem"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <LifeBuoy size={15} aria-hidden /> Support
                   </Link>
                   <Link
                     href="/collector/settings"

@@ -1,6 +1,8 @@
 import {
   BarChart3,
   Banknote,
+  BookOpen,
+  LifeBuoy,
   CreditCard,
   BookText,
   ClipboardList,
@@ -102,6 +104,9 @@ export const navSections: NavSection[] = [
       { href: "/susu/admin/disputes", label: "Disputes", icon: MessageSquareWarning },
       { href: "/susu/admin/history", label: "Money & History", icon: BookText },
       { href: "/susu/admin/reports/overview", label: "Reports & Analytics", icon: FileBarChart },
+      { href: "/susu/admin/staff", label: "Staff & Access", icon: UserCog },
+      { href: "/susu/admin/guide", label: "Operational Guide", icon: BookOpen },
+      { href: "/susu/support", label: "Support", icon: LifeBuoy },
     ],
   },
   {

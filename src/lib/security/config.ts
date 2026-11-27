@@ -233,6 +233,13 @@ export const RATE_LIMITS = {
   offlineSync: { limit: 120, windowMs: 60 * 1000 },
   /** Expensive public endpoints (health/readiness excluded), per IP. */
   publicExpensive: { limit: 30, windowMs: 10 * 60 * 1000 },
+  /** Administrative data exports (staff directory), per subject and dataset. */
+  adminExportSustained: { limit: 10, windowMs: 10 * 60 * 1000 },
+  adminExportBurst: { limit: 2, windowMs: 10 * 1000 },
+  /** Support request creation, per subject. */
+  supportRequest: { limit: 10, windowMs: 10 * 60 * 1000 },
+  /** Support replies and internal notes, per subject. */
+  supportReply: { limit: 60, windowMs: 10 * 60 * 1000 },
   /** Export endpoints: sustained ceilings per authenticated actor and business scope. */
   zeliExportSustained: { limit: 30, windowMs: 10 * 60 * 1000 },
   zeliExportBurst: { limit: 4, windowMs: 10 * 1000 },

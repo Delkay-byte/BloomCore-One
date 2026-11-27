@@ -80,6 +80,7 @@ model Location {
   liquiditySnapshots BranchLiquiditySnapshot[]
   susuReconciliations SusuReconciliation[]
   dailyCollectorClosings DailyCollectorClosing[]
+  supportRequests      SupportRequest[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -2539,6 +2540,7 @@ model BusinessTenant {
   customerImportBatches        CustomerImportBatch[]
   customerImportRows           CustomerImportRow[]
   customerImportRowEvents      CustomerImportRowEvent[]
+  supportRequests              SupportRequest[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -2570,6 +2572,7 @@ model PlatformSuperAdmin {
 
   auditLogs PlatformAuditLog[]
   oidcLinks PlatformOidcLink[]
+  assignedSupportRequests SupportRequest[] @relation("SupportAssignment")
 
   @@index([status])
 }
@@ -4842,3 +4845,106 @@ model CustomerImportRowEvent {
   @@index([rowId, createdAt])
 }
 
+
+// =====================
+// PHASE 8 - ENTERPRISE ADMINISTRATION AND SUPPORT
+// =====================
+
+/// A tenant support request. References are unique so a tenant can quote one
+/// reference and support can locate it without searching by personal data.
+///
+/// Every query in the application filters by the tenant resolved from the
+/// server session; a request id or reference supplied by a browser is never
+/// trusted as proof of access. Internal notes live in SupportMessage with
+/// visibility = "internal" and are excluded from all tenant-facing queries.
+model SupportRequest {
+  id              String    @id @default(cuid())
+  tenantId        String?
+  /// Branch the request concerns, when the submitting user has one. Optional:
+  /// company-wide requests are valid.
+  branchId        String?
+  reference       String    @unique
+  submittedById   String
+  /// account_access | contribution | remittance | withdrawal | reporting |
+  /// import | staff | other
+  category        String    @default("other")
+  /// low | normal | high | urgent
+  priority        String    @default("normal")
+  /// open | acknowledged | in_progress | escalated | resolved | closed
+  status          String    @default("open")
+  subject         String
+  description     String
+
+  /// Platform administrator currently handling the request. Reassignment is
+  /// recorded in SupportEvent; a later platform-account change never rewrites
+  /// who handled the request.
+  assignedAgentId String?
+  assignedAt      DateTime?
+  escalatedAt     DateTime?
+  escalationLevel Int       @default(0)
+
+  resolvedAt      DateTime?
+  resolvedAgentId String?
+  resolutionNote  String?
+  closedAt        DateTime?
+  reopenedCount   Int       @default(0)
+
+  lastActivityAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant        BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  branch        Location?           @relation(fields: [branchId], references: [id])
+  assignedAgent PlatformSuperAdmin? @relation("SupportAssignment", fields: [assignedAgentId], references: [id])
+  messages      SupportMessage[]
+  events        SupportEvent[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([status, priority, createdAt])
+  @@index([assignedAgentId, status])
+  @@index([tenantId, branchId])
+  @@index([tenantId, createdAt])
+}
+
+/// One message on a support request. Visibility is the only switch between
+/// tenant-visible replies and internal notes; every tenant-facing query pins it
+/// to "tenant" in the database predicate, not in the UI.
+model SupportMessage {
+  id            String   @id @default(cuid())
+  requestId     String
+  /// tenant | platform | system
+  authorType    String
+  authorUserId  String?
+  authorAgentId String?
+  /// tenant | internal
+  visibility    String   @default("tenant")
+  body          String
+  createdAt     DateTime @default(now())
+
+  request SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@index([requestId, visibility])
+}
+
+/// Append-only lifecycle history for a support request (assignment, status
+/// changes, escalation, resolution and reopening). Nothing here is deleted.
+model SupportEvent {
+  id            String   @id @default(cuid())
+  requestId     String
+  /// created | acknowledged | assigned | status_changed | escalated |
+  /// replied | internal_note | resolved | reopened | closed
+  type          String
+  actorType     String
+  actorUserId   String?
+  actorAgentId  String?
+  fromStatus    String?
+  toStatus      String?
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  request SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@index([type, createdAt])
+}
