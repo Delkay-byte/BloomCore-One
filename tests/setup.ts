@@ -25,6 +25,9 @@ export async function cleanDatabase() {
   // foreign keys: financial children before parents, tenant-owned rows before
   // BusinessTenant. Each test file runs sequentially, so this cannot race.
   await prisma.$transaction([
+    prisma.customerImportRowEvent.deleteMany(),
+    prisma.customerImportRow.deleteMany(),
+    prisma.customerImportBatch.deleteMany(),
     prisma.contributionAllocation.deleteMany(),
     // Phase 3: remittance links and discrepancies reference contributions and
     // remittances, so they must go first (links are RESTRICT on the contribution).
