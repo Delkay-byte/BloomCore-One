@@ -767,6 +767,28 @@ model Customer {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // ---------------------------------------------------------------------
+  // Phase 7 — onboarding and migration attribution.
+  //
+  // A customer is a TENANT-WIDE identity. None of these fields decides which
+  // branch or account the person belongs to; they record how the relationship
+  // started so a paper register can be audited later.
+  // ---------------------------------------------------------------------
+  /// The business's OWN reference for this person (passbook number, register
+  /// line, previous-system key). Deliberately NOT unique and never used as a
+  /// hard identity key: two real people can be typed with the same reference,
+  /// and MaaCash must not refuse a customer because of it. An exact match is a
+  /// duplicate signal for a human to review.
+  externalReference  String?
+  /// office | field | import | portal | legacy
+  registeredVia      String?
+  /// Staff user who onboarded the customer. NULL for legacy/portal rows.
+  registeredById     String?
+  /// Branch in which onboarding happened. Attribution only.
+  registeredBranchId String?
+  /// Free-text note captured at registration or import.
+  notes              String?
+
   // Customer Portal
   portalEnabled            Boolean   @default(false)
   portalPasswordHash       String?
@@ -796,6 +818,8 @@ model Customer {
   @@index([phone])
   @@index([email])
   @@index([tenantId])
+  @@index([tenantId, externalReference])
+  @@index([tenantId, registeredBranchId])
 }
 
 model SusuAccount {
@@ -808,6 +832,29 @@ model SusuAccount {
   cardCustody       String   @default("customer") // customer | company | collector
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  // ---------------------------------------------------------------------
+  // Phase 7 — account-level branch attribution and migration provenance.
+  //
+  // Branch belongs to the ACCOUNT, not the customer: one person may hold
+  // accounts in several branches. NULL means the historical record could not
+  // be confidently attributed and is preserved as LEGACY_UNASSIGNED rather
+  // than guessed.
+  // ---------------------------------------------------------------------
+  /// Branch responsible for this account. NULL = legacy/unassigned.
+  branchId                 String?
+  /// The date the account actually opened at the business. May predate
+  /// MaaCash, so it is kept separately from createdAt.
+  openingDate              DateTime?
+  /// office | field | import | legacy
+  openedVia                String?
+  /// Staff user who opened the account.
+  openedById               String?
+  /// The account number as written in the business's own book or previous
+  /// system, when it is not the canonical MaaCash identifier.
+  externalAccountReference String?
+  /// Import batch that created this account, when it was migrated.
+  importBatchId            String?
 
   customer           Customer                      @relation(fields: [customerId], references: [id])
   cycles             SusuCycle[]
@@ -825,6 +872,9 @@ model SusuAccount {
   @@index([accountId])
   @@index([status])
   @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, externalAccountReference])
+  @@index([importBatchId])
 }
 
 model SusuCycle {
@@ -2150,6 +2200,9 @@ model BusinessTenant {
   reconciliationCases          ReconciliationExceptionCase[]
   reconciliationCaseLinks      ReconciliationExceptionLink[]
   reconciliationCaseEvents     ReconciliationExceptionEvent[]
+  customerImportBatches        CustomerImportBatch[]
+  customerImportRows           CustomerImportRow[]
+  customerImportRowEvents      CustomerImportRowEvent[]
 
   @@index([status])
   @@index([onboardingStatus])
@@ -4154,3 +4207,199 @@ model GovernanceDocumentDelivery {
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
 }
+
+// =====================
+// SUSU PHASE 7 — CUSTOMER ONBOARDING AND DATA MIGRATION
+// =====================
+
+/// One staged migration of existing customer/account records from a
+/// spreadsheet into MaaCash.
+///
+/// A batch is the durable unit of intent. It holds no customer data: only the
+/// operator's declared plan, the integrity of the uploaded file and the
+/// outcome counters. Row-level data lives in CustomerImportRow.
+///
+/// Lifecycle (`status`):
+///   staged              file parsed, headers identified, mapping not applied
+///   validated           every row classified (valid/invalid/duplicate/review)
+///   ready               no row is waiting for a human decision
+///   committing          a commit holds the lease and is writing records
+///   committed           every resolved row has a terminal outcome
+///   partially_committed commit stopped with some rows still pending/failed
+///   failed              commit aborted; rows keep their own outcomes
+///   cancelled           operator abandoned the batch
+model CustomerImportBatch {
+  id         String  @id @default(cuid())
+  tenantId   String?
+  /// Destination branch when branchMode = "single_branch".
+  branchId   String?
+  /// single_branch | row_column
+  branchMode String  @default("single_branch")
+  /// Operator's label, e.g. "Kumasi paper register 2019".
+  name       String
+  /// csv — macro-enabled spreadsheets are never accepted.
+  sourceFormat  String @default("csv")
+  fileName      String
+  /// SHA-256 of the uploaded bytes. Uploading the same bytes again resumes the
+  /// existing batch instead of silently creating a second copy.
+  fileHash      String
+  fileSizeBytes Int
+  /// The exact uploaded text.
+  ///
+  /// Retained so a mapping change can be re-validated deterministically and so
+  /// the operator can later retrieve the file they actually imported. It is
+  /// bounded (4 MB) at upload, lives only inside this tenant, and is deleted
+  /// with the batch. Bounded duplicate of the row data on purpose: the rows are
+  /// the audit evidence, the source text is the reproducibility evidence.
+  sourceText    String?
+  /// SHA-256 of the parsed header row, so a re-map cannot read a different file.
+  headerHash    String
+  /// JSON array of the header cells in file order.
+  headers       String
+  /// JSON object: MaaCash field -> column index. Durable so a re-read is reproducible.
+  columnMapping String?
+  /// staged | validated | ready | committing | committed | partially_committed | failed | cancelled
+  status        String  @default("staged")
+
+  totalRows            Int @default(0)
+  validRows            Int @default(0)
+  invalidRows          Int @default(0)
+  /// Rows that will create a brand-new customer.
+  newCustomerRows      Int @default(0)
+  /// Rows that attach a new account to a customer already in MaaCash.
+  existingCustomerRows Int @default(0)
+  /// Rows already present in MaaCash (same account, or same customer reference).
+  duplicateRows        Int @default(0)
+  /// Rows that cannot be committed until a person decides (possible match/conflict).
+  reviewRows           Int @default(0)
+
+  importedCustomers Int @default(0)
+  importedAccounts  Int @default(0)
+  linkedRows        Int @default(0)
+  skippedRows       Int @default(0)
+  failedRows        Int @default(0)
+
+  /// SHA-256 over the branch mode, the mapping and every row decision. The
+  /// operator must echo this value to confirm, which proves the preview they
+  /// saw is the plan being committed.
+  planHash       String?
+  initiatedById  String
+  validatedAt    DateTime?
+  confirmedAt    DateTime?
+  confirmedById  String?
+  /// Unique per accepted confirmation. Repeating the same token is a no-op; a
+  /// different token after the batch advanced is refused.
+  commitToken       String?
+  commitStartedAt   DateTime?
+  /// While this is in the future another process may not start a commit.
+  commitLeaseUntil  DateTime?
+  committedAt       DateTime?
+  committedById     String?
+  /// Operator-readable reason a commit stopped. Never a stack trace.
+  failureReason     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant BusinessTenant?          @relation(fields: [tenantId], references: [id])
+  rows   CustomerImportRow[]
+  events CustomerImportRowEvent[]
+
+  @@unique([tenantId, fileHash])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, branchId])
+  @@index([tenantId, initiatedById])
+}
+
+/// One spreadsheet row: the source values, the classification, the human
+/// decision and the outcome.
+///
+/// The original cell values are kept (not the derived ones) so a reviewer can
+/// always see what the business actually wrote. `rawRow` is truncated evidence
+/// and is never rendered as HTML.
+model CustomerImportRow {
+  id        String @id @default(cuid())
+  tenantId  String?
+  batchId   String
+  rowNumber Int
+
+  rawRow            String?
+  customerName      String?
+  phone             String?
+  /// Comparison-only normalized form. The display value above is preserved.
+  phoneNormalized   String?
+  email             String?
+  externalReference String?
+  address           String?
+  notes             String?
+  accountNumber     String?
+  dailyContribution Decimal?
+  openingDate       DateTime?
+  /// Branch code or name exactly as written in the spreadsheet.
+  branchRef         String?
+  /// Collector e-mail or full name exactly as written in the spreadsheet.
+  collectorRef      String?
+
+  /// new_customer | new_account_existing_customer | exact_duplicate |
+  /// possible_customer_duplicate | account_conflict | customer_conflict | invalid
+  classification    String  @default("invalid")
+  /// JSON array of { code, message } validation problems.
+  issues            String?
+  /// JSON array of human-readable reasons a match was found.
+  matchReasons      String?
+  matchedCustomerId String?
+  matchedAccountId  String?
+
+  /// Resolved destination branch (tenant-owned and authorized).
+  branchId    String?
+  collectorId String?
+
+  /// create_new | link_existing | exclude. NULL means "waiting for a decision".
+  resolution     String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  /// pending | imported | linked | skipped | failed. NULL until committed.
+  outcome           String?
+  outcomeMessage    String?
+  createdCustomerId String?
+  createdAccountId  String?
+  committedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch  CustomerImportBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  tenant BusinessTenant?          @relation(fields: [tenantId], references: [id])
+  events CustomerImportRowEvent[]
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, classification])
+  @@index([batchId, outcome])
+  @@index([tenantId, matchedCustomerId])
+  @@index([tenantId, matchedAccountId])
+}
+
+/// Append-only history of every decision and outcome recorded for one
+/// imported row. Re-resolving a row never erases the previous decision.
+model CustomerImportRowEvent {
+  id       String  @id @default(cuid())
+  tenantId String?
+  batchId  String
+  rowId    String
+  /// classified | resolved | commit_started | imported | linked | skipped | failed
+  kind   String
+  actorId String?
+  fromResolution String?
+  toResolution   String?
+  note     String?
+  createdAt DateTime @default(now())
+
+  tenant BusinessTenant?     @relation(fields: [tenantId], references: [id])
+  batch  CustomerImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  row    CustomerImportRow   @relation(fields: [rowId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, batchId, createdAt])
+  @@index([rowId, createdAt])
+}
+

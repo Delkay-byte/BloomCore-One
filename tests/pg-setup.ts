@@ -16,6 +16,9 @@ const prisma = createPrismaClient(target.url);
 export { prisma };
 
 export async function cleanDatabase() {
+  await prisma.customerImportRowEvent.deleteMany();
+  await prisma.customerImportRow.deleteMany();
+  await prisma.customerImportBatch.deleteMany();
   await prisma.contributionAllocation.deleteMany();
   await prisma.remittanceDiscrepancy.deleteMany();
   await prisma.remittanceContribution.deleteMany();
