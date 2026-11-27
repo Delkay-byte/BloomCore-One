@@ -42,7 +42,7 @@ const FILTERS: Array<{ value: QueueStatus; label: string }> = [
   { value: "open", label: "Waiting" },
   { value: "awaiting_payment", label: "Awaiting payment" },
   { value: "paid", label: "Paid" },
-  { value: "rejected", label: "Rejected" },
+  { value: "rejected", label: "Declined" },
   { value: "disputed", label: "Disputed" },
   { value: "reversed", label: "Reversed" },
   { value: "cancelled", label: "Cancelled" },
@@ -167,7 +167,7 @@ export default function WithdrawalRequestsPage() {
         fail(result.error ?? "The request could not be rejected.", () => setDeclining(declining));
         return;
       }
-      setSuccess(`${declining.reference} rejected.`);
+      setSuccess(`${declining.reference} declined.`);
       setDeclining(null);
       setNote("");
       await load();
@@ -395,7 +395,7 @@ export default function WithdrawalRequestsPage() {
                       disabled={busy}
                       className="btn btn-secondary btn-sm"
                     >
-                      Reject
+                      Decline
                     </button>
                   )}
                 </div>
@@ -528,7 +528,7 @@ export default function WithdrawalRequestsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Reject withdrawal request"
+          aria-label="Decline withdrawal request"
         >
           <div className="card w-full max-w-md space-y-3 p-4">
             <h2 className="text-base font-semibold text-slate-900">
@@ -543,7 +543,7 @@ export default function WithdrawalRequestsPage() {
               rows={3}
               className="input w-full"
               placeholder="Explain why this request is rejected."
-              aria-label="Reason for rejecting"
+              aria-label="Reason for declining"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -559,7 +559,7 @@ export default function WithdrawalRequestsPage() {
                 disabled={busy || note.trim().length < 10}
                 className="btn btn-primary btn-sm"
               >
-                {busy ? "Saving…" : "Reject request"}
+                {busy ? "Saving…" : "Decline request"}
               </button>
             </div>
           </div>
