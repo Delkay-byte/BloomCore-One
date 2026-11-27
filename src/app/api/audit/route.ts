@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiTenantContext } from "@/lib/tenant";
+import { resolveBranchScope } from "@/lib/branch";
 import { db } from "@/lib/db";
 import {
   presentAuditEntry,
@@ -340,7 +341,11 @@ export async function GET(request: NextRequest) {
   );
   const skip = (page - 1) * limit;
 
-  const where = { tenantId: ctx.tenantId };
+  const scope = await resolveBranchScope(ctx);
+  const where =
+    scope.kind === "limited"
+      ? { tenantId: ctx.tenantId, branchId: { in: scope.branchIds } }
+      : { tenantId: ctx.tenantId };
 
   const [logs, total] = await Promise.all([
     db.auditLog.findMany({

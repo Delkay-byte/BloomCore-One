@@ -115,6 +115,7 @@ describe("branch scope resolution", () => {
     const manager = await makeBranchManager(tenant.id, branches[0].id, "scoped");
     const scope = await resolveBranchScope(ctxFor(tenant, manager.id, "admin"));
     expect(scope.kind).toBe("limited");
+    if (scope.kind !== "limited") throw new Error("expected limited scope");
     expect(scope.branchIds).toEqual([branches[0].id]);
     expect(await assertBranchAccess(ctxFor(tenant, manager.id, "admin"), branches[1].id)).toBe(false);
   });
@@ -131,6 +132,7 @@ describe("branch scope resolution", () => {
     const collector = await makeCollector(tenant.id, branches[0].id, "one");
     const scope = await resolveBranchScope(ctxFor(tenant, collector.user.id, "collector"));
     expect(scope.kind).toBe("limited");
+    if (scope.kind !== "limited") throw new Error("expected limited scope");
     expect(scope.branchIds).toEqual([branches[0].id]);
     expect(
       await assertBranchAccess(ctxFor(tenant, collector.user.id, "collector"), branches[1].id)
@@ -181,6 +183,7 @@ describe("branch scope resolution", () => {
     expect(after.branchId).toBe(branches[0].id);
     const scope = await resolveBranchScope(ctxFor(tenant, collector.user.id, "collector"));
     expect(scope.kind).toBe("limited");
+    if (scope.kind !== "limited") throw new Error("expected limited scope");
     expect(scope.branchIds).toEqual([branches[1].id]);
   });
 

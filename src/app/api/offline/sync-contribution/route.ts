@@ -6,6 +6,7 @@ import { isSameOriginRequest, crossOriginDenied } from "@/lib/security/same-orig
 import { lockAccountForUpdate } from "@/lib/db-lock";
 import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
+import { resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
 import {
   idempotencyKeyIsValid,
   normalizeContributionPayload,
@@ -305,7 +306,7 @@ export async function POST(request: NextRequest) {
     if (channel === "collector") {
       const userCollector = await db.collector.findFirst({
         where: { userId: ctx.userId, tenantId: ctx.tenantId, status: "active" },
-        select: { id: true },
+        select: { id: true, branchId: true },
       });
       if (!userCollector) {
         return NextResponse.json(
@@ -326,6 +327,40 @@ export async function POST(request: NextRequest) {
       if (!assignment) {
         return NextResponse.json(
           { success: false, error: "Customer not assigned to this collector" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Branch responsibility is resolved server-side. A branch id supplied by
+    // the device is deliberately ignored: it is not proof of authorisation.
+    let effectiveBranchId: string | null = null;
+    if (effectiveCollectorId) {
+      const collectorRecord = await db.collector.findFirst({
+        where: { id: effectiveCollectorId, tenantId: ctx.tenantId },
+        select: { branchId: true },
+      });
+      if (
+        collectorRecord?.branchId &&
+        !(await assertBranchAccess(ctx, collectorRecord.branchId, "write"))
+      ) {
+        return NextResponse.json(
+          { success: false, error: "No active branch is authorised for this collector" },
+          { status: 403 }
+        );
+      }
+      if (!collectorRecord?.branchId && !(await isBranchlessTenant(ctx))) {
+        return NextResponse.json(
+          { success: false, error: "Select a branch for this collector" },
+          { status: 403 }
+        );
+      }
+      effectiveBranchId = collectorRecord?.branchId ?? null;
+    } else {
+      effectiveBranchId = await resolveWriteBranch(ctx);
+      if (!effectiveBranchId && !(await isBranchlessTenant(ctx))) {
+        return NextResponse.json(
+          { success: false, error: "No active branch is available for this operation" },
           { status: 403 }
         );
       }
@@ -457,6 +492,7 @@ export async function POST(request: NextRequest) {
       const contribution = await tx.contribution.create({
         data: {
           tenantId: ctx.tenantId,
+          branchId: effectiveBranchId,
           accountId,
           cycleId: cycle.id,
           amount,

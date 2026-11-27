@@ -131,6 +131,39 @@ export async function resolveWriteBranch(
   return active[0].id;
 }
 
+/** True when a tenant has no configured branch at all (legacy single office). */
+export async function isBranchlessTenant(ctx: TenantContext): Promise<boolean> {
+  const count = await db.location.count({ where: { tenantId: ctx.tenantId } });
+  return count === 0;
+}
+
+/**
+ * Branch responsible for a customer's savings account. Uses the newest
+ * attributed contribution, with a single active branch as a safe fallback.
+ * Never guesses when several branches exist.
+ */
+export async function resolveCustomerRequestBranch(
+  ctx: TenantContext,
+  accountId: string
+): Promise<string | null> {
+  const last = await db.contribution.findFirst({
+    where: { tenantId: ctx.tenantId, accountId, branchId: { not: null } },
+    orderBy: { collectionDate: "desc" },
+    select: { branchId: true },
+  });
+  if (last?.branchId) return last.branchId;
+  const active = await db.location.findMany({
+    where: { tenantId: ctx.tenantId, status: "active" },
+    select: { id: true },
+  });
+  return active.length === 1 ? active[0].id : null;
+}
+
+/** True only for an administrator with no scope-reducing membership. */
+export async function isCompanyWideAdmin(ctx: TenantContext): Promise<boolean> {
+  return ctx.role === "admin" && (await resolveBranchScope(ctx)).kind === "all";
+}
+
 /** Branch label used when a historical record predates branch attribution. */
 export function branchLabel(branchId: string | null | undefined): string {
   return branchId && branchId !== LEGACY_UNASSIGNED_BRANCH

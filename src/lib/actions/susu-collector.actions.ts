@@ -23,6 +23,7 @@ import {
 } from "@/lib/finance/remittance";
 import { claimStepUpGrant, StepUpDeniedError } from "@/lib/security/step-up";
 import { stepUpSessionBinding } from "@/lib/security/step-up";
+import { resolveBranchScope, resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
 import {
   consumeFinancialApproval,
   decideDualControl,
@@ -106,6 +107,13 @@ export async function createCollector(
   }
 
   const passwordHash = await hashPassword(password);
+  const branchId = await resolveWriteBranch(
+    ctx,
+    (formData.get("branchId") as string)?.trim() || undefined
+  );
+  if (!branchId && !(await isBranchlessTenant(ctx))) {
+    return { success: false, error: "Select a branch for this collector" };
+  }
 
   const created = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
@@ -124,7 +132,7 @@ export async function createCollector(
     });
 
     const collector = await tx.collector.create({
-      data: { tenantId: ctx.tenantId, userId: user.id, status: "active" },
+      data: { tenantId: ctx.tenantId, userId: user.id, branchId, status: "active" },
     });
 
     return { user, collector };
@@ -497,6 +505,16 @@ export async function recordRemittance(params: {
     where: { id: collectorId, tenantId: ctx.tenantId },
   });
   if (!collector) return { success: false, error: "Collector not found" };
+  if (
+    collector.branchId &&
+    !(await assertBranchAccess(ctx, collector.branchId, "write"))
+  ) {
+    return { success: false, error: "This collector has no active branch in your scope" };
+  }
+  if (!collector.branchId && !(await isBranchlessTenant(ctx))) {
+    return { success: false, error: "Select a branch for this remittance" };
+  }
+  const branchId = collector.branchId ?? null;
 
   const remittance = await db.$transaction(async (tx) => {
     // Serialize remittance recording for this collector so two concurrent
@@ -546,6 +564,7 @@ export async function recordRemittance(params: {
     const remittance = await tx.collectorRemittance.create({
       data: {
         tenantId: ctx.tenantId,
+        branchId,
         collectorId,
         expectedAmount,
         remittedAmount: remitted,
@@ -779,9 +798,12 @@ export async function reverseRemittance(params: {
  */
 export async function getCollectors() {
   const ctx = await requireTenantAdminSusu();
+  const scope = await resolveBranchScope(ctx);
+  const branchFilter =
+    scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {};
 
   return db.collector.findMany({
-    where: { tenantId: ctx.tenantId },
+    where: { tenantId: ctx.tenantId, ...branchFilter },
     include: {
       user: {
         select: {
@@ -810,6 +832,14 @@ export async function getCollectors() {
  */
 export async function getCollectorById(id: string) {
   const ctx = await requireTenantAdminSusu();
+  const scope = await resolveBranchScope(ctx);
+  if (scope.kind === "limited") {
+    const owned = await db.collector.findFirst({
+      where: { id, tenantId: ctx.tenantId, branchId: { in: scope.branchIds } },
+      select: { id: true },
+    });
+    if (!owned) return null;
+  }
 
   return db.collector.findFirst({
     where: { id, tenantId: ctx.tenantId },
@@ -863,7 +893,9 @@ export async function getRemittances(params?: {
   const limit = params?.limit || 20;
   const skip = (page - 1) * limit;
 
+  const scope = await resolveBranchScope(ctx);
   const where: Record<string, unknown> = { tenantId: ctx.tenantId };
+  if (scope.kind === "limited") where.branchId = { in: scope.branchIds };
   if (params?.collectorId) where.collectorId = params.collectorId;
   if (params?.status) where.status = params.status;
 
