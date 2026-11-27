@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu, requireTenantCollector } from "@/lib/tenant";
+import { resolveBranchScope } from "@/lib/branch";
 
 /**
  * Susu dashboard aggregates — all tenant scoped.
@@ -13,13 +14,15 @@ import { requireTenantAdminSusu, requireTenantCollector } from "@/lib/tenant";
 export async function getSusuDashboardStats() {
   const ctx = await requireTenantAdminSusu();
   const tenantId = ctx.tenantId;
+  const scope = await resolveBranchScope(ctx);
+  const branchFilter = scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {};
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
   const todayContributions = await db.contribution.aggregate({
-    where: { tenantId, collectionDate: { gte: today, lt: tomorrow } },
+    where: { tenantId, ...branchFilter, collectionDate: { gte: today, lt: tomorrow } },
     _sum: { amount: true },
     _count: true,
   });
@@ -27,6 +30,7 @@ export async function getSusuDashboardStats() {
   const todayCollectorContributions = await db.contribution.aggregate({
     where: {
       tenantId,
+      ...branchFilter,
       channel: "collector",
       collectionDate: { gte: today, lt: tomorrow },
     },
@@ -37,6 +41,7 @@ export async function getSusuDashboardStats() {
   const todayOfficeContributions = await db.contribution.aggregate({
     where: {
       tenantId,
+      ...branchFilter,
       channel: "direct_office",
       collectionDate: { gte: today, lt: tomorrow },
     },
@@ -58,6 +63,7 @@ export async function getSusuDashboardStats() {
     db.withdrawal.aggregate({
       where: {
         tenantId,
+        ...branchFilter,
         createdAt: { gte: today, lt: tomorrow },
         status: "completed",
       },
@@ -71,7 +77,7 @@ export async function getSusuDashboardStats() {
     db.cardFee.aggregate({ where: { tenantId }, _sum: { amount: true } }),
     db.customer.count({ where: { tenantId } }),
     db.contribution.findMany({
-      where: { tenantId, collectionDate: { gte: today, lt: tomorrow } },
+      where: { tenantId, ...branchFilter, collectionDate: { gte: today, lt: tomorrow } },
       select: { accountId: true },
       distinct: ["accountId"],
     }),
@@ -79,7 +85,7 @@ export async function getSusuDashboardStats() {
 
   // Pending Money Handed In: SUM of max(Expected - Handed In, 0) per collector.
   const collectors = await db.collector.findMany({
-    where: { status: "active", tenantId },
+    where: { status: "active", tenantId, ...branchFilter },
     select: { id: true },
   });
 
@@ -88,6 +94,7 @@ export async function getSusuDashboardStats() {
     const todayContribs = await db.contribution.findMany({
       where: {
         tenantId,
+        ...branchFilter,
         collectorId: collector.id,
         channel: "collector",
         collectionDate: { gte: today, lt: tomorrow },
@@ -102,6 +109,7 @@ export async function getSusuDashboardStats() {
     const todayRemittances = await db.collectorRemittance.findMany({
       where: {
         tenantId,
+        ...branchFilter,
         collectorId: collector.id,
         createdAt: { gte: today, lt: tomorrow },
         reversedAt: null,
@@ -331,13 +339,15 @@ export async function getCollectorDashboardStats(collectorUserId: string) {
 export async function getAdminCollectorBreakdown() {
   const ctx = await requireTenantAdminSusu();
   const tenantId = ctx.tenantId;
+  const scope = await resolveBranchScope(ctx);
+  const branchFilter = scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {};
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
   const collectors = await db.collector.findMany({
-    where: { status: "active", tenantId },
+    where: { status: "active", tenantId, ...branchFilter },
     include: { user: { select: { id: true, fullName: true } } },
   });
 

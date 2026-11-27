@@ -7,6 +7,7 @@ import { consumeRateLimit, retryAfterSeconds } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { idempotencyKeyIsValid } from "@/lib/offline/payload";
 import { normalizeOfflineRequest } from "@/lib/offline/request-payload";
+import { resolveWriteBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
 
 /**
  * POST /api/offline/sync-request
@@ -158,9 +159,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Client-supplied branch ids are ignored. Branch comes from the
+    // authenticated identity's server-side scope, and a remittance must match
+    // the collector's own branch.
+    const branchId = await resolveWriteBranch(ctx);
+    if (branchId && !(await assertBranchAccess(ctx, branchId, "write"))) {
+      return NextResponse.json(
+        { success: false, error: "No active branch is authorised for this request" },
+        { status: 403 }
+      );
+    }
+    if (!branchId && !(await isBranchlessTenant(ctx))) {
+      return NextResponse.json(
+        { success: false, error: "No active branch is authorised for this request" },
+        { status: 403 }
+      );
+    }
+    if (normalized.request.kind === "remittance") {
+      const collector = await db.collector.findFirst({
+        where: { id: normalized.request.subjectId, tenantId: ctx.tenantId },
+        select: { branchId: true },
+      });
+      if ((collector?.branchId ?? null) !== branchId) {
+        return NextResponse.json(
+          { success: false, error: "Collector branch does not match the authorised branch" },
+          { status: 403 }
+        );
+      }
+    }
+
     const created = await db.offlineActionRequest.create({
       data: {
         tenantId: ctx.tenantId,
+        branchId,
         kind: normalized.request.kind,
         payloadJson: JSON.stringify(normalized.request),
         status: "pending",
@@ -174,6 +205,7 @@ export async function POST(request: NextRequest) {
     await createAuditLog({
       userId: ctx.userId,
       tenantId: ctx.tenantId,
+      branchId,
       action: "offline.request_captured",
       entityType: "offlineActionRequest",
       entityId: created.id,

@@ -6,6 +6,8 @@ interface AuditParams {
   /** Owning tenant — stamp every tenant-scoped audit row so tenant-scoped
    *  audit lists (where tenantId is the filter) can see it. */
   tenantId?: string | null;
+  /** Branch responsible for a branch-scoped action; null for company-wide events. */
+  branchId?: string | null;
   action: string;
   entityType: string;
   entityId?: string;
@@ -144,6 +146,7 @@ async function resolveAuditActor(
 export async function createAuditLog({
   userId,
   tenantId: explicitTenantId,
+  branchId,
   action,
   entityType,
   entityId,
@@ -158,6 +161,7 @@ export async function createAuditLog({
         data: {
           userId,
           tenantId: tenantId ?? undefined,
+          branchId: branchId ?? undefined,
           ...actor,
           action,
           entityType,
@@ -187,6 +191,7 @@ export async function createAuditLogTx(
   {
     userId,
     tenantId,
+    branchId,
     action,
     entityType,
     entityId,

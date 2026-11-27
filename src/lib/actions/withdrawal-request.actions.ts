@@ -7,6 +7,7 @@ import { createAuditLogTx } from "@/lib/audit";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { RATE_LIMITS } from "@/lib/security/config";
 import { processWithdrawal } from "@/lib/actions/susu-withdrawal.actions";
+import { resolveBranchScope, resolveCustomerRequestBranch, assertBranchAccess, isBranchlessTenant } from "@/lib/branch";
 import {
   OPEN_WITHDRAWAL_REQUEST_STATUSES,
   cycleAvailablePesewa,
@@ -205,10 +206,18 @@ export async function requestWithdrawal(input: {
   }
 
   const reference = `WRQ-${randomBytes(6).toString("hex").toUpperCase()}`;
+  const branchId = await resolveCustomerRequestBranch(ctx, account.id);
+  if (!branchId && !(await isBranchlessTenant(ctx))) {
+    return {
+      success: false,
+      error: "Your savings branch cannot be determined. Contact the office.",
+    };
+  }
   const created = await db.$transaction(async (tx) => {
     const row = await tx.customerWithdrawalRequest.create({
       data: {
         tenantId: ctx.tenantId,
+        branchId,
         reference,
         customerId: ctx.userId,
         accountId: account.id,
@@ -223,6 +232,7 @@ export async function requestWithdrawal(input: {
     await createAuditLogTx(tx, {
       userId: ctx.userId,
       tenantId: ctx.tenantId,
+      branchId,
       action: "customer.withdrawal_requested",
       entityType: "customerWithdrawalRequest",
       entityId: row.id,
@@ -293,10 +303,12 @@ export async function getWithdrawalRequests(params?: {
   status?: WithdrawalRequestStatus | "open" | "all";
 }): Promise<WithdrawalRequestResponse> {
   const ctx = await requireTenantAdminSusu();
+  const scope = await resolveBranchScope(ctx);
   const status = params?.status ?? "open";
   const rows = await db.customerWithdrawalRequest.findMany({
     where: {
       tenantId: ctx.tenantId,
+      ...(scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {}),
       ...(status === "all"
         ? {}
         : status === "open"
@@ -342,6 +354,7 @@ export async function approveWithdrawalRequest(input: {
       accountId: true,
       amountPesewa: true,
       customerId: true,
+      branchId: true,
     },
   });
   if (!request) return { success: false, error: "That request was not found." };
@@ -352,12 +365,19 @@ export async function approveWithdrawalRequest(input: {
     };
   }
 
+  if (
+    request.branchId &&
+    !(await assertBranchAccess(ctx, request.branchId, "write"))
+  ) {
+    return { success: false, error: "This request belongs to a branch outside your scope" };
+  }
   const result = await processWithdrawal({
     accountId: request.accountId,
     requestedAmount: request.amountPesewa / 100,
     notes: `Customer request ${request.reference}`,
     idempotencyKey: request.reference,
     stepUpToken: input.stepUpToken,
+    branchId: request.branchId ?? undefined,
   });
   if (!result.success) {
     // A refusal from the domain action is the authoritative answer; the request

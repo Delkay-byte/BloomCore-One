@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { requireTenantAdmin } from "@/lib/tenant";
+import { isCompanyWideAdmin } from "@/lib/branch";
 import { evaluateZeliAccess, getZeliEntitlement } from "@/lib/zeli/entitlements";
 import { getZeliAvailability } from "@/lib/zeli/availability";
 import AdminWorkspaceShell from "@/components/AdminWorkspaceShell";
@@ -16,6 +18,10 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const ctx = await requireTenantAdmin();
+  // A branch manager holds an admin-role account for Susu scoping only. The
+  // company-wide workspace (billing, settings, platform-wide data) is closed
+  // to them; they work through /susu/admin with branch scope enforced.
+  if (!(await isCompanyWideAdmin(ctx))) redirect("/susu/admin/branches");
   const [entitlement, availability] = await Promise.all([
     getZeliEntitlement(ctx.tenantId),
     getZeliAvailability(),

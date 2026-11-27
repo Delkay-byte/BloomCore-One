@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu } from "@/lib/tenant";
+import { resolveBranchScope } from "@/lib/branch";
 
 export interface HistoryTransaction {
   id: string;
@@ -74,6 +75,8 @@ export async function getFinancialHistory(params?: {
 }) {
   const ctx = await requireTenantAdminSusu();
   const tenantId = ctx.tenantId;
+  const scope = await resolveBranchScope(ctx);
+  const branchFilter = scope.kind === "limited" ? { branchId: { in: scope.branchIds } } : {};
 
   const page = params?.page || 1;
   const limit = params?.limit || 50;
@@ -92,6 +95,7 @@ export async function getFinancialHistory(params?: {
   if (!type || type === "contributions") {
     const contribWhere: Record<string, unknown> = {
       tenantId,
+      ...branchFilter,
       collectionDate: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.channel) contribWhere.channel = params.channel;
@@ -166,6 +170,7 @@ export async function getFinancialHistory(params?: {
   if (!type || type === "withdrawals") {
     const withdrawalWhere: Record<string, unknown> = {
       tenantId,
+      ...branchFilter,
       createdAt: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.customerId) {
@@ -218,6 +223,7 @@ export async function getFinancialHistory(params?: {
   if (!type || type === "remittances") {
     const remitWhere: Record<string, unknown> = {
       tenantId,
+      ...branchFilter,
       createdAt: { gte: dateRange.gte, lte: dateRange.lte },
     };
     if (params?.collectorId) remitWhere.collectorId = params.collectorId;
