@@ -1035,6 +1035,7 @@ model Contribution {
   recordedBy  User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
   receivedBy  User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
   allocations ContributionAllocation[]
+  remittanceLinks RemittanceContribution[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1210,14 +1211,46 @@ model CollectorRemittance {
   /// Branch responsible at creation. Never rewritten by later transfers.
   branchId       String?
   collectorId    String
-  expectedAmount Decimal // Sum of recorded collections
-  remittedAmount Decimal // Amount physically brought to office
-  variance       Decimal // expected - remitted
-  status         String    @default("pending") // pending | reconciled | discrepancy
-  recordedById   String // Admin who recorded
-  referenceId    String    @unique // Server-issued reference shown in reports
-  // SEC-06: client idempotency key scoped to the tenant. Retries with the same
-  // key return the original row; reuse with different parameters is rejected.
+  expectedAmount Decimal
+  remittedAmount Decimal
+  variance       Decimal
+  status         String    @default("draft")
+
+  method                 String    @default("cash")
+  provider               String?
+  transactionReference   String?
+  transactionAt          DateTime?
+  evidenceRef            String?
+  declarationNote        String?
+  declaredById           String?
+  submittedAt            DateTime?
+  declaredAmount         Decimal?
+
+  handoverAmount         Decimal?
+  handoverAt             DateTime?
+  receiverId             String?
+  receivingBranchId      String?
+  custodyConfirmedAt     DateTime?
+  custodyConfirmedById   String?
+
+  receivedAmount         Decimal?
+  receivedAt             DateTime?
+  receivedById           String?
+  receiptNote            String?
+  receiptEvidenceRef     String?
+
+  verifiedAmount         Decimal?
+  verifiedAt             DateTime?
+  verifiedById           String?
+  verificationNote       String?
+  verificationEvidenceRef String?
+
+  outstandingAmount      Decimal   @default(0)
+  disputedAmount         Decimal   @default(0)
+  reconciliationStatus   String    @default("pending")
+
+  recordedById   String
+  referenceId    String    @unique
   idempotencyKey String?
   requestHash    String?
   notes          String?
@@ -1225,8 +1258,11 @@ model CollectorRemittance {
   reversedById   String?
   reversalReason String?
   createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  collector Collector @relation(fields: [collectorId], references: [id])
+  collector      Collector @relation(fields: [collectorId], references: [id])
+  contributions  RemittanceContribution[]
+  discrepancies  RemittanceDiscrepancy[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1235,8 +1271,9 @@ model CollectorRemittance {
   @@index([status])
   @@index([createdAt])
   @@index([referenceId])
-  @@index([tenantId])
   @@index([branchId])
+  @@index([method])
+  @@index([receivingBranchId])
 }
 
 /// Append-only history of collector/customer assignments, transfers and
@@ -1269,6 +1306,54 @@ model CollectorAssignmentEvent {
   @@index([collectorId, createdAt])
   @@index([actorId, createdAt])
 }
+
+model RemittanceContribution {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  remittanceId   String
+  contributionId String   @unique
+  amount         Decimal
+  createdAt      DateTime @default(now())
+
+  remittance   CollectorRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  contribution Contribution        @relation(fields: [contributionId], references: [id])
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([remittanceId])
+  @@index([contributionId])
+  @@index([tenantId])
+}
+
+model RemittanceDiscrepancy {
+  id                String    @id @default(cuid())
+  tenantId          String?
+  remittanceId      String
+  type              String
+  expectedAmount    Decimal
+  declaredAmount    Decimal
+  receivedAmount    Decimal?
+  verifiedAmount    Decimal?
+  variance          Decimal
+  reason            String
+  status            String    @default("open")
+  responsibleParty  String?
+  evidenceRef       String?
+  resolutionActorId String?
+  resolutionAt      DateTime?
+  resolutionNotes   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  remittance CollectorRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+
+  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([remittanceId])
+  @@index([status])
+  @@index([tenantId])
+}
+
 
 /// Immutable snapshot of a daily account before an administrative correction.
 /// The live DailyAccount row carries the corrected figures; this table preserves
@@ -2032,6 +2117,8 @@ model BusinessTenant {
   collectorCustomerAssignments CollectorCustomerAssignment[]
   collectorRemittances         CollectorRemittance[]
   collectorAssignmentEvents    CollectorAssignmentEvent[]
+  remittanceContributions      RemittanceContribution[]
+  remittanceDiscrepancies      RemittanceDiscrepancy[]
   passwordResetTokens          PasswordResetToken[]
   deviceEnrollments            DeviceEnrollment[]
   offlineTransactions          OfflineTransaction[]
