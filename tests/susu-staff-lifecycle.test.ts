@@ -344,3 +344,40 @@ describe("reactivation and role changes", () => {
     expect(sessions.every((session) => session.revokedAt !== null)).toBe(true);
   });
 });
+
+describe("branch-limited administrators", () => {
+  it("cannot read or mutate the tenant staff directory", async () => {
+    const limited = await makeStaff(tenant.id, "admin", "Bisi Branch Admin", "bisi@lifecycle.test");
+    await prisma.branchMembership.create({
+      data: {
+        tenantId: tenant.id,
+        userId: limited.id,
+        locationId: branch.id,
+        role: "branch_manager",
+        status: "active",
+      },
+    });
+    await setAdminSession(limited);
+
+    await expect(getStaffLifecycleOverview()).rejects.toThrow(/company-wide/i);
+
+    const denial = await offboardStaff({
+      userId: worker.id,
+      reason: "Branch manager tried to offboard another branch",
+      stepUpToken: await grant(limited.id, "staff.lifecycle", "user", worker.id),
+    });
+    expect(denial.success).toBe(false);
+    expect(denial.error).toMatch(/company-wide/i);
+
+    const roleDenial = await changeStaffRole({
+      userId: worker.id,
+      role: "collector",
+      stepUpToken: await grant(limited.id, "staff.assignment", "user", worker.id),
+    });
+    expect(roleDenial.success).toBe(false);
+    expect(roleDenial.error).toMatch(/company-wide/i);
+
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: worker.id } })).status).toBe("active");
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: worker.id } })).role).toBe("worker");
+  });
+});

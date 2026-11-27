@@ -432,12 +432,31 @@ function requireReason(value: unknown, min: number): string | null {
 }
 
 /**
+ * Staff lifecycle is a company-wide power: a branch-limited administrator can
+ * neither see the tenant directory nor move a person between branches. Align
+ * with the branch-administration rule ("company-wide access") instead of
+ * letting a single branch's manager offboard a colleague elsewhere.
+ */
+async function companyWideStaffDenied(
+  ctx: TenantContext
+): Promise<StaffLifecycleResult | null> {
+  if (await isCompanyWideAdmin(ctx)) return null;
+  return {
+    success: false,
+    error: "Staff administration is limited to company-wide administrators.",
+  };
+}
+
+/**
  * The staff lifecycle list: one row per person with their branch access,
  * active sessions and the work that would block an offboarding. Read-only.
  */
 export async function getStaffLifecycleOverview(): Promise<StaffLifecycleOverview> {
   const ctx = await requireTenantAdminSusu();
   const companyWide = await isCompanyWideAdmin(ctx);
+  if (!companyWide) {
+    throw new Error("Staff administration requires company-wide access.");
+  }
 
   return db.$transaction(async (tx) => {
     const users = await loadStaffUsers(tx, ctx.tenantId);
@@ -503,6 +522,9 @@ export async function getStaffOffboardingReadiness(
   userId: string
 ): Promise<StaffOffboardingReadiness> {
   const ctx = await requireTenantAdminSusu();
+  if (!(await isCompanyWideAdmin(ctx))) {
+    throw new Error("Staff administration requires company-wide access.");
+  }
   const id = String(userId ?? "");
   return db.$transaction(async (tx) => {
     const user = await tx.user.findFirst({
@@ -568,6 +590,8 @@ export async function offboardStaff(params: {
   stepUpToken?: string;
 }): Promise<StaffLifecycleResult> {
   const ctx = await requireTenantAdminSusu();
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   const session = await getAdminSession();
   const userId = String(params?.userId ?? "");
   const reason = requireReason(params?.reason, 10);
@@ -719,6 +743,8 @@ export async function reactivateStaff(params: {
   stepUpToken?: string;
 }): Promise<StaffLifecycleResult> {
   const ctx = await requireTenantAdminSusu();
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   const session = await getAdminSession();
   const userId = String(params?.userId ?? "");
   const reason = requireReason(params?.reason, 5);
@@ -823,6 +849,8 @@ export async function changeStaffRole(params: {
   const session = await getAdminSession();
   const userId = String(params?.userId ?? "");
   const role = String(params?.role ?? "");
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   if (!isAssignableRole(role)) {
     return { success: false, error: "Choose the worker or collector role. Administrator accounts are provisioned by platform support." };
   }
@@ -941,6 +969,8 @@ export async function assignStaffBranch(params: {
   const userId = String(params?.userId ?? "");
   const locationId = String(params?.locationId ?? "");
   const role = String(params?.role ?? "");
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   if (!isBranchRole(role)) return { success: false, error: "Choose the branch manager or finance role." };
   if (!userId || !locationId) return { success: false, error: "Choose a staff member and a branch." };
   if (userId === ctx.userId) {
@@ -1035,6 +1065,8 @@ export async function revokeStaffBranchMembership(params: {
   const session = await getAdminSession();
   const membershipId = String(params?.membershipId ?? "");
   const reason = requireReason(params?.reason, 5);
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   if (!membershipId) return { success: false, error: "Choose a branch membership to revoke." };
   if (!reason) return { success: false, error: "Record a reason of at least 5 characters." };
 
@@ -1110,6 +1142,8 @@ export async function revokeStaffSessions(params: {
   const session = await getAdminSession();
   const userId = String(params?.userId ?? "");
   const reason = requireReason(params?.reason, 5);
+  const denied = await companyWideStaffDenied(ctx);
+  if (denied) return denied;
   if (!userId) return { success: false, error: "Choose a staff member." };
   if (!reason) return { success: false, error: "Record a reason of at least 5 characters." };
 
@@ -1165,6 +1199,7 @@ export async function revokeStaffSessions(params: {
 /** Small read used by the staff page to offer a branch chooser per person. */
 export async function getStaffBranchOptions(): Promise<{ id: string; name: string }[]> {
   const ctx: TenantContext = await requireTenantAdminSusu();
+  if (!(await isCompanyWideAdmin(ctx))) return [];
   return db.location.findMany({
     where: { tenantId: ctx.tenantId, status: "active" },
     orderBy: { name: "asc" },

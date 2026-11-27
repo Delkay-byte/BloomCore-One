@@ -29,26 +29,15 @@ import { repoRoot } from "./test-database-paths.cjs";
 
 const base = assertDisposablePostgresTarget(process.env.PG_DATABASE_URL);
 
-/** Migrations applied before the cut-off in the upgrade rehearsal. */
-const CUT_OFF_MIGRATIONS = new Set([
-  "20261205_association_foundation",
-  "20261206_paystack_checkout_channel",
-  "20261207_customer_messaging",
-  "20261208_zeli_conversation_title_source",
-  "20261209_phase1_reconciliation_foundation",
-  "20261210_employee_accountability",
-  "20261211_offline_action_requests",
-  "20261212_tenant_messaging_config",
-  "20261213_portal_withdrawals_evidence",
-  "20261214_association_governance",
-  "20261215_training_certification",
-  "20261216_sponsored_subscriptions",
-  "20261217_anomaly_investigation",
-  "20261218_ai_investigation_drafts",
-  "20261219_ai_investigation_package",
-  "20261220_offline_momo_drafts",
-  "20261221_shared_risk_intelligence",
-]);
+/**
+ * The upgrade rehearsal treats every migration before this one as the
+ * already-deployed schema. It is a *prefix* of the chain, not an arbitrary
+ * set: later migrations legitimately depend on the tables created by earlier
+ * ones (for example 20261222 alters RiskIntelligenceConsent, created by
+ * 20261221), so applying "everything except a list" is not a valid database
+ * state and must not be used as the upgrade fixture.
+ */
+const CUT_OFF_MIGRATION = "20261222_risk_intelligence_governance_safeguards";
 
 const MIGRATIONS_DIR = path.join(repoRoot, "prisma", "migrations");
 // Resolve the Windows npx shim once so arguments containing spaces (the repo
@@ -118,15 +107,18 @@ async function dropDatabase(name) {
   });
 }
 
-/** Copy the migration chain into a temp directory, optionally truncated. */
-function stageMigrations({ excludeCutOff = false } = {}) {
+/** Copy the migration chain into a temp directory, optionally up to the cut-off. */
+function stageMigrations({ upToCutOff = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "maacash-migrations-"));
-  for (const entry of fs.readdirSync(MIGRATIONS_DIR, { withFileTypes: true })) {
+  const entries = fs
+    .readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
     if (!entry.isDirectory()) {
       fs.copyFileSync(path.join(MIGRATIONS_DIR, entry.name), path.join(dir, entry.name));
       continue;
     }
-    if (excludeCutOff && CUT_OFF_MIGRATIONS.has(entry.name)) continue;
+    if (upToCutOff && entry.name >= CUT_OFF_MIGRATION) continue;
     fs.cpSync(path.join(MIGRATIONS_DIR, entry.name), path.join(dir, entry.name), { recursive: true });
   }
   return dir;
@@ -248,7 +240,7 @@ async function upgradeCheck() {
   const name = `${base.database}_upgrade`.slice(0, 63);
   const url = databaseUrl(name);
   await recreateDatabase(name);
-  const staged = stageMigrations({ excludeCutOff: true });
+  const staged = stageMigrations({ upToCutOff: true });
   try {
     deployMigrations(url, staged);
 
