@@ -16,13 +16,30 @@ const prisma = createPrismaClient(target.url);
 export { prisma };
 
 export async function cleanDatabase() {
+  await prisma.reconciliationAdjustment.deleteMany();
+  await prisma.reconciliationLine.deleteMany();
+  await prisma.dailyCollectorClosing.deleteMany();
+  await prisma.reconciliationExceptionEvent.deleteMany();
+  await prisma.reconciliationExceptionLink.deleteMany();
+  await prisma.reconciliationExceptionCase.deleteMany();
+  await prisma.susuReconciliation.deleteMany();
+  await prisma.customerImportRowEvent.deleteMany();
+  await prisma.customerImportRow.deleteMany();
+  await prisma.customerImportBatch.deleteMany();
   await prisma.contributionAllocation.deleteMany();
+  await prisma.remittanceDiscrepancy.deleteMany();
+  await prisma.remittanceContribution.deleteMany();
   await prisma.contribution.deleteMany();
   await prisma.withdrawal.deleteMany();
   await prisma.commission.deleteMany();
   await prisma.cardFee.deleteMany();
   await prisma.collectorCustomerAssignment.deleteMany();
   await prisma.collectorRemittance.deleteMany();
+  // Phase 4 children and policy rows must be removed before their parents.
+  await prisma.withdrawalApproval.deleteMany();
+  await prisma.withdrawalPolicyHistory.deleteMany();
+  await prisma.withdrawalPolicy.deleteMany();
+  await prisma.stepUpGrant.deleteMany();
   await prisma.customerWithdrawalRequest.deleteMany();
   await prisma.evidenceAttachment.deleteMany();
   await prisma.susuCycle.deleteMany();

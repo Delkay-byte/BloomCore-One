@@ -430,11 +430,20 @@ export default function SusuCustomerDetailPage() {
               {customer.address && ` &bull; ${customer.address}`}
             </p>
           </div>
-          <span
-            className={`badge ${customer.status === "active" ? "badge-green" : "badge-red"}`}
-          >
-            {customer.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/susu/admin/onboarding"
+              className="btn btn-secondary btn-sm"
+              title="Search for this person, then open a second savings account for them"
+            >
+              Open another account
+            </Link>
+            <span
+              className={`badge ${customer.status === "active" ? "badge-green" : "badge-red"}`}
+            >
+              {customer.status}
+            </span>
+          </div>
         </div>
       </div>
 

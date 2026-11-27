@@ -17,6 +17,9 @@ export const WITHDRAWAL_REQUEST_STATUSES = [
   "rejected",
   "cancelled",
   "needs_review",
+  "awaiting_payment",
+  "disputed",
+  "reversed",
 ] as const;
 
 export type WithdrawalRequestStatus = (typeof WITHDRAWAL_REQUEST_STATUSES)[number];
@@ -26,6 +29,7 @@ export const OPEN_WITHDRAWAL_REQUEST_STATUSES: WithdrawalRequestStatus[] = [
   "requested",
   "approved",
   "needs_review",
+  "awaiting_payment",
 ];
 
 export const MIN_REASON_LENGTH = 10;
@@ -146,6 +150,9 @@ export const WITHDRAWAL_STATUS_LABELS: Record<WithdrawalRequestStatus, string> =
   rejected: "Declined",
   cancelled: "Cancelled by you",
   needs_review: "Needs a person to review",
+  awaiting_payment: "Approved, awaiting payment",
+  disputed: "Disputed",
+  reversed: "Reversed",
 };
 
 /** A request the customer may still cancel themselves. */
