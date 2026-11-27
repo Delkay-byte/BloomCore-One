@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireTenantAdminSusu, requireTenantCustomer } from "@/lib/tenant";
 import { createAuditLogTx } from "@/lib/audit";
+import { resolveBranchScope } from "@/lib/branch";
 import {
   EVIDENCE_MAX_BYTES,
   isEvidenceSubjectType,
@@ -102,6 +103,24 @@ async function authoriseSubject(
     }
   }
   const adminCtx = await requireTenantAdminSusu();
+  if (subjectType === "withdrawalRequest") {
+    const request = await db.customerWithdrawalRequest.findFirst({
+      where: { id: subjectId, tenantId: adminCtx.tenantId },
+      select: { branchId: true },
+    });
+    if (!request) {
+      return { tenantId: adminCtx.tenantId, allowed: false, reason: "That request was not found.", actor: "admin" };
+    }
+    const scope = await resolveBranchScope(adminCtx);
+    if (
+      scope.kind === "limited" &&
+      request.branchId &&
+      !scope.branchIds.includes(request.branchId)
+    ) {
+      return { tenantId: adminCtx.tenantId, allowed: false, reason: "That request is outside your branch.", actor: "admin" };
+    }
+    return { tenantId: adminCtx.tenantId, allowed: true, actor: "admin" };
+  }
   if (subjectType === "customerDispute") {
     const dispute = await db.customerDispute.findFirst({
       where: { id: subjectId, tenantId: adminCtx.tenantId },

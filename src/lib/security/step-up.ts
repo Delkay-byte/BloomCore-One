@@ -25,6 +25,9 @@ export type StepUpSubjectType = "user" | "platform";
 
 export const STEP_UP_PURPOSES = [
   "susu.withdrawal",
+  // Phase 4: staged withdrawal approval and payment each need their own grant.
+  "withdrawal.approve",
+  "withdrawal.pay",
   "susu.remittance.reverse",
   "susu.contribution.reverse",
   "susu.withdrawal.reverse",

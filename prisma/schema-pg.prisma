@@ -919,9 +919,24 @@ model CustomerWithdrawalRequest {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  tenant   BusinessTenant? @relation(fields: [tenantId], references: [id])
-  customer Customer        @relation(fields: [customerId], references: [id])
-  account  SusuAccount     @relation(fields: [accountId], references: [id])
+  tenant               BusinessTenant?      @relation(fields: [tenantId], references: [id])
+  customer             Customer             @relation(fields: [customerId], references: [id])
+  account              SusuAccount          @relation(fields: [accountId], references: [id])
+  highValue            Boolean              @default(false)
+  requiredApprovals    Int                  @default(0)
+  policyVersion        Int?
+  approvedById         String?
+  approvedAt           DateTime?
+  paymentInitiatedById String?
+  paymentInitiatedAt   DateTime?
+  paymentMethod        String?
+  paymentReference     String?
+  paidAt               DateTime?
+  evidenceRef          String?
+  reasonCode           String?
+  acknowledgedAt       DateTime?
+  acknowledgedById     String?
+  approvals            WithdrawalApproval[]
 
   @@unique([tenantId, reference])
   @@index([customerId, status])
@@ -1029,12 +1044,12 @@ model Contribution {
   reversedAt         DateTime?
   reversalOfId       String?   @unique // Original record when this row is a reversal
 
-  account     SusuAccount              @relation(fields: [accountId], references: [id])
-  cycle       SusuCycle                @relation(fields: [cycleId], references: [id])
-  collector   Collector?               @relation(fields: [collectorId], references: [id])
-  recordedBy  User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
-  receivedBy  User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
-  allocations ContributionAllocation[]
+  account         SusuAccount              @relation(fields: [accountId], references: [id])
+  cycle           SusuCycle                @relation(fields: [cycleId], references: [id])
+  collector       Collector?               @relation(fields: [collectorId], references: [id])
+  recordedBy      User                     @relation("RecordedContributions", fields: [recordedById], references: [id])
+  receivedBy      User?                    @relation("ReceivedContributions", fields: [receivedById], references: [id])
+  allocations     ContributionAllocation[]
   remittanceLinks RemittanceContribution[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -1089,7 +1104,16 @@ model Withdrawal {
   account SusuAccount @relation(fields: [accountId], references: [id])
   cycle   SusuCycle   @relation(fields: [cycleId], references: [id])
 
-  tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
+  tenant           BusinessTenant? @relation(fields: [tenantId], references: [id])
+  requestId        String?
+  paymentMethod    String?
+  paymentReference String?
+  paidById         String?
+  paidAt           DateTime?
+  evidenceRef      String?
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  reasonCode       String?
 
   @@index([accountId])
   @@index([cycleId])
@@ -1138,27 +1162,27 @@ model CardFee {
 }
 
 model Collector {
-  id        String   @id @default(cuid())
-  tenantId  String?
+  id                String    @id @default(cuid())
+  tenantId          String?
   /// Branch responsible at creation. Never rewritten by later transfers.
-  branchId  String?
-  userId    String   @unique
+  branchId          String?
+  userId            String    @unique
   /// Lifecycle: active | inactive | suspended. Only `active` may perform new
   /// collection operations. `suspended` is a control action and `inactive` an
   /// employment state; the distinction is preserved, and neither deletes the
   /// collector or rewrites their historical financial attribution.
-  status    String   @default("active")
+  status            String    @default("active")
   /// Why the last lifecycle change happened. Written only by an administrator.
   statusReason      String?
   statusChangedAt   DateTime?
   statusChangedById String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user          User                          @relation(fields: [userId], references: [id])
-  assignments   CollectorCustomerAssignment[]
-  contributions Contribution[]
-  remittances   CollectorRemittance[]
+  user             User                          @relation(fields: [userId], references: [id])
+  assignments      CollectorCustomerAssignment[]
+  contributions    Contribution[]
+  remittances      CollectorRemittance[]
   assignmentEvents CollectorAssignmentEvent[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -1170,25 +1194,25 @@ model Collector {
 }
 
 model CollectorCustomerAssignment {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  collectorId  String
-  customerId   String
-  accountId    String
-  assignedAt   DateTime  @default(now())
-  unassignedAt DateTime?
-  active       Boolean   @default(true)
+  id               String    @id @default(cuid())
+  tenantId         String?
+  collectorId      String
+  customerId       String
+  accountId        String
+  assignedAt       DateTime  @default(now())
+  unassignedAt     DateTime?
+  active           Boolean   @default(true)
   /// Mirrors `accountId` while this assignment is active and is NULL once it is
   /// released. The unique index makes "at most one active collector per account"
   /// a database invariant on both SQLite and PostgreSQL (NULL rows never
   /// collide), instead of a pre-check that two concurrent requests can both pass.
-  activeAccountKey String? @unique
+  activeAccountKey String?   @unique
   /// Administrator who created the current assignment/transfer.
-  assignedById String?
+  assignedById     String?
 
-  collector Collector   @relation(fields: [collectorId], references: [id])
-  customer  Customer    @relation(fields: [customerId], references: [id])
-  account   SusuAccount @relation(fields: [accountId], references: [id])
+  collector Collector                  @relation(fields: [collectorId], references: [id])
+  customer  Customer                   @relation(fields: [customerId], references: [id])
+  account   SusuAccount                @relation(fields: [accountId], references: [id])
   events    CollectorAssignmentEvent[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
@@ -1206,7 +1230,7 @@ model CollectorCustomerAssignment {
 }
 
 model CollectorRemittance {
-  id             String    @id @default(cuid())
+  id             String  @id @default(cuid())
   tenantId       String?
   /// Branch responsible at creation. Never rewritten by later transfers.
   branchId       String?
@@ -1214,40 +1238,40 @@ model CollectorRemittance {
   expectedAmount Decimal
   remittedAmount Decimal
   variance       Decimal
-  status         String    @default("draft")
+  status         String  @default("draft")
 
-  method                 String    @default("cash")
-  provider               String?
-  transactionReference   String?
-  transactionAt          DateTime?
-  evidenceRef            String?
-  declarationNote        String?
-  declaredById           String?
-  submittedAt            DateTime?
-  declaredAmount         Decimal?
+  method               String    @default("cash")
+  provider             String?
+  transactionReference String?
+  transactionAt        DateTime?
+  evidenceRef          String?
+  declarationNote      String?
+  declaredById         String?
+  submittedAt          DateTime?
+  declaredAmount       Decimal?
 
-  handoverAmount         Decimal?
-  handoverAt             DateTime?
-  receiverId             String?
-  receivingBranchId      String?
-  custodyConfirmedAt     DateTime?
-  custodyConfirmedById   String?
+  handoverAmount       Decimal?
+  handoverAt           DateTime?
+  receiverId           String?
+  receivingBranchId    String?
+  custodyConfirmedAt   DateTime?
+  custodyConfirmedById String?
 
-  receivedAmount         Decimal?
-  receivedAt             DateTime?
-  receivedById           String?
-  receiptNote            String?
-  receiptEvidenceRef     String?
+  receivedAmount     Decimal?
+  receivedAt         DateTime?
+  receivedById       String?
+  receiptNote        String?
+  receiptEvidenceRef String?
 
-  verifiedAmount         Decimal?
-  verifiedAt             DateTime?
-  verifiedById           String?
-  verificationNote       String?
+  verifiedAmount          Decimal?
+  verifiedAt              DateTime?
+  verifiedById            String?
+  verificationNote        String?
   verificationEvidenceRef String?
 
-  outstandingAmount      Decimal   @default(0)
-  disputedAmount         Decimal   @default(0)
-  reconciliationStatus   String    @default("pending")
+  outstandingAmount    Decimal @default(0)
+  disputedAmount       Decimal @default(0)
+  reconciliationStatus String  @default("pending")
 
   recordedById   String
   referenceId    String    @unique
@@ -1260,9 +1284,9 @@ model CollectorRemittance {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  collector      Collector @relation(fields: [collectorId], references: [id])
-  contributions  RemittanceContribution[]
-  discrepancies  RemittanceDiscrepancy[]
+  collector     Collector                @relation(fields: [collectorId], references: [id])
+  contributions RemittanceContribution[]
+  discrepancies RemittanceDiscrepancy[]
 
   tenant BusinessTenant? @relation(fields: [tenantId], references: [id])
 
@@ -1282,20 +1306,20 @@ model CollectorRemittance {
 /// new collector, actor, timestamp and reason survive even when the assignment
 /// row itself is deactivated or reactivated.
 model CollectorAssignmentEvent {
-  id           String   @id @default(cuid())
-  tenantId     String?
-  assignmentId String
-  customerId   String
-  accountId    String
+  id                  String   @id @default(cuid())
+  tenantId            String?
+  assignmentId        String
+  customerId          String
+  accountId           String
   /// Collector the assignment belongs to after the event.
-  collectorId  String?
+  collectorId         String?
   previousCollectorId String?
   newCollectorId      String?
   /// assigned | reactivated | transferred | unassigned
-  kind         String
-  reason       String?
-  actorId      String
-  createdAt    DateTime @default(now())
+  kind                String
+  reason              String?
+  actorId             String
+  createdAt           DateTime @default(now())
 
   assignment CollectorCustomerAssignment @relation(fields: [assignmentId], references: [id])
   collector  Collector?                  @relation(fields: [collectorId], references: [id])
@@ -1362,7 +1386,6 @@ model RemittanceDiscrepancy {
   @@index([status])
   @@index([tenantId])
 }
-
 
 /// Immutable snapshot of a daily account before an administrative correction.
 /// The live DailyAccount row carries the corrected figures; this table preserves
@@ -3207,6 +3230,56 @@ model PlatformApprovalRequest {
 
 // Residual E: maker-checker control for sensitive financial operations.
 // `exceptionUsed` records the approved single-administrator exception.
+model WithdrawalPolicy {
+  id                        String   @id @default(cuid())
+  tenantId                  String   @unique
+  active                    Boolean  @default(true)
+  minAmountPesewa           Int      @default(0)
+  maxAmountPesewa           Int      @default(99999999)
+  highValueThresholdPesewa  Int?
+  highValueRequiresApproval Boolean  @default(false)
+  requiredApprovals         Int      @default(0)
+  separationOfDuties        Boolean  @default(false)
+  requireStepUp             Boolean  @default(true)
+  requirePaymentEvidence    Boolean  @default(false)
+  requiredEvidenceFields    String   @default("[]")
+  note                      String?
+  updatedById               String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([tenantId, active])
+}
+
+model WithdrawalPolicyHistory {
+  id          String   @id @default(cuid())
+  tenantId    String
+  policyId    String
+  snapshot    String
+  changedById String
+  changeNote  String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([policyId])
+}
+
+model WithdrawalApproval {
+  id         String    @id @default(cuid())
+  tenantId   String
+  requestId  String
+  approverId String
+  status     String    @default("approved") // approved | rejected
+  note       String?
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
+
+  request CustomerWithdrawalRequest @relation(fields: [requestId], references: [id])
+
+  @@unique([tenantId, requestId, approverId])
+  @@index([tenantId, requestId, status])
+}
+
 model FinancialApproval {
   id            String    @id @default(cuid())
   tenantId      String

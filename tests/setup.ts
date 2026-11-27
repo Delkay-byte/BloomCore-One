@@ -39,6 +39,12 @@ export async function cleanDatabase() {
     prisma.commission.deleteMany(),
     prisma.cardFee.deleteMany(),
     prisma.collectorRemittance.deleteMany(),
+    // Phase 4: approvals reference withdrawal requests; policy history and
+    // step-up grants must not leak between fixtures.
+    prisma.withdrawalApproval.deleteMany(),
+    prisma.withdrawalPolicyHistory.deleteMany(),
+    prisma.withdrawalPolicy.deleteMany(),
+    prisma.stepUpGrant.deleteMany(),
     prisma.customerWithdrawalRequest.deleteMany(),
     prisma.evidenceAttachment.deleteMany(),
     prisma.susuCycle.deleteMany(),
