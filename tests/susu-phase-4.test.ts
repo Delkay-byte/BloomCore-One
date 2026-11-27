@@ -452,6 +452,26 @@ describe("staged high-value withdrawal", () => {
     expect(await prisma.withdrawal.count()).toBe(1);
   });
 
+  it("denies a branch manager acting outside their branch", async () => {
+    const id = await createHighValueRequest();
+    const branchB = await prisma.location.create({
+      data: { tenantId, name: "Other Branch", code: "P4-OTHER", status: "active" },
+    });
+    await prisma.branchMembership.create({
+      data: {
+        tenantId,
+        userId: adminA.id,
+        locationId: branchB.id,
+        role: "branch_manager",
+        status: "active",
+      },
+    });
+    asAdmin(adminA);
+    const result = await approveWithdrawalRequest({ id, stepUpToken: "any" });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not found/i);
+  });
+
   it("denies a cross-tenant request id", async () => {
     const id = await createHighValueRequest();
     const other = await prisma.businessTenant.create({
