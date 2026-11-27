@@ -40,6 +40,9 @@ export const STEP_UP_PURPOSES = [
   "staff.password_reset",
   "worker.password_reset",
   "collector.password_reset",
+  // Phase 2: collector lifecycle changes (activate / deactivate / suspend /
+  // reactivate). Bound to the collector being changed and the acting admin.
+  "collector.lifecycle",
   "tenant.admin_access_reset",
   "capability.change",
   "platform.mfa_recovery",

@@ -21,6 +21,9 @@ export interface NormalizedContributionPayload {
   channel: ContributionChannel;
   notes: string | null;
   collectorId: string | null;
+  /** Original device capture time, supplied by the client and validated against
+   * server bounds. Stored as evidence only — never used for financial ordering. */
+  capturedAt?: Date | null;
 }
 
 export type PayloadResult =
@@ -37,13 +40,17 @@ export function canonicalContributionPayload(
 ): string {
   // Fixed key order. Optional fields are explicit nulls so `notes: undefined`
   // and an omitted notes field are the same instruction.
-  return JSON.stringify({
+  const record: Record<string, unknown> = {
     accountId: payload.accountId,
     amount: payload.amount,
     channel: payload.channel,
     notes: payload.notes,
     collectorId: payload.collectorId,
-  });
+  };
+  if (payload.capturedAt != null) {
+    record.capturedAt = payload.capturedAt.toISOString();
+  }
+  return JSON.stringify(record);
 }
 
 export function hashCanonicalPayload(canonical: string): string {
@@ -101,12 +108,34 @@ export function normalizeContributionPayload(input: unknown): PayloadResult {
     collectorId = input.collectorId;
   }
 
+  // capturedAt is optional evidence of when the device first recorded the
+  // collection. It is never trusted for financial ordering; the server clamps
+  // it to a sane window and stores it alongside the server posting time.
+  let capturedAt: Date | null = null;
+  if (input.capturedAt !== undefined && input.capturedAt !== null) {
+    const raw = input.capturedAt;
+    if (typeof raw !== "string" && typeof raw !== "number") {
+      return { ok: false, error: "Invalid capture timestamp" };
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      return { ok: false, error: "Invalid capture timestamp" };
+    }
+    const now = new Date();
+    const oldestAllowed = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (parsed > now || parsed < oldestAllowed) {
+      return { ok: false, error: "Capture timestamp is outside the allowed window" };
+    }
+    capturedAt = parsed;
+  }
+
   const payload: NormalizedContributionPayload = {
     accountId,
     amount,
     channel,
     notes,
     collectorId,
+    capturedAt,
   };
   const canonical = canonicalContributionPayload(payload);
 

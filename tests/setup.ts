@@ -28,9 +28,12 @@ export async function cleanDatabase() {
     prisma.contributionAllocation.deleteMany(),
     prisma.contribution.deleteMany(),
     prisma.withdrawal.deleteMany(),
+    // Phase 2: append-only assignment history references assignments, so it must
+    // be cleaned before assignments themselves.
+    prisma.collectorAssignmentEvent.deleteMany(),
+    prisma.collectorCustomerAssignment.deleteMany(),
     prisma.commission.deleteMany(),
     prisma.cardFee.deleteMany(),
-    prisma.collectorCustomerAssignment.deleteMany(),
     prisma.collectorRemittance.deleteMany(),
     prisma.customerWithdrawalRequest.deleteMany(),
     prisma.evidenceAttachment.deleteMany(),
