@@ -83,9 +83,20 @@ export function SponsorshipPanel({ members }: { members: Array<{ id: string; lab
   );
 
   return (
-    <section className="card" style={{ display: "grid", gap: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <div>
+    <section
+      className="card"
+      style={{ display: "grid", gap: 16, contain: "paint" }}
+    >
+      <header
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 240px" }}>
           <h2 className="card-title">Sponsored subscriptions</h2>
           <p className="muted" style={{ margin: 0 }}>
             Who pays for a member&apos;s subscription, and what that money actually covers.
