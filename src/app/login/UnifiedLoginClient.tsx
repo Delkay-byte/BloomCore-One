@@ -297,9 +297,11 @@ export default function UnifiedLoginClient({
               </button>
             ))}
 
-            {/* Business owners go to the canonical administrator sign-in. */}
+            {/* Business owners go to the canonical administrator sign-in.
+                switch=1 is deliberate: it shows the form instead of silently
+                restoring an earlier administrator dashboard from this browser. */}
             <Link
-              href={ADMIN_LOGIN_PATH}
+              href={`${ADMIN_LOGIN_PATH}?switch=1`}
               aria-label={BUSINESS_OWNER_CARD.heading}
               data-testid="login-card-business-owner"
               className="group flex w-full items-center gap-4 rounded-2xl border-2 border-emerald-200 bg-white p-4 text-left shadow-card transition-colors hover:border-emerald-500 hover:bg-emerald-50"

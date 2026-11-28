@@ -1,11 +1,13 @@
 import { db } from "./db";
 import { headers } from "next/headers";
+import { resolveSubscriptionAccess } from "./billing/access";
 import { notFound, redirect } from "next/navigation";
 import {
   getAdminSession,
   getMomoSession,
   getSusuSession,
   getCustomerSession,
+  isSessionCurrent,
   type ModuleName,
 } from "./auth";
 
@@ -205,9 +207,18 @@ export async function getTenantContext(
       role: user.role,
       modules,
     };
-  } catch {
-    // Any unexpected failure is a denial, never a fallback.
-    return null;
+  } catch (error) {
+    // A database outage or unexpected resolver failure is NOT an invalid
+    // session. Returning null here used to send a signed-in administrator to
+    // the login page during a transient failure, which looked like a logout.
+    // Surface a retryable server error instead; callers must not fall back to
+    // unauthenticated data.
+    console.error("tenant_context_lookup_failed", {
+      reason: error instanceof Error ? error.name : "unknown",
+    });
+    throw new TenantContextError(
+      "Unable to verify workspace access right now. Please try again."
+    );
   }
 }
 
@@ -244,6 +255,14 @@ async function resolveCustomerTenant(tenantId: string, customerId: string): Prom
 // Guards — for pages and server actions
 // ---------------------------------------------------------------------------
 
+/** Read the signed module cookie without resolving the tenant chain. */
+async function readModuleSession(module: ModuleName) {
+  if (module === "admin") return getAdminSession();
+  if (module === "momo") return getMomoSession();
+  if (module === "susu") return getSusuSession();
+  return getCustomerSession();
+}
+
 /**
  * Require a tenant context or redirect. Use in server components and actions
  * where a redirect is an acceptable denial.
@@ -274,6 +293,30 @@ export async function requireTenantContext(
     }
     if (isSpeculativePrefetch) notFound();
 
+    // A signed-in person whose tenant is suspended, whose module is not
+    // entitled, or whose role cannot open this workspace is not an expired
+    // login. Keep the session and explain the denial instead of bouncing to
+    // the sign-in form, which looks like a logout and invites retry loops.
+    const session = await readModuleSession(module);
+    if (session && (await isSessionCurrent(session))) {
+      // A suspended or archived business is a workspace-availability problem,
+      // which the login page explains. A live business that simply lacks this
+      // module is a feature denial and keeps its session.
+      const tenant = session.tenantId
+        ? await db.businessTenant.findUnique({
+            where: { id: session.tenantId },
+            select: { status: true },
+          })
+        : null;
+      const businessOpen =
+        tenant?.status === "ACTIVE" || tenant?.status === "PENDING_PAYMENT";
+      if (businessOpen) {
+        redirect(
+          `/unauthorized?reason=${requiredModule ? "feature_unavailable" : "role_denied"}`
+        );
+      }
+    }
+
     // Never clear another tab's session. The server-side record for this tab
     // is either absent, expired or revoked; the login page will establish a
     // fresh one without touching other tabs. Administrators must return to
@@ -292,35 +335,23 @@ export async function requireTenantContext(
 /**
  * Paid-operations gate.
  *
- * A business that has been provisioned but has never completed a verified first
- * payment can open its account, choose a package and pay, but cannot start
- * money operations. A business with an active or grace subscription is never
- * blocked here — including while a renewal checkout is in progress — and a
- * legacy tenant with no subscription rows at all is grandfathered.
+ * A package that is pending, expired, failed, cancelled, refunded or suspended
+ * must block money operations; an active or grace-period package must not. A
+ * legacy tenant with no subscription rows at all is grandfathered, while a
+ * newly provisioned business in PENDING_PAYMENT with no package is not.
+ *
+ * The redirect carries the safe state so Billing & Plan can explain what is
+ * wrong instead of presenting the restriction as a lost session.
  */
 export async function enforcePaidOperations(
   tenantId: string,
   target = "/admin/billing?payment=required"
 ): Promise<void> {
-  const active = await db.zeliSubscription.findFirst({
-    where: {
-      tenantId,
-      status: { in: ["active", "grace_period"] },
-      OR: [{ periodEnd: null }, { periodEnd: { gt: new Date() } }],
-    },
-    select: { id: true },
-  });
-  if (active) return;
+  const access = await resolveSubscriptionAccess(tenantId);
+  if (access.operable) return;
 
-  // A business that has not paid yet, or whose grace period has ended, can
-  // still open billing to settle the balance, but cannot run paid operations.
-  const blockedState = await db.zeliSubscription.findFirst({
-    where: { tenantId, status: { in: ["pending_payment", "pending", "suspended"] } },
-    select: { id: true },
-  });
-  if (blockedState) {
-    redirect(target);
-  }
+  const separator = target.includes("?") ? "&" : "?";
+  redirect(`${target}${separator}state=${encodeURIComponent(access.reason)}`);
 }
 
 /** Require a tenant ADMINISTRATOR context (the business's own admin). */

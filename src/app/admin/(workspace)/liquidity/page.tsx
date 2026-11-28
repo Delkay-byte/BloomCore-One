@@ -6,6 +6,7 @@ import { AlertTriangle, ClipboardCheck, RefreshCw, Save, Send, Vault } from "luc
 import CediAmount from "@/components/CediAmount";
 import LiquidityForecastPanel from "@/components/LiquidityForecastPanel";
 import Notice from "@/components/ui/Notice";
+import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getLiquidityBoard,
   reviewLiquiditySnapshot,
@@ -85,6 +86,7 @@ export default function BranchLiquidityPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
+  const handleRedirect = useRedirectHandler();
 
   // True once the operator has typed something that the server does not have
   // yet. A board refresh that arrives after that must not overwrite their work.
@@ -99,12 +101,17 @@ export default function BranchLiquidityPage() {
       // A response that arrives after the operator started typing describes the
       // state before their work, so it must not overwrite the form.
       if (!edited.current) setDrafts(initialDrafts(next));
-    } catch {
-      setError("The liquidity board could not be loaded. Try again.");
+    } catch (err) {
+      // Billing/role/branch redirects are destinations, not failed loads.
+      handleRedirect(
+        err,
+        setError,
+        "The liquidity board could not be loaded. Check your connection and try again."
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [handleRedirect]);
 
   useEffect(() => {
     void load(businessDate);
@@ -267,7 +274,20 @@ export default function BranchLiquidityPage() {
         </div>
       </header>
 
-      {error && <Notice type="error" message={error}>{error}</Notice>}
+      {error && (
+        <Notice type="error" message={error}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void load(businessDate)}
+              className="btn btn-secondary btn-sm"
+            >
+              Try again
+            </button>
+          </div>
+        </Notice>
+      )}
       {success && <Notice type="success" message={success}>{success}</Notice>}
 
       {board && (

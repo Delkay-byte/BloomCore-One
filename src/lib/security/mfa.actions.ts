@@ -27,6 +27,7 @@ import {
   consumeMfaEnrollmentProof,
 } from "@/lib/security/session-store";
 import { createPasswordChangeChallenge } from "@/lib/security/password-change-challenge";
+import { billingHref, resolveSubscriptionAccess } from "@/lib/billing/access";
 
 /**
  * MFA server actions.
@@ -242,6 +243,17 @@ async function issueSessionFromChallenge(challenge: {
   }
 
   const sessionModule = challenge.module as "admin" | "momo" | "susu";
+  if (user.tenantId) {
+    const tenant = await db.businessTenant.findUnique({
+      where: { id: user.tenantId },
+      select: { status: true },
+    });
+    if (!tenant || (tenant.status !== "ACTIVE" && tenant.status !== "PENDING_PAYMENT")) {
+      throw new Error(
+        "This business workspace is not available. Contact your platform administrator."
+      );
+    }
+  }
   if (user.forcePasswordReset) {
     return {
       kind: "challenge",
@@ -251,10 +263,17 @@ async function issueSessionFromChallenge(challenge: {
     };
   }
   const issued = await issueModuleSession(user.id, sessionModule, true);
+  let redirectTo = dashboardFor(sessionModule);
+  if (sessionModule === "admin" && user.tenantId && !issued.payload.forcePasswordReset) {
+    const access = await resolveSubscriptionAccess(user.tenantId);
+    if (!access.operable && access.billingRequired) {
+      redirectTo = billingHref(access.reason);
+    }
+  }
   return {
     kind: "session",
     token: issued.token,
-    redirectTo: dashboardFor(sessionModule),
+    redirectTo,
   };
 }
 

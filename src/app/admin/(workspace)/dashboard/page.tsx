@@ -86,6 +86,8 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState("");
 
   async function loadStats() {
+    setLoading(true);
+    setError("");
     try {
       const authRes = await fetch("/api/auth/me?module=admin");
       const authUser = authRes.ok ? await authRes.json() : null;
@@ -124,7 +126,7 @@ export default function AdminDashboardPage() {
   if (loading) {
     return (
       <div className="space-y-6" role="status" aria-label="Loading dashboard">
-        <div className="skeleton h-16 w-96 rounded-lg" />
+        <div className="skeleton h-16 w-full max-w-96 rounded-lg" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="skeleton h-44 rounded-xl" />
           <div className="skeleton h-44 rounded-xl" />
@@ -136,7 +138,12 @@ export default function AdminDashboardPage() {
   if (error) {
     return (
       <Notice type="error" message={error}>
-        {error}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" onClick={() => void loadStats()} className="btn btn-secondary btn-sm">
+            Try again
+          </button>
+        </div>
       </Notice>
     );
   }

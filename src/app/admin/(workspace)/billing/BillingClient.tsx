@@ -28,6 +28,7 @@ import {
 import Modal, { ConfirmDialog } from "@/components/ui/Modal";
 import PaymentMethodSelector from "@/components/billing/PaymentMethodSelector";
 import type { HostedCheckoutChannel } from "@/lib/payments/checkout-url";
+import type { SubscriptionAccessReason } from "@/lib/billing/access";
 import {
   navigateCheckoutTab,
   openBlankCheckoutTab,
@@ -36,6 +37,51 @@ import {
 
 type Plan = BillingOverview["availablePlans"][number];
 type BusyAction = "select" | "schedule" | "replace" | "pay" | "status" | "cancel" | null;
+
+/**
+ * Explain the actual package state. "Complete your first payment" is only true
+ * when the business has never paid; an expired or suspended package is a
+ * different situation and must not be described as a new signup.
+ */
+const PAYMENT_REQUIRED_COPY: Partial<
+  Record<SubscriptionAccessReason, { title: string; body: string }>
+> = {
+  pending_payment: {
+    title: "Complete your package payment to start operations.",
+    body:
+      "Your workspace is ready, but daily accounts, contributions and Zeli become available once MaaCash verifies the package payment. Choose a package below.",
+  },
+  expired: {
+    title: "Your package period has ended.",
+    body:
+      "Your records are safe, but money operations are paused. Renew a package below to resume them.",
+  },
+  failed: {
+    title: "Your last package payment did not complete.",
+    body:
+      "Your records are safe. Retry the payment below; operations resume once MaaCash verifies it.",
+  },
+  past_due: {
+    title: "Your package payment is past due.",
+    body:
+      "Your records are safe. Settle the outstanding renewal below to keep operations available.",
+  },
+  suspended: {
+    title: "Your package is suspended.",
+    body:
+      "Your records are safe. Review the package below or contact support; operations resume when the package is restored.",
+  },
+  cancelled: {
+    title: "Your package has ended.",
+    body:
+      "Your records are safe. Choose a package below to resume money operations.",
+  },
+  refunded: {
+    title: "Your package payment was refunded.",
+    body:
+      "Money operations are paused while no paid package is active. Choose a package below to resume.",
+  },
+};
 
 function money(value: number | null, currency = "GHS") {
   if (value == null) return "—";
@@ -76,12 +122,18 @@ const zeliLabel = (plan: Plan) =>
 export default function BillingClient({
   overview,
   paymentRequired = false,
+  accessState,
 }: {
   overview: BillingOverview;
   paymentRequired?: boolean;
+  accessState?: SubscriptionAccessReason;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const paymentCopy = PAYMENT_REQUIRED_COPY[accessState ?? "pending_payment"] ?? {
+    title: "Your package needs attention.",
+    body: "Review the package below to resume money operations. Your records remain safe.",
+  };
 
   const [busy, setBusy] = useState<BusyAction>(null);
   const [reference, setReference] = useState<string | null>(null);
@@ -697,9 +749,8 @@ export default function BillingClient({
 
       {paymentRequired && (
         <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <strong className="font-semibold">Complete your first payment to start operations.</strong>{" "}
-          Your workspace is ready, but daily accounts, contributions and Zeli become available once
-          MaaCash verifies your first payment. You can choose or change the package below.
+          <strong className="font-semibold">{paymentCopy.title}</strong>{" "}
+          {paymentCopy.body}
         </div>
       )}
 
