@@ -13,7 +13,18 @@
 import { getWhatsAppConfig } from "@/lib/messaging/whatsapp";
 import { getSmsProvider, getSmsProviderConfig } from "@/lib/messaging/sms";
 
-export type IntegrationReadinessStatus = "sandbox" | "unavailable";
+/**
+ * The only status labels this page may show. A capability has exactly one
+ * status, so an unavailable integration can never also look "coming soon".
+ */
+export type IntegrationReadinessStatus =
+  | "available"
+  | "sandbox"
+  | "not_configured"
+  | "unavailable"
+  | "coming_soon"
+  | "manual_process"
+  | "requires_owner_setup";
 
 export interface IntegrationReadiness {
   id: string;
@@ -24,14 +35,6 @@ export interface IntegrationReadiness {
   delivers: boolean;
   detail: string;
   requiredApprovals: string[];
-  /**
-   * Show the "Coming soon" marker for this integration.
-   *
-   * WhatsApp is deliberately false: the owner is building that integration, so the
-   * product must not label it as unavailable. Every other unbuilt external
-   * integration carries the marker, and a delivered integration never does.
-   */
-  comingSoon: boolean;
 }
 
 export type TelcoLookupStatus = "unavailable";
@@ -90,9 +93,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "whatsapp",
       label: "WhatsApp receipts",
       capability: "Customer receipt and statement messages over WhatsApp Cloud API",
-      status: "sandbox",
+      status: whatsappDelivers
+        ? "sandbox"
+        : whatsapp.configured
+          ? "unavailable"
+          : "requires_owner_setup",
       delivers: whatsappDelivers,
-      comingSoon: false,
       detail: whatsappDelivers
         ? "Cloud API credentials are configured and delivery is enabled for allowlisted numbers only. Approved utility templates are required."
         : whatsapp.configured
@@ -108,9 +114,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "sms",
       label: "SMS live delivery",
       capability: "Confirmed contribution and withdrawal receipts by SMS",
-      status: sms.delivers ? "sandbox" : "unavailable",
+      status: sms.delivers ? "sandbox" : smsConfig.provider ? "unavailable" : "not_configured",
       delivers: sms.delivers,
-      comingSoon: !sms.delivers,
       detail: smsConfig.provider
         ? `SMS_PROVIDER is set to "${smsConfig.provider}", but no reviewed adapter for that provider exists. The mock adapter never sends.`
         : "No SMS provider has been selected. Messages are queued and validated only; nothing is transmitted.",
@@ -124,9 +129,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "mtn",
       label: "MTN operational integration",
       capability: "Independent MTN confirmation of MoMo float, statements and transactions",
-      status: telco.delivers ? "sandbox" : "unavailable",
-      delivers: telco.delivers,
-      comingSoon: true,
+      status: "unavailable",
+      delivers: false,
       detail:
         "Not available. MTN transactions are recorded by staff and can be reconciled against an imported CSV statement; no MTN system is contacted and no MTN record is confirmed.",
       requiredApprovals: [
@@ -139,9 +143,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "telecel",
       label: "Telecel operational integration",
       capability: "Independent Telecel confirmation of float, statements and transactions",
-      status: telco.delivers ? "sandbox" : "unavailable",
-      delivers: telco.delivers,
-      comingSoon: true,
+      status: "unavailable",
+      delivers: false,
       detail:
         "Not available. Telecel activity is recorded by staff and can be reconciled against an imported CSV statement; no Telecel system is contacted.",
       requiredApprovals: [
@@ -154,9 +157,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "at_money",
       label: "AT Money operational integration",
       capability: "Independent AT Money confirmation of float, statements and transactions",
-      status: telco.delivers ? "sandbox" : "unavailable",
-      delivers: telco.delivers,
-      comingSoon: true,
+      status: "unavailable",
+      delivers: false,
       detail:
         "Not available. AT Money activity is recorded by staff and can be reconciled against an imported CSV statement; no AT Money system is contacted.",
       requiredApprovals: [
@@ -171,7 +173,6 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       capability: "Bank feed and statement reconciliation for business accounts",
       status: "unavailable",
       delivers: false,
-      comingSoon: true,
       detail:
         "Not available. MaaCash is not a bank and holds no deposits. Branch cash and float are recorded in this product; no bank account feed is connected.",
       requiredApprovals: [
@@ -184,11 +185,10 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       id: "accounting",
       label: "Accounting integration",
       capability: "Export or sync of financial records to external accounting software",
-      status: "unavailable",
+      status: "manual_process",
       delivers: false,
-      comingSoon: true,
       detail:
-        "Not available. Reports and CSV exports can be downloaded and imported manually; no accounting system is written to from MaaCash.",
+        "Manual process only. Reports and CSV exports can be downloaded and imported into an accounting system by staff; no accounting system is written to from MaaCash.",
       requiredApprovals: [
         "Target accounting platform and partnership agreement",
         "Chart-of-accounts mapping and idempotency design",
@@ -201,7 +201,6 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       capability: "Third-party verification of customer identity documents",
       status: "unavailable",
       delivers: false,
-      comingSoon: true,
       detail:
         "Not available. Customer identity is recorded by staff from documents presented in person; no external verification provider is contacted and no check is asserted.",
       requiredApprovals: [
@@ -216,7 +215,6 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       capability: "Independent confirmation of customer contributions and withdrawals",
       status: "unavailable",
       delivers: false,
-      comingSoon: true,
       detail:
         "Not available. Paystack is used for MaaCash subscription billing only; it is not a source of truth for customer contributions.",
       requiredApprovals: [
