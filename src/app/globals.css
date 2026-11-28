@@ -336,6 +336,13 @@ input[type="number"] {
 .table-container {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  /*
+   * Paint containment keeps a wide table's scrollable overflow inside this
+   * container. Without it, Chromium propagates a wide auto-layout table to the
+   * root scroll area even through overflow hidden/auto ancestors, letting the
+   * whole document scroll into blank space on narrow screens.
+   */
+  contain: paint;
 }
 
 table {
@@ -520,4 +527,33 @@ th.num, td.num {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/*
+ * Sidebar navigation scroll area. The navigation is the sidebar's only
+ * scrolling region; style its scrollbar so it reads as part of the dark
+ * surface instead of a second, page-like scrollbar beside the document one.
+ */
+.sidebar-nav {
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brand-600) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background-color: var(--color-brand-600);
+  border-radius: 9999px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-brand-400);
 }

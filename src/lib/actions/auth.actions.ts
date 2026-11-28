@@ -30,6 +30,7 @@ import { createAuditLog } from "@/lib/audit";
 import { recordSecurityEvent } from "@/lib/security/events";
 import { resolveEffectiveNotice } from "@/lib/risk-intelligence/notice-resolution";
 import { getTenantContext } from "@/lib/tenant";
+import { billingHref, resolveSubscriptionAccess } from "@/lib/billing/access";
 import { normalizeGhanaPhone } from "@/lib/utils";
 import {
   isAccountNumber,
@@ -260,15 +261,37 @@ export async function login(
     entityId: user.id,
   });
 
-  // Administrators sign into the administration module.
+  // Administrators sign into the administration module. The business state is
+  // checked before a session is issued, and a blocked package is routed to
+  // Billing & Plan with its reason instead of the dashboard.
   if (user.role === "admin") {
+    if (user.tenantId) {
+      const tenant = await db.businessTenant.findUnique({
+        where: { id: user.tenantId },
+        select: { status: true },
+      });
+      if (!tenant || (tenant.status !== "ACTIVE" && tenant.status !== "PENDING_PAYMENT")) {
+        return {
+          success: false,
+          error:
+            "This business workspace is not available. Contact your platform administrator.",
+        };
+      }
+    }
     const issued = await issueModuleSession(user.id, "admin");
+    let redirectTo = issued.payload.forcePasswordReset
+      ? "/admin/first-login"
+      : "/admin/dashboard";
+    if (!issued.payload.forcePasswordReset && user.tenantId) {
+      const access = await resolveSubscriptionAccess(user.tenantId);
+      if (!access.operable && access.billingRequired) {
+        redirectTo = billingHref(access.reason);
+      }
+    }
     return {
       success: true,
       sessionToken: issued.token,
-      redirectTo: issued.payload.forcePasswordReset
-        ? "/admin/first-login"
-        : "/admin/dashboard",
+      redirectTo,
     };
   }
 
@@ -1282,6 +1305,26 @@ export async function adminLogin(
     return { success: false, error: GENERIC_LOGIN_ERROR };
   }
 
+  // A suspended, archived or missing business is a workspace state, not a bad
+  // password. Refuse the session with a clear message instead of issuing a
+  // cookie that the next request will bounce back to the login page.
+  if (user.tenantId) {
+    const tenant = await db.businessTenant.findUnique({
+      where: { id: user.tenantId },
+      select: { status: true },
+    });
+    if (
+      !tenant ||
+      (tenant.status !== "ACTIVE" && tenant.status !== "PENDING_PAYMENT")
+    ) {
+      return {
+        success: false,
+        error:
+          "This business workspace is not available. Contact your platform administrator.",
+      };
+    }
+  }
+
   await recordLoginSuccess(email, guard.ip, "admin_login");
 
   if (!user.emailVerified) {
@@ -1325,31 +1368,16 @@ export async function adminLogin(
   });
   await auditWorkspace("admin", user.id);
 
-  // A newly provisioned business opens in pending payment. Its owner must be
-  // able to reach billing immediately, and must not be dropped into a workspace
-  // that cannot yet perform paid operations.
+  // A package state is a business state, not an authentication state. Route
+  // the owner to Billing & Plan with the exact reason when operations cannot
+  // start yet; a dashboard error must never stand in for this explanation.
   let redirectTo = payload.forcePasswordReset
     ? "/admin/first-login"
     : "/admin/dashboard";
   if (!payload.forcePasswordReset && user.tenantId) {
-    const [active, awaitingPayment] = await Promise.all([
-      db.zeliSubscription.findFirst({
-        where: {
-          tenantId: user.tenantId,
-          status: { in: ["active", "grace_period"] },
-        },
-        select: { id: true },
-      }),
-      db.zeliSubscription.findFirst({
-        where: {
-          tenantId: user.tenantId,
-          status: { in: ["pending_payment", "pending"] },
-        },
-        select: { id: true },
-      }),
-    ]);
-    if (!active && awaitingPayment) {
-      redirectTo = "/admin/billing?payment=required";
+    const access = await resolveSubscriptionAccess(user.tenantId);
+    if (!access.operable && access.billingRequired) {
+      redirectTo = billingHref(access.reason);
     }
   }
 

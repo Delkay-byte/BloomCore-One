@@ -186,6 +186,11 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     null;
   const plan = current?.plan ?? null;
   const now = new Date();
+  const graceEnd = current?.graceEndsAt
+    ? current.graceEndsAt
+    : current?.periodEnd
+      ? new Date(current.periodEnd.getTime() + 5 * 24 * 60 * 60 * 1000)
+      : null;
   const lifecycle: BillingOverview["lifecycle"] = !current
     ? "ended"
     : current.status === "pending_payment" || current.status === "pending"
@@ -193,9 +198,13 @@ export async function getBillingOverview(): Promise<BillingOverview> {
       : current.status === "suspended"
         ? "suspended"
         : current.status === "grace_period"
-          ? "grace_period"
-          : current.periodEnd && current.periodEnd.getTime() <= now.getTime()
+          ? graceEnd && graceEnd.getTime() > now.getTime()
             ? "grace_period"
+            : "ended"
+          : current.periodEnd && current.periodEnd.getTime() <= now.getTime()
+            ? graceEnd && graceEnd.getTime() > now.getTime()
+              ? "grace_period"
+              : "ended"
             : "active";
 
   let nextAmount: number | null = null;

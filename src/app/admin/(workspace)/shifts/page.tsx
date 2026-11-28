@@ -14,6 +14,7 @@ import CediAmount from "@/components/CediAmount";
 import Notice from "@/components/ui/Notice";
 import ShiftStatusBadge from "@/components/momo/ShiftStatusBadge";
 import { StatCard } from "@/components/ui/DataDisplay";
+import { useRedirectHandler } from "@/hooks/useRedirectHandler";
 import {
   getAdminShiftBoard,
   getShiftEmployees,
@@ -45,6 +46,7 @@ export default function AdminShiftsPage() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const handleRedirect = useRedirectHandler();
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
@@ -63,12 +65,19 @@ export default function AdminShiftsPage() {
       ]);
       setData(board);
       setEmployees(staff);
-    } catch {
-      setError("The shift board could not be loaded.");
+    } catch (err) {
+      // A package/role/branch redirect is a real destination, not a failed
+      // load. Let the server-chosen route handle it; only a genuine read
+      // failure becomes a retryable message here.
+      handleRedirect(
+        err,
+        setError,
+        "The shift board could not be loaded. Check your connection and try again."
+      );
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, handleRedirect]);
 
   useEffect(() => {
     void load();
@@ -95,7 +104,20 @@ export default function AdminShiftsPage() {
         account totals, so the same cash is never counted twice.
       </p>
 
-      {error && <Notice type="error">{error}</Notice>}
+      {error && (
+        <Notice type="error">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="btn btn-secondary btn-sm"
+            >
+              Try again
+            </button>
+          </div>
+        </Notice>
+      )}
 
       <section className="card p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

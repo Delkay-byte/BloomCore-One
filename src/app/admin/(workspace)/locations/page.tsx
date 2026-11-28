@@ -37,12 +37,25 @@ export default function LocationsPage() {
   const toast = useToast();
   const optimistic = useOptimisticAction();
 
-  useEffect(() => { loadLocations(); }, []);
+  useEffect(() => { void loadLocations(); }, []);
 
   async function loadLocations() {
-    try { const data = await getLocations(); setLocations(data as unknown as Location[]); }
-    catch { setError("Failed to load locations"); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getLocations();
+      setLocations(data as unknown as Location[]);
+    } catch (err) {
+      // A package, role or branch redirect is a destination, not a broken
+      // locations page. Only a genuine read failure becomes a retryable error.
+      handleRedirect(
+        err,
+        setError,
+        "Locations could not be loaded. Check your connection and try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleCreate(formData: FormData) {
@@ -108,7 +121,7 @@ export default function LocationsPage() {
         </button>
       </div>
 
-      {error && <Notice type="error" className="mb-4" message={error}>{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error"><X size={14} aria-hidden /></button></Notice>}
+      {error && <Notice type="error" className="mb-4" message={error}><span>{error}</span><button type="button" onClick={() => void loadLocations()} className="ml-3 font-semibold underline underline-offset-2">Try again</button><button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error"><X size={14} aria-hidden /></button></Notice>}
       {success && <Notice type="success" className="mb-4" message={success}>{success}<button onClick={() => setSuccess("")} className="ml-2 text-green-500 hover:text-green-700" aria-label="Dismiss confirmation"><X size={14} aria-hidden /></button></Notice>}
 
       {showForm && (
