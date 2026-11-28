@@ -50,6 +50,10 @@ those symlinks and the empty shells were removed as well.
   deletion; each carried `node_modules` (installed for their gates/builds) and,
   for the verification and release worktrees, full Next.js production builds —
   so the total recovery is substantially larger than the measured floor.
+- **Post-cleanup totals (measured):** `BloomCore-One` 2.0 GB,
+  `BloomCore-One-susu-dashboard-fixes` 1.9 GB, `BloomCore-One-zeli` 89 MB —
+  approximately **4.0 GB remain** across the three preserved directories;
+  everything else the programme created has been freed.
 - After cleanup exactly three directories remain in the project folder:
   `BloomCore-One` (primary), `BloomCore-One-susu-dashboard-fixes` (active
   defect-fix worktree), `BloomCore-One-zeli` (the `main` checkout).
