@@ -98,7 +98,21 @@ try {
   exitCode = typeof error.status === "number" && error.status > 0 ? error.status : 1;
   console.error("\nBrowser acceptance suite FAILED");
 } finally {
-  server.kill();
+  // With `shell: true` on Windows, `server.kill()` terminates only the cmd.exe
+  // wrapper; the `next start` grandchild survives, keeps port 3101 bound and
+  // holds the disposable database file open. The next run's free-port probe
+  // can then pass (Windows allows a specific-address bind over a wildcard
+  // listener) while the tests silently run against the stale server and its
+  // mutated database. Kill the whole process tree instead.
+  if (process.platform === "win32" && server.pid) {
+    try {
+      execFileSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      // The tree may already be gone; nothing to clean up.
+    }
+  } else {
+    server.kill();
+  }
   await new Promise((resolve) => setTimeout(resolve, 1500));
 }
 
