@@ -70,7 +70,9 @@ export default async function AdminIntegrationsPage() {
         </p>
       </div>
 
-      <Notice type="info">
+      {/* Static capability-map notice: it is already on the page, so it must
+          not also interrupt as a floating toast that covers the legend. */}
+      <Notice type="info" popup={false}>
         No message is sent and no provider balance or transaction is confirmed by
         these adapters. Provider-confirmed MoMo transactions, bank feeds, accounting
         sync and external identity checks are not available. Where the work happens
