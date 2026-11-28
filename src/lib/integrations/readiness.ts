@@ -33,6 +33,7 @@ export interface IntegrationReadiness {
   status: IntegrationReadinessStatus;
   /** True only when the adapter can act outside MaaCash. */
   delivers: boolean;
+  /** One short, owner-facing sentence. No internal terminology. */
   detail: string;
   requiredApprovals: string[];
 }
@@ -100,10 +101,10 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
           : "requires_owner_setup",
       delivers: whatsappDelivers,
       detail: whatsappDelivers
-        ? "Cloud API credentials are configured and delivery is enabled for allowlisted numbers only. Approved utility templates are required."
+        ? "Configured with delivery enabled for allowlisted numbers only; approved templates are required."
         : whatsapp.configured
-          ? "Cloud API credentials are present, but delivery is disabled by policy. Receipts are queued and remain unsent; nothing leaves MaaCash."
-          : "Not configured for this deployment. Messages are previewed, validated and queued; nothing is transmitted or charged. This integration is being set up by the owner, so it is not marked unavailable.",
+          ? "Credentials are present, but delivery is disabled by policy. Receipts are queued; nothing leaves MaaCash."
+          : "Not configured for this deployment. Receipts are previewed and queued; nothing is transmitted or charged.",
       requiredApprovals: [
         "Meta WhatsApp Business account and approved utility templates",
         "Consent, opt-out and message-retention rules",
@@ -117,8 +118,8 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       status: sms.delivers ? "sandbox" : smsConfig.provider ? "unavailable" : "not_configured",
       delivers: sms.delivers,
       detail: smsConfig.provider
-        ? `SMS_PROVIDER is set to "${smsConfig.provider}", but no reviewed adapter for that provider exists. The mock adapter never sends.`
-        : "No SMS provider has been selected. Messages are queued and validated only; nothing is transmitted.",
+        ? `SMS_PROVIDER is set to "${smsConfig.provider}", but no reviewed adapter exists. The mock adapter never sends.`
+        : "No SMS provider has been selected. Receipts are queued and validated only; nothing is transmitted.",
       requiredApprovals: [
         "Selected SMS provider and sender ID",
         "Per-message pricing and delivery monitoring",
@@ -127,12 +128,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "mtn",
-      label: "MTN operational integration",
+      label: "MTN Mobile Money",
       capability: "Independent MTN confirmation of MoMo float, statements and transactions",
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. MTN transactions are recorded by staff and can be reconciled against an imported CSV statement; no MTN system is contacted and no MTN record is confirmed.",
+        "Transactions are recorded by staff and reconciled against imported CSV statements; no MTN system is contacted.",
       requiredApprovals: [
         "MTN or aggregator API agreement",
         "Statement format, reconciliation and dispute process",
@@ -141,12 +142,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "telecel",
-      label: "Telecel operational integration",
+      label: "Telecel Cash",
       capability: "Independent Telecel confirmation of float, statements and transactions",
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. Telecel activity is recorded by staff and can be reconciled against an imported CSV statement; no Telecel system is contacted.",
+        "Transactions are recorded by staff and reconciled against imported CSV statements; no Telecel system is contacted.",
       requiredApprovals: [
         "Telecel or aggregator API agreement",
         "Statement format, reconciliation and dispute process",
@@ -155,12 +156,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "at_money",
-      label: "AT Money operational integration",
+      label: "AT Money",
       capability: "Independent AT Money confirmation of float, statements and transactions",
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. AT Money activity is recorded by staff and can be reconciled against an imported CSV statement; no AT Money system is contacted.",
+        "Transactions are recorded by staff and reconciled against imported CSV statements; no AT Money system is contacted.",
       requiredApprovals: [
         "AT or aggregator API agreement",
         "Statement format, reconciliation and dispute process",
@@ -169,12 +170,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "banking",
-      label: "Banking integration",
+      label: "Bank feeds",
       capability: "Bank feed and statement reconciliation for business accounts",
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. MaaCash is not a bank and holds no deposits. Branch cash and float are recorded in this product; no bank account feed is connected.",
+        "MaaCash is not a bank and holds no deposits. Branch cash and float are recorded here; no bank account feed is connected.",
       requiredApprovals: [
         "Bank or open-banking provider agreement",
         "Account-ownership verification and data-protection review",
@@ -183,12 +184,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "accounting",
-      label: "Accounting integration",
+      label: "Accounting export",
       capability: "Export or sync of financial records to external accounting software",
       status: "manual_process",
       delivers: false,
       detail:
-        "Manual process only. Reports and CSV exports can be downloaded and imported into an accounting system by staff; no accounting system is written to from MaaCash.",
+        "Download reports as CSV for manual import into your accounting software. Automatic synchronisation is not available.",
       requiredApprovals: [
         "Target accounting platform and partnership agreement",
         "Chart-of-accounts mapping and idempotency design",
@@ -197,12 +198,12 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
     },
     {
       id: "identity_verification",
-      label: "External customer identity verification",
+      label: "Identity verification",
       capability: "Third-party verification of customer identity documents",
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. Customer identity is recorded by staff from documents presented in person; no external verification provider is contacted and no check is asserted.",
+        "Identity details are recorded by staff from documents presented in person; no external verification provider is contacted.",
       requiredApprovals: [
         "Identity provider contract and data-processing agreement",
         "Consent wording and retention limits for identity documents",
@@ -216,7 +217,7 @@ export function getIntegrationReadiness(): IntegrationReadiness[] {
       status: "unavailable",
       delivers: false,
       detail:
-        "Not available. Paystack is used for MaaCash subscription billing only; it is not a source of truth for customer contributions.",
+        "Paystack is used for MaaCash subscription billing only; it is not a source of truth for customer contributions.",
       requiredApprovals: [
         "Decision on whether customer payments are collected electronically",
         "Provider webhook, signature and replay-handling agreement",
