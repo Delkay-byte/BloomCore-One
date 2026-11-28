@@ -65,9 +65,9 @@ export default async function AdminIntegrationsPage() {
           Integrations &amp; Provider Capabilities
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-          What MaaCash can and cannot currently confirm through external providers.
-          This page is a capability map, not a connection screen: nothing here
-          contacts a telco, SMS or payment provider.
+          What MaaCash can and cannot currently confirm with a third-party
+          provider. This page is a capability map, not a connection screen:
+          nothing here contacts a telco, SMS or payment provider.
         </p>
       </div>
 
