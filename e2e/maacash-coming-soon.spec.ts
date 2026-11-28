@@ -2,56 +2,59 @@ import { expect, test } from "@playwright/test";
 import { loginAdmin, loginCustomer, CUSTOMER } from "./helpers";
 
 /**
- * "Coming soon" markers on unavailable external integrations.
+ * Truthful capability statuses across the product.
  *
- * Two rules matter more than the styling: an unavailable provider action must say so
- * plainly, and the marker must never spread onto work that already functions —
- * manually recorded MoMo, CSV statement import, reports, customer access. WhatsApp is
- * explicitly excluded because the owner is building that integration.
+ * The rules that matter more than the styling: an unavailable provider must say
+ * so plainly with its one honest status (Available / Sandbox / Not configured /
+ * Unavailable / Manual process / Requires owner setup), a capability must never
+ * wear two contradictory labels, work that already functions — manually
+ * recorded MoMo, CSV statement import, reports, customer access — must carry no
+ * provider notice at all, and nothing may offer a live provider action.
  */
 test.describe("External integration notices", () => {
   test.beforeEach(async ({ page }) => {
     await loginAdmin(page);
   });
 
-  test("marks every unavailable provider and only those", async ({ page }) => {
+  test("labels every provider capability with its one truthful status", async ({ page }) => {
     await page.goto("/admin/integrations");
-    await expect(page.getByRole("heading", { name: "Integration readiness" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Integrations & Provider Capabilities" })
+    ).toBeVisible();
 
-    const badges = page.getByTestId("coming-soon");
-    await expect(badges.first()).toBeVisible({ timeout: 30_000 });
-
-    // Each unbuilt integration is named in a card that carries the marker.
+    // Every unbuilt integration is labelled Unavailable in its own card.
+    // Nothing is labelled "Coming soon" any more: a capability has exactly
+    // one status, and an unavailable capability must not also look planned.
     for (const label of [
       "MTN operational integration",
       "Telecel operational integration",
       "AT Money operational integration",
-      "SMS live delivery",
       "Banking integration",
-      "Accounting integration",
       "External customer identity verification",
+      "Customer payment status",
     ]) {
       const card = page.locator("article").filter({ hasText: label });
-      await expect(card.getByTestId("coming-soon"), label).toBeVisible();
+      await expect(card.getByText("Unavailable", { exact: true }), label).toBeVisible();
     }
 
-    // WhatsApp is being built by the owner: no "Coming soon" marker on it.
+    // In this deployment no SMS provider has been selected, so the SMS card
+    // says "Not configured" rather than "Unavailable".
+    const sms = page.locator("article").filter({ hasText: "SMS live delivery" });
+    await expect(sms.getByText("Not configured", { exact: true })).toBeVisible();
+
+    // Accounting is a real, supported manual workflow.
+    const accounting = page.locator("article").filter({ hasText: "Accounting integration" });
+    await expect(accounting.getByText("Manual process", { exact: true })).toBeVisible();
+
+    // WhatsApp Cloud API credentials come from the deployment configuration,
+    // which the owner supplies: owner setup, not a broken integration.
     const whatsapp = page.locator("article").filter({ hasText: "WhatsApp receipts" });
-    await expect(whatsapp).toBeVisible();
-    await expect(whatsapp.getByTestId("coming-soon")).toHaveCount(0);
+    await expect(whatsapp.getByText("Requires owner setup", { exact: true })).toBeVisible();
 
-    // The marker is announced, not just coloured.
-    await expect(badges.first()).toHaveAttribute("aria-label", /not available yet/i);
+    // The legend explains what each status means.
+    await expect(page.getByRole("heading", { name: "How to read the statuses" })).toBeVisible();
 
-    // It stays legible without covering the card on a phone-sized screen.
-    const badge = badges.first();
-    const box = await badge.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThan(40);
-    expect(box!.width).toBeLessThan(260);
-    await expect(badge).toBeInViewport();
-
-    // Nothing on the page offers a live provider action.
+    // The page must not offer any live provider action.
     await expect(
       page.getByRole("button", { name: /connect|test send|sync now|send now/i })
     ).toHaveCount(0);

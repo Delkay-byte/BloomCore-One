@@ -42,45 +42,117 @@ describe("telco provider", () => {
 });
 
 describe("integration readiness", () => {
-  it("reports no delivering adapter and no configured provider", () => {
+  const ALL_IDS = [
+    "whatsapp",
+    "sms",
+    "mtn",
+    "telecel",
+    "at_money",
+    "banking",
+    "accounting",
+    "identity_verification",
+    "provider_payment_status",
+  ];
+
+  const VALID_STATUSES = new Set([
+    "available",
+    "sandbox",
+    "not_configured",
+    "unavailable",
+    "coming_soon",
+    "manual_process",
+    "requires_owner_setup",
+  ]);
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function withUnconfiguredProviders() {
+    vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "");
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "");
+    vi.stubEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", "");
+    vi.stubEnv("WHATSAPP_DELIVERY_ENABLED", "");
+    vi.stubEnv("SMS_PROVIDER", "");
+  }
+
+  it("reports no delivering adapter in an unconfigured deployment", () => {
+    withUnconfiguredProviders();
     const rows = getIntegrationReadiness();
     expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.map((row) => row.id)).toEqual(ALL_IDS);
     expect(rows.every((row) => row.delivers === false)).toBe(true);
-    expect(rows.every((row) => row.status === "sandbox" || row.status === "unavailable")).toBe(true);
-    expect(rows.map((row) => row.id)).toEqual([
-      "whatsapp",
-      "sms",
-      "mtn",
-      "telecel",
-      "at_money",
-      "banking",
-      "accounting",
-      "identity_verification",
-      "provider_payment_status",
-    ]);
   });
 
-  it("marks unbuilt integrations as coming soon and never marks WhatsApp", () => {
+  it("uses exactly one defined status per capability", () => {
+    withUnconfiguredProviders();
     const rows = getIntegrationReadiness();
-    const marked = rows.filter((row) => row.comingSoon).map((row) => row.id);
-    expect(marked).toEqual([
-      "sms",
-      "mtn",
-      "telecel",
-      "at_money",
-      "banking",
-      "accounting",
-      "identity_verification",
-      "provider_payment_status",
-    ]);
-    // The owner is building WhatsApp, so it must not be labelled unavailable.
-    expect(marked).not.toContain("whatsapp");
-    expect(rows.find((row) => row.id === "whatsapp")?.comingSoon).toBe(false);
-    // A delivering adapter never carries the marker either.
-    expect(rows.every((row) => !(row.delivers && row.comingSoon))).toBe(true);
+    expect(rows.every((row) => VALID_STATUSES.has(row.status))).toBe(true);
   });
 
-  it("keeps messaging in sandbox and never reports a sent message", async () => {
+  it("reflects the actual deployment configuration", () => {
+    withUnconfiguredProviders();
+    const rows = Object.fromEntries(
+      getIntegrationReadiness().map((row) => [row.id, row])
+    );
+    // No WhatsApp credentials in this deployment: the capability exists in
+    // code and the owner must supply them, so it is owner setup, not
+    // "unavailable" (which would deny the capability exists).
+    expect(rows.whatsapp.status).toBe("requires_owner_setup");
+    // No SMS provider has been selected: queued and validated only.
+    expect(rows.sms.status).toBe("not_configured");
+    // Telco, banking and identity providers have no approved contract.
+    expect(rows.mtn.status).toBe("unavailable");
+    expect(rows.telecel.status).toBe("unavailable");
+    expect(rows.at_money.status).toBe("unavailable");
+    expect(rows.banking.status).toBe("unavailable");
+    expect(rows.identity_verification.status).toBe("unavailable");
+    // Paystack bills MaaCash subscriptions only; it never confirms customers.
+    expect(rows.provider_payment_status.status).toBe("unavailable");
+    // CSV export/import is a real, supported manual workflow.
+    expect(rows.accounting.status).toBe("manual_process");
+  });
+
+  it("never labels credentials-with-delivery-disabled as not configured", () => {
+    withUnconfiguredProviders();
+    vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "token-present");
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "phone-present");
+    vi.stubEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", "waba-present");
+    vi.stubEnv("WHATSAPP_DELIVERY_ENABLED", "false");
+    const whatsapp = getIntegrationReadiness().find((row) => row.id === "whatsapp");
+    expect(whatsapp?.status).toBe("unavailable");
+    expect(whatsapp?.delivers).toBe(false);
+    expect(whatsapp?.detail).toContain("delivery is disabled");
+  });
+
+  it("marks an allowlisted delivery path as sandbox, never as production", () => {
+    withUnconfiguredProviders();
+    vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "token-present");
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "phone-present");
+    vi.stubEnv("WHATSAPP_BUSINESS_ACCOUNT_ID", "waba-present");
+    vi.stubEnv("WHATSAPP_DELIVERY_ENABLED", "true");
+    const whatsapp = getIntegrationReadiness().find((row) => row.id === "whatsapp");
+    expect(whatsapp?.status).toBe("sandbox");
+    expect(whatsapp?.delivers).toBe(true);
+    // Sandbox must state its own limits; it must not read as generally live.
+    expect(whatsapp?.detail).toContain("allowlisted");
+  });
+
+  it("never claims provider confirmation for an operator-recorded capability", () => {
+    withUnconfiguredProviders();
+    const rows = getIntegrationReadiness();
+    for (const row of rows) {
+      if (row.status === "unavailable" || row.status === "manual_process") {
+        expect(row.delivers).toBe(false);
+        expect(row.detail).not.toMatch(/confirmed (?:by|with) (?:the )?provider/i);
+      }
+    }
+    const paystack = rows.find((row) => row.id === "provider_payment_status");
+    expect(paystack?.detail).toContain("subscription billing only");
+  });
+
+  it("keeps the messaging provider non-delivering and never reports a sent message", async () => {
     const provider = getMessageProvider();
     expect(provider.id).toBe("mock");
     expect(provider.delivers).toBe(false);

@@ -170,7 +170,10 @@ describe("email verification", () => {
     const login = await adminLogin(form);
     expect(login?.success).toBe(true);
     expect(login?.sessionToken).toBeTruthy();
-    expect(login?.redirectTo).toBe("/admin/billing?payment=required");
+    // The login action routes a blocked package to Billing & Plan with the
+    // resolved package state, so the page can explain the situation instead
+    // of presenting a generic payment wall.
+    expect(login?.redirectTo).toBe("/admin/billing?payment=required&state=pending_payment");
   });
 
   it("returns an administrator to the private administrator login after the upgrade", async () => {

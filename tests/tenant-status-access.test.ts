@@ -22,6 +22,7 @@ vi.mock("@/lib/auth", () => ({
   getMomoSession: async () => null,
   getSusuSession: async () => null,
   getCustomerSession: async () => null,
+  isSessionCurrent: async () => true,
 }));
 
 import { getTenantContext, requireTenantContext } from "@/lib/tenant";
