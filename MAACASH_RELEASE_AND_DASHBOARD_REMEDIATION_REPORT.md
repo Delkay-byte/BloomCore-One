@@ -149,10 +149,34 @@ tenant via the session-derived `TenantContext` (no client-supplied tenant id).
 
 ## 17. MoMo UI layout corrections
 
-**Static audit complete; rendered audit recorded below.** Shared primitives
-already handle the reported risks (SVG cedi glyph for Android, overflow-x-auto
-table wrappers, flex-wrap cards, min-w-0 text containers, mobile drawer in
-`AppShell`). Rendered audit at 390/768/1280/1440 px: ⟨to fill after audit⟩.
+**AUDITED AT RENDERED LEVEL — one presentation defect found and fixed.**
+
+Objective scan: all 13 business-owner admin surfaces (dashboard, liquidity,
+shifts, locations, ledger, transfers, reconciliation, anomalies,
+risk-intelligence, performance, consolidated report, integrations, billing)
+were rendered at 390 / 768 / 1280 / 1440 px and measured for horizontal
+overflow (`scrollWidth` vs `clientWidth`, plus per-element inspection):
+**zero horizontal overflow at every width**. Visual inspection of the
+liquidity board and the redesigned capability page at 390 px and 1440 px
+confirmed clean wrapping, correct GH₵ rendering, aligned metric cards and
+legible tables. Shared primitives (SVG cedi glyph, overflow-x-auto table
+wrappers, flex-wrap cards, mobile drawer) behave as designed.
+
+One defect found and fixed: the integrations page's long static information
+notice was duplicated onto the shared toast stack (`Notice` defaults
+`popup=true`), and the floating copy covered the status legend on phones. The
+page now renders it with `popup={false}` (the component's documented
+"contextual panel" mode); visually verified after rebuild.
+
+Pre-existing characteristic recorded (not a defect of this work, reproduced on
+the release build): a full page load of an admin route after the 120-second
+tab-assertion window can be redirected by the middleware to `/admin/login`,
+where the session is recognised and the owner is forwarded to the dashboard.
+The user is never signed out; only the originally requested destination is
+lost. The middleware, service worker and assertion code are byte-identical
+between the release and fix trees; the fix branch neither introduces nor
+worsens it. Recommended future improvement (out of this release's scope):
+carry the originally requested destination through the login forward.
 
 ## 18. Provider disclosure corrections
 
@@ -176,11 +200,19 @@ rules is preserved; nothing was hidden. Page remains read-only.
 | `tests/integration-readiness.test.ts` (rewritten) | 10 | pass |
 | `tests/auth-email-password.test.ts` (1 assertion updated) | 26 | pass |
 | `tests/tenant-status-access.test.ts` (mock aligned) | 6 | pass |
-| Full release gate on the fix tree (`npm run test:release`) | ⟨to fill⟩ | ⟨to fill⟩ |
+| `e2e/maacash-coming-soon.spec.ts` (rewritten for the truthful status model) | 8 (4 tests × 2 browser projects) | pass |
+| Full release gate on the fix tree (`npm run test:release`) | unit **2,111 / 2,111**, PG integration **61 / 61**, e2e **129 / 129** | all 9 steps PASS |
+
+Gate evidence trail: gate runs 1–3 and the browser-suite runs are documented in
+`OWNER_DASHBOARD_FIX_REPORT_2026-11-27.md` §5, including the e2e
+infrastructure defect (leaked `next start` process serving a stale build and
+mutated database) that produced two invalid runs before its root cause was
+fixed in `scripts/verify-e2e.mjs`.
 
 ## 20. Remaining defects and limitations
 
 - Defect fixes are **not yet deployed** — they require the Stage 7 approval. Until then, the live app still shows the reported behaviors.
+- Pre-existing tab-assertion characteristic (section 17): a full admin-page load after the 120-second assertion window may pass through `/admin/login` and land on the dashboard; the user stays signed in. Unchanged machinery, reproduced on the release build; improvement deferred out of scope.
 - Render's log-query API endpoints returned 400/404 for programmatic access; deployment health was evidenced by deploy status + health/readiness endpoints + page responses instead of raw log lines.
 - Neon's public API (`api.neon.tech`) had no DNS record for the entire evening; API-key-based automation (backup snapshot creation) could not run — the owner confirmed the recovery point via the console instead.
 - One 5-second-timeout flake occurred in a file-scan branding test under heavy concurrent local I/O; it passed in clean re-runs (test untouched).
@@ -188,13 +220,36 @@ rules is preserved; nothing was hidden. Page remains read-only.
 
 ## 21. Disk cleanup details and recovered space
 
-⟨to fill after Stage 8 cleanup⟩ — see `MAACASH_DISK_CLEANUP_REPORT.md`.
+Executed after the release deployment and after all defect-fix work was
+committed to the preserved local branch. Full details in
+`MAACASH_DISK_CLEANUP_REPORT.md`. Summary:
+
+- **11 disposable worktrees removed** (Phase 2–8, the three Susu integration
+  worktrees, the Phase 9 verification worktree and the release worktree) —
+  every branch tip verified reachable from released `origin/main` before
+  removal, every branch itself kept.
+- **88 disposable `.tmp-*` test logs** removed from the primary worktree
+  (~2.9 MB) plus per-worktree tmp files.
+- **Measured recovery ≥ 1.89 GB**; total is substantially larger (the remaining
+  removed worktrees each carried node_modules and, for two of them, full
+  production builds — not individually measured before deletion).
+- Preserved: the primary worktree, the active defect-fix worktree, the zeli
+  worktree, all branches, the pre-existing stash, all user load-test evidence
+  and documents, uncertain items (a detached-HEAD temp worktree, pre-dating
+  root-level logs, a Windows `nul` artifact) and all Docker test containers.
 
 ## 22. Defect-fix branch and commit
 
 - Branch: `fix/maacash-dashboard-access-2026-11-27` (worktree `BloomCore-One-susu-dashboard-fixes`)
 - Based on the release reconciliation commit `93917e6` (tree-identical to deployed `18e4262`)
-- Fix commit: ⟨to fill after commit⟩
+- Commits:
+  1. `de9f9e0` fix(dashboard): never present package, role or branch denials as a logout
+  2. `3a99e23` fix(disclosures): give each provider capability one truthful status
+  3. `054cd2d` test(dashboard): cover the owner access matrix and disclosure statuses
+  4. `107ae95` fix(e2e): kill the whole verify-e2e server tree on Windows
+  5. `a89042d` docs: record the owner-dashboard remediation and release evidence
+  6. `8177388` fix(disclosures): stop the capability notice duplicating as a toast
+- No database migration is required for these fixes (no schema change).
 - Push/deploy: **pending owner approval** (Stage 7 boundary)
 
 ## 23. Explicit confirmation of what was and was not deployed
@@ -226,5 +281,8 @@ files, and any change to the service identity or domain.
 | Liquidity board load error | ROOT CAUSE IDENTIFIED · FIXED AND TESTED LOCALLY |
 | Locations load error | ROOT CAUSE IDENTIFIED · FIXED AND TESTED LOCALLY |
 | Provider disclosure presentation | ROOT CAUSE IDENTIFIED · FIXED AND TESTED LOCALLY |
-| MoMo layout quality | PARTIALLY FIXED — static audit clean; rendered audit ⟨result⟩ |
+| MoMo layout quality | FIXED AND TESTED LOCALLY — rendered audit at 390/768/1280/1440 px: zero horizontal overflow across 13 surfaces; one toast-duplication defect found and fixed |
+| Capability notice duplicating as a toast over the status legend | ROOT CAUSE IDENTIFIED · FIXED AND TESTED LOCALLY |
+| E2E harness leaking its server process on Windows | ROOT CAUSE IDENTIFIED · FIXED AND TESTED LOCALLY (`scripts/verify-e2e.mjs`) |
+| Admin route full-load after the 120 s tab-assertion window redirects via login to the dashboard | PRE-EXISTING (reproduced identically on the release build; machinery byte-identical between trees; user stays signed in). Documented with a recommended future improvement; intentionally not changed in this release. |
 | Live verification of all fixes | NOT APPLICABLE YET — awaiting Stage 7 approval |
