@@ -26,11 +26,11 @@ test.describe("External integration notices", () => {
     // Nothing is labelled "Coming soon" any more: a capability has exactly
     // one status, and an unavailable capability must not also look planned.
     for (const label of [
-      "MTN operational integration",
-      "Telecel operational integration",
-      "AT Money operational integration",
-      "Banking integration",
-      "External customer identity verification",
+      "MTN Mobile Money",
+      "Telecel Cash",
+      "AT Money",
+      "Bank feeds",
+      "Identity verification",
       "Customer payment status",
     ]) {
       const card = page.locator("article").filter({ hasText: label });
@@ -43,7 +43,7 @@ test.describe("External integration notices", () => {
     await expect(sms.getByText("Not configured", { exact: true })).toBeVisible();
 
     // Accounting is a real, supported manual workflow.
-    const accounting = page.locator("article").filter({ hasText: "Accounting integration" });
+    const accounting = page.locator("article").filter({ hasText: "Accounting export" });
     await expect(accounting.getByText("Manual process", { exact: true })).toBeVisible();
 
     // WhatsApp Cloud API credentials come from the deployment configuration,
@@ -53,6 +53,9 @@ test.describe("External integration notices", () => {
 
     // The legend explains what each status means.
     await expect(page.getByRole("heading", { name: "How to read the statuses" })).toBeVisible();
+
+    // The per-card delivery disclaimer is consolidated, not repeated ten times.
+    await expect(page.getByText("Does not deliver outside MaaCash")).toHaveCount(0);
 
     // The page must not offer any live provider action.
     await expect(
