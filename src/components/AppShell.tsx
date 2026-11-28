@@ -95,7 +95,7 @@ export default function AppShell({
           <AppBrand tenantName={tenantName} tone="dark" markSize={38} href={homeHref} />
           <p className="text-brand-300 text-xs mt-3 uppercase tracking-wider">{subtitle}</p>
         </div>
-        <nav className="p-3 flex-1 overflow-y-auto" aria-label="Primary">
+        <nav className="sidebar-nav p-3 flex-1 overflow-y-auto" aria-label="Primary">
           {sections.map((section) => (
             <div key={section.title || "main"} className="mb-3">
               {section.title && (
@@ -111,7 +111,7 @@ export default function AppShell({
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5 text-sm font-medium transition-colors scroll-mt-3 ${
                       active
                         ? "bg-brand-700 text-white shadow-inner"
                         : "text-brand-200 hover:bg-brand-800 hover:text-white"
